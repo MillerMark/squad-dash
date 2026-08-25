@@ -45507,6 +45507,7 @@ public partial class MainWindow : Window
             ErrorMessage = string.Empty,
             DryRunResult = WorkspaceUpgradeDryRunResult.Empty
         };
+        panel.SetApplyAvailability(candidate.IsAvailable);
 
         var window = new Window
         {
@@ -45528,6 +45529,142 @@ public partial class MainWindow : Window
             if (ReferenceEquals(_workspaceUpgradeSummaryWindow, window))
                 _workspaceUpgradeSummaryWindow = null;
         };
+
+        panel.ReviewChangesRequested = () =>
+        {
+            AppendWorkspaceUpgradeReviewSummary(panel.DryRunResult);
+            return Task.CompletedTask;
+        };
+
+        panel.ApplyWorkspaceUpdateRequested = async () =>
+        {
+            if (_currentWorkspace is null)
+                return;
+
+            var workspacePath = _currentWorkspace.FolderPath;
+            var resolvedCandidate = _squadCliAdapter.LastResolvedCandidate;
+            if (resolvedCandidate is null || !resolvedCandidate.IsAvailable)
+            {
+                await _squadCliAdapter.ResolveSquadVersionAsync(workspacePath).ConfigureAwait(true);
+                resolvedCandidate = _squadCliAdapter.LastResolvedCandidate;
+                UpdateStatusTitle();
+                UpdateSquadUpdateBadge();
+            }
+
+            var targetWorkspaceVersion = GetWorkspaceUpgradeVersionForMenu();
+            if (resolvedCandidate is null || !resolvedCandidate.IsAvailable)
+            {
+                panel.SetApplyAvailability(
+                    false,
+                    "Apply is disabled because Squad CLI could not be resolved. Re-resolve the CLI and reopen this panel.");
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Failed;
+                panel.ErrorMessage = "Squad CLI could not be resolved for this workspace.";
+                return;
+            }
+
+            if (!WorkspaceUpgradeVersionPolicy.MatchesActiveCandidate(
+                    targetWorkspaceVersion,
+                    resolvedCandidate.Version))
+            {
+                panel.SetApplyAvailability(
+                    false,
+                    $"Apply is disabled because the active Squad CLI version (v{resolvedCandidate.Version ?? "unknown"}) " +
+                    $"does not match the pending workspace target (v{targetWorkspaceVersion ?? "unknown"}).");
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Failed;
+                panel.ErrorMessage = "Active Squad CLI version does not match the workspace upgrade target.";
+                return;
+            }
+
+            panel.SetApplyAvailability(true);
+            panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Running;
+            panel.ErrorMessage = string.Empty;
+            panel.SetPartiallyAppliedFiles([]);
+
+            WorkspaceUpgradeResult applyResult;
+            try
+            {
+                applyResult = await _workspaceUpgradeService
+                    .UpgradeAsync(resolvedCandidate, workspacePath)
+                    .ConfigureAwait(true);
+            }
+            catch (Exception ex)
+            {
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Failed;
+                panel.ErrorMessage = ex.Message;
+                SquadDashTrace.Write(TraceCategory.General, $"Workspace upgrade apply failed: {ex.Message}");
+                return;
+            }
+
+            panel.DryRunResult = new WorkspaceUpgradeDryRunResult(
+                applyResult.SafeAdditionsOrRefreshes,
+                applyResult.TrackedLocalChangesAtRisk,
+                applyResult.GeneratedFilesAtRisk);
+
+            if (applyResult.Success)
+            {
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Succeeded;
+                panel.ErrorMessage = string.Empty;
+                panel.SetPartiallyAppliedFiles([]);
+                await _workspacePendingUpgradeStore.SaveResolvedAsync(workspacePath).ConfigureAwait(true);
+                await _squadCliAdapter.ResolveSquadVersionAsync(workspacePath).ConfigureAwait(true);
+                UpdateStatusTitle();
+                await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
+                AppendLine("✅ Workspace update applied. Opening git changes for review.");
+                await HandleCheckGitDiffAsync().ConfigureAwait(true);
+                return;
+            }
+
+            if (applyResult.IsPartial)
+            {
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.PartiallyApplied;
+                panel.ErrorMessage = string.IsNullOrWhiteSpace(applyResult.ErrorMessage)
+                    ? "Workspace upgrade was partially applied."
+                    : applyResult.ErrorMessage.Trim();
+                panel.SetPartiallyAppliedFiles(CollectWorkspaceUpgradePaths(
+                    applyResult.SafeAdditionsOrRefreshes,
+                    applyResult.TrackedLocalChangesAtRisk,
+                    applyResult.GeneratedFilesAtRisk));
+                AppendLine($"⚠ Workspace update partially applied: {panel.ErrorMessage}");
+                AppendWorkspaceUpgradeReviewSummary(panel.DryRunResult);
+                return;
+            }
+
+            panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Failed;
+            panel.ErrorMessage = string.IsNullOrWhiteSpace(applyResult.ErrorMessage)
+                ? "Workspace upgrade failed."
+                : applyResult.ErrorMessage.Trim();
+        };
+
+        panel.LaterRequested = async () =>
+        {
+            if (_currentWorkspace is null)
+                return;
+
+            var workspacePath = _currentWorkspace.FolderPath;
+            var recordedVersion = _squadCliAdapter.LastResolvedCandidate?.Version;
+            if (string.IsNullOrWhiteSpace(recordedVersion))
+                recordedVersion = GetWorkspaceUpgradeVersionForMenu();
+
+            if (string.IsNullOrWhiteSpace(recordedVersion))
+            {
+                await _squadCliAdapter.ResolveSquadVersionAsync(workspacePath).ConfigureAwait(true);
+                recordedVersion = _squadCliAdapter.LastResolvedCandidate?.Version;
+                UpdateStatusTitle();
+            }
+
+            if (string.IsNullOrWhiteSpace(recordedVersion))
+            {
+                panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Failed;
+                panel.ErrorMessage = "Could not determine the Squad CLI version to record for deferred workspace upgrade.";
+                return;
+            }
+
+            await _workspacePendingUpgradeStore.SavePendingAsync(workspacePath, recordedVersion).ConfigureAwait(true);
+            await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
+            AppendLine($"⏳ Workspace upgrade deferred until later (target Squad v{recordedVersion.Trim()}).");
+            window.Close();
+        };
+
         window.Show();
 
         try
@@ -45552,6 +45689,43 @@ public partial class MainWindow : Window
             panel.CurrentState = WorkspaceUpgradeSummaryPanelState.Failed;
             panel.ErrorMessage = ex.Message;
         }
+    }
+
+    private void AppendWorkspaceUpgradeReviewSummary(WorkspaceUpgradeDryRunResult dryRunResult)
+    {
+        AppendLine("📋 Workspace upgrade review (file names only — no pre/post content diff).");
+        AppendWorkspaceUpgradeCategory(
+            "Safe additions/refreshes (non-destructive files)",
+            dryRunResult.SafeAdditionsOrRefreshes);
+        AppendWorkspaceUpgradeCategory(
+            "Tracked-local-changes at risk (would be overwritten)",
+            dryRunResult.TrackedLocalChangesAtRisk);
+        AppendWorkspaceUpgradeCategory(
+            "Generated-files at risk",
+            dryRunResult.GeneratedFilesAtRisk);
+    }
+
+    private void AppendWorkspaceUpgradeCategory(string category, IReadOnlyList<string> files)
+    {
+        AppendLine($"  {category}:");
+        if (files.Count == 0)
+        {
+            AppendLine("    (none)");
+            return;
+        }
+
+        foreach (var file in files)
+            AppendLine($"    - {file}");
+    }
+
+    private static IReadOnlyList<string> CollectWorkspaceUpgradePaths(params IReadOnlyList<string>[] groups)
+    {
+        return groups
+            .SelectMany(group => group)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     /// <summary>

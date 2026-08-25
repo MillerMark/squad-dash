@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -24,6 +25,8 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
     private WorkspaceUpgradeDryRunResult _dryRunResult = WorkspaceUpgradeDryRunResult.Empty;
     private WorkspaceUpgradeSummaryPanelState _currentState = WorkspaceUpgradeSummaryPanelState.Idle;
     private string _errorMessage = string.Empty;
+    private bool _canApplyWorkspaceUpdate = true;
+    private string _applyUnavailableExplanation = string.Empty;
 
     public WorkspaceUpgradeSummaryPanel()
     {
@@ -40,6 +43,12 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
     public ObservableCollection<string> GeneratedFilesAtRisk { get; } = new();
 
     public ObservableCollection<string> PartiallyAppliedFiles { get; } = new();
+
+    public Func<Task>? ReviewChangesRequested { get; set; }
+
+    public Func<Task>? ApplyWorkspaceUpdateRequested { get; set; }
+
+    public Func<Task>? LaterRequested { get; set; }
 
     public WorkspaceUpgradeDryRunResult DryRunResult
     {
@@ -94,6 +103,27 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
 
     public bool IsPartiallyAppliedFilesEmpty => PartiallyAppliedFiles.Count == 0;
 
+    public bool CanApplyWorkspaceUpdate
+    {
+        get => _canApplyWorkspaceUpdate;
+        private set
+        {
+            if (_canApplyWorkspaceUpdate == value)
+                return;
+
+            _canApplyWorkspaceUpdate = value;
+            RaiseActionStateChanged();
+        }
+    }
+
+    public bool IsActionButtonsEnabled => !IsRunning;
+
+    public bool IsApplyButtonEnabled => IsActionButtonsEnabled && CanApplyWorkspaceUpdate;
+
+    public bool IsApplyUnavailable => !CanApplyWorkspaceUpdate;
+
+    public string ApplyUnavailableExplanation => _applyUnavailableExplanation;
+
     public string StateMessage =>
         CurrentState switch
         {
@@ -118,6 +148,18 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
             PartiallyAppliedFiles.Add(file);
 
         OnPropertyChanged(nameof(IsPartiallyAppliedFilesEmpty));
+    }
+
+    public void SetApplyAvailability(bool isAvailable, string? unavailableExplanation = null)
+    {
+        var normalizedExplanation = string.IsNullOrWhiteSpace(unavailableExplanation)
+            ? "Apply is disabled because Squad CLI is unavailable for this workspace."
+            : unavailableExplanation.Trim();
+
+        _applyUnavailableExplanation = isAvailable ? string.Empty : normalizedExplanation;
+        OnPropertyChanged(nameof(ApplyUnavailableExplanation));
+        CanApplyWorkspaceUpdate = isAvailable;
+        OnPropertyChanged(nameof(IsApplyUnavailable));
     }
 
     private void RefreshDryRunCollections()
@@ -148,6 +190,14 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
         OnPropertyChanged(nameof(IsRunning));
         OnPropertyChanged(nameof(IsFailed));
         OnPropertyChanged(nameof(IsPartiallyApplied));
+        RaiseActionStateChanged();
+    }
+
+    private void RaiseActionStateChanged()
+    {
+        OnPropertyChanged(nameof(IsActionButtonsEnabled));
+        OnPropertyChanged(nameof(IsApplyButtonEnabled));
+        OnPropertyChanged(nameof(IsApplyUnavailable));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
@@ -160,18 +210,32 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
             new Action(() => ReviewChangesButton.Focus()));
     }
 
-    private void ReviewChangesButton_Click(object sender, RoutedEventArgs e)
-    {
-        Debug.WriteLine("WorkspaceUpgradeSummaryPanel Review Changes clicked (stub only).");
-    }
+    private async void ReviewChangesButton_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteCallbackAsync(ReviewChangesRequested, "Review Changes").ConfigureAwait(true);
 
-    private void ApplyWorkspaceUpdateButton_Click(object sender, RoutedEventArgs e)
-    {
-        Debug.WriteLine("WorkspaceUpgradeSummaryPanel Apply Workspace Update clicked (stub only).");
-    }
+    private async void ApplyWorkspaceUpdateButton_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteCallbackAsync(ApplyWorkspaceUpdateRequested, "Apply Workspace Update").ConfigureAwait(true);
 
-    private void LaterButton_Click(object sender, RoutedEventArgs e)
+    private async void LaterButton_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteCallbackAsync(LaterRequested, "Later").ConfigureAwait(true);
+
+    private async Task ExecuteCallbackAsync(Func<Task>? callback, string actionName)
     {
-        Debug.WriteLine("WorkspaceUpgradeSummaryPanel Later clicked (stub only).");
+        if (callback is null)
+        {
+            Debug.WriteLine($"WorkspaceUpgradeSummaryPanel {actionName} clicked without callback wiring.");
+            return;
+        }
+
+        try
+        {
+            await callback().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Workspace", $"Workspace upgrade action '{actionName}' failed: {ex.Message}");
+            CurrentState = WorkspaceUpgradeSummaryPanelState.Failed;
+            ErrorMessage = ex.Message;
+        }
     }
 }
