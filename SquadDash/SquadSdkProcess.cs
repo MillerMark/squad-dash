@@ -229,6 +229,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 configDirectory,
                 requestId,
                 Model: agentRoute?.Model ?? ActiveProfile?.Model ?? CopilotDefaultModel,
+                ReasoningEffort: NormalizeReasoningEffort(agentRoute?.ReasoningEffort ?? ActiveProfile?.ReasoningEffort),
                 ApprovalGroupContext: approvalGroupContext,
                 AgentRoute: agentRoute);
             await RunBridgeRequestOnceAsync(
@@ -392,6 +393,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             configDirectory,
             requestId,
             Model: ActiveProfile?.Model ?? CopilotDefaultModel,
+            ReasoningEffort: NormalizeReasoningEffort(ActiveProfile?.ReasoningEffort),
             NamedAgentRoutes: NamedAgentRoutes,
             PlanDelegationGuard: planDelegationGuard);
         await RunBridgeRequestOnceAsync(
@@ -793,9 +795,19 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             string.IsNullOrWhiteSpace(role) ? null : role.Trim(),
             string.IsNullOrWhiteSpace(charterContent) ? null : charterContent.Trim(),
             string.IsNullOrWhiteSpace(model) ? null : model.Trim(),
+            NormalizeReasoningEffort(profile?.ReasoningEffort),
             provider,
             profile?.Id,
             profile?.Alias);
+    }
+
+    internal static string? NormalizeReasoningEffort(string? reasoningEffort) {
+        var normalized = reasoningEffort?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized) ||
+            string.Equals(normalized, "Auto", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        return normalized;
     }
 
     /// <summary>
@@ -1696,7 +1708,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         try {
             process.Start();
 
-            var request = new SquadSdkPromptRequest(prompt, workingDirectory, sessionId, Model: ActiveProfile?.Model ?? CopilotDefaultModel);
+            var request = new SquadSdkPromptRequest(
+                prompt,
+                workingDirectory,
+                sessionId,
+                Model: ActiveProfile?.Model ?? CopilotDefaultModel,
+                ReasoningEffort: NormalizeReasoningEffort(ActiveProfile?.ReasoningEffort));
             var payload = JsonSerializer.Serialize(request);
             await process.StandardInput.WriteLineAsync(payload).ConfigureAwait(false);
             await process.StandardInput.FlushAsync().ConfigureAwait(false);
@@ -1842,6 +1859,7 @@ internal sealed record SquadSdkPromptRequest(
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "prompt",
     [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
+    [property: JsonPropertyName("reasoningEffort"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReasoningEffort = null,
     [property: JsonPropertyName("namedAgentRoutes"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<SquadSdkNamedAgentRoute>? NamedAgentRoutes = null,
     [property: JsonPropertyName("planDelegationGuard"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkPlanDelegationGuard? PlanDelegationGuard = null);
 
@@ -1886,6 +1904,7 @@ internal sealed record SquadSdkNamedAgentRequest(
     [property: JsonPropertyName("requestId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RequestId = null,
     [property: JsonPropertyName("type")] string Type = "named_agent",
     [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
+    [property: JsonPropertyName("reasoningEffort"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReasoningEffort = null,
     [property: JsonPropertyName("approvalGroupContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalGroupContext = null,
     [property: JsonPropertyName("agentRoute"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkNamedAgentRoute? AgentRoute = null);
 
@@ -1895,9 +1914,10 @@ internal sealed record SquadSdkNamedAgentRoute(
     [property: JsonPropertyName("role"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Role,
     [property: JsonPropertyName("charterContent"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CharterContent,
     [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model,
-    [property: JsonPropertyName("provider")] SquadSdkProviderConfiguration? Provider,
-    [property: JsonPropertyName("profileId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ProfileId,
-    [property: JsonPropertyName("profileAlias"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ProfileAlias);
+    [property: JsonPropertyName("reasoningEffort"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReasoningEffort = null,
+    [property: JsonPropertyName("provider")] SquadSdkProviderConfiguration? Provider = null,
+    [property: JsonPropertyName("profileId"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ProfileId = null,
+    [property: JsonPropertyName("profileAlias"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ProfileAlias = null);
 
 internal sealed record SquadSdkProviderConfiguration(
     [property: JsonPropertyName("baseUrl")] string BaseUrl,

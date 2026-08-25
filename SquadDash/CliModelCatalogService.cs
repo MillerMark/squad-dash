@@ -184,7 +184,7 @@ internal sealed class CliModelCatalogService : ICliModelCatalogService {
             TryGetStringProperty(element, "releaseStatus", out var releaseStatus);
             var inputPrice = TryGetDecimalProperty(element, "inputPricePerMillionTokens");
             var outputPrice = TryGetDecimalProperty(element, "outputPricePerMillionTokens");
-            var efforts = TryGetStringArrayProperty(element, "supportedReasoningEfforts");
+            var efforts = TryGetReasoningEffortsProperty(element);
 
             metadata.Add(new CliModelMetadata(
                 modelId.Trim(),
@@ -247,6 +247,23 @@ internal sealed class CliModelCatalogService : ICliModelCatalogService {
         return values
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private static IReadOnlyList<string> TryGetReasoningEffortsProperty(JsonElement element) {
+        var plural = TryGetStringArrayProperty(element, "supportedReasoningEfforts");
+        if (plural.Count > 0)
+            return plural;
+
+        var singularArray = TryGetStringArrayProperty(element, "supportedReasoningEffort");
+        if (singularArray.Count > 0)
+            return singularArray;
+
+        if (TryGetStringProperty(element, "supportedReasoningEffort", out var singularValue) &&
+            singularValue is not null) {
+            return [singularValue];
+        }
+
+        return [];
     }
 
     private static string ResolveNodeExecutablePath() {

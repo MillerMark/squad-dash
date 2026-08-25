@@ -22,6 +22,7 @@ type PromptRequest = {
     sessionId?: string;
     configDir?: string;
     model?: string;
+    reasoningEffort?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
     planDelegationGuard?: PlanDelegationGuard;
 };
@@ -49,14 +50,17 @@ type NamedAgentRequest = {
     sessionId?: string;
     configDir?: string;
     model?: string;
+    reasoningEffort?: string;
     approvalGroupContext?: string;
     agentRoute?: SquadNamedAgentRoute;
 };
 
 function buildPromptFailureContext(request: PromptRequest | DelegateRequest | NamedAgentRequest): Record<string, unknown> {
     const route = request.type === "named_agent" ? request.agentRoute : undefined;
+    const requestReasoningEffort = "reasoningEffort" in request ? request.reasoningEffort : undefined;
     return {
         model: route?.model ?? request.model,
+        reasoningEffort: route?.reasoningEffort ?? requestReasoningEffort,
         profileId: route?.profileId,
         profileAlias: route?.profileAlias,
         providerBaseUrl: route?.provider?.baseUrl,
@@ -212,6 +216,7 @@ function tryParseNamedAgentRoute(value: unknown): SquadNamedAgentRoute | null {
         role: extractOptionalString(record.role),
         charterContent: extractOptionalString(record.charterContent),
         model: extractOptionalString(record.model),
+        reasoningEffort: extractOptionalString(record.reasoningEffort),
         provider,
         profileId: extractOptionalString(record.profileId),
         profileAlias: extractOptionalString(record.profileAlias)
@@ -536,6 +541,7 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
     const sessionId = extractOptionalString(parsed.sessionId);
     const configDir = extractOptionalString(parsed.configDir);
     const model = extractOptionalString(parsed.model);
+    const reasoningEffort = extractOptionalString(parsed.reasoningEffort);
     const namedAgentRoutes = parseNamedAgentRoutes(parsed.namedAgentRoutes);
     const planDelegationGuard = parsePlanDelegationGuard(parsed.planDelegationGuard);
 
@@ -547,6 +553,7 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
         sessionId,
         configDir,
         model,
+        reasoningEffort,
         namedAgentRoutes,
         planDelegationGuard
     };
@@ -604,6 +611,7 @@ function tryParseNamedAgentRequest(parsed: Partial<NamedAgentRequest>): NamedAge
         sessionId: extractOptionalString(parsed.sessionId),
         configDir: extractOptionalString(parsed.configDir),
         model: extractOptionalString(parsed.model),
+        reasoningEffort: extractOptionalString(parsed.reasoningEffort),
         approvalGroupContext: extractOptionalString(parsed.approvalGroupContext),
         agentRoute: tryParseNamedAgentRoute(parsed.agentRoute) ?? undefined
     };
@@ -1255,6 +1263,7 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
                 charterContent,
                 configDir: request.configDir,
                 model: request.agentRoute?.model ?? request.model,
+                reasoningEffort: request.agentRoute?.reasoningEffort ?? request.reasoningEffort,
                 agentRoute: request.agentRoute,
                 approvalGroupContext: request.approvalGroupContext
             },

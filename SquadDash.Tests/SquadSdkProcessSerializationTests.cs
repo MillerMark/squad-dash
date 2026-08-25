@@ -11,7 +11,8 @@ internal sealed class SquadSdkProcessSerializationTests {
             @"D:\Drive\Source\SquadUI",
             "session-123",
             @"D:\Users\Mark\AppData\Local\SquadDash\workspaces\repo\sdk-config",
-            Model: "claude-sonnet-4.6"));
+            Model: "claude-sonnet-4.6",
+            ReasoningEffort: "high"));
 
         Assert.Multiple(() => {
             Assert.That(json, Does.Contain("\"prompt\":\"status?\""));
@@ -19,6 +20,7 @@ internal sealed class SquadSdkProcessSerializationTests {
             Assert.That(json, Does.Contain("\"sessionId\":\"session-123\""));
             Assert.That(json, Does.Contain("\"configDir\":\"D:\\\\Users\\\\Mark\\\\AppData\\\\Local\\\\SquadDash\\\\workspaces\\\\repo\\\\sdk-config\""));
             Assert.That(json, Does.Contain("\"model\":\"claude-sonnet-4.6\""));
+            Assert.That(json, Does.Contain("\"reasoningEffort\":\"high\""));
             Assert.That(json, Does.Not.Contain("\"Prompt\""));
             Assert.That(json, Does.Not.Contain("\"Cwd\""));
             Assert.That(json, Does.Not.Contain("\"SessionId\""));
@@ -111,9 +113,11 @@ internal sealed class SquadSdkProcessSerializationTests {
             "Run verification",
             null,
             @"D:\Drive\Source\SquadUI",
+            ReasoningEffort: "xhigh",
             ApprovalGroupContext: "Use canonical groups: Guided Tour"));
 
         Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"reasoningEffort\":\"xhigh\""));
             Assert.That(json, Does.Contain("\"approvalGroupContext\":\"Use canonical groups: Guided Tour\""));
             Assert.That(json, Does.Not.Contain("\"ApprovalGroupContext\""));
         });

@@ -96,6 +96,7 @@ export type SquadPromptRequest = {
     sessionId?: string;
     configDir?: string;
     model?: string;
+    reasoningEffort?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
     planDelegationGuard?: PlanDelegationGuard;
 };
@@ -131,6 +132,7 @@ export type SquadNamedAgentRoute = {
     role?: string;
     charterContent?: string;
     model?: string;
+    reasoningEffort?: string;
     provider?: SquadSessionConfig["provider"] | null;
     profileId?: string;
     profileAlias?: string;
@@ -156,6 +158,7 @@ export type SquadNamedAgentRequest = {
     charterContent?: string;
     configDir?: string;
     model?: string;
+    reasoningEffort?: string;
     approvalGroupContext?: string;
     agentRoute?: SquadNamedAgentRoute;
 };
@@ -862,6 +865,28 @@ function resolveSessionModel(optionsModel: string | undefined, allowEnvironmentF
     return normalizeOptionalString(process.env.COPILOT_MODEL) ??
         normalizeOptionalString(process.env.COPILOT_PROVIDER_MODEL_ID) ??
         normalizeOptionalString(process.env.COPILOT_PROVIDER_WIRE_MODEL);
+}
+
+function resolveSessionReasoningEffort(
+    requestedReasoningEffort: string | undefined
+): NonNullable<SquadSessionConfig["reasoningEffort"]> | undefined {
+    const normalized = normalizeOptionalString(requestedReasoningEffort)?.toLowerCase();
+    if (!normalized || normalized === "auto")
+        return undefined;
+    if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "xhigh")
+        return normalized;
+    return undefined;
+}
+
+function isReasoningEffortUnsupportedError(error: unknown): boolean {
+    const message = extractErrorMessage(error).toLowerCase();
+    if (!message.includes("reasoning"))
+        return false;
+    return message.includes("unsupported")
+        || message.includes("unknown")
+        || message.includes("invalid option")
+        || message.includes("unrecognized")
+        || message.includes("unexpected");
 }
 
 type NamedAgentToolArgs = {
@@ -2410,6 +2435,7 @@ export class SquadBridgeService {
                 sessionId: request.namedAgentSessionId,
                 configDir: request.configDir,
                 model: request.agentRoute?.model ?? request.model,
+                reasoningEffort: request.agentRoute?.reasoningEffort ?? request.reasoningEffort,
                 providerOverride: request.agentRoute?.provider ?? null,
                 providerOverrideSpecified: request.agentRoute !== undefined,
                 exposeNamedAgentTool: false,
@@ -3074,6 +3100,7 @@ export class SquadBridgeService {
                             sessionId: retryCount > 0 ? namedAgentSessionId : undefined,
                             configDir: outerOptions.configDir,
                             model: route.model,
+                            reasoningEffort: route.reasoningEffort,
                             providerOverride: route.provider ?? null,
                             providerOverrideSpecified: true,
                             exposeNamedAgentTool: false,
@@ -3250,6 +3277,7 @@ export class SquadBridgeService {
             workingDirectory: options.cwd,
             configDir: options.configDir,
             model: resolveSessionModel(options.model, !options.providerOverrideSpecified),
+            reasoningEffort: resolveSessionReasoningEffort(options.reasoningEffort),
             provider: customProvider,
             tools: options.exposeNamedAgentTool === false
                 ? undefined
@@ -3335,7 +3363,7 @@ export class SquadBridgeService {
                 bridgeDiagnostic("getOrCreateSession:resume:start", {
                     sessionId: options.sessionId
                 });
-                session = await client.resumeSession(options.sessionId, sessionConfig);
+                session = await this.resumeSessionWithReasoningFallback(client, options.sessionId, sessionConfig);
                 sessionResumeDurationMs = Date.now() - resumeStartedAt;
                 bridgeDiagnostic("getOrCreateSession:resume:done", {
                     sessionId: options.sessionId,
@@ -3360,7 +3388,7 @@ export class SquadBridgeService {
                     model: sessionConfig.model ?? "(default)"
                 });
                 try {
-                    session = await client.createSession(sessionConfig);
+                    session = await this.createSessionWithReasoningFallback(client, sessionConfig);
                 }
                 catch (error) {
                     throw enrichCopilotAuthenticationFailure(error);
@@ -3379,7 +3407,7 @@ export class SquadBridgeService {
                 model: sessionConfig.model ?? "(default)"
             });
             try {
-                session = await client.createSession(sessionConfig);
+                session = await this.createSessionWithReasoningFallback(client, sessionConfig);
             }
             catch (error) {
                 throw enrichCopilotAuthenticationFailure(error);
@@ -3437,6 +3465,43 @@ export class SquadBridgeService {
                 sessionResumeFailureMessage
             }
         };
+    }
+
+    private async createSessionWithReasoningFallback(client: SquadClient, sessionConfig: SquadSessionConfig) {
+        try {
+            return await client.createSession(sessionConfig);
+        }
+        catch (error) {
+            if (!sessionConfig.reasoningEffort || !isReasoningEffortUnsupportedError(error))
+                throw error;
+            bridgeDiagnostic("getOrCreateSession:create:retry-without-reasoning-effort", {
+                message: extractErrorMessage(error)
+            });
+            const fallbackConfig: SquadSessionConfig = { ...sessionConfig };
+            delete fallbackConfig.reasoningEffort;
+            return client.createSession(fallbackConfig);
+        }
+    }
+
+    private async resumeSessionWithReasoningFallback(
+        client: SquadClient,
+        sessionId: string,
+        sessionConfig: SquadSessionConfig
+    ) {
+        try {
+            return await client.resumeSession(sessionId, sessionConfig);
+        }
+        catch (error) {
+            if (!sessionConfig.reasoningEffort || !isReasoningEffortUnsupportedError(error))
+                throw error;
+            bridgeDiagnostic("getOrCreateSession:resume:retry-without-reasoning-effort", {
+                sessionId,
+                message: extractErrorMessage(error)
+            });
+            const fallbackConfig: SquadSessionConfig = { ...sessionConfig };
+            delete fallbackConfig.reasoningEffort;
+            return client.resumeSession(sessionId, fallbackConfig);
+        }
     }
 
     private buildSessionReadyInfo(

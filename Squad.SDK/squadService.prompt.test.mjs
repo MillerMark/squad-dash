@@ -259,6 +259,94 @@ test("runPrompt passes explicit model to session config", async () => {
     assert.equal(capturedConfig.model, "claude-sonnet-4.6");
 });
 
+test("runPrompt passes explicit reasoning effort to session config", async () => {
+    let capturedConfig;
+    const session = {
+        sessionId: "session-reasoning",
+        on() {},
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => ({ content: "done" })
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            capturedConfig = config;
+            return session;
+        }
+    };
+
+    await service.runPrompt(
+        "status?",
+        {},
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public",
+            reasoningEffort: "high"
+        });
+
+    assert.equal(capturedConfig.reasoningEffort, "high");
+});
+
+test("runPrompt omits auto reasoning effort from session config", async () => {
+    let capturedConfig;
+    const session = {
+        sessionId: "session-auto-reasoning",
+        on() {},
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => ({ content: "done" })
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            capturedConfig = config;
+            return session;
+        }
+    };
+
+    await service.runPrompt(
+        "status?",
+        {},
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public",
+            reasoningEffort: "Auto"
+        });
+
+    assert.equal(capturedConfig.reasoningEffort, undefined);
+});
+
+test("runPrompt retries without reasoning effort on downlevel CLI", async () => {
+    const configs = [];
+    const session = {
+        sessionId: "session-reasoning-fallback",
+        on() {},
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => ({ content: "done" })
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            if (configs.length === 1)
+                throw new Error("Unknown option: reasoningEffort");
+            return session;
+        }
+    };
+
+    await service.runPrompt(
+        "status?",
+        {},
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public",
+            reasoningEffort: "xhigh"
+        });
+
+    assert.equal(configs.length, 2);
+    assert.equal(configs[0].reasoningEffort, "xhigh");
+    assert.equal(configs[1].reasoningEffort, undefined);
+});
+
 test("named roster tool launches exact agent with its own provider profile", async () => {
     const configs = [];
     const started = [];
@@ -294,6 +382,7 @@ test("named roster tool launches exact agent with its own provider profile", asy
             role: "Model profiles",
             charterContent: "# Lyra Morn\nOwn model profile work.",
             model: "gpt-5-mini",
+            reasoningEffort: "high",
             provider: {
                 baseUrl: "https://api.openai.example/v1",
                 type: "openai",
@@ -319,6 +408,7 @@ test("named roster tool launches exact agent with its own provider profile", asy
 
     assert.equal(report, "Lyra report");
     assert.equal(configs[1].model, "gpt-5-mini");
+    assert.equal(configs[1].reasoningEffort, "high");
     assert.equal(configs[1].provider.baseUrl, "https://api.openai.example/v1");
     assert.equal(configs[1].provider.apiKey, "test-key");
     assert.equal(started[0].agent.agentName, "lyra-morn");

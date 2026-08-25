@@ -104,4 +104,67 @@ internal sealed class CliModelCatalogServiceTests {
             Assert.That(result, Is.Null);
         });
     }
+
+    [Test]
+    public void ParseCatalog_EnrichedFieldsPresent_HydratesMetadata() {
+        var parsed = CliModelCatalogService.ParseCatalog("""
+            [
+              {
+                "id": "gpt-5",
+                "name": "GPT-5",
+                "category": "chat",
+                "releaseStatus": "ga",
+                "inputPricePerMillionTokens": 1.25,
+                "outputPricePerMillionTokens": "10.00",
+                "supportedReasoningEfforts": ["low", "high"]
+              }
+            ]
+            """);
+
+        Assert.That(parsed, Has.Count.EqualTo(1));
+        Assert.Multiple(() => {
+            Assert.That(parsed[0].ModelId, Is.EqualTo("gpt-5"));
+            Assert.That(parsed[0].CliCategory, Is.EqualTo("chat"));
+            Assert.That(parsed[0].ReleaseStatus, Is.EqualTo("ga"));
+            Assert.That(parsed[0].InputPricePerMillionTokens, Is.EqualTo(1.25m));
+            Assert.That(parsed[0].OutputPricePerMillionTokens, Is.EqualTo(10.00m));
+            Assert.That(parsed[0].SupportedReasoningEfforts, Is.EqualTo(new[] { "low", "high" }));
+        });
+    }
+
+    [Test]
+    public void ParseCatalog_EnrichedFieldsAbsent_UsesNullAndEmptyDefaults() {
+        var parsed = CliModelCatalogService.ParseCatalog("""
+            [
+              {
+                "id": "gpt-4.1-mini",
+                "name": "GPT-4.1 mini"
+              }
+            ]
+            """);
+
+        Assert.That(parsed, Has.Count.EqualTo(1));
+        Assert.Multiple(() => {
+            Assert.That(parsed[0].CliCategory, Is.Null);
+            Assert.That(parsed[0].ReleaseStatus, Is.Null);
+            Assert.That(parsed[0].InputPricePerMillionTokens, Is.Null);
+            Assert.That(parsed[0].OutputPricePerMillionTokens, Is.Null);
+            Assert.That(parsed[0].SupportedReasoningEfforts, Is.Empty);
+        });
+    }
+
+    [Test]
+    public void ParseCatalog_SingularReasoningEffortField_IsAccepted() {
+        var parsed = CliModelCatalogService.ParseCatalog("""
+            [
+              {
+                "id": "gpt-5",
+                "supportedReasoningEffort": ["medium", "high"]
+              }
+            ]
+            """);
+
+        Assert.That(parsed, Has.Count.EqualTo(1));
+        Assert.That(parsed[0].SupportedReasoningEfforts, Is.EqualTo(new[] { "medium", "high" }));
+    }
 }

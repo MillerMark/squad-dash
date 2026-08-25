@@ -138,7 +138,7 @@ internal sealed class SquadSdkProcessTests {
     public void BuildNamedAgentRoute_CustomProfileCarriesProviderAndCopilotProfileSuppressesIt() {
         var custom = new ModelProfile(
             "openai-small", "OpenAI Small", "openai", "https://api.openai.example/v1",
-            "gpt-5-mini", "test-key");
+            "gpt-5-mini", "test-key", ReasoningEffort: "high");
         var copilot = new ModelProfile(
             "copilot", "GitHub Copilot", "copilot", null, "auto", null);
 
@@ -153,8 +153,10 @@ internal sealed class SquadSdkProcessTests {
             Assert.That(customRoute.Provider!.BaseUrl, Is.EqualTo("https://api.openai.example/v1"));
             Assert.That(customRoute.Provider.Type, Is.EqualTo("openai"));
             Assert.That(customRoute.Provider.ApiKey, Is.EqualTo("test-key"));
+            Assert.That(customRoute.ReasoningEffort, Is.EqualTo("high"));
             Assert.That(copilotRoute.Model, Is.Null);
             Assert.That(copilotRoute.Provider, Is.Null);
+            Assert.That(copilotRoute.ReasoningEffort, Is.Null);
         });
     }
 
