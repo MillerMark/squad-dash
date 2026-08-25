@@ -978,6 +978,39 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
+    public void ApplyGateAmendmentRequested_AcceptsHumanReviewBoundaryTask()
+    {
+        var group = MakeApprovalWindowGroup();
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var items = group.Tasks.Select(task => MakeItem(task.Id)).ToArray();
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(null, group, revision, items, "GROUP-001-001");
+        plan = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId == "GROUP-001-001"
+                ? task with { Status = PlanTaskStatus.HumanReviewRequired }
+                : task).ToArray(),
+            ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval }],
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+        };
+
+        var updated = PlanStoreUpdater.ApplyGateAmendmentRequested(
+            plan,
+            "GROUP-001-G01",
+            ["GROUP-001-001"],
+            "Add review simulation",
+            "Make the human verification reproducible.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated, Is.Not.SameAs(plan));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-001").Status,
+                Is.EqualTo(PlanTaskStatus.HumanReviewRequired));
+            Assert.That(updated.Tasks.Single(task => task.AmendmentGateId == "GROUP-001-G01").DependsOn,
+                Is.EqualTo(new[] { "GROUP-001-001" }));
+        });
+    }
+
+    [Test]
     public void ApplyGateAmendmentRequested_RewiresAllJoinBranchesThroughInsertedBarrier()
     {
         var group = new DecomposedTaskGroup(

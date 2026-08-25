@@ -47,6 +47,9 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>The <see cref="BlockUIContainer"/> to insert into the transcript <see cref="FlowDocument"/>.</summary>
         internal BlockUIContainer Container { get; init; } = null!;
 
+        /// <summary>The visible card chrome hosted by <see cref="Container"/>.</summary>
+        internal FrameworkElement RootElement { get; init; } = null!;
+
         /// <summary>The primary approve button — disable when processing.</summary>
         internal Button ApproveButton { get; init; } = null!;
 
@@ -745,6 +748,7 @@ internal static class TranscriptApprovalCardBuilder
         return new CardResult
         {
             Container = container,
+            RootElement = border,
             ApproveButton = approveButton,
             TitleBlock = titleBlock,
             RequestChangesButton = requestChangesButton,
@@ -802,6 +806,7 @@ internal static class TranscriptApprovalCardBuilder
     internal static void ShowUpdatingState(CardResult card)
     {
         if (card.IsRetired) return;
+        card.RootElement.Visibility = Visibility.Visible;
         SetReviewInteractionState(card, isInteractive: false);
         card.ApproveButton.IsEnabled = false;
         if (card.RequestChangesButton is not null)
@@ -820,6 +825,7 @@ internal static class TranscriptApprovalCardBuilder
             ShowHistoricalState(card);
             return;
         }
+        card.RootElement.Visibility = Visibility.Visible;
         SetReviewInteractionState(card, isInteractive: true);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.ActionsPanel.Visibility = Visibility.Visible;
@@ -863,6 +869,7 @@ internal static class TranscriptApprovalCardBuilder
     internal static void ShowChangeRequestDraftingState(CardResult card)
     {
         if (card.IsRetired) return;
+        card.RootElement.Visibility = Visibility.Visible;
         SetReviewInteractionState(card, isInteractive: false);
         card.ApproveButton.IsEnabled = false;
         if (card.RequestChangesButton is not null)
@@ -877,6 +884,18 @@ internal static class TranscriptApprovalCardBuilder
         card.ReworkIndicator.Visibility = Visibility.Visible;
     }
 
+    /// <summary>
+    /// Removes the duplicate approval surface while its submitted correction is running.
+    /// The task-level activity indicator remains the single visible progress signal.
+    /// </summary>
+    internal static void HideWhileCorrectionRuns(CardResult card)
+    {
+        if (card.IsRetired) return;
+        SetReviewInteractionState(card, isInteractive: false);
+        card.SpinnerOverlay.Visibility = Visibility.Collapsed;
+        card.RootElement.Visibility = Visibility.Collapsed;
+    }
+
     /// <summary>Restores the approval actions when the next prompt was unrelated to this review.</summary>
     internal static void ClearChangeRequestDraftingState(CardResult card)
     {
@@ -885,6 +904,7 @@ internal static class TranscriptApprovalCardBuilder
             ShowHistoricalState(card);
             return;
         }
+        card.RootElement.Visibility = Visibility.Visible;
         SetReviewInteractionState(card, isInteractive: true);
         card.ActionsPanel.Visibility = Visibility.Visible;
         card.NoteSection.Visibility = Visibility.Visible;

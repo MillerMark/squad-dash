@@ -61,7 +61,43 @@ internal sealed class PlanGateResponseParserTests
             """;
 
         Assert.That(PlanReviewResponseParser.TryParse(text, out _, out var error), Is.False);
-        Assert.That(error, Does.Contain("instructions are required for an amendment"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Does.Contain("title is required for an amendment"));
+            Assert.That(error, Does.Contain("instructions are required for an amendment"));
+        });
+    }
+
+    [Test]
+    public void UnifiedResponse_RepairDiagnosticCombinesAllSchemaAndBoundaryProblems()
+    {
+        const string text = """
+            PLAN_REVIEW_RESPONSE_JSON:
+            {"planId":"PLAN-1","gateId":"GATE-1","revision":"rev","requestVersion":3,"action":"add-amendment","taskIds":["TASK-OUTSIDE"]}
+            """;
+        var task = new PlanTask(
+            "TASK-1", "Task", "Work", [], "high", PlanTaskStatus.HumanReviewRequired);
+        var gate = new PlanApprovalGate(
+            "GATE-1", "Review", [task.TaskId], [], PlanGateStatus.AwaitingApproval);
+        var plan = new Plan(
+            "PLAN-1", "rev", PlanSource.Manual, PlanLifecycleStatus.AwaitingApproval,
+            "Plan", "feature/plan", "Summary", [task], [gate],
+            new PlanProgress(0, 1), new PlanTimestamps(DateTimeOffset.UtcNow));
+        var token = new ApprovalClickToken("PLAN-1", "rev", 3, ["GATE-1"]);
+
+        var parsed = PlanReviewResponseParser.TryParse(text, out var candidate, out var schemaErrors);
+        var diagnostic = PlanReviewResponseRepairDiagnostics.Build(
+            schemaErrors, candidate, plan, gate, token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(candidate, Is.Not.Null);
+            Assert.That(diagnostic, Does.Contain("title is required for an amendment"));
+            Assert.That(diagnostic, Does.Contain("instructions are required for an amendment"));
+            Assert.That(diagnostic, Does.Contain("TASK-OUTSIDE"));
+            Assert.That(diagnostic, Does.Contain("Allowed taskIds: [TASK-1]"));
+        });
     }
 
     [Test]
@@ -82,6 +118,33 @@ internal sealed class PlanGateResponseParserTests
 
         Assert.That(result.Success, Is.False);
         Assert.That(result.Diagnostic, Is.EqualTo("request version mismatch expected=3 actual=4"));
+    }
+
+    [Test]
+    public void UnifiedResponse_CorrelationReportsEveryDetectedProblem()
+    {
+        var response = new PlanReviewResponse(
+            "PLAN-1", "GATE-1", "wrong-revision", 4, PlanReviewResponseAction.AddAmendment,
+            ["TASK-MISSING"], Title: "Amend", Instructions: "Work");
+        var task = new PlanTask("TASK-1", "Task", "Work", [], "high", PlanTaskStatus.Complete);
+        var gate = new PlanApprovalGate("GATE-1", "Review", [task.TaskId], [], PlanGateStatus.Approved);
+        var plan = new Plan(
+            "PLAN-1", "rev", PlanSource.Manual, PlanLifecycleStatus.AwaitingApproval,
+            "Plan", "feature/plan", "Summary", [task], [gate],
+            new PlanProgress(1, 1), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var result = PlanReviewResponseCorrelation.Validate(
+            response, plan, gate, new ApprovalClickToken("PLAN-1", "rev", 3, ["GATE-OTHER"]));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.Diagnostic, Does.Contain("gate is not awaiting approval"));
+            Assert.That(result.Diagnostic, Does.Contain("revision mismatch"));
+            Assert.That(result.Diagnostic, Does.Contain("request version mismatch"));
+            Assert.That(result.Diagnostic, Does.Contain("gate is absent from approval token"));
+            Assert.That(result.Diagnostic, Does.Contain("TASK-MISSING"));
+        });
     }
 
     [Test]
@@ -227,5 +290,45 @@ internal sealed class PlanGateResponseParserTests
             """;
 
         Assert.That(PlanGateResponseParser.TryParse(text, out _), Is.False);
+    }
+
+    [Test]
+    public void BoundaryTargets_HumanReviewRequiredTaskIsEligible()
+    {
+        var task = new PlanTask(
+            "TASK-1", "Task", "Work", [], "high", PlanTaskStatus.HumanReviewRequired);
+        var gate = new PlanApprovalGate(
+            "GATE-1", "Review", [task.TaskId], [], PlanGateStatus.AwaitingApproval);
+        var plan = new Plan(
+            "PLAN-1", "rev", PlanSource.Manual, PlanLifecycleStatus.AwaitingApproval,
+            "Plan", "feature/plan", "Summary", [task], [gate],
+            new PlanProgress(0, 1), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var invalid = PlanApprovalBoundaryTargetPolicy.FindInvalidTargets(
+            plan, gate, [task.TaskId]);
+
+        Assert.That(invalid, Is.Empty);
+    }
+
+    [Test]
+    public void BoundaryTargets_InvalidTargetDiagnosticListsExactAllowedIds()
+    {
+        var task = new PlanTask(
+            "TASK-1", "Task", "Work", [], "high", PlanTaskStatus.HumanReviewRequired);
+        var gate = new PlanApprovalGate(
+            "GATE-1", "Review", [task.TaskId], [], PlanGateStatus.AwaitingApproval);
+        var plan = new Plan(
+            "PLAN-1", "rev", PlanSource.Manual, PlanLifecycleStatus.AwaitingApproval,
+            "Plan", "feature/plan", "Summary", [task], [gate],
+            new PlanProgress(0, 1), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var diagnostic = PlanApprovalBoundaryTargetPolicy.BuildRepairDiagnostic(
+            plan, gate, ["TASK-OUTSIDE"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostic, Does.Contain("Invalid taskIds: [TASK-OUTSIDE]"));
+            Assert.That(diagnostic, Does.Contain("Allowed taskIds: [TASK-1]"));
+        });
     }
 }

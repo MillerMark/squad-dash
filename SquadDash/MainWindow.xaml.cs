@@ -15367,7 +15367,7 @@ public partial class MainWindow : Window
                     _approvalTranscriptCards.TryGetValue(next.PlanId, out var activeCards))
                 {
                     foreach (var card in activeCards)
-                        TranscriptApprovalCardBuilder.ShowUpdatingState(card);
+                        TranscriptApprovalCardBuilder.HideWhileCorrectionRuns(card);
                 }
                 return;
             }
@@ -15383,7 +15383,12 @@ public partial class MainWindow : Window
                 _approvalTranscriptCards.TryGetValue(next.PlanId, out var cards))
             {
                 foreach (var card in cards)
-                    TranscriptApprovalCardBuilder.ShowUpdatingState(card);
+                {
+                    if (isPromptRunning)
+                        TranscriptApprovalCardBuilder.HideWhileCorrectionRuns(card);
+                    else
+                        TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(card);
+                }
             }
             return;
         }
@@ -16476,8 +16481,18 @@ public partial class MainWindow : Window
 
         if (!PlanReviewResponseParser.TryParse(rawResponse, out var response, out var error) || response is null)
         {
-            SquadDashTrace.Write("Approval", $"Unified review response parse failed: {error}");
-            QueueUnifiedPlanReviewResponseRepair(error);
+            var diagnostic = error;
+            if (response is not null && _pendingGateResponseContext is { } context &&
+                _planStore?.Load(context.Token.PlanId) is { } expectedPlan)
+            {
+                var expectedGate = expectedPlan.ApprovalGates.FirstOrDefault(candidate =>
+                    string.Equals(candidate.GateId, context.GateId, StringComparison.Ordinal));
+                if (expectedGate is not null)
+                    diagnostic = PlanReviewResponseRepairDiagnostics.Build(
+                        error, response, expectedPlan, expectedGate, context.Token);
+            }
+            SquadDashTrace.Write("Approval", $"Unified review response parse failed: {diagnostic}");
+            QueueUnifiedPlanReviewResponseRepair(diagnostic);
             return true;
         }
 
@@ -16563,6 +16578,7 @@ public partial class MainWindow : Window
         if (context is null || _planStore?.Load(context.Token.PlanId) is not { } plan)
         {
             SquadDashTrace.Write("Approval", "Unified review repair not queued: correlated gate context is unavailable.");
+            AppendLine("⚠ SquadDash could not safely apply the human-review response because its approval context is no longer current. The plan remains paused.");
             return;
         }
         var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
@@ -16573,7 +16589,8 @@ public partial class MainWindow : Window
             SquadDashTrace.Write("Approval",
                 $"Unified review repair not queued: gateFound={gate is not null} taskFound={!string.IsNullOrWhiteSpace(taskId)} attempts={context.RepairAttempts}.");
             ClearPendingGateResponse(context.Token.PlanId, keepForClarification: false);
-            AppendLine("⚠ SquadDash could not read the human-review response after one repair. The plan remains paused.");
+            ClearPendingPlanReviewCorrection(restoreCard: true);
+            AppendLine("⚠ SquadDash could not safely apply the human-review response after one automatic metadata repair. The plan remains paused and the review actions are available again.");
             return;
         }
 
@@ -16584,7 +16601,7 @@ public partial class MainWindow : Window
             sourceTag: "plan-review-response-repair",
             isSystemInjected: true);
         SyncQueuePanel();
-        AppendLine("SquadDash could not read the human-review response. It requested one metadata-only repair; the plan remains paused.");
+        AppendLine("SquadDash rejected invalid human-review response metadata and requested one automatic repair with the exact validation diagnostics. The plan remains paused while that repair runs.");
     }
 
     private bool TryHandleHumanReviewClarificationFromResponse(string? rawResponse)
@@ -17081,12 +17098,15 @@ public partial class MainWindow : Window
             return false;
 
         var taskIds = response.TaskIds.Distinct(StringComparer.Ordinal).ToArray();
-        var invalidTargets = taskIds.Where(id =>
-            !gate.AfterTaskIds.Contains(id, StringComparer.Ordinal) ||
-            !plan.Tasks.Any(task => string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
-                task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)).ToArray();
+        var invalidTargets = PlanApprovalBoundaryTargetPolicy.FindInvalidTargets(plan, gate, taskIds);
         if (invalidTargets.Length > 0)
         {
+            if (_pendingPlanReviewCorrectionContext is not null)
+            {
+                QueueUnifiedPlanReviewResponseRepair(
+                    PlanApprovalBoundaryTargetPolicy.BuildRepairDiagnostic(plan, gate, invalidTargets));
+                return true;
+            }
             AppendLine("⚠ The requested rework named tasks outside the current completed approval boundary: " +
                        string.Join(", ", invalidTargets) + ". The plan remains unchanged.");
             return true;
@@ -17354,14 +17374,17 @@ public partial class MainWindow : Window
         var relatedTaskIds = response.TaskIds is { Count: > 0 }
             ? response.TaskIds.Distinct(StringComparer.Ordinal).ToArray()
             : gate.AfterTaskIds.Distinct(StringComparer.Ordinal).ToArray();
-        var invalidTargets = relatedTaskIds.Where(id =>
-            !gate.AfterTaskIds.Contains(id, StringComparer.Ordinal) ||
-            !plan.Tasks.Any(task => string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
-                task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)).ToArray();
+        var invalidTargets = PlanApprovalBoundaryTargetPolicy.FindInvalidTargets(plan, gate, relatedTaskIds);
         if (invalidTargets.Length > 0)
         {
             SquadDashTrace.Write("Approval",
                 $"Gate amendment rejected invalidTargets=[{string.Join(",", invalidTargets)}] gate={gate.GateId}.");
+            if (_pendingPlanReviewCorrectionContext is not null)
+            {
+                QueueUnifiedPlanReviewResponseRepair(
+                    PlanApprovalBoundaryTargetPolicy.BuildRepairDiagnostic(plan, gate, invalidTargets));
+                return true;
+            }
             AppendLine("⚠ The requested amendment named tasks outside the current completed approval boundary: " +
                        string.Join(", ", invalidTargets) + ". The plan remains unchanged.");
             return true;

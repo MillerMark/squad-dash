@@ -1029,10 +1029,8 @@ internal static class PlanStoreUpdater
         var related = relatedTaskIds is { Count: > 0 }
             ? relatedTaskIds.Distinct(StringComparer.Ordinal).ToArray()
             : gate.AfterTaskIds.Distinct(StringComparer.Ordinal).ToArray();
-        if (related.Length == 0 || related.Any(id =>
-                !gate.AfterTaskIds.Contains(id, StringComparer.Ordinal) ||
-                !existing.Tasks.Any(task => string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
-                    task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)))
+        if (related.Length == 0 ||
+            PlanApprovalBoundaryTargetPolicy.FindInvalidTargets(existing, gate, related).Length > 0)
             return existing;
 
         // An approval-boundary amendment is a graph insertion, not an independent sibling task.

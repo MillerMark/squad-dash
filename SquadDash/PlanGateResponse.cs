@@ -277,13 +277,11 @@ internal static class PlanReviewResponseParser
             if (taskIds is not { Length: > 0 }) errors.Add("taskIds are required for rework");
             if (string.IsNullOrWhiteSpace(payload.Instructions)) errors.Add("instructions are required for rework");
         }
-        if (action == PlanReviewResponseAction.AddAmendment && string.IsNullOrWhiteSpace(payload.Instructions))
-            errors.Add("instructions are required for an amendment");
-
-        if (errors.Count > 0)
+        if (action == PlanReviewResponseAction.AddAmendment)
         {
-            error = string.Join("; ", errors);
-            return false;
+            if (string.IsNullOrWhiteSpace(payload.Title)) errors.Add("title is required for an amendment");
+            if (string.IsNullOrWhiteSpace(payload.Instructions))
+                errors.Add("instructions are required for an amendment");
         }
 
         response = payload with
@@ -294,6 +292,12 @@ internal static class PlanReviewResponseParser
             Title = payload.Title?.Trim(),
             Instructions = payload.Instructions?.Trim(),
         };
+
+        if (errors.Count > 0)
+        {
+            error = string.Join("; ", errors);
+            return false;
+        }
         return true;
     }
 
@@ -339,17 +343,100 @@ internal static class PlanReviewResponseCorrelation
         if (plan is null) return new(false, $"plan not found: {response.PlanId}");
         if (gate is null) return new(false, $"gate not found: {response.GateId}");
         if (token is null) return new(false, $"approval token not found: {response.PlanId}");
+
+        var errors = new List<string>();
+        if (!string.Equals(response.PlanId, plan.PlanId, StringComparison.Ordinal))
+            errors.Add($"planId mismatch expected={plan.PlanId} actual={response.PlanId}");
+        if (!string.Equals(response.GateId, gate.GateId, StringComparison.Ordinal))
+            errors.Add($"gateId mismatch expected={gate.GateId} actual={response.GateId}");
         if (gate.Status != PlanGateStatus.AwaitingApproval)
-            return new(false, $"gate is not awaiting approval: {gate.Status}");
+            errors.Add($"gate is not awaiting approval: {gate.Status}");
         if (!string.Equals(plan.Revision, response.Revision, StringComparison.Ordinal))
-            return new(false, $"revision mismatch expected={plan.Revision} actual={response.Revision}");
+            errors.Add($"revision mismatch expected={plan.Revision} actual={response.Revision}");
         if (response.RequestVersion != token.RequestVersion)
-            return new(false, $"request version mismatch expected={token.RequestVersion} actual={response.RequestVersion}");
+            errors.Add($"request version mismatch expected={token.RequestVersion} actual={response.RequestVersion}");
         if (!token.GateIds.Contains(response.GateId, StringComparer.Ordinal))
-            return new(false, $"gate is absent from approval token: {response.GateId}");
-        if (response.TaskIds?.Any(taskId => !plan.Tasks.Any(task =>
-                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))) == true)
-            return new(false, "one or more taskIds do not exist in the plan");
-        return new(true, "correlation accepted");
+            errors.Add($"gate is absent from approval token: {response.GateId}");
+        var missingTaskIds = response.TaskIds?
+            .Where(taskId => !plan.Tasks.Any(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal)))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray() ?? [];
+        if (missingTaskIds.Length > 0)
+            errors.Add($"taskIds do not exist in the plan: [{string.Join(", ", missingTaskIds)}]");
+        return errors.Count == 0
+            ? new(true, "correlation accepted")
+            : new(false, string.Join("; ", errors));
+    }
+}
+
+internal static class PlanReviewResponseRepairDiagnostics
+{
+    internal static string Build(
+        string? schemaDiagnostic,
+        PlanReviewResponse? candidate,
+        Plan plan,
+        PlanApprovalGate gate,
+        ApprovalClickToken token)
+    {
+        var problems = new List<string>();
+        if (!string.IsNullOrWhiteSpace(schemaDiagnostic))
+            problems.Add(schemaDiagnostic.Trim());
+        if (candidate is not null)
+        {
+            var correlation = PlanReviewResponseCorrelation.Validate(candidate, plan, gate, token);
+            if (!correlation.Success)
+                problems.Add(correlation.Diagnostic);
+            if (candidate.TaskIds is { Count: > 0 })
+            {
+                var invalidTargets = PlanApprovalBoundaryTargetPolicy.FindInvalidTargets(
+                    plan, gate, candidate.TaskIds);
+                if (invalidTargets.Length > 0)
+                    problems.Add(PlanApprovalBoundaryTargetPolicy.BuildRepairDiagnostic(
+                        plan, gate, invalidTargets));
+            }
+        }
+        return string.Join("; ", problems.Where(problem => !string.IsNullOrWhiteSpace(problem)));
+    }
+}
+
+/// <summary>
+/// Defines which task results can anchor rework or an amendment at an active approval gate.
+/// Human-review-required means implementation and automated verification have finished; only
+/// the human observation is outstanding, so it is a valid boundary anchor.
+/// </summary>
+internal static class PlanApprovalBoundaryTargetPolicy
+{
+    internal static bool IsEligibleStatus(string? status) =>
+        status is PlanTaskStatus.Complete or PlanTaskStatus.Partial or
+            PlanTaskStatus.HumanReviewRequired;
+
+    internal static string[] FindInvalidTargets(
+        Plan plan,
+        PlanApprovalGate gate,
+        IEnumerable<string> taskIds) =>
+        taskIds
+            .Distinct(StringComparer.Ordinal)
+            .Where(id =>
+                !gate.AfterTaskIds.Contains(id, StringComparer.Ordinal) ||
+                !plan.Tasks.Any(task =>
+                    string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
+                    IsEligibleStatus(task.Status)))
+            .ToArray();
+
+    internal static string BuildRepairDiagnostic(
+        Plan plan,
+        PlanApprovalGate gate,
+        IReadOnlyCollection<string> invalidTargets)
+    {
+        var allowed = gate.AfterTaskIds
+            .Where(id => plan.Tasks.Any(task =>
+                string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
+                IsEligibleStatus(task.Status)))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return "taskIds must name eligible tasks on the current approval boundary. " +
+               $"Invalid taskIds: [{string.Join(", ", invalidTargets)}]. " +
+               $"Allowed taskIds: [{string.Join(", ", allowed)}].";
     }
 }

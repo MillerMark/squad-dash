@@ -174,6 +174,37 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void RunningCorrection_HidesCardAndRejectedCorrectionRestoresIt()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { },
+            onAddressUncheckedItems: _ => { });
+
+        TranscriptApprovalCardBuilder.HideWhileCorrectionRuns(card);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.RootElement.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.SpinnerOverlay.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.ReviewSection!.IsEnabled, Is.False);
+        });
+
+        TranscriptApprovalCardBuilder.ClearChangeRequestDraftingState(card);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.RootElement.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.ReviewSection!.IsEnabled, Is.True);
+            Assert.That(card.AddressUncheckedItemsButton!.IsEnabled, Is.True);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void FollowUpStep_RemainsAvailableAfterEveryReviewItemIsChecked()
     {
         var plan = BuildTestPlan();
