@@ -23,6 +23,9 @@ internal sealed class WorkspaceUpgradeService : IWorkspaceUpgradeService
     private readonly ISquadCommandRunner _commandRunner;
     private readonly SquadInstallerService _installerService;
     private readonly ISquadCliResolutionService _cliResolutionService;
+    private readonly bool _workspaceUpgradeDryRunSupported;
+    private readonly IReadOnlyList<string> _workspaceUpgradeDryRunArguments;
+    private readonly string _workspaceUpgradeDryRunUnsupportedMessage;
 
     public WorkspaceUpgradeService()
         : this(
@@ -36,10 +39,32 @@ internal sealed class WorkspaceUpgradeService : IWorkspaceUpgradeService
         ISquadCommandRunner commandRunner,
         SquadInstallerService installerService,
         ISquadCliResolutionService cliResolutionService)
+        : this(
+            commandRunner,
+            installerService,
+            cliResolutionService,
+            SquadCliCommands.WorkspaceUpgradeDryRunSupported,
+            SquadCliCommands.WorkspaceUpgradeDryRunArguments,
+            SquadCliCommands.WorkspaceUpgradeDryRunUnsupportedMessage)
+    {
+    }
+
+    internal WorkspaceUpgradeService(
+        ISquadCommandRunner commandRunner,
+        SquadInstallerService installerService,
+        ISquadCliResolutionService cliResolutionService,
+        bool workspaceUpgradeDryRunSupported,
+        IReadOnlyList<string> workspaceUpgradeDryRunArguments,
+        string workspaceUpgradeDryRunUnsupportedMessage)
     {
         _commandRunner = commandRunner ?? throw new ArgumentNullException(nameof(commandRunner));
         _installerService = installerService ?? throw new ArgumentNullException(nameof(installerService));
         _cliResolutionService = cliResolutionService ?? throw new ArgumentNullException(nameof(cliResolutionService));
+        _workspaceUpgradeDryRunSupported = workspaceUpgradeDryRunSupported;
+        _workspaceUpgradeDryRunArguments = workspaceUpgradeDryRunArguments ?? throw new ArgumentNullException(nameof(workspaceUpgradeDryRunArguments));
+        _workspaceUpgradeDryRunUnsupportedMessage = string.IsNullOrWhiteSpace(workspaceUpgradeDryRunUnsupportedMessage)
+            ? "Workspace upgrade dry-run is not supported by the installed Squad CLI version."
+            : workspaceUpgradeDryRunUnsupportedMessage.Trim();
     }
 
     public async Task<WorkspaceUpgradeDryRunResult> DryRunAsync(ResolvedCliCandidate candidate, string workspaceDir)
@@ -47,8 +72,11 @@ internal sealed class WorkspaceUpgradeService : IWorkspaceUpgradeService
         if (!candidate.IsAvailable)
             return WorkspaceUpgradeDryRunResult.Failed(BuildCliUnavailableMessage(candidate));
 
+        if (!_workspaceUpgradeDryRunSupported || _workspaceUpgradeDryRunArguments.Count == 0)
+            return WorkspaceUpgradeDryRunResult.Failed(_workspaceUpgradeDryRunUnsupportedMessage);
+
         var result = await _commandRunner
-            .RunAsync(candidate, workspaceDir, "Dry Run Workspace Upgrade", SquadCliCommands.WorkspaceUpgradeDryRunArguments)
+            .RunAsync(candidate, workspaceDir, "Dry Run Workspace Upgrade", _workspaceUpgradeDryRunArguments)
             .ConfigureAwait(false);
 
         var parsed = ParseDryRunOutput(result.StandardOutput, result.StandardError);

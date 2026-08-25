@@ -44,13 +44,14 @@ internal static class SquadCliCommands {
     public static SquadCliCommandDefinition DiscoverSquads { get; } =
         new("node", $"\"{LocalCliEntryPath}\" discover", "Discover Squads");
 
-    // Verified from installed CLI help output:
-    // `npx @bradygaster/squad-cli@insider upgrade --help` (v0.12.0) exposes
-    // workspace-file dry-run as `upgrade --dry-run`.
-    public const string WorkspaceUpgradeDryRunFlag = "--dry-run";
+    // Verified from local installed CLI help output (v0.10.0):
+    // `node node_modules\@bradygaster\squad-cli\dist\cli-entry.js upgrade --help`
+    // shows no non-destructive workspace upgrade preview flag.
+    public const bool WorkspaceUpgradeDryRunSupported = false;
+    public const string WorkspaceUpgradeDryRunUnsupportedMessage =
+        "Workspace upgrade dry-run is not supported by the installed Squad CLI version. Use Apply Workspace Update to proceed directly.";
 
-    public static IReadOnlyList<string> WorkspaceUpgradeDryRunArguments { get; } =
-        ["upgrade", WorkspaceUpgradeDryRunFlag];
+    public static IReadOnlyList<string> WorkspaceUpgradeDryRunArguments { get; } = [];
 
     public static IReadOnlyList<string> WorkspaceUpgradeApplyArguments { get; } =
         ["upgrade"];
