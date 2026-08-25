@@ -45448,7 +45448,8 @@ public partial class MainWindow : Window
         return WorkspaceUpgradeVersionPolicy.ResolveDisplayVersion(
             _workspacePendingUpgradeState.IsPending,
             _workspacePendingUpgradeState.RecordedCliVersion,
-            _squadCliAdapter.SquadVersion);
+            _squadCliAdapter.SquadVersion,
+            _squadCliAdapter.LatestSquadVersion);
     }
 
     private async Task OpenWorkspaceUpgradeSummaryAsync()

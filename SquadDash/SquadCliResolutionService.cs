@@ -291,9 +291,7 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
 
     private async Task<string?> ProbeTargetVersionAsync()
     {
-        var target = await _processRunner
-            .RunAsync("npm", ["view", SquadPackageName, "version"], ProbeTimeout)
-            .ConfigureAwait(false);
+        var target = await RunNpmAsync(["view", SquadPackageName, "version"]).ConfigureAwait(false);
 
         return target.ExitCode == 0 && !target.TimedOut && TryParseSemVersion(target.Stdout, out _, out var parsed)
             ? parsed
@@ -302,9 +300,7 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
 
     private async Task<(string? Prefix, bool TimedOut)> ProbeNpmPrefixAsync()
     {
-        var result = await _processRunner
-            .RunAsync("npm", ["config", "get", "prefix"], ProbeTimeout)
-            .ConfigureAwait(false);
+        var result = await RunNpmAsync(["config", "get", "prefix"]).ConfigureAwait(false);
 
         if (result.TimedOut || result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.Stdout))
         {
@@ -313,6 +309,25 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
 
         var normalized = NormalizePath(result.Stdout.Trim());
         return (normalized, false);
+    }
+
+    private Task<CliInvocationResult> RunNpmAsync(string[] arguments)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var npmShimPath = FindExecutableOnPath(GetMergedPathEntries(), "npm.cmd");
+            if (!string.IsNullOrWhiteSpace(npmShimPath))
+            {
+                var command = string.Join(
+                    " ",
+                    new[] { npmShimPath }
+                        .Concat(arguments)
+                        .Select(CliCmdEscaping.CmdQuoteToken));
+                return _processRunner.RunAsync("cmd.exe", ["/d", "/s", "/c", command], ProbeTimeout);
+            }
+        }
+
+        return _processRunner.RunAsync("npm", arguments, ProbeTimeout);
     }
 
     private CliUpdateInstruction CreateUpdateInstruction(

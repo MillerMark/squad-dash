@@ -348,6 +348,40 @@ internal sealed class SquadCliResolutionServiceTests
     }
 
     [Test]
+    public async Task ResolveWithModeAsync_WorkspaceLocal_UsesWindowsNpmCmdShimForTargetProbe()
+    {
+        using var workspace = new TestWorkspace();
+        var nodeDir = workspace.GetPath("node tools");
+        Directory.CreateDirectory(nodeDir);
+        var npmShimPath = Path.Combine(nodeDir, "npm.cmd");
+        File.WriteAllText(npmShimPath, "@echo off");
+        var expectedCommand = string.Join(
+            " ",
+            new[] { npmShimPath, "view", "@bradygaster/squad-cli", "version" }
+                .Select(CliCmdEscaping.CmdQuoteToken));
+
+        var runner = new FakeProcessRunner((fileName, args, _) =>
+        {
+            if (fileName.Equals("cmd.exe", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["/d", "/s", "/c", expectedCommand]))
+            {
+                return new CliInvocationResult(0, "0.12.0", string.Empty, false);
+            }
+
+            throw new AssertionException($"Unexpected invocation: {fileName} {string.Join(" ", args)}");
+        });
+        var environment = new FakeEnvironmentProvider(
+            processPath: nodeDir,
+            userPath: null,
+            machinePath: null);
+
+        var service = new SquadCliResolutionService(runner, environment);
+        var resolved = await service.ResolveWithModeAsync(CliSelectionMode.WorkspaceLocal, workspace.RootPath);
+
+        Assert.That(resolved.UpdateInstruction.TargetVersion, Is.EqualTo("0.12.0"));
+    }
+
+    [Test]
     public async Task ResolveWithModeAsync_WorkspaceLocal_OlderInstalledVersionIsNotSupportedAndUsesSaveDevUpdate()
     {
         using var workspace = new TestWorkspace();

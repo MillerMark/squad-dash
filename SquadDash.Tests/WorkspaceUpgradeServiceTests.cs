@@ -9,7 +9,20 @@ internal sealed class WorkspaceUpgradeServiceTests
         var version = WorkspaceUpgradeVersionPolicy.ResolveDisplayVersion(
             isPending: true,
             recordedPendingVersion: "0.12.0",
-            activeCliVersion: "0.10.0");
+            activeCliVersion: "0.10.0",
+            latestAvailableVersion: null);
+
+        Assert.That(version, Is.EqualTo("0.12.0"));
+    }
+
+    [Test]
+    public void VersionPolicy_NewerAvailableVersionSupersedesStalePendingTarget()
+    {
+        var version = WorkspaceUpgradeVersionPolicy.ResolveDisplayVersion(
+            isPending: true,
+            recordedPendingVersion: "0.10.0",
+            activeCliVersion: "0.10.0",
+            latestAvailableVersion: "0.12.0");
 
         Assert.That(version, Is.EqualTo("0.12.0"));
     }

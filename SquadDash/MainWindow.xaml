@@ -3770,15 +3770,27 @@
                        PreviewMouseMove="TitleBarLabel_PreviewMouseMove"
                        PreviewMouseLeftButtonUp="TitleBarLabel_PreviewMouseLeftButtonUp"
                        shell:WindowChrome.IsHitTestVisibleInChrome="True" />
-            <TextBlock x:Name="SquadUpdateBadge"
-                       Margin="5,0,0,0"
-                       FontSize="{DynamicResource FontSizeBody}"
-                       Cursor="Hand"
-                       Visibility="Collapsed"
-                       Foreground="{DynamicResource AgentTaskStartText}"
-                       MouseLeftButtonUp="SquadUpdateBadge_MouseLeftButtonUp"
-                       shell:WindowChrome.IsHitTestVisibleInChrome="True"
-                       Text="↑" />
+            <Viewbox x:Name="SquadUpdateBadge"
+                     Margin="5,0,0,0"
+                     Height="{DynamicResource FontSizeBody}"
+                     Cursor="Hand"
+                     Visibility="Collapsed"
+                     MouseLeftButtonUp="SquadUpdateBadge_MouseLeftButtonUp"
+                     shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                     Stretch="Uniform">
+                <Canvas Width="1636" Height="2190">
+                    <Canvas>
+                        <Canvas.Clip>
+                            <RectangleGeometry Rect="10,6,1614,2178" />
+                        </Canvas.Clip>
+                        <Path Fill="{DynamicResource AgentTaskStartText}">
+                            <Path.Data>
+                                <PathGeometry Figures="M819.375,7.5L1597.375,1173.75 1606.125,1187.125C1624.625,1215.875,1628.5,1238.75,1612.625,1262C1596.625,1285.375,1566,1294.625,1530,1294.625L1526.875,1294.75 1152.125,1295.5 1152.125,2131.5C1152.125,2159.75,1129.25,2182.5,1101,2182.5L532.125,2182.5C503.875,2182.5,481,2159.75,481,2131.5L481,1296.625 87.25,1297.25 84.25,1297.125C53.75,1294.875,32.875,1285.625,19.375,1265.125C7.875,1247.5,8.25,1227.625,16.875,1207.375L20.75,1199.5z" />
+                            </Path.Data>
+                        </Path>
+                    </Canvas>
+                </Canvas>
+            </Viewbox>
             <Viewbox x:Name="WorkspaceUpgradePendingBadge"
                      Margin="5,0,0,0"
                      Height="{DynamicResource FontSizeBody}"
