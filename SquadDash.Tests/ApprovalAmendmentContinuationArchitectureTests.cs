@@ -46,10 +46,44 @@ internal sealed class ApprovalAmendmentContinuationArchitectureTests
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
 
         Assert.That(source, Does.Contain(
-            "durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing && onResumePlan is not null"));
+            "durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing &&")
+            .And.Contain("!planRunnerActive && onResumePlan is not null"));
+        Assert.That(source, Does.Contain("\"Resume Plan\","));
         Assert.That(source, Does.Contain("\"Resume this executing plan because it currently has no active runner.\""));
+        Assert.That(source, Does.Contain("!planRunnerActive && onResumePlan is not null"));
+        Assert.That(source, Does.Contain("planRunnerActive && onPausePlan is not null"));
         Assert.That(source, Does.Not.Contain("amendmentPending ? \"Resume Amendment\" : \"Resume\""));
         Assert.That(source, Does.Contain("safeResume ? \"Resume Plan\" : \"Resume Plan Anyway…\""));
+    }
+
+    [Test]
+    public void RestartedTerminalRepair_IsReclaimedBeforeNewWorkPreflight()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var start = source.IndexOf(
+            "private async Task<bool> StartDecomposeLoopAsync(",
+            StringComparison.Ordinal);
+        var end = source.IndexOf(
+            "private void TryStartDecomposeGroupFromResponse(",
+            start,
+            StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0));
+        Assert.That(end, Is.GreaterThan(start));
+        var method = source[start..end];
+        var replayDecision = method.IndexOf(
+            "PlanRepairReplayPolicy.ShouldReplayBeforeMutationPreflight(",
+            StringComparison.Ordinal);
+        var preflight = method.IndexOf(
+            "await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath, groupId);",
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(replayDecision, Is.GreaterThanOrEqualTo(0));
+            Assert.That(preflight, Is.GreaterThan(replayDecision));
+            Assert.That(method, Does.Contain("if (!isConfirmedContinuation && !replayPendingResult)"));
+            Assert.That(source, Does.Contain("skipWorktreePreflight: replayingPendingResult"));
+        });
     }
 
     private static string FindRepoFile(params string[] pathParts)

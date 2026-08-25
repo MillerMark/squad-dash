@@ -139,6 +139,67 @@ internal sealed class PendingRepairResultTests
             reloaded, "group-1", "rev-abc", "task-1", capturedResult: null), Is.True);
     }
 
+    [Test]
+    public void TwoRestarts_CompletedRepairResult_ReplaysBeforeDirtyWorktreePreflight()
+    {
+        // First restart: the original coordinator handoff is awaiting its required generic
+        // primary. The repair turn then launches that worker and captures a valid result.
+        var awaitingRepair = CreateExecution();
+        var afterFirstRestart = JsonSerializer.Deserialize<ActiveLoopExecutionState>(
+            JsonSerializer.Serialize(awaitingRepair))!;
+        var completedAttempt = afterFirstRestart.PlanExecutionAttempt! with
+        {
+            AllowsGenericPrimary = true,
+            GenericPrimaryToolCallId = "tool-amd-001-verify",
+            GenericCompletedAt = DateTimeOffset.UtcNow,
+            GenericSucceeded = true,
+        };
+        var repairedResult = CreateValidResult(attemptId: completedAttempt.AttemptId);
+        var captured = afterFirstRestart with
+        {
+            PlanExecutionAttempt = completedAttempt,
+            PendingRepairResult = CreatePending(
+                attemptId: completedAttempt.AttemptId,
+                result: repairedResult),
+        };
+
+        // Second restart: startup must consume the completed result before asking whether the
+        // worktree is clean enough to begin new mutating work.
+        var afterSecondRestart = JsonSerializer.Deserialize<ActiveLoopExecutionState>(
+            JsonSerializer.Serialize(captured));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRepairReplayPolicy.ShouldReplayBeforeMutationPreflight(
+                afterSecondRestart, "group-1", "rev-abc"), Is.True);
+            Assert.That(PlanRepairReplayPolicy.ShouldFinalizeWithoutDispatch(
+                afterSecondRestart, "group-1", "rev-abc", "task-1"), Is.True);
+        });
+    }
+
+    [TestCase("other-group", "rev-abc")]
+    [TestCase("group-1", "other-revision")]
+    public void RestartReplay_DoesNotBypassPreflightForStaleScope(
+        string planId,
+        string expectedRevision)
+    {
+        var execution = CreateExecution(pendingResult: CreatePending(
+            result: CreateValidResult(attemptId: "attempt-1")));
+
+        Assert.That(PlanRepairReplayPolicy.ShouldReplayBeforeMutationPreflight(
+            execution, planId, expectedRevision), Is.False);
+    }
+
+    [Test]
+    public void RestartReplay_DoesNotBypassPreflightForMalformedResult()
+    {
+        var execution = CreateExecution(pendingResult: new PendingRepairResult(
+            "group-1", "rev-abc", "task-1", "attempt-1", "{ malformed", null));
+
+        Assert.That(PlanRepairReplayPolicy.ShouldReplayBeforeMutationPreflight(
+            execution, "group-1", "rev-abc"), Is.False);
+    }
+
     [TestCase("other-group", "rev-abc", "task-1", "attempt-1")]
     [TestCase("group-1", "other-revision", "task-1", "attempt-1")]
     [TestCase("group-1", "rev-abc", "other-task", "attempt-1")]

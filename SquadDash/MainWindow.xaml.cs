@@ -9106,8 +9106,18 @@ public partial class MainWindow : Window
         }
         var isConfirmedContinuation = !string.IsNullOrWhiteSpace(continuationTaskId) &&
                                       continuationPaths is { Count: > 0 };
-        if (!isConfirmedContinuation)
+        var priorExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var replayPendingResult = PlanRepairReplayPolicy.ShouldReplayBeforeMutationPreflight(
+            priorExecution,
+            groupId,
+            expectedRevision);
+        if (!isConfirmedContinuation && !replayPendingResult)
             await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath, groupId);
+        else if (replayPendingResult)
+            SquadDashTrace.Write(
+                "PlanRepair",
+                $"Reclaiming persisted terminal result before mutation preflight plan={groupId} " +
+                $"task={priorExecution!.RecoveryTaskId} revision={priorExecution.DecomposeRevision}.");
 
         var loopPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop-executing-plan.md");
         LoopMdConfig? config = File.Exists(loopPath) ? LoopMdParser.Parse(loopPath) : null;
@@ -9200,19 +9210,26 @@ public partial class MainWindow : Window
             Outcome: null));
         _decomposeContinuationTaskId = isConfirmedContinuation ? continuationTaskId : null;
         _decomposeContinuationPaths = isConfirmedContinuation ? [.. continuationPaths!] : [];
-        var priorExecution = _conversationManager.ConversationState.ActiveLoopExecution;
         var branchHead = (await RunGitAsync(
             _currentWorkspace.FolderPath,
             "rev-parse HEAD")).Trim();
         var executionBranch = executionGroup?.Branch?.Trim();
         if (string.IsNullOrWhiteSpace(executionBranch))
             throw new InvalidOperationException($"Plan {groupId} has no canonical branch.");
-        var branchLease = new PlanBranchLease(
-            groupId,
-            revision,
-            executionBranch,
-            branchHead,
-            DateTimeOffset.UtcNow);
+        var branchLease = replayPendingResult &&
+                          priorExecution?.BranchLease is { } persistedLease &&
+                          string.Equals(persistedLease.PlanId, groupId, StringComparison.Ordinal) &&
+                          string.Equals(persistedLease.Revision, revision, StringComparison.Ordinal) &&
+                          string.Equals(persistedLease.CanonicalBranch, executionBranch, StringComparison.Ordinal)
+            ? persistedLease
+            : new PlanBranchLease(
+                groupId,
+                revision,
+                executionBranch,
+                branchHead,
+                DateTimeOffset.UtcNow);
+        if (replayPendingResult)
+            _decomposeIterationBaselineCommit = priorExecution?.TaskBaselineCommit ?? branchLease.BaselineCommit;
         _conversationManager.UpdateActiveLoopExecutionState(
             PlanExecutionResumeEnvelope.Create(
                 loopPath,
@@ -13333,6 +13350,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        var replayingPendingResult = false;
         // Fall back to the persisted pending repair result if in-memory fields are empty (e.g., after restart).
         if (result is null && error is null && activeExecution.PendingRepairResult is { } pending)
         {
@@ -13355,6 +13373,9 @@ public partial class MainWindow : Window
                 {
                     error = pending.ErrorText;
                 }
+                replayingPendingResult = true;
+                _decomposeIterationBaselineCommit =
+                    activeExecution.TaskBaselineCommit ?? activeExecution.BranchLease?.BaselineCommit;
                 SquadDashTrace.Write("PlanRepair", $"Replaying persisted repair result for task={taskId} group={groupId}.");
             }
             else
@@ -13479,7 +13500,9 @@ public partial class MainWindow : Window
             var commitValidation = await ValidateDecomposeStepCommitAsync(
                 result,
                 verificationOnly,
-                transcriptCommit: _capturedDecomposeTranscriptCommit);
+                baselineOverride: activeExecution.TaskBaselineCommit,
+                transcriptCommit: _capturedDecomposeTranscriptCommit,
+                skipWorktreePreflight: replayingPendingResult);
             if (commitValidation.Error is null &&
                 !string.IsNullOrWhiteSpace(commitValidation.EffectiveCommit) &&
                 !string.IsNullOrWhiteSpace(_decomposeIterationBaselineCommit))
@@ -14603,7 +14626,8 @@ public partial class MainWindow : Window
         DecomposeStepResult result,
         bool verificationOnly,
         string? baselineOverride = null,
-        string? transcriptCommit = null)
+        string? transcriptCommit = null,
+        bool skipWorktreePreflight = false)
     {
         if (_currentWorkspace is null) return ("No workspace is active.", null, [], []);
         if (string.IsNullOrWhiteSpace(result.Commit) ||
@@ -14727,7 +14751,8 @@ public partial class MainWindow : Window
                     StringComparison.OrdinalIgnoreCase)))
                 return ("The AI commit modified tasks.md; plan status is owned by SquadDash.", null, [], []);
 
-            await EnsurePlanWorktreeReadyAsync(workspace);
+            if (!skipWorktreePreflight)
+                await EnsurePlanWorktreeReadyAsync(workspace);
             return (null, verificationOnly ? head : resolved, commits, anomalies);
         }
         catch (Exception ex)

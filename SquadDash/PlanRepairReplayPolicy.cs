@@ -109,6 +109,33 @@ internal static class PlanRepairReplayPolicy
     }
 
     /// <summary>
+    /// A repaired implementation result that was captured before restart is already completed
+    /// work. Reclaiming it must reach host finalization before the clean-worktree preflight that
+    /// protects new mutating work; otherwise unrelated dirty files can strand a valid handoff.
+    /// The normal finalizer remains responsible for assignment, proof, branch, and commit checks.
+    /// </summary>
+    internal static bool ShouldReplayBeforeMutationPreflight(
+        ActiveLoopExecutionState? execution,
+        string planId,
+        string? expectedRevision)
+    {
+        if (execution is null ||
+            string.IsNullOrWhiteSpace(execution.DecomposeRevision) ||
+            string.IsNullOrWhiteSpace(execution.RecoveryTaskId) ||
+            !string.Equals(execution.DecomposeGroupId, planId, StringComparison.Ordinal) ||
+            (!string.IsNullOrWhiteSpace(expectedRevision) &&
+             !string.Equals(execution.DecomposeRevision, expectedRevision, StringComparison.Ordinal)))
+            return false;
+
+        return HasMatchingTerminalResult(
+            execution,
+            planId,
+            execution.DecomposeRevision,
+            execution.RecoveryTaskId,
+            capturedResult: null);
+    }
+
+    /// <summary>
     /// A stop request means "finish this iteration, then stop". Once the coordinator has
     /// returned a valid terminal result for the active task, host finalization must still run;
     /// otherwise a simultaneous stop/restart can discard a successful handoff. Identity is

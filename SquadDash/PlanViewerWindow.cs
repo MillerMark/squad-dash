@@ -57,6 +57,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string, IReadOnlyList<PlanHumanReviewChecklistItem>>? _onAddressUncheckedItems;
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
+    private readonly Func<Plan, bool>? _isPlanRunnerActive;
     private readonly Func<string, bool>? _isRecoveryAssessmentActive;
     private readonly Func<string, PlanTaskCorrectionActivityState>? _resolveTaskCorrectionActivity;
     private readonly Func<string, bool>? _isApprovalChangeActivityActive;
@@ -202,6 +203,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<string>? onOpenCommit = null,
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
         Func<string, bool>? isTaskActivityActive = null,
+        Func<Plan, bool>? isPlanRunnerActive = null,
         Func<string, bool>? isRecoveryAssessmentActive = null,
         Func<string, PlanTaskCorrectionActivityState>? resolveTaskCorrectionActivity = null,
         Func<string, bool>? isApprovalChangeActivityActive = null,
@@ -258,6 +260,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onAddressUncheckedItems = onAddressUncheckedItems;
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
+        _isPlanRunnerActive = isPlanRunnerActive;
         _isRecoveryAssessmentActive = isRecoveryAssessmentActive;
         _resolveTaskCorrectionActivity = resolveTaskCorrectionActivity;
         _isApprovalChangeActivityActive = isApprovalChangeActivityActive;
@@ -470,6 +473,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var onStartPlan        = _onStartPlan;
         var onResumePlan       = _onResumePlan;
         var onPausePlan        = _onPausePlan;
+        var planRunnerActive   = durablePlan is not null &&
+                                 (_isPlanRunnerActive?.Invoke(durablePlan) ?? true);
         var onAdoptVerifiedCommitRange = _onAdoptVerifiedCommitRange;
         var onEndPlan          = _onEndPlan;
         var onContinueInterruptedTask = _onContinueInterruptedTask;
@@ -533,19 +538,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 AddPrimaryButton("Start", "Begin executing this approved plan.",
                     () => { onStartPlan(durablePlan); Close(); });
             }
-            else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing && onPausePlan is not null)
+            else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing &&
+                     planRunnerActive && onPausePlan is not null)
             {
                 AddPrimaryButton("Pause", "Pause safely after the currently accepted step; no new step will start.",
                     () => onPausePlan(durablePlan));
             }
-            else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing && onResumePlan is not null)
+            else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing &&
+                     !planRunnerActive && onResumePlan is not null)
             {
                 AddPrimaryButton(
-                    "Resume",
+                    "Resume Plan",
                     "Resume this executing plan because it currently has no active runner.",
                     () => onResumePlan(durablePlan));
             }
             else if ((durablePlan.LifecycleStatus is PlanLifecycleStatus.AwaitingApproval or PlanLifecycleStatus.Interrupted) &&
+                     !PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan) &&
                      onPausePlan is not null)
             {
                 var awaitingHumanReview = durablePlan.Tasks.Any(task =>
