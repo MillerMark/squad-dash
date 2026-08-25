@@ -29,6 +29,35 @@ internal sealed class PlanGateVisualizationPolicyTests
             isLeaf, hasFinalValidationBoundary, hasTaskExitGate);
 
     [Test]
+    public void AmendmentTerminalGate_KeepsMovedLeafAnchorPrimaryAndFullyOpaque()
+    {
+        PlanTask[] tasks =
+        [
+            Task("STEP-5"),
+            Task("STEP-5A", "STEP-5"),
+        ];
+        var gate = new PlanApprovalGate(
+            "GATE", "Review amended work", ["STEP-5", "STEP-5A"], [], PlanGateStatus.Pending,
+            PresentationAnchor: "task-after:STEP-5A");
+        var levels = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["STEP-5"] = 0,
+            ["STEP-5A"] = 1,
+        };
+
+        var anchor = PlanApprovalPresentationAnchorResolver.Resolve(gate, tasks, levels);
+        var opacity = PlanGateVisualizationPolicy.ApprovalControlOpacity(
+            engaged: true,
+            isPrimary: string.Equals(anchor, "task-after:STEP-5A", StringComparison.Ordinal));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(anchor, Is.EqualTo("task-after:STEP-5A"));
+            Assert.That(opacity, Is.EqualTo(1.0));
+        });
+    }
+
+    [Test]
     public void DownstreamTaskIds_PropagatesThroughEveryFollowingTask()
     {
         PlanTask[] tasks = [Task("A"), Task("B", "A"), Task("C", "B"), Task("D", "C")];

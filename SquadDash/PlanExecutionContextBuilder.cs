@@ -13,6 +13,13 @@ internal static class PlanExecutionContextBuilder
         builder.AppendLine($"Plan: **{plan.Title}** (`{plan.PlanId}`)");
         builder.AppendLine($"Guiding intent: {plan.Summary}");
         builder.AppendLine();
+        builder.AppendLine("### Authoritative result identity for this turn");
+        builder.AppendLine($"Current plan revision: `{plan.Revision}`");
+        builder.AppendLine("Use these exact identity fields in the final DECOMPOSE_STEP_RESULT_JSON:");
+        builder.AppendLine($"`{{\"groupId\":\"{plan.PlanId}\",\"taskId\":\"{currentTask.TaskId}\",\"revision\":\"{plan.Revision}\"}}`");
+        builder.AppendLine("Do not copy a revision from earlier conversation, review, amendment, or tasks.md context. " +
+                           "The current revision above is host-owned and supersedes every older value.");
+        builder.AppendLine();
         builder.AppendLine("### Host-owned Git branch lease");
         builder.AppendLine($"Canonical branch: `{plan.Branch}`");
         builder.AppendLine("SquadDash has already prepared and checked out this exact branch. Do not create, checkout, " +

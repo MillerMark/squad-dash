@@ -87,9 +87,14 @@ internal static class PlanApprovalPresentationAnchorResolver
                 .Where(candidate => candidate.DependsOn.Contains(task.TaskId, StringComparer.Ordinal))
                 .Select(candidate => candidate.TaskId)
                 .ToArray();
-            if (directDependents.Length > 0 &&
-                PlanGateVisualizationPolicy.CompletelyCovers(
-                    tasks, gate, [task.TaskId], directDependents))
+            var isEquivalentTerminalExit = directDependents.Length == 0 &&
+                gate.BeforeTaskIds.Count == 0 &&
+                PlanGateVisualizationPolicy.GraphEquivalent(
+                    tasks, gate.AfterTaskIds, gate.BeforeTaskIds, [task.TaskId], []);
+            if (isEquivalentTerminalExit ||
+                (directDependents.Length > 0 &&
+                 PlanGateVisualizationPolicy.CompletelyCovers(
+                     tasks, gate, [task.TaskId], directDependents)))
                 AddCandidate($"task-after:{task.TaskId}");
         }
 

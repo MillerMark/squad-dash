@@ -37,6 +37,9 @@ internal sealed class PlanTaskVerificationTests
         Assert.That(text, Does.Contain("src/Source.cs"));
         Assert.That(text, Does.Contain("Wire consumer"));
         Assert.That(text, Does.Contain("Canonical branch: `feature/test`"));
+        Assert.That(text, Does.Contain("Current plan revision: `rev`"));
+        Assert.That(text, Does.Contain("{\"groupId\":\"P\",\"taskId\":\"P-2\",\"revision\":\"rev\"}"));
+        Assert.That(text, Does.Contain("supersedes every older value"));
         Assert.That(text, Does.Contain("Do not create, checkout, switch, rename, or delete any Git branch"));
         Assert.That(text.IndexOf("Created the production source and exposed its contract", StringComparison.Ordinal),
             Is.LessThan(text.IndexOf("### Current task contract", StringComparison.Ordinal)));

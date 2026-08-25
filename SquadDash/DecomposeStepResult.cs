@@ -141,3 +141,47 @@ internal static class DecomposeStepResultParser
         return true;
     }
 }
+
+/// <summary>
+/// Validates model-supplied result identity against the host-owned execution envelope. These
+/// fields remain explicit protocol data: the host reports every mismatch for one bounded repair
+/// instead of silently rewriting the response or revealing defects one at a time.
+/// </summary>
+internal static class DecomposeStepResultContractDiagnostics
+{
+    internal static IReadOnlyList<string> ValidateIdentity(
+        DecomposeStepResult result,
+        string expectedGroupId,
+        string expectedTaskId,
+        string expectedRevision)
+    {
+        var diagnostics = new List<string>();
+        if (!string.Equals(result.GroupId, expectedGroupId, StringComparison.Ordinal))
+            diagnostics.Add(
+                $"The result used groupId '{result.GroupId}', but the active plan is '{expectedGroupId}'.");
+        if (!string.Equals(result.TaskId, expectedTaskId, StringComparison.Ordinal))
+            diagnostics.Add(
+                $"The result used taskId '{result.TaskId}', but the assigned task is '{expectedTaskId}'.");
+        if (!string.Equals(result.Revision, expectedRevision, StringComparison.Ordinal))
+            diagnostics.Add(
+                $"The result used revision '{result.Revision}', but the authoritative current plan revision is " +
+                $"'{expectedRevision}'. Return \"revision\":\"{expectedRevision}\" for this execution attempt.");
+        return diagnostics;
+    }
+
+    internal static string? Combine(IEnumerable<string?> diagnostics)
+    {
+        var all = diagnostics
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        return all.Length switch
+        {
+            0 => null,
+            1 => all[0],
+            _ => $"The result envelope has {all.Length} independent validation problems:\n- " +
+                 string.Join("\n- ", all),
+        };
+    }
+}

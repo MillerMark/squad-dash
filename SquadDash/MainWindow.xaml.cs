@@ -13444,19 +13444,19 @@ public partial class MainWindow : Window
                     result?.ExecutionAttemptId,
                     result?.AgentExecutions);
         }
-        if (assignmentError is not null)
-            error = assignmentError;
-        else
+        if (assignmentError is null)
         {
             foreach (var advisory in PlanAgentAssignmentValidator.GetAdvisories(expectedAssignments, executionAttempt))
                 SquadDashTrace.Write("PlanRouting", $"Plan {groupId} task {taskId}: {advisory}");
         }
 
-        if (result is not null && !string.Equals(result.GroupId, groupId, StringComparison.Ordinal))
-            error = $"The result was for group {result.GroupId}, but SquadDash is executing {groupId}.";
-
-        if (error is null && result is not null && persistedTask is not null)
-            error = PlanStepProofPolicy.Validate(persistedTask, result);
+        var resultDiagnostics = new List<string?> { error, assignmentError };
+        if (result is not null)
+            resultDiagnostics.AddRange(DecomposeStepResultContractDiagnostics.ValidateIdentity(
+                result, groupId, taskId, revision));
+        if (result is not null && persistedTask is not null)
+            resultDiagnostics.Add(PlanStepProofPolicy.Validate(persistedTask, result));
+        error = DecomposeStepResultContractDiagnostics.Combine(resultDiagnostics);
 
         if (canonicalPlan is not null)
         {
@@ -13479,7 +13479,8 @@ public partial class MainWindow : Window
                 if (!branchEnforcement.CanContinue)
                 {
                     branchLeaseFailure = true;
-                    error = branchEnforcement.Message;
+                    error = DecomposeStepResultContractDiagnostics.Combine(
+                        [error, branchEnforcement.Message]);
                 }
                 else if (branchEnforcement.Repaired)
                 {

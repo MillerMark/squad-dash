@@ -221,7 +221,12 @@ public class DecomposeEnvelopeRepairTests
     public void RepairPrompt_ContainsRevision()
     {
         var prompt = DecomposeEnvelopeRepairPrompt.Build("g1", "t1", "my-revision", "test reason");
-        Assert.That(prompt, Does.Contain("my-revision"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("my-revision"));
+            Assert.That(prompt, Does.Contain("authoritative current revision `my-revision`"));
+            Assert.That(prompt, Does.Contain("Do not reuse a revision from earlier conversation or review context"));
+        });
     }
 
     [Test]

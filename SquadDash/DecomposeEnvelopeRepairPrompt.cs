@@ -21,6 +21,9 @@ internal static class DecomposeEnvelopeRepairPrompt
 
             Correct the validation error and provide ONLY the result envelope now, based on the work you just completed. {{correctionInstruction}}
 
+            Authoritative identity for this execution attempt: groupId `{{groupId}}`, taskId `{{taskId}}`, revision `{{revision}}`.
+            If your previous response used another revision, did you mean the authoritative current revision `{{revision}}` for the work just completed? If so, use that exact value below. Do not reuse a revision from earlier conversation or review context, and do not change other valid result content merely because this identity metadata is being corrected.
+
             Required format:
             DECOMPOSE_STEP_RESULT_JSON:
             {

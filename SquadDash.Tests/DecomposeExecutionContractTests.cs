@@ -73,6 +73,27 @@ internal sealed class DecomposeStepResultParserTests
         Assert.That(DecomposeStepResultParser.TryParse(text, out _, out var error), Is.False);
         Assert.That(error, Does.Contain("remaining work"));
     }
+
+    [Test]
+    public void IdentityValidation_ReportsEveryMismatchIncludingAuthoritativeRevision()
+    {
+        var result = new DecomposeStepResult(
+            "OLD-PLAN", "OLD-TASK", "old-revision", "complete", "abcdef1", "Done", [],
+            new DecomposeStepVerification("passed", "dotnet test", "Passed"));
+
+        var diagnostics = DecomposeStepResultContractDiagnostics.ValidateIdentity(
+            result, "CURRENT-PLAN", "CURRENT-TASK", "current-revision");
+        var combined = DecomposeStepResultContractDiagnostics.Combine(diagnostics);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostics, Has.Count.EqualTo(3));
+            Assert.That(combined, Does.Contain("OLD-PLAN").And.Contain("CURRENT-PLAN"));
+            Assert.That(combined, Does.Contain("OLD-TASK").And.Contain("CURRENT-TASK"));
+            Assert.That(combined, Does.Contain("old-revision").And.Contain("current-revision"));
+            Assert.That(combined, Does.Contain("3 independent validation problems"));
+        });
+    }
 }
 
 [TestFixture]
