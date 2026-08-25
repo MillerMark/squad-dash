@@ -519,8 +519,6 @@ internal static class TasksJsonParser
                 }
             }
         }
-
-
         // A completion audit is optional: task-level proof and deterministic checks may already
         // establish the plan. When an audit is authored, keep its frontier exact so it cannot
         // silently omit a completion leaf or block downstream work.
@@ -986,6 +984,11 @@ internal static class TasksJsonParser
                 Add("validation-dependency-cycle",
                     $"validation '{validation.ValidationId}' creates a dependency cycle");
         }
+
+        foreach (var finding in HumanVerificationReadinessPolicy.Evaluate(parsed).Where(finding =>
+                     string.Equals(finding.Severity, "error", StringComparison.Ordinal)))
+            Add("invalid-human-verification-access",
+                $"{finding.TargetId}/{finding.RequirementId}: {finding.Message}");
 
         return diagnostics;
     }

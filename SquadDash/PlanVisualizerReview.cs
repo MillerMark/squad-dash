@@ -22,7 +22,19 @@ internal sealed record PlanVisualizerReviewPayload(
     [property: JsonPropertyName("groupId")] string GroupId,
     [property: JsonPropertyName("baseRevision")] string BaseRevision,
     [property: JsonPropertyName("summary")] string Summary,
-    [property: JsonPropertyName("annotations")] IReadOnlyList<PlanVisualizerReviewAnnotation> Annotations);
+    [property: JsonPropertyName("annotations")] IReadOnlyList<PlanVisualizerReviewAnnotation> Annotations,
+    [property: JsonPropertyName("status")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Status = null,
+    [property: JsonPropertyName("humanVerificationFindings")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<PlanHumanVerificationReviewFinding>? HumanVerificationFindings = null);
+
+internal sealed record PlanHumanVerificationReviewFinding(
+    [property: JsonPropertyName("gateId")] string GateId,
+    [property: JsonPropertyName("requirementId")] string RequirementId,
+    [property: JsonPropertyName("severity")] string Severity,
+    [property: JsonPropertyName("issue")] string Issue,
+    [property: JsonPropertyName("recommendation")] string Recommendation);
 
 internal static class PlanVisualizerReviewParser
 {
@@ -92,11 +104,39 @@ internal static class PlanVisualizerReviewParser
             payload = null;
             return false;
         }
+        var readinessStatus = string.IsNullOrWhiteSpace(payload.Status)
+            ? "ready"
+            : payload.Status.Trim().ToLowerInvariant();
+        if (readinessStatus is not ("ready" or "ready-with-warnings" or "revision-required"))
+        {
+            error = "AI review status must be ready, ready-with-warnings, or revision-required.";
+            payload = null;
+            return false;
+        }
+        if ((payload.HumanVerificationFindings ?? []).Any(finding =>
+                string.IsNullOrWhiteSpace(finding.GateId) ||
+                string.IsNullOrWhiteSpace(finding.RequirementId) ||
+                string.IsNullOrWhiteSpace(finding.Issue) ||
+                string.IsNullOrWhiteSpace(finding.Recommendation)))
+        {
+            error = "Each human-verification finding requires gateId, requirementId, issue, and recommendation.";
+            payload = null;
+            return false;
+        }
         payload = payload with
         {
             GroupId = payload.GroupId.Trim(),
             BaseRevision = payload.BaseRevision.Trim(),
             Summary = payload.Summary?.Trim() ?? string.Empty,
+            Status = readinessStatus,
+            HumanVerificationFindings = (payload.HumanVerificationFindings ?? []).Select(finding => finding with
+            {
+                GateId = finding.GateId.Trim(),
+                RequirementId = finding.RequirementId.Trim(),
+                Severity = string.IsNullOrWhiteSpace(finding.Severity) ? "warning" : finding.Severity.Trim().ToLowerInvariant(),
+                Issue = finding.Issue.Trim(),
+                Recommendation = finding.Recommendation.Trim(),
+            }).ToArray(),
             Annotations = payload.Annotations.Select(annotation => annotation with
             {
                 TargetKind = annotation.TargetKind.Trim().ToLowerInvariant(),
@@ -128,7 +168,8 @@ internal static class PlanVisualizerReviewParser
 
     internal static string BuildPrompt(PendingDecomposePlan plan) => $$"""
         Review the currently staged plan for correctness, internal consistency, feasibility,
-        missing validation coverage, stale duplicated facts, and unsafe implementation assumptions.
+        missing validation coverage, stale duplicated facts, unsafe implementation assumptions,
+        and whether every human-review item has a plausible, safe, understandable observation path.
         This is a review only. Do not revise or implement the plan.
 
         Read the revision-locked outline first:
@@ -145,7 +186,17 @@ internal static class PlanVisualizerReviewParser
         {
           "groupId": "{{plan.Group.GroupId}}",
           "baseRevision": "{{plan.Revision}}",
+          "status": "ready | ready-with-warnings | revision-required",
           "summary": "one short overall assessment",
+          "humanVerificationFindings": [
+            {
+              "gateId": "canonical gate ID",
+              "requirementId": "canonical proof requirement ID",
+              "severity": "warning | error",
+              "issue": "specific access, setup, feasibility, or cleanup problem",
+              "recommendation": "specific correction"
+            }
+          ],
           "annotations": [
             {
               "targetKind": "task | validation | gate | plan",
@@ -168,6 +219,14 @@ internal static class PlanVisualizerReviewParser
         when necessary. A remove operation's actionLabel should be "Delete". The host validates every
         operation and lets the user apply suggestions individually; never combine several changes in
         one annotation.
+
+        For human verification, assess whether the declared recipe plausibly reaches the requested
+        state, depends on UI/data that exists by that boundary, and has safe setup and cleanup.
+        Treat Setup, Open, Observe, and Cleanup as the four human-facing recipe fields.
+        Never infer a fixture from prose: accept fixture ownership only when fixtureTaskId and
+        fixtureOutputId explicitly reference an upstream task output. Use ready-with-warnings for
+        incomplete but potentially executable review guidance. Use revision-required only for an
+        impossible, unsafe, circular, or structurally invalid review path.
         """;
 
     private static bool TryFindObjectEnd(string text, int start, out int end)

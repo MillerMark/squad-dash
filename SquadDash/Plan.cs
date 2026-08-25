@@ -130,7 +130,19 @@ internal sealed record PlanTaskProofRequirement(
     [property: JsonPropertyName("description")] string Description,
     [property: JsonPropertyName("question")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? Question = null);
+                                                string? Question = null,
+    [property: JsonPropertyName("accessMode")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? AccessMode = null,
+    [property: JsonPropertyName("verificationRecipe")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                HumanVerificationRecipe? VerificationRecipe = null,
+    [property: JsonPropertyName("fixtureTaskId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? FixtureTaskId = null,
+    [property: JsonPropertyName("fixtureOutputId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? FixtureOutputId = null);
 
 internal sealed record PlanTaskProofEvidence(
     [property: JsonPropertyName("requirementId")] string RequirementId,

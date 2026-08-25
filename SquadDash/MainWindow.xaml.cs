@@ -12036,6 +12036,22 @@ public partial class MainWindow : Window
             return true;
         }
 
+        var invalidHumanFinding = (review.HumanVerificationFindings ?? []).FirstOrDefault(finding =>
+        {
+            var gate = (pending.Group.ApprovalGates ?? []).FirstOrDefault(candidate =>
+                string.Equals(candidate.GateId, finding.GateId, StringComparison.Ordinal));
+            return gate is null || !(gate.ProofRequirements ?? []).Any(requirement =>
+                string.Equals(requirement.RequirementId, finding.RequirementId, StringComparison.Ordinal));
+        });
+        if (invalidHumanFinding is not null)
+        {
+            NotifyReviewFailure(
+                $"The AI review referenced unknown human-verification requirement " +
+                $"'{invalidHumanFinding.GateId}/{invalidHumanFinding.RequirementId}' and was not attached.",
+                review.GroupId);
+            return true;
+        }
+
         new PlanVisualizerReviewStore(_currentWorkspace.SquadFolderPath).Save(review);
         foreach (var entry in _openPlanViewerWindows.Where(entry =>
                      string.Equals(entry.GroupId, review.GroupId, StringComparison.Ordinal) &&
@@ -12051,6 +12067,67 @@ public partial class MainWindow : Window
                          string.Equals(entry.GroupId, targetGroupId, StringComparison.Ordinal)))
                 entry.Window.SetReviewRequestError(message);
         }
+    }
+
+    private void OpenReviewCard(Plan displayedPlan, string taskId)
+    {
+        var current = _planStore?.Load(displayedPlan.PlanId) ?? displayedPlan;
+        var identity = new DecomposeRecoveryTag(current.PlanId, current.Revision, taskId);
+
+        Border? FindCard(bool requireLiveActions)
+        {
+            var sections = CoordinatorThread.Document.Blocks
+                .OfType<Section>()
+                .Where(candidate =>
+                    candidate.Tag is DecomposeRecoveryTag tag &&
+                    string.Equals(tag.GroupId, identity.GroupId, StringComparison.Ordinal) &&
+                    string.Equals(tag.Revision, identity.Revision, StringComparison.Ordinal) &&
+                    string.Equals(tag.TaskId, identity.TaskId, StringComparison.Ordinal))
+                .Reverse();
+            foreach (var section in sections)
+            {
+                var container = section.Blocks.OfType<BlockUIContainer>().FirstOrDefault(candidate =>
+                    candidate.Tag is DecomposeRecoveryCardTag cardTag &&
+                    cardTag.Identity == identity &&
+                    (!requireLiveActions || cardTag.ActionsPanel.Visibility == Visibility.Visible));
+                if (container?.Child is Border border) return border;
+            }
+            return null;
+        }
+
+        var card = FindCard(requireLiveActions: true);
+        if (card is null)
+        {
+            // Transcript cards are presentation state, not the source of truth. Reconstruct the
+            // card from the durable plan if transcript compaction or later activity removed it.
+            AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(current), taskId);
+            card = FindCard(requireLiveActions: true) ?? FindCard(requireLiveActions: false);
+        }
+
+        if (card is null)
+        {
+            UIErrorHelper.ShowWarning(
+                "Open Review Card",
+                "SquadDash could not reconstruct the review card from the current plan state.");
+            return;
+        }
+
+        OutputTextBox.Focus();
+        card.BringIntoView();
+        var highlight = new DoubleAnimation(
+            fromValue: 0.55,
+            toValue: 1,
+            duration: TimeSpan.FromMilliseconds(320))
+        {
+            AutoReverse = true,
+            RepeatBehavior = new RepeatBehavior(2),
+        };
+        highlight.Completed += (_, _) =>
+        {
+            card.BeginAnimation(UIElement.OpacityProperty, null);
+            card.Opacity = 1;
+        };
+        card.BeginAnimation(UIElement.OpacityProperty, highlight);
     }
 
     private void OpenDecomposePlanViewer(PendingDecomposePlan plan, Plan? durablePlan = null)
@@ -12223,8 +12300,13 @@ public partial class MainWindow : Window
             : null;
         var hasRecoveryAssessment = durablePlan?.InterruptionData?.RecoveryAssessment is not null &&
                                     !string.IsNullOrWhiteSpace(interruptedTaskId);
+        var durableReviewAttention = durablePlan is null
+            ? null
+            : PlanReviewAttentionPresentationResolver.Resolve(durablePlan, interruptedTaskId);
         Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =
-            durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted && !isSafelyResumable
+            durableReviewAttention is not null
+                ? planToAccept => AcceptInterruptedStepAfterReviewAsync(planToAccept)
+                : durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted && !isSafelyResumable
                 ? interruptedRecoveryAction?.Kind switch
                 {
                     PlanRecoveryPrimaryActionKind.AcceptStep or
@@ -12449,6 +12531,19 @@ public partial class MainWindow : Window
             },
             onContinueInterruptedTask: onContinueInterruptedTask,
             onReplanRemainingWork: onReplanRemainingWork,
+            onOpenReviewCard: (current, taskId) => OpenReviewCard(current, taskId),
+            onReviewSelection: (item, isChecked) =>
+                RecordHumanReviewChecklistSelection(groupId, item, isChecked),
+            onAddressUncheckedItems: (current, taskId, items) =>
+            {
+                var attention = PlanReviewAttentionPresentationResolver.Resolve(current, taskId);
+                if (attention is not null)
+                    QueueAddressUncheckedItems(
+                        current,
+                        taskId,
+                        items,
+                        attention.Gate.GateId);
+            },
             saveDefinitionEdit: saveDefinitionEdit,
             requestAiReview: requestAiReview,
             saveReviewState: saveReviewState,
@@ -12965,7 +13060,11 @@ public partial class MainWindow : Window
                     requirement.RequirementId,
                     requirement.ProofType,
                     requirement.Description,
-                    requirement.Question))
+                    requirement.Question,
+                    requirement.AccessMode,
+                    requirement.VerificationRecipe,
+                    requirement.FixtureTaskId,
+                    requirement.FixtureOutputId))
                 .ToArray();
         }
         string? proofContext = null;
@@ -13870,6 +13969,11 @@ public partial class MainWindow : Window
             taskId,
             verification,
             automaticReworkAvailable);
+        var combinableHumanReview = nextVerificationAction == PlanTaskVerificationNextAction.HumanReview
+            ? PlanHumanReviewGatePolicy.FindCombinableGate(reviewedPlan, taskId)
+            : null;
+        if (combinableHumanReview is not null)
+            reviewedPlan = PlanStoreUpdater.ApplyGateReady(reviewedPlan, combinableHumanReview.GateId);
         if (!TryPublishPlanProgress(reviewedPlan, out var progressError))
         {
             StopAndOfferDecomposeRecovery(
@@ -13913,6 +14017,25 @@ public partial class MainWindow : Window
             ScheduleDecomposeSystemEntry(
                 $"Verification found missing or overstated work in \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". " +
                 "SquadDash is starting the one permitted automatic rework.\n\n" + instructions);
+            return;
+        }
+
+        if (combinableHumanReview is not null)
+        {
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with
+                {
+                    PendingTaskVerification = null,
+                    ActiveVerificationTaskId = null,
+                    VerificationReworkInstructions = null,
+                    VerificationEnvelopeRepairCount = 0,
+                });
+            SuppressLoopResume("human-review-required");
+            _loopController.RequestStop();
+            ScheduleDecomposeSystemEntry(
+                $"Review required · \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". " +
+                "Implementation and automated verification passed; complete the human observation checklist to continue.");
+            AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(reviewedPlan), taskId);
             return;
         }
 
@@ -17462,12 +17585,11 @@ public partial class MainWindow : Window
         var humanReview = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.BuildHumanReviewCard(durablePlan, taskId);
-        var combinedHumanReviewGate = durablePlan is null
+        var reviewAttention = durablePlan is null
             ? null
-            : PlanHumanReviewGatePolicy.FindCombinableGate(durablePlan, taskId);
-        var humanChecklistItems = durablePlan is null || combinedHumanReviewGate is null
-            ? Array.Empty<PlanHumanReviewChecklistItem>()
-            : PlanHumanReviewChecklist.Build(durablePlan, [combinedHumanReviewGate]).ToArray();
+            : PlanReviewAttentionPresentationResolver.Resolve(durablePlan, taskId);
+        var combinedHumanReviewGate = reviewAttention?.Gate;
+        var humanChecklistItems = reviewAttention?.Checklist.ToArray() ?? [];
         var humanChecklistState = humanChecklistItems.ToDictionary(
             item => item.ItemId,
             item => item.IsChecked,
@@ -17672,6 +17794,38 @@ public partial class MainWindow : Window
                 boxes.Add(box);
                 checklistStack.Children.Add(itemRow);
                 copyParts.Add("☐ " + item.Text);
+                var requirement = reviewAttention is null
+                    ? null
+                    : PlanReviewAttentionPresentationResolver.FindRequirement(reviewAttention, item);
+                if (requirement?.VerificationRecipe is { } recipe)
+                {
+                    var recipeStack = new StackPanel
+                    {
+                        Margin = new Thickness(32, -1, 0, 5),
+                    };
+                    foreach (var (label, value) in new[]
+                    {
+                        ("Setup", recipe.Setup),
+                        ("Open", recipe.Open),
+                        ("Observe", recipe.Observe),
+                        ("Cleanup", recipe.Cleanup),
+                    })
+                    {
+                        if (string.IsNullOrWhiteSpace(value)) continue;
+                        var instruction = new TextBlock
+                        {
+                            FontSize = _transcriptFontSize - 1,
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 1, 0, 0),
+                        };
+                        instruction.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                        instruction.Inlines.Add(new Run(label + ": ") { FontWeight = FontWeights.SemiBold });
+                        instruction.Inlines.Add(new Run(value));
+                        recipeStack.Children.Add(instruction);
+                        copyParts.Add($"{label}: {value}");
+                    }
+                    checklistStack.Children.Add(recipeStack);
+                }
                 if (item.WasPreviouslyChecked && !item.IsChecked)
                 {
                     var previousCommit = string.IsNullOrWhiteSpace(item.PreviouslyCheckedCommit)
@@ -19627,6 +19781,9 @@ public partial class MainWindow : Window
         if (_currentWorkspace is null || _planStore is null) return false;
         var workspace = _currentWorkspace.FolderPath;
         var storedPlan = _planStore.Load(displayedPlan.PlanId);
+        if (storedPlan?.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval &&
+            PlanReviewAttentionPresentationResolver.Resolve(storedPlan) is { } reviewAttention)
+            return await AcceptAwaitingReviewStepAsync(storedPlan, reviewAttention);
         if (storedPlan is null ||
             storedPlan.LifecycleStatus != PlanLifecycleStatus.Interrupted ||
             !string.Equals(storedPlan.Revision, displayedPlan.Revision, StringComparison.Ordinal))
@@ -19908,6 +20065,73 @@ public partial class MainWindow : Window
         // their completed work has already been accepted.
         if (PlanRecoveryAcceptancePolicy.ShouldAdvanceAfterAcceptance(acceptedPlan!))
             await StartOrResumeDurablePlanAsync(acceptedPlan);
+        return true;
+    }
+
+    private async Task<bool> AcceptAwaitingReviewStepAsync(
+        Plan storedPlan,
+        PlanReviewAttentionPresentation reviewAttention)
+    {
+        if (_currentWorkspace is null || _planStore is null) return false;
+        if (reviewAttention.Checklist.Count == 0 || reviewAttention.Checklist.Any(item => !item.IsChecked))
+        {
+            UIErrorHelper.ShowWarning("Review Incomplete", "Verify every checklist item before continuing.");
+            return false;
+        }
+
+        var handoff = reviewAttention.Task.Handoff;
+        if (handoff is null || string.IsNullOrWhiteSpace(handoff.Commit))
+        {
+            UIErrorHelper.ShowWarning("Review Evidence Missing", "The reviewed task has no durable implementation handoff.");
+            return false;
+        }
+
+        var workspace = _currentWorkspace.FolderPath;
+        var activeBranch = ReadGitBranch(workspace);
+        if (!string.Equals(activeBranch, storedPlan.Branch, StringComparison.Ordinal))
+        {
+            UIErrorHelper.ShowError(
+                "Branch Mismatch",
+                $"Plan '{storedPlan.PlanId}' requires branch '{storedPlan.Branch}', but '{activeBranch}' is active.");
+            return false;
+        }
+        await RunGitAsync(workspace, $"merge-base --is-ancestor \"{handoff.Commit}\" HEAD");
+        if (PlanRecoveryAcceptancePolicy.RequiresCleanWorktreeBeforeAcceptance(storedPlan))
+            await EnsurePlanWorktreeReadyAsync(workspace, storedPlan.PlanId);
+
+        var commits = reviewAttention.Task.Commits ??
+            [new PlanEvidenceCommit(handoff.Commit, PlanRecoveryCommitRelation.Task,
+                "Host-validated implementation handoff reviewed at the human checkpoint.")];
+        var result = new DecomposeStepResult(
+            storedPlan.PlanId,
+            reviewAttention.Task.TaskId,
+            storedPlan.Revision,
+            "complete",
+            handoff.Commit,
+            handoff.Summary,
+            [],
+            handoff.Verification)
+        {
+            Commits = commits,
+        };
+        var updated = PlanStoreUpdater.ApplyStepAccepted(storedPlan, null, result);
+        var resolvedBy = await HumanApprovalIdentityResolver.ResolveAsync(workspace);
+        updated = PlanStoreUpdater.ApplyGateApproved(
+            updated,
+            reviewAttention.Gate.GateId,
+            "Confirmed the reviewed implementation through the human-observation checklist.",
+            resolvedBy);
+        updated = updated with
+        {
+            InterruptionData = null,
+            Progress = updated.Progress with { ExecutingTaskId = null },
+        };
+        if (!TryPublishPlanProgress(updated, out var error))
+            throw new IOException(error ?? "The reviewed plan state could not be saved.");
+
+        ResolveRecoveryTranscript($"✓ Review completed. {reviewAttention.Task.Title ?? reviewAttention.Task.TaskId} was accepted.");
+        if (PlanRecoveryAcceptancePolicy.ShouldAdvanceAfterAcceptance(updated))
+            await StartOrResumeDurablePlanAsync(updated);
         return true;
     }
 

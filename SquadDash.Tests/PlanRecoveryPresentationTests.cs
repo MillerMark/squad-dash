@@ -179,7 +179,7 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(presentation, Is.Not.Null);
-            Assert.That(presentation!.Title, Is.EqualTo("Human Review Required"));
+            Assert.That(presentation!.Title, Is.EqualTo("Review Required"));
             Assert.That(presentation.Question,
                 Is.EqualTo("Does the completed footer identify the selected model profile?"));
             Assert.That(presentation.AnalysisBullets.Select(item => item.Text), Does.Contain(

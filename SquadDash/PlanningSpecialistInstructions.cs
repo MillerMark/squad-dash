@@ -99,7 +99,14 @@ internal static class PlanningSpecialistInstructions
                validation boundaries, and any declared audit frontier. Confirm that completion proof reuses
                task-level evidence and that a final verification or audit is present only for a material
                remaining gap, never as overlapping ceremonial work. Limit each human review checkpoint to
-               at most seven atomic checks. Do not merely summarize or paraphrase
+               at most seven atomic checks. For every human-only proof, declare accessMode as
+               directly-reachable, recipe, or fixture. A recipe must tell the reviewer: Setup (how the
+               required state is produced), Open (the exact menu, screen, command, or interaction), Observe
+               (what to confirm), and Cleanup (how the verification state is removed). Fixture access must
+               use explicit fixtureTaskId and fixtureOutputId references to an upstream declared output;
+               never rely on heuristic inference from prose. If ordinary product UI cannot reproduce the
+               state, add the simulation, fixture, shortcut, or developer entry point before the review gate.
+               Do not merely summarize or paraphrase
                a payload that still requires top-level submission.
                Describe the final handoff as submitting or proposing the plan. Never claim that the plan
                was staged, added to the Plans panel, delivered to Inbox, or made available for approval;

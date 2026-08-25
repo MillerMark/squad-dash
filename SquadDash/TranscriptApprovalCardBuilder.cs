@@ -166,7 +166,7 @@ internal static class TranscriptApprovalCardBuilder
 
         var titleBlock = new TextBlock
         {
-            Text = "Human Review Required",
+            Text = "Review Required",
             FontSize = fontSize + 2,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,

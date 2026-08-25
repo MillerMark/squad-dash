@@ -286,7 +286,14 @@ internal sealed class PendingDecomposePlanAdapterTests
                         new DecomposedTaskProofRequirement(
                             "restart-visible",
                             "restart-observation",
-                            "The feature remains visible after a real restart."),
+                            "The feature remains visible after a real restart.",
+                            "Does the feature remain visible after restart?",
+                            HumanVerificationAccessMode.Recipe,
+                            new HumanVerificationRecipe(
+                                "Enable the feature.",
+                                "Restart and reopen the workspace.",
+                                "Confirm the feature remains visible.",
+                                "Disable the feature.")),
                     ]),
             ],
         };
@@ -302,6 +309,10 @@ internal sealed class PendingDecomposePlanAdapterTests
                 Is.EqualTo("restart-visible"));
             Assert.That(reconstructed.Group.ApprovalGates![0].ProofRequirements![0].ProofType,
                 Is.EqualTo("restart-observation"));
+            Assert.That(reconstructed.Group.ApprovalGates[0].ProofRequirements![0].AccessMode,
+                Is.EqualTo(HumanVerificationAccessMode.Recipe));
+            Assert.That(reconstructed.Group.ApprovalGates[0].ProofRequirements![0].VerificationRecipe?.Open,
+                Is.EqualTo("Restart and reopen the workspace."));
             Assert.That(reconstructed.Group.ApprovalGates[0].BeforeTaskIds, Is.Not.Null);
             Assert.That(reconstructed.Group.ApprovalGates[0].BeforeTaskIds, Is.Empty);
             Assert.That(PendingDecomposePlanStore.ComputeRevision(reconstructed.Group),

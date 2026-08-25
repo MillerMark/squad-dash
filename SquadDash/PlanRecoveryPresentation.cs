@@ -333,7 +333,7 @@ internal static class PlanRecoveryPresentationBuilder
         }
 
         return new PlanHumanReviewCardPresentation(
-            "Human Review Required",
+            "Review Required",
             question,
             distinct);
     }

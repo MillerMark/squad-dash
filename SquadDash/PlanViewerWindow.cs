@@ -52,6 +52,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<IReadOnlyList<PlanEvidenceCommit>>? _onOpenCommits;
     private readonly Action<Plan>? _onContinueInterruptedTask;
     private readonly Action<Plan>? _onReplanRemainingWork;
+    private readonly Action<Plan, string>? _onOpenReviewCard;
+    private readonly Action<PlanHumanReviewChecklistItem, bool>? _onReviewSelection;
+    private readonly Action<Plan, string, IReadOnlyList<PlanHumanReviewChecklistItem>>? _onAddressUncheckedItems;
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly Func<string, bool>? _isTaskActivityActive;
     private readonly Func<string, bool>? _isRecoveryAssessmentActive;
@@ -205,6 +208,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null,
         Action<Plan>? onContinueInterruptedTask = null,
         Action<Plan>? onReplanRemainingWork = null,
+        Action<Plan, string>? onOpenReviewCard = null,
+        Action<PlanHumanReviewChecklistItem, bool>? onReviewSelection = null,
+        Action<Plan, string, IReadOnlyList<PlanHumanReviewChecklistItem>>? onAddressUncheckedItems = null,
         Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit = null,
         Action<PendingDecomposePlan>? requestAiReview = null,
         Action<PlanVisualizerReviewPayload?>? saveReviewState = null,
@@ -246,6 +252,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onOpenCommits = onOpenCommits;
         _onContinueInterruptedTask = onContinueInterruptedTask;
         _onReplanRemainingWork = onReplanRemainingWork;
+        _onOpenReviewCard = onOpenReviewCard;
+        _onReviewSelection = onReviewSelection;
+        _onAddressUncheckedItems = onAddressUncheckedItems;
         _resolveAgentAvatar = resolveAgentAvatar;
         _isTaskActivityActive = isTaskActivityActive;
         _isRecoveryAssessmentActive = isRecoveryAssessmentActive;
@@ -471,6 +480,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             : ResolveTaskCorrectionActivity(currentInterruptedTaskId!);
         var hasClaimedInterruptedCorrection =
             interruptedCorrectionState != PlanTaskCorrectionActivityState.None;
+        var reviewAttention = durablePlan is null
+            ? null
+            : PlanReviewAttentionPresentationResolver.Resolve(durablePlan, currentInterruptedTaskId);
 
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -649,10 +661,177 @@ internal sealed class PlanViewerWindow : ChromedWindow
             header.Children.Add(validationPanel);
         }
 
+        if (durablePlan is not null && reviewAttention is not null)
+        {
+            var reviewCard = new StackPanel();
+            var reviewTitle = new TextBlock
+            {
+                Text = reviewAttention.Title,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 3),
+            };
+            reviewTitle.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+            reviewTitle.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
+            reviewCard.Children.Add(reviewTitle);
+
+            var reviewSummary = new TextBlock
+            {
+                Text = reviewAttention.Summary,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 7),
+            };
+            reviewSummary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+            reviewCard.Children.Add(reviewSummary);
+
+            var verifyLabel = new TextBlock
+            {
+                Text = "Verify the Following:",
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 3),
+            };
+            verifyLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            reviewCard.Children.Add(verifyLabel);
+
+            var currentChecks = reviewAttention.Checklist.ToDictionary(
+                item => item.ItemId, item => item.IsChecked, StringComparer.Ordinal);
+            Button? completeReviewButton = null;
+            Button? addressUncheckedButton = null;
+            void RefreshReviewActions()
+            {
+                if (completeReviewButton is not null)
+                    completeReviewButton.IsEnabled = currentChecks.Count > 0 && currentChecks.Values.All(value => value);
+                if (addressUncheckedButton is not null)
+                    addressUncheckedButton.IsEnabled = currentChecks.Values.Any(value => !value);
+            }
+
+            foreach (var item in reviewAttention.Checklist)
+            {
+                var itemStack = new StackPanel { Margin = new Thickness(4, 2, 0, 5) };
+                var checkBox = new CheckBox
+                {
+                    Content = item.Text,
+                    IsChecked = item.IsChecked,
+                    FontWeight = FontWeights.SemiBold,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Check this only after personally verifying the statement."),
+                };
+                checkBox.Checked += (_, _) =>
+                {
+                    currentChecks[item.ItemId] = true;
+                    _onReviewSelection?.Invoke(item, true);
+                    RefreshReviewActions();
+                };
+                checkBox.Unchecked += (_, _) =>
+                {
+                    currentChecks[item.ItemId] = false;
+                    _onReviewSelection?.Invoke(item, false);
+                    RefreshReviewActions();
+                };
+                itemStack.Children.Add(checkBox);
+
+                var requirement = PlanReviewAttentionPresentationResolver.FindRequirement(reviewAttention, item);
+                if (requirement?.VerificationRecipe is { } recipe)
+                {
+                    var recipeText = new TextBlock
+                    {
+                        Text = $"Setup: {recipe.Setup}\nOpen: {recipe.Open}\nObserve: {recipe.Observe}\nCleanup: {recipe.Cleanup}",
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(22, 3, 0, 0),
+                    };
+                    recipeText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                    recipeText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                    itemStack.Children.Add(recipeText);
+                }
+                reviewCard.Children.Add(itemStack);
+            }
+
+            var reviewActions = new WrapPanel { Margin = new Thickness(0, 5, 0, 0) };
+            if (onAdoptVerifiedCommitRange is not null)
+            {
+                var capturedPlan = durablePlan;
+                var reviewedStepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                    reviewAttention.Task.DisplayStepLabel,
+                    reviewAttention.Task.Title ?? reviewAttention.Task.TaskId);
+                completeReviewButton = TranscriptQuickReplyFactory.CreateButton(
+                    capturedPlan.IsPaused
+                        ? $"{reviewedStepLabel} Is Complete"
+                        : $"{reviewedStepLabel} Is Complete & Continue",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        "Enabled after every review item is checked."));
+                completeReviewButton.Click += async (_, _) =>
+                {
+                    reviewActions.IsEnabled = false;
+                    try
+                    {
+                        if (await onAdoptVerifiedCommitRange(capturedPlan)) Close();
+                        else reviewActions.IsEnabled = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        reviewActions.IsEnabled = true;
+                        UIErrorHelper.ShowError("Complete Review", ex.Message, this);
+                    }
+                };
+                reviewActions.Children.Add(completeReviewButton);
+            }
+            if (_onAddressUncheckedItems is not null)
+            {
+                addressUncheckedButton = TranscriptQuickReplyFactory.CreateButton(
+                    "✎ Address Unchecked Items…",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        "Create an editable prompt containing the unchecked review items."));
+                addressUncheckedButton.Click += (_, _) =>
+                {
+                    var currentItems = reviewAttention.Checklist.Select(item => item with
+                    {
+                        IsChecked = currentChecks[item.ItemId],
+                    }).ToArray();
+                    _onAddressUncheckedItems(durablePlan, reviewAttention.Task.TaskId, currentItems);
+                };
+                reviewActions.Children.Add(addressUncheckedButton);
+            }
+            if (_onOpenReviewCard is not null)
+            {
+                var openCardText = new TextBlock
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(8, 4, 4, 4),
+                    FontSize = quickReplyFontSize,
+                };
+                var openCardLink = new Hyperlink(new Run("Open Review Card"))
+                {
+                    Cursor = Cursors.Hand,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Open, scroll to, and highlight the corresponding transcript review card."),
+                };
+                openCardLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                openCardLink.Click += (_, _) =>
+                    _onOpenReviewCard(durablePlan, reviewAttention.Task.TaskId);
+                openCardText.Inlines.Add(openCardLink);
+                reviewActions.Children.Add(openCardText);
+            }
+            RefreshReviewActions();
+            reviewCard.Children.Add(reviewActions);
+
+            var reviewBorder = new Border
+            {
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 4, 0, 8),
+                Child = reviewCard,
+            };
+            reviewBorder.SetResourceReference(Border.BorderBrushProperty, "PriorityMid");
+            reviewBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+            header.Children.Add(reviewBorder);
+        }
+
         if (durablePlan is not null &&
             durablePlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
             durablePlan.InterruptionData?.RecoveryAssessment is not null &&
-            !hasClaimedInterruptedCorrection)
+            !hasClaimedInterruptedCorrection && reviewAttention is null)
         {
             var assessmentPanel = new WrapPanel
             {
@@ -719,7 +898,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 PlanLifecycleStatus.WaitingForCleanWorktree &&
             (onResumePlan is not null || onAdoptVerifiedCommitRange is not null ||
              onContinueInterruptedTask is not null || onEndPlan is not null) &&
-            !hasClaimedInterruptedCorrection)
+            !hasClaimedInterruptedCorrection && reviewAttention is null)
         {
             var interruptedPanel = new WrapPanel
             {
@@ -987,7 +1166,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             header.Children.Add(metaPanel);
         }
 
-        if (durablePlan?.InterruptionData is { } interruptionData)
+        if (durablePlan?.InterruptionData is { } interruptionData && reviewAttention is null)
         {
             var interruptionStack = new StackPanel();
 
@@ -1041,7 +1220,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             header.Children.Add(interruptionBorder);
         }
 
-        if (durablePlan?.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval && onApproveGate is not null)
+        if (durablePlan?.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval &&
+            onApproveGate is not null && reviewAttention is null)
         {
             var awaitingGate = durablePlan.ApprovalGates.FirstOrDefault(g =>
                 g.Status == PlanGateStatus.AwaitingApproval);
@@ -6164,6 +6344,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
         }
 
+        if (_review is not null)
+        {
+            var statusLabel = _review.Status switch
+            {
+                "revision-required" => "AI review: revision required",
+                "ready-with-warnings" => "AI review: ready with warnings",
+                _ => "AI review: ready",
+            };
+            var reviewStatus = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(_review.Summary)
+                    ? statusLabel
+                    : $"{statusLabel} · {_review.Summary}",
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(2, 0, 6, 4),
+                ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    "This AI assessment is advisory. Deterministic schema violations are handled separately before staging."),
+            };
+            reviewStatus.SetResourceReference(
+                TextBlock.ForegroundProperty,
+                _review.Status == "revision-required" ? "PriorityHigh" :
+                _review.Status == "ready-with-warnings" ? "ImportantText" : "SubtleText");
+            reviewStatus.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            _inspectorToolbarPanel.Children.Add(reviewStatus);
+        }
+
         if (_review?.Annotations is { Count: > 0 } annotations)
         {
             var previous = AddButton("← Prev", () => NavigateReview(_reviewIndex - 1));
@@ -6254,8 +6461,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _reviewCallout = null;
         _isAiReviewPending = false;
         _reviewStatusMessage = null;
-        _review = review;
-        _reviewIndex = review.Annotations.Count > 0 ? 0 : -1;
+        var humanVerificationAnnotations = (review.HumanVerificationFindings ?? [])
+            .Where(finding => !review.Annotations.Any(annotation =>
+                annotation.TargetKind == "gate" &&
+                string.Equals(annotation.TargetId, finding.GateId, StringComparison.Ordinal) &&
+                annotation.Note.Contains(finding.Issue, StringComparison.OrdinalIgnoreCase)))
+            .Select(finding => new PlanVisualizerReviewAnnotation(
+                "gate",
+                finding.GateId,
+                finding.Severity,
+                $"Human verification · {finding.RequirementId}",
+                $"{finding.Issue} Recommendation: {finding.Recommendation}"))
+            .ToArray();
+        _review = humanVerificationAnnotations.Length == 0
+            ? review
+            : review with { Annotations = review.Annotations.Concat(humanVerificationAnnotations).ToArray() };
+        _reviewIndex = _review.Annotations.Count > 0 ? 0 : -1;
         if (_reviewIndex >= 0)
             NavigateReview(_reviewIndex);
         else
@@ -8241,7 +8462,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         PlanTaskStatus.Superseded => "Superseded",
         PlanTaskStatus.Reworking => "Reworking",
         PlanTaskStatus.VerificationPending => "Verification Pending",
-        PlanTaskStatus.HumanReviewRequired => "Human Review Required",
+        PlanTaskStatus.HumanReviewRequired => "Review Required",
         _ when PlanTaskStatus.IsVerifying(status) => "Verifying",
         _ => status ?? "Unknown",
     };

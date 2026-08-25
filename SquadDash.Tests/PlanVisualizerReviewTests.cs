@@ -75,7 +75,41 @@ internal sealed class PlanVisualizerReviewTests
             Assert.That(prompt, Does.Contain("revision-123"));
             Assert.That(prompt, Does.Contain("Read the revision-locked outline first"));
             Assert.That(prompt, Does.Contain("Retrieve only the task, validation, or gate entities needed"));
+            Assert.That(prompt, Does.Contain("Setup, Open, Observe, and Cleanup"));
+            Assert.That(prompt, Does.Contain("ready-with-warnings"));
+            Assert.That(prompt, Does.Contain("fixtureTaskId"));
             Assert.That(prompt, Does.Contain(PlanVisualizerReviewParser.Marker));
+        });
+    }
+
+    [Test]
+    public void Parser_ReturnsStructuredHumanVerificationReadiness()
+    {
+        var response = PlanVisualizerReviewParser.Marker + """
+            {
+              "groupId":"REVIEW-20260825",
+              "baseRevision":"revision-1",
+              "status":"ready-with-warnings",
+              "summary":"One review path needs clarification.",
+              "humanVerificationFindings":[{
+                "gateId":"REVIEW-20260825-GATE-001",
+                "requirementId":"pending-badge",
+                "severity":"warning",
+                "issue":"The cleanup interaction is unclear.",
+                "recommendation":"Name the Developer menu command."
+              }],
+              "annotations":[]
+            }
+            """;
+
+        var parsed = PlanVisualizerReviewParser.TryParse(response, out var payload, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(payload!.Status, Is.EqualTo("ready-with-warnings"));
+            Assert.That(payload.HumanVerificationFindings, Has.Count.EqualTo(1));
+            Assert.That(payload.HumanVerificationFindings![0].RequirementId, Is.EqualTo("pending-badge"));
         });
     }
 

@@ -411,8 +411,10 @@
     <Compile Include="..\SquadDash\IdleDetectionService.cs" Link="Source\IdleDetectionService.cs" />
 
     <!-- Code Health Mode — Decompose Mode (Phase 2) (previously Maintenance Mode) -->
+    <Compile Include="..\SquadDash\HumanVerificationRecipe.cs" Link="Source\HumanVerificationRecipe.cs" />
     <Compile Include="..\SquadDash\DecomposedTaskGroup.cs" Link="Source\DecomposedTaskGroup.cs" />
     <Compile Include="..\SquadDash\TasksJsonParser.cs" Link="Source\TasksJsonParser.cs" />
+    <Compile Include="..\SquadDash\HumanVerificationReadinessPolicy.cs" Link="Source\HumanVerificationReadinessPolicy.cs" />
     <Compile Include="..\SquadDash\TaskPlanRepairPromptBuilder.cs" Link="Source\TaskPlanRepairPromptBuilder.cs" />
     <Compile Include="..\SquadDash\DecomposedTasksWriter.cs" Link="Source\DecomposedTasksWriter.cs" />
     <Compile Include="..\SquadDash\DecomposeStepResult.cs" Link="Source\DecomposeStepResult.cs" />

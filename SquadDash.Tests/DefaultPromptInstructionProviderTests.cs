@@ -67,6 +67,9 @@ internal sealed class DefaultPromptInstructionProviderTests
         AssertSerializedProperties<DecomposedAgentAssignment>(instruction, "tasks[].agentAssignments[]");
         AssertSerializedProperties<DecomposedTaskOutput>(instruction, "tasks[].outputs[]");
         AssertSerializedProperties<DecomposedTaskProofRequirement>(instruction, "tasks[].proofRequirements[]");
+        AssertSerializedProperties<HumanVerificationRecipe>(
+            instruction,
+            "tasks[].proofRequirements[].verificationRecipe");
         AssertSerializedProperties<DecomposedGate>(instruction, "approvalGates[]");
         AssertSerializedProperties<DecomposedValidationNode>(instruction, "validations[]");
     }

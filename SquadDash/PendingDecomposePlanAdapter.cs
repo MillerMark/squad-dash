@@ -47,7 +47,11 @@ internal static class PendingDecomposePlanAdapter
                         requirement.RequirementId,
                         requirement.ProofType,
                         requirement.Description,
-                        requirement.Question)).ToArray(),
+                        requirement.Question,
+                        requirement.AccessMode,
+                        requirement.VerificationRecipe,
+                        requirement.FixtureTaskId,
+                        requirement.FixtureOutputId)).ToArray(),
                 AmendmentGateId: t.AmendmentGateId,
                 DisplayStepLabel: (index + 1).ToString(),
                 ExecutionMode: t.ExecutionMode,
@@ -97,7 +101,11 @@ internal static class PendingDecomposePlanAdapter
                         requirement.RequirementId,
                         requirement.ProofType,
                         requirement.Description,
-                        requirement.Question)).ToArray(),
+                        requirement.Question,
+                        requirement.AccessMode,
+                        requirement.VerificationRecipe,
+                        requirement.FixtureTaskId,
+                        requirement.FixtureOutputId)).ToArray(),
                 AfterTaskIdsSpecified: g.AfterTaskIds is not null,
                 BeforeTaskIdsSpecified: g.BeforeTaskIds is not null)).ToArray()
             : [];
@@ -149,7 +157,11 @@ internal static class PendingDecomposePlanAdapter
                         requirement.RequirementId,
                         requirement.ProofType,
                         requirement.Description,
-                        requirement.Question)).ToArray(),
+                        requirement.Question,
+                        requirement.AccessMode,
+                        requirement.VerificationRecipe,
+                        requirement.FixtureTaskId,
+                        requirement.FixtureOutputId)).ToArray(),
                 AmendmentGateId: t.AmendmentGateId,
                 ExecutionMode: t.ExecutionMode,
                 VerificationLevel: t.VerificationLevel))
@@ -169,7 +181,11 @@ internal static class PendingDecomposePlanAdapter
                             requirement.RequirementId,
                             requirement.ProofType,
                             requirement.Description,
-                            requirement.Question)).ToArray()))
+                            requirement.Question,
+                            requirement.AccessMode,
+                            requirement.VerificationRecipe,
+                            requirement.FixtureTaskId,
+                            requirement.FixtureOutputId)).ToArray()))
                 .ToArray()
             : null;
 

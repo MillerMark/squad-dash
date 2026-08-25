@@ -193,6 +193,19 @@ not required. Use the exact property names below; do not substitute familiar sho
 - `tasks[].proofRequirements[].description`: required non-empty evidence contract.
 - `tasks[].proofRequirements[].question`: optional except that every human-only requirement should
   supply one atomic true/false question.
+- `tasks[].proofRequirements[].accessMode`: required for every human-only requirement; use
+  `"directly-reachable"` when normal product UI already exposes the state, `"recipe"` when explicit
+  manual setup is sufficient, or `"fixture"` when an earlier task produces a review fixture.
+- `tasks[].proofRequirements[].verificationRecipe`: required with `accessMode: "recipe"` and strongly
+  recommended with `accessMode: "fixture"`; an object containing the exact human review path.
+- `tasks[].proofRequirements[].verificationRecipe.setup`: how the required state is produced.
+- `tasks[].proofRequirements[].verificationRecipe.open`: the exact menu, screen, command, or interaction.
+- `tasks[].proofRequirements[].verificationRecipe.observe`: what the human should confirm.
+- `tasks[].proofRequirements[].verificationRecipe.cleanup`: how the verification state is removed.
+- `tasks[].proofRequirements[].fixtureTaskId`: required with `accessMode: "fixture"`; the canonical ID
+  of an upstream task that explicitly declares the fixture output. Never infer this dependency from prose.
+- `tasks[].proofRequirements[].fixtureOutputId`: required with `accessMode: "fixture"`; the exact
+  `outputId` declared by `fixtureTaskId`.
 - `approvalGates`: optional array of explicit human checkpoints. Do not add a gate before every
   root task or after the final task merely to duplicate plan start/completion controls.
 - `approvalGates[].gateId`: required non-empty stable identifier unique within the plan; use
@@ -212,8 +225,9 @@ not required. Use the exact property names below; do not substitute familiar sho
   shape. Approval records the reviewer's identity, note, time, and a durable internal attestation.
   Use this explicitly when the desired checkpoint boundary differs from the producing task's exit.
   Each entry must likewise be one atomic true/false verification item.
-- `approvalGates[].proofRequirements[].requirementId`, `.proofType`, `.description`, and `.question`:
-  use the same exact fields and rules as task proof requirements; every gate proof must be human-only.
+- `approvalGates[].proofRequirements[].requirementId`, `.proofType`, `.description`, `.question`,
+  `.accessMode`, `.verificationRecipe`, `.fixtureTaskId`, and `.fixtureOutputId`: use the same exact
+  fields and rules as task proof requirements; every gate proof must be human-only.
 - `approvalGates[].presentationAnchor`: optional host-managed display hint; the Plan Visualizer sets
   this to indicate which task node is the primary visual anchor for the gate control. Do not emit it
   in new plans; the host writes and preserves it across edits.
