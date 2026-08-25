@@ -61,6 +61,14 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void FormatStepLabel_MissingDisplayLabelAndFallback_UsesSafeGenericLabel()
+    {
+        Assert.That(
+            PlanRecoveryPresentationBuilder.FormatStepLabel(null, null),
+            Is.EqualTo("Step"));
+    }
+
+    [Test]
     public void ResolveTaskEvidence_UsesRecoveryCommitsForActiveIncompleteStep()
     {
         var task = new PlanTask(

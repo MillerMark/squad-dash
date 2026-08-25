@@ -42,7 +42,10 @@ internal static class DecomposeRecoveryInboxReconciler
         var referencesCurrentPlan = plan is not null &&
             string.Equals(plan.PlanId, planId, StringComparison.Ordinal) &&
             string.Equals(plan.Revision, revision, StringComparison.Ordinal);
-        var referencesCurrentTask = expectedMessageId is null ||
+        // An interrupted lifecycle without an interrupted task is a valid transient state while
+        // recovery acceptance advances to its next boundary. It cannot own an actionable task
+        // recovery message. In particular, a missing task id must not behave like a wildcard.
+        var referencesCurrentTask = expectedMessageId is not null &&
             string.Equals(message.Id, expectedMessageId, StringComparison.Ordinal);
 
         if (referencesCurrentPlan && activeLifecycle && referencesCurrentTask)

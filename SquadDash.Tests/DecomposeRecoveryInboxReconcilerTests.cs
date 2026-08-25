@@ -76,6 +76,27 @@ internal sealed class DecomposeRecoveryInboxReconcilerTests
     }
 
     [Test]
+    public void Reconcile_InterruptedTransitionWithoutCurrentTask_ArchivesRecoveryRequest()
+    {
+        var plan = MakePlan(PlanLifecycleStatus.Interrupted, TaskId);
+        plan = plan with
+        {
+            InterruptionData = plan.InterruptionData! with { InterruptedTaskId = null },
+        };
+
+        var result = DecomposeRecoveryInboxReconciler.Reconcile(MakeMessage(), plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.IsActionable, Is.False);
+            Assert.That(result.ShouldArchive, Is.True);
+            Assert.That(result.Message.Read, Is.True);
+            Assert.That(result.Message.Actions, Is.Empty);
+            Assert.That(result.Message.Body, Does.Contain("moved beyond this interruption"));
+        });
+    }
+
+    [Test]
     public void Reconcile_DifferentRevision_ArchivesStaleRequest()
     {
         var plan = MakePlan(PlanLifecycleStatus.Interrupted, TaskId) with { Revision = "rev-2" };
