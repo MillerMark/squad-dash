@@ -104,6 +104,54 @@ internal sealed class WorkspaceUpgradeServiceTests
     }
 
     [Test]
+    public async Task UpgradeAsync_WhenCandidateUnavailable_FailsWithoutSpawningCommand()
+    {
+        var runner = new RecordingCommandRunner();
+        var service = CreateService(runner, dryRunSupported: true, dryRunArguments: ["upgrade", "--preview"]);
+
+        var result = await service.UpgradeAsync(CreateUnavailableCandidate(), @"C:\workspace");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.IsPartial, Is.False);
+            Assert.That(runner.Invocations, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task UpgradeAsync_WhenCommandFailsAfterPartialApply_PreservesParsedPartialLists()
+    {
+        var runner = new RecordingCommandRunner(
+            new SquadCommandResult(
+                Success: false,
+                ExitCode: 1,
+                StandardOutput: """
+                    create templates/session-init-reference.md
+                    generated .squad/casting/registry.json
+                    squad.agent.md has local customizations — would back up to squad.agent.md.local-backup
+                    """,
+                StandardError: "simulated stderr",
+                Message: "Upgrade command failed after partially applying files."));
+        var service = CreateService(runner, dryRunSupported: true, dryRunArguments: ["upgrade", "--preview"]);
+
+        var result = await service.UpgradeAsync(CreateAvailableCandidate(), @"C:\workspace");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.IsPartial, Is.True);
+            Assert.That(result.ErrorMessage, Is.EqualTo("Upgrade command failed after partially applying files."));
+            Assert.That(result.SafeAdditionsOrRefreshes, Contains.Item("templates\\session-init-reference.md"));
+            Assert.That(result.TrackedLocalChangesAtRisk, Contains.Item(".github\\agents\\squad.agent.md"));
+            Assert.That(result.GeneratedFilesAtRisk, Contains.Item(".squad\\casting\\registry.json"));
+            Assert.That(runner.Invocations, Has.Count.EqualTo(1));
+            Assert.That(runner.Invocations[0].DisplayName, Is.EqualTo("Apply Workspace Upgrade"));
+            Assert.That(runner.Invocations[0].Arguments, Is.EqualTo(SquadCliCommands.WorkspaceUpgradeApplyArguments));
+        });
+    }
+
+    [Test]
     public void ParseDryRunOutput_ClassifiesRepresentativeLinesIntoAllThreeCategories()
     {
         var output = """
@@ -231,12 +279,22 @@ internal sealed class WorkspaceUpgradeServiceTests
 
     private sealed class RecordingCommandRunner : ISquadCommandRunner
     {
+        private readonly Queue<SquadCommandResult> _results = new();
+
+        public RecordingCommandRunner(params SquadCommandResult[] results)
+        {
+            foreach (var result in results)
+            {
+                _results.Enqueue(result);
+            }
+        }
+
         public List<CommandInvocation> Invocations { get; } = new();
 
         public Task<SquadCommandResult> RunAsync(SquadCliCommandDefinition command, string activeDirectory)
         {
             Invocations.Add(new CommandInvocation(command.DisplayName, command.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries)));
-            return Task.FromResult(new SquadCommandResult(true, 0, string.Empty, string.Empty, "ok"));
+            return Task.FromResult(NextResult());
         }
 
         public Task<SquadCommandResult> RunAsync(
@@ -246,7 +304,17 @@ internal sealed class WorkspaceUpgradeServiceTests
             IReadOnlyList<string> commandArguments)
         {
             Invocations.Add(new CommandInvocation(displayName, commandArguments.ToArray()));
-            return Task.FromResult(new SquadCommandResult(true, 0, string.Empty, string.Empty, "ok"));
+            return Task.FromResult(NextResult());
+        }
+
+        private SquadCommandResult NextResult()
+        {
+            if (_results.Count > 0)
+            {
+                return _results.Dequeue();
+            }
+
+            return new SquadCommandResult(true, 0, string.Empty, string.Empty, "ok");
         }
     }
 }

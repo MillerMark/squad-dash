@@ -239,6 +239,7 @@
     <Compile Include="..\SquadDash\SquadOrchestrationService.cs" Link="Source\SquadOrchestrationService.cs" />
     <Compile Include="..\SquadDash\IWorkspaceUpgradeService.cs" Link="Source\IWorkspaceUpgradeService.cs" />
     <Compile Include="..\SquadDash\WorkspaceUpgradeService.cs" Link="Source\WorkspaceUpgradeService.cs" />
+    <Compile Include="..\SquadDash\WorkspacePendingUpgradeStore.cs" Link="Source\WorkspacePendingUpgradeStore.cs" />
     <Compile Include="..\SquadDash\SquadScribeWorkspaceRepairService.cs" Link="Source\SquadScribeWorkspaceRepairService.cs" />
     <Compile Include="..\SquadDash\SquadTeamRootRepairService.cs" Link="Source\SquadTeamRootRepairService.cs" />
     <Compile Include="..\SquadDash\SquadTeamRootRepairWorkflow.cs" Link="Source\SquadTeamRootRepairWorkflow.cs" />
