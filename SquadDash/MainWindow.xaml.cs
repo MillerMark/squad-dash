@@ -10937,6 +10937,7 @@ public partial class MainWindow : Window
                 queueItemId,
                 plan.PlanId,
                 activityGateId);
+            SyncGateChangeActivity(isPromptRunning: false);
         }
     }
 
@@ -15326,15 +15327,24 @@ public partial class MainWindow : Window
 
     private void SyncGateChangeActivity(bool isPromptRunning)
     {
-        var pendingActivity = PlanReviewCorrectionActivityPolicy.Resolve(
+        var pendingActivity = PlanReviewCorrectionActivityPolicy.ResolveActive(
             _pendingGateResponseContext is { } gateContext
                 ? (gateContext.Token.PlanId, gateContext.GateId)
                 : null,
-            _pendingPlanReviewCorrectionContext);
-        if (isPromptRunning && pendingActivity is { } next)
+            _pendingPlanReviewCorrectionContext,
+            isPromptRunning);
+        if (pendingActivity is { } next)
         {
             if (_activeGateChangeActivity == next)
+            {
+                if (isPromptRunning && _pendingPlanReviewCorrectionContext is not null &&
+                    _approvalTranscriptCards.TryGetValue(next.PlanId, out var activeCards))
+                {
+                    foreach (var card in activeCards)
+                        TranscriptApprovalCardBuilder.ShowUpdatingState(card);
+                }
                 return;
+            }
 
             if (_activeGateChangeActivity is { } previous)
                 _broker.Publish(new PlanApprovalChangeActivityEvent(
@@ -16866,6 +16876,7 @@ public partial class MainWindow : Window
             return;
 
         _pendingPlanReviewCorrectionContext = null;
+        SyncGateChangeActivity(isPromptRunning: false);
         if (!restoreCard || !_approvalTranscriptCards.TryGetValue(context.PlanId, out var cards))
             return;
 

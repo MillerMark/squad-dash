@@ -663,6 +663,41 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null && reviewAttention is not null)
         {
+            if (IsApprovalChangeActive(reviewAttention.Gate))
+            {
+                var workingCard = new StackPanel();
+                var workingTitle = new TextBlock
+                {
+                    Text = "Addressing Review Items…",
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 0, 0, 3),
+                };
+                workingTitle.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                workingTitle.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
+                workingCard.Children.Add(workingTitle);
+
+                var workingSummary = new TextBlock
+                {
+                    Text = "A correction is being prepared or applied. Review controls will return if human verification is still required afterward.",
+                    TextWrapping = TextWrapping.Wrap,
+                };
+                workingSummary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+                workingCard.Children.Add(workingSummary);
+
+                var workingBorder = new Border
+                {
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(10, 8, 10, 8),
+                    Margin = new Thickness(0, 4, 0, 8),
+                    Child = workingCard,
+                };
+                workingBorder.SetResourceReference(Border.BorderBrushProperty, "PriorityMid");
+                workingBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+                header.Children.Add(workingBorder);
+            }
+            else
+            {
             var reviewCard = new StackPanel();
             var reviewTitle = new TextBlock
             {
@@ -826,6 +861,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             reviewBorder.SetResourceReference(Border.BorderBrushProperty, "PriorityMid");
             reviewBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
             header.Children.Add(reviewBorder);
+            }
         }
 
         if (durablePlan is not null &&

@@ -73,6 +73,18 @@ internal static class PlanReviewCorrectionActivityPolicy
         gateResponse ?? (reviewCorrection is null
             ? null
             : (reviewCorrection.PlanId, reviewCorrection.GateId));
+
+    internal static (string PlanId, string GateId)? ResolveActive(
+        (string PlanId, string GateId)? gateResponse,
+        PendingPlanReviewCorrectionContext? reviewCorrection,
+        bool isPromptRunning)
+    {
+        if (isPromptRunning && gateResponse is { } activeGateResponse)
+            return activeGateResponse;
+        return reviewCorrection is null
+            ? null
+            : (reviewCorrection.PlanId, reviewCorrection.GateId);
+    }
 }
 
 internal static class PlanReviewActivityResponseParser

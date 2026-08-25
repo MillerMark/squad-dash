@@ -58,6 +58,36 @@ internal sealed class PlanReviewActivityResponseTests
     }
 
     [Test]
+    public void ActivityPolicy_ClaimsReviewCorrectionWhileEditablePromptIsDrafted()
+    {
+        var correction = new PendingPlanReviewCorrectionContext(
+            "queue-1", "PLAN-1", "GATE-REVIEW");
+
+        var target = PlanReviewCorrectionActivityPolicy.ResolveActive(
+            null, correction, isPromptRunning: false);
+
+        Assert.That(target, Is.EqualTo(("PLAN-1", "GATE-REVIEW")));
+    }
+
+    [Test]
+    public void ActivityPolicy_ClaimsOrdinaryGateResponseOnlyWhilePromptRuns()
+    {
+        var gateResponse = (PlanId: "PLAN-1", GateId: "GATE-RESPONSE");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PlanReviewCorrectionActivityPolicy.ResolveActive(
+                    gateResponse, null, isPromptRunning: false),
+                Is.Null);
+            Assert.That(
+                PlanReviewCorrectionActivityPolicy.ResolveActive(
+                    gateResponse, null, isPromptRunning: true),
+                Is.EqualTo(gateResponse));
+        });
+    }
+
+    [Test]
     public void TaskCorrectionActivity_StartsWhenEditableQueueItemIsDequeued()
     {
         var correction = new PendingPlanTaskCorrectionContext(
