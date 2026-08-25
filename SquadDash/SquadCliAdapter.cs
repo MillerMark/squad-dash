@@ -58,6 +58,10 @@ internal sealed class SquadCliAdapter {
             _lastResolvedCandidate = candidate;
             _squadVersion = candidate.IsAvailable ? candidate.Version : null;
             _latestSquadVersion = candidate.UpdateInstruction.TargetVersion;
+            SquadDashTrace.Write(
+                "CliResolution",
+                $"Resolved source={candidate.DetectedSource} installed={_squadVersion ?? "(unknown)"} " +
+                $"target={_latestSquadVersion ?? "(unknown)"} canAutoUpdate={candidate.UpdateInstruction.CanAutoUpdate}.");
         }
         catch (Exception ex) {
             SquadDashTrace.Write("SquadCli", $"Version resolve failed: {ex.Message}");

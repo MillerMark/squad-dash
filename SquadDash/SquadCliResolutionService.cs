@@ -315,15 +315,27 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
     {
         if (OperatingSystem.IsWindows())
         {
-            var npmShimPath = FindExecutableOnPath(GetMergedPathEntries(), "npm.cmd");
-            if (!string.IsNullOrWhiteSpace(npmShimPath))
+            var mergedPathEntries = GetMergedPathEntries();
+            var nodeExePath = FindExecutableOnPath(mergedPathEntries, "node.exe");
+            if (!string.IsNullOrWhiteSpace(nodeExePath))
             {
-                var command = string.Join(
-                    " ",
-                    new[] { npmShimPath }
-                        .Concat(arguments)
-                        .Select(CliCmdEscaping.CmdQuoteToken));
-                return _processRunner.RunAsync("cmd.exe", ["/d", "/s", "/c", command], ProbeTimeout);
+                foreach (var pathEntry in mergedPathEntries)
+                {
+                    var npmCliPath = Path.Combine(pathEntry, "node_modules", "npm", "bin", "npm-cli.js");
+                    if (_environmentProvider.FileExists(npmCliPath))
+                    {
+                        return _processRunner.RunAsync(
+                            nodeExePath,
+                            new[] { npmCliPath }.Concat(arguments).ToArray(),
+                            ProbeTimeout);
+                    }
+                }
+            }
+
+            var npmExePath = FindExecutableOnPath(mergedPathEntries, "npm.exe");
+            if (!string.IsNullOrWhiteSpace(npmExePath))
+            {
+                return _processRunner.RunAsync(npmExePath, arguments, ProbeTimeout);
             }
         }
 

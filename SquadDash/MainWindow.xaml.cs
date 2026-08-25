@@ -30696,7 +30696,9 @@ public partial class MainWindow : Window
             await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
 
             MessageBox.Show(
-                "Simulated workspace upgrade cleared. The 'W↑' badge and context menu entry should no longer appear.",
+                "Simulated workspace-file upgrade cleared. The workspace-pending badge and 'Upgrade workspace files' " +
+                "menu entry should no longer appear. The separate CLI-update arrow remains visible when a newer " +
+                "Squad CLI version is available.",
                 "Workspace Upgrade Simulation",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);

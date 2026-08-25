@@ -348,22 +348,20 @@ internal sealed class SquadCliResolutionServiceTests
     }
 
     [Test]
-    public async Task ResolveWithModeAsync_WorkspaceLocal_UsesWindowsNpmCmdShimForTargetProbe()
+    public async Task ResolveWithModeAsync_WorkspaceLocal_UsesNodeNpmCliScriptForTargetProbeOnWindows()
     {
         using var workspace = new TestWorkspace();
         var nodeDir = workspace.GetPath("node tools");
-        Directory.CreateDirectory(nodeDir);
-        var npmShimPath = Path.Combine(nodeDir, "npm.cmd");
-        File.WriteAllText(npmShimPath, "@echo off");
-        var expectedCommand = string.Join(
-            " ",
-            new[] { npmShimPath, "view", "@bradygaster/squad-cli", "version" }
-                .Select(CliCmdEscaping.CmdQuoteToken));
+        var npmCliPath = Path.Combine(nodeDir, "node_modules", "npm", "bin", "npm-cli.js");
+        Directory.CreateDirectory(Path.GetDirectoryName(npmCliPath)!);
+        var nodeExePath = Path.Combine(nodeDir, "node.exe");
+        File.WriteAllText(nodeExePath, "node");
+        File.WriteAllText(npmCliPath, "console.log('npm');");
 
         var runner = new FakeProcessRunner((fileName, args, _) =>
         {
-            if (fileName.Equals("cmd.exe", StringComparison.OrdinalIgnoreCase) &&
-                args.SequenceEqual(["/d", "/s", "/c", expectedCommand]))
+            if (fileName.Equals(nodeExePath, StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual([npmCliPath, "view", "@bradygaster/squad-cli", "version"]))
             {
                 return new CliInvocationResult(0, "0.12.0", string.Empty, false);
             }
