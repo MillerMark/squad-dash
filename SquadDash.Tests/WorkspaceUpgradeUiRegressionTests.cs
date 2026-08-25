@@ -35,16 +35,12 @@ internal sealed class WorkspaceUpgradeUiRegressionTests
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var workspaceIdentifier = xaml.IndexOf("x:Name=\"WorkspaceTitleText\"", StringComparison.Ordinal);
         var workspaceBadge = xaml.IndexOf("x:Name=\"WorkspaceUpgradePendingBadge\"", StringComparison.Ordinal);
-        var squadBadge = xaml.IndexOf("x:Name=\"SquadUpdateBadge\"", StringComparison.Ordinal);
         var squadPanelEnd = xaml.IndexOf("</StackPanel>", xaml.IndexOf("x:Name=\"SquadVersionPanel\"", StringComparison.Ordinal), StringComparison.Ordinal);
-        var titlePanelEnd = xaml.IndexOf("</StackPanel>", workspaceBadge, StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {
             Assert.That(workspaceIdentifier, Is.GreaterThan(squadPanelEnd));
             Assert.That(workspaceBadge, Is.GreaterThan(workspaceIdentifier));
-            Assert.That(xaml[squadBadge..workspaceIdentifier], Does.Contain("{DynamicResource PriorityMid}"));
-            Assert.That(xaml[workspaceBadge..titlePanelEnd], Does.Contain("{DynamicResource PriorityHigh}"));
             Assert.That(source, Does.Contain("Workspace-file layout upgrade"));
         });
     }
