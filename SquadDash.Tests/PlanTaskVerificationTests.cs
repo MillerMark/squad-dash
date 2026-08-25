@@ -506,4 +506,43 @@ internal sealed class PlanTaskVerificationTests
         Assert.That(message.Body, Does.Contain("{{utc-time:"));
         Assert.That(message.Attachments.Single().PlanGroupId, Is.EqualTo("P"));
     }
+
+    [Test]
+    public void AcceptedStep_PersistsMultipleCommitsAndCompletionWarningWithLinkableShas()
+    {
+        var commits = new[]
+        {
+            new PlanEvidenceCommit("1111111111111111111111111111111111111111", "task", "Implementation"),
+            new PlanEvidenceCommit("2222222222222222222222222222222222222222", "task", "Tests"),
+        };
+        var anomaly = new PlanExecutionAnomaly(
+            "multiple-commits", PlanExecutionAnomalySeverity.Warning,
+            "The step completed in 2 commits.", DateTimeOffset.UtcNow, commits);
+        var result = new DecomposeStepResult(
+            "P", "P-2", "rev", "complete", commits[1].Commit, "Implemented and tested", [],
+            new DecomposeStepVerification("passed", "dotnet test", "green"),
+            Commits: commits,
+            ExecutionAnomalies: [anomaly]);
+
+        var accepted = PlanStoreUpdater.ApplyStepAccepted(MakePlan(), null, result);
+        var completed = accepted with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Completed,
+            Progress = new PlanProgress(2, 2),
+            Timestamps = accepted.Timestamps with { CompletedAt = DateTimeOffset.UtcNow },
+        };
+        var message = PlanCompletionSummaryBuilder.Build(completed);
+        var roundTrip = JsonSerializer.Deserialize<Plan>(JsonSerializer.Serialize(completed));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(accepted.Tasks[1].Commits, Has.Count.EqualTo(2));
+            Assert.That(accepted.Tasks[1].ExecutionAnomalies, Has.Count.EqualTo(1));
+            Assert.That(roundTrip!.Tasks[1].ExecutionAnomalies, Has.Count.EqualTo(1));
+            Assert.That(message.Priority, Is.EqualTo("normal"));
+            Assert.That(message.Body, Does.Contain("multiple-commits"));
+            Assert.That(message.Body, Does.Contain($"`{commits[0].Commit}`"));
+            Assert.That(message.Body, Does.Contain($"`{commits[1].Commit}`"));
+        });
+    }
 }

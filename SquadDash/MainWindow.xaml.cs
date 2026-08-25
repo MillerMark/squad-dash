@@ -10983,7 +10983,7 @@ public partial class MainWindow : Window
             "The user concluded that this recorded task result needs bounded corrections. " +
             "Implement only the requested correction on the current plan branch. Preserve the existing commit and accumulated work; " +
             "do not rerun the original task, continue downstream plan execution, revise the plan, or modify tasks.md. " +
-            "Create exactly one atomic correction commit and run focused verification. End with PLAN_REVIEW_ACTIVITY_JSON " +
+            "Create one or more meaningful correction commits and run focused verification. Preserve useful commit history. End with PLAN_REVIEW_ACTIVITY_JSON " +
             "using activity manual-correction, the exact plan/revision/task identity above, and a concise summary of the correction.";
         var attachments = new List<FollowUpAttachment>
         {
@@ -12784,7 +12784,7 @@ public partial class MainWindow : Window
                 $"RECOVERY CONTEXT (host-owned): Continue task {taskId} from the existing uncommitted work in these paths:\n" +
                 string.Join("\n", paths.Select(path => $"- {path}")) +
                 "\nInspect the existing diff and repository build configuration, finish the task without discarding valid work, " +
-                "and commit all validated task changes in exactly one atomic commit. Do not commit tasks.md.";
+                "and commit the validated task changes in one or more meaningful commits. Do not rewrite useful commit history and do not commit tasks.md.";
         }
         else
         {
@@ -12989,7 +12989,8 @@ public partial class MainWindow : Window
                     durablePlan);
                 planExecutionContext = PlanExecutionContextBuilder.Build(durablePlan, durableTask) +
                     $"\n\nGenerated plan projection: `{projectionPath}`. The context above is authoritative for this turn; " +
-                    "the projection is an inspectable plan-only reference and tasks.md is not an execution source.";
+                    "the projection is an inspectable plan-only reference and tasks.md is not an execution source. " +
+                    "Inspect the current implementation and tests before changing anything. Treat requirements already satisfied by earlier or concurrent work as complete, avoid duplicating equivalent work, and report the terminal commit; SquadDash records the full commit range.";
             }
         }
 
@@ -13327,14 +13328,20 @@ public partial class MainWindow : Window
                 !string.IsNullOrWhiteSpace(commitValidation.EffectiveCommit) &&
                 !string.IsNullOrWhiteSpace(_decomposeIterationBaselineCommit))
             {
-                result = result with { Commit = commitValidation.EffectiveCommit };
+                result = result with
+                {
+                    Commit = commitValidation.EffectiveCommit,
+                    Commits = commitValidation.Commits,
+                    ExecutionAnomalies = commitValidation.Anomalies,
+                };
                 taskCommitEvidence = new PlanTaskCommitEvidence(
                     taskId,
                     executionAttempt?.AttemptId,
                     _decomposeIterationBaselineCommit!,
                     commitValidation.EffectiveCommit,
                     result.Summary,
-                    result.Verification);
+                    result.Verification,
+                    commitValidation.Commits);
             }
             else if (error is null)
             {
@@ -14412,16 +14419,16 @@ public partial class MainWindow : Window
     }
 
 
-    private async Task<(string? Error, string? EffectiveCommit)> ValidateDecomposeStepCommitAsync(
+    private async Task<(string? Error, string? EffectiveCommit, IReadOnlyList<PlanEvidenceCommit> Commits, IReadOnlyList<PlanExecutionAnomaly> Anomalies)> ValidateDecomposeStepCommitAsync(
         DecomposeStepResult result,
         bool verificationOnly,
         string? baselineOverride = null,
         string? transcriptCommit = null)
     {
-        if (_currentWorkspace is null) return ("No workspace is active.", null);
+        if (_currentWorkspace is null) return ("No workspace is active.", null, [], []);
         if (string.IsNullOrWhiteSpace(result.Commit) ||
             !Regex.IsMatch(result.Commit, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
-            return ("The reported commit was missing or malformed.", null);
+            return ("The reported commit was missing or malformed.", null, [], []);
 
         try
         {
@@ -14463,7 +14470,7 @@ public partial class MainWindow : Window
                 }
                 catch
                 {
-                    return ($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null);
+                    return ($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null, [], []);
                 }
             }
             else if (!string.Equals(resolved, head, StringComparison.OrdinalIgnoreCase))
@@ -14474,12 +14481,15 @@ public partial class MainWindow : Window
                 }
                 catch
                 {
-                    return ($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null);
+                    return ($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null, [], []);
                 }
             }
 
             if (!verificationOnly && string.Equals(baseline, resolved, StringComparison.OrdinalIgnoreCase))
-                return ("The step reported completion without creating a new commit.", null);
+                return ("The step reported completion without creating a new commit.", null, [], []);
+
+            IReadOnlyList<PlanEvidenceCommit> commits = [];
+            IReadOnlyList<PlanExecutionAnomaly> anomalies = [];
 
             if (!string.IsNullOrWhiteSpace(baseline))
             {
@@ -14489,11 +14499,37 @@ public partial class MainWindow : Window
                     workspace,
                     $"rev-list --count \"{baseline}..{rangeEnd}\"")).Trim();
                 if (!int.TryParse(commitCountText, out var commitCount))
-                    return ("SquadDash could not determine how many commits the step produced.", null);
+                    return ("SquadDash could not determine how many commits the step produced.", null, [], []);
                 if (verificationOnly && commitCount != 0)
-                    return ($"The verification-only step changed the branch by {commitCount} commit(s); it must only evaluate existing work.", null);
-                if (!verificationOnly && commitCount != 1)
-                    return ($"The step created {commitCountText} commits; each implementation step must produce exactly one atomic commit.", null);
+                    return ($"The verification-only step changed the branch by {commitCount} commit(s); it must only evaluate existing work.", null, [], []);
+
+                if (!verificationOnly)
+                {
+                    var commitOutput = await RunGitAsync(
+                        workspace,
+                        $"rev-list --reverse \"{baseline}..{rangeEnd}\"");
+                    commits = commitOutput
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(commit => new PlanEvidenceCommit(
+                            commit,
+                            commitCount == 1 ? PlanRecoveryCommitRelation.Task : PlanRecoveryCommitRelation.Unknown,
+                            commitCount == 1
+                                ? "Commit observed within this step's host-recorded baseline range."
+                                : "Commit observed within the step range; individual task ownership was not assumed."))
+                        .ToArray();
+                    if (commitCount > 1)
+                    {
+                        anomalies =
+                        [
+                            new PlanExecutionAnomaly(
+                                "multiple-commits",
+                                PlanExecutionAnomalySeverity.Warning,
+                                $"The step completed in {commitCount} commits. SquadDash preserved the full contiguous range and continued without rewriting history.",
+                                DateTimeOffset.UtcNow,
+                                commits),
+                        ];
+                    }
+                }
             }
 
             var changedPaths = (await RunGitAsync(
@@ -14509,14 +14545,14 @@ public partial class MainWindow : Window
                     path.Replace('\\', '/'),
                     tasksRelativePath,
                     StringComparison.OrdinalIgnoreCase)))
-                return ("The AI commit modified tasks.md; plan status is owned by SquadDash.", null);
+                return ("The AI commit modified tasks.md; plan status is owned by SquadDash.", null, [], []);
 
             await EnsurePlanWorktreeReadyAsync(workspace);
-            return (null, verificationOnly ? head : resolved);
+            return (null, verificationOnly ? head : resolved, commits, anomalies);
         }
         catch (Exception ex)
         {
-            return ($"Git validation failed: {ex.Message}", null);
+            return ($"Git validation failed: {ex.Message}", null, [], []);
         }
     }
 
@@ -14605,7 +14641,8 @@ public partial class MainWindow : Window
                     candidateBaseline,
                     validation.EffectiveCommit,
                     candidate.Summary,
-                    candidate.Verification);
+                    candidate.Verification,
+                    validation.Commits);
                 var reconciled = plan with
                 {
                     InterruptionData = stableInterruption with { TaskCommitEvidence = evidence },
@@ -16576,19 +16613,22 @@ public partial class MainWindow : Window
                 var countText = (await RunGitAsync(
                     workspace,
                     $"rev-list --count \"{correctionContext.BaselineCommit}..{head}\"")).Trim();
-                if (!int.TryParse(countText, out var count) || count != 1)
+                if (!int.TryParse(countText, out var count) || count < 1)
                     throw new InvalidOperationException(
-                        $"The correction produced {countText} commits after the recorded task result; exactly one atomic correction commit is required.");
+                        "The correction did not create a commit after the recorded task result.");
                 await EnsurePlanWorktreeReadyAsync(workspace, updated.PlanId);
-                var correctionCommit = (await RunGitAsync(
+                var correctionCommits = (await RunGitAsync(
                     workspace,
-                    $"log -1 --format=%H \"{correctionContext.BaselineCommit}..{head}\"")).Trim();
+                    $"rev-list --reverse \"{correctionContext.BaselineCommit}..{head}\"")).Split(
+                        '\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                 var combinedCommits = (exactEvidence.Commits ??
                         [new PlanEvidenceCommit(exactEvidence.Commit, "task", "Original host-recorded task result.")])
-                    .Append(new PlanEvidenceCommit(
-                        correctionCommit,
+                    .Concat(correctionCommits.Select(commit => new PlanEvidenceCommit(
+                        commit,
                         "task",
-                        "Bounded correction requested from the recovery card."))
+                        count > 1
+                            ? "One of multiple commits produced by the bounded correction; history was preserved."
+                            : "Bounded correction requested from the recovery card.")))
                     .ToArray();
                 updated = updated with
                 {

@@ -290,7 +290,10 @@ internal sealed record PlanTask(
                                                 string? ExecutionMode = null,
     [property: JsonPropertyName("verificationLevel")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? VerificationLevel = null);
+                                                string? VerificationLevel = null,
+    [property: JsonPropertyName("executionAnomalies")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanExecutionAnomaly>? ExecutionAnomalies = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.
@@ -504,6 +507,27 @@ internal sealed record PlanEvidenceCommit(
     [property: JsonPropertyName("commit")] string Commit,
     [property: JsonPropertyName("relation")] string Relation,
     [property: JsonPropertyName("reason")] string Reason);
+
+internal static class PlanExecutionAnomalySeverity
+{
+    internal const string Information = "information";
+    internal const string Warning = "warning";
+    internal const string Blocking = "blocking";
+}
+
+/// <summary>
+/// A durable, non-fatal irregularity observed while executing a task. An anomaly preserves
+/// provenance uncertainty for later review without converting bookkeeping imperfections into
+/// execution failures.
+/// </summary>
+internal sealed record PlanExecutionAnomaly(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("severity")] string Severity,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("recordedAt")] DateTimeOffset RecordedAt,
+    [property: JsonPropertyName("commits")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<PlanEvidenceCommit>? Commits = null);
 
 // ─── Root aggregate ────────────────────────────────────────────────────────────
 

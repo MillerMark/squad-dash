@@ -272,6 +272,7 @@ internal static class PlanStoreUpdater
                 Status = status,
                 Commit = string.IsNullOrWhiteSpace(acceptedResult.Commit) ? task.Commit : acceptedResult.Commit,
                 Commits = acceptedResult.Commits ?? task.Commits,
+                ExecutionAnomalies = MergeExecutionAnomalies(task.ExecutionAnomalies, acceptedResult.ExecutionAnomalies),
                 CompletedAt = acceptedResult.Status == "complete" ? task.CompletedAt ?? now : task.CompletedAt,
                 CompletionSummary = acceptedResult.Summary,
                 ProofEvidence = acceptedResult.ProofEvidence?.Select(evidence => new PlanTaskProofEvidence(
@@ -2180,6 +2181,7 @@ internal static class PlanStoreUpdater
             {
                 Commit = string.IsNullOrWhiteSpace(result.Commit) ? task.Commit : result.Commit,
                 Commits = result.Commits ?? task.Commits,
+                ExecutionAnomalies = MergeExecutionAnomalies(task.ExecutionAnomalies, result.ExecutionAnomalies),
                 CompletedAt = result.Status == "complete"
                     ? task.CompletedAt ?? completedAt
                     : task.CompletedAt,
@@ -2191,6 +2193,18 @@ internal static class PlanStoreUpdater
                     evidence.Artifacts)).ToArray(),
             };
         }).ToList();
+    }
+
+    private static IReadOnlyList<PlanExecutionAnomaly>? MergeExecutionAnomalies(
+        IReadOnlyList<PlanExecutionAnomaly>? existing,
+        IReadOnlyList<PlanExecutionAnomaly>? incoming)
+    {
+        if (incoming is not { Count: > 0 }) return existing;
+        return (existing ?? [])
+            .Concat(incoming)
+            .GroupBy(anomaly => $"{anomaly.Kind}\n{anomaly.Summary}", StringComparer.Ordinal)
+            .Select(group => group.Last())
+            .ToArray();
     }
 
     private static PlanTask CreatePlanTask(DecomposedSubTask sub, TaskItem? item) =>

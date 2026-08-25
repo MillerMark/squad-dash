@@ -7,13 +7,14 @@ internal static class PlanCompletionSummaryBuilder
     internal static InboxMessage Build(Plan plan)
     {
         var completedAt = plan.Timestamps.CompletedAt ?? DateTimeOffset.UtcNow;
+        var anomalyCount = plan.Tasks.Sum(task => task.ExecutionAnomalies?.Count ?? 0);
         return new InboxMessage
         {
             Id = $"plan-completion-{plan.PlanId}-{plan.Revision}",
             Subject = $"Plan completed: {plan.Title}",
             From = "SquadDash Plans",
             Timestamp = completedAt,
-            Priority = "low",
+            Priority = anomalyCount > 0 ? "normal" : "low",
             Body = BuildBody(plan),
             Attachments =
             [
@@ -70,6 +71,17 @@ internal static class PlanCompletionSummaryBuilder
             }
             else if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
                 builder.AppendLine($"- Handoff: {task.CompletionSummary}");
+
+            if (task.ExecutionAnomalies is { Count: > 0 })
+            {
+                builder.AppendLine("- Execution warnings:");
+                foreach (var anomaly in task.ExecutionAnomalies)
+                {
+                    builder.AppendLine($"  - **{anomaly.Kind}** — {anomaly.Summary}");
+                    foreach (var commit in anomaly.Commits ?? [])
+                        builder.AppendLine($"    - Commit: `{commit.Commit}` — {commit.Reason}");
+                }
+            }
 
             if (task.VerificationHistory is { Count: > 0 })
             {

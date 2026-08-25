@@ -151,6 +151,27 @@ internal sealed class PlanLoopTranscriptPresentationTests
     }
 
     [Test]
+    public void BuildPlanCompleteMessage_ReportsDurableExecutionWarnings()
+    {
+        var task = new PlanTask(
+            "PLAN-1-001", "Task", "Work", [], "high", PlanTaskStatus.Complete,
+            ExecutionAnomalies:
+            [
+                new PlanExecutionAnomaly(
+                    "multiple-commits", PlanExecutionAnomalySeverity.Warning,
+                    "Two commits were preserved.", DateTimeOffset.UtcNow),
+            ]);
+        var plan = new Plan(
+            "PLAN-1", "revision-1", PlanSource.Inbox, PlanLifecycleStatus.Completed,
+            "Plan title", "feature/plan", "Summary", [task], [],
+            new PlanProgress(1, 1), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        Assert.That(
+            PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(plan),
+            Is.EqualTo("Plan complete · 1 of 1 · 1 execution warning recorded in the inbox summary"));
+    }
+
+    [Test]
     public void QueueDrainMessages_ExplainTemporaryPauseAndExactResumeStep()
     {
         var task = new PlanTask(

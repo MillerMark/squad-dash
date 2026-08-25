@@ -46,7 +46,9 @@ internal sealed record DecomposeStepResult(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         IReadOnlyList<PlanTaskDeferredWork>? DeferredWork = null,
     [property: JsonIgnore]
-        IReadOnlyList<PlanEvidenceCommit>? Commits = null);
+        IReadOnlyList<PlanEvidenceCommit>? Commits = null,
+    [property: JsonIgnore]
+        IReadOnlyList<PlanExecutionAnomaly>? ExecutionAnomalies = null);
 
 internal static class DecomposeStepResultParser
 {

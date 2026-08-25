@@ -24,6 +24,9 @@ internal static class PlanLoopTranscriptPresentation
     internal static string BuildPlanCompleteMessage(Plan plan, string? detail = null)
     {
         var message = $"Plan complete · {plan.Progress.CompletedCount} of {plan.Progress.TotalCount}";
+        var anomalyCount = plan.Tasks.Sum(task => task.ExecutionAnomalies?.Count ?? 0);
+        if (anomalyCount > 0)
+            message += $" · {anomalyCount} execution warning{(anomalyCount == 1 ? string.Empty : "s")} recorded in the inbox summary";
         return string.IsNullOrWhiteSpace(detail) ? message : $"{message} · {detail.Trim()}";
     }
 
