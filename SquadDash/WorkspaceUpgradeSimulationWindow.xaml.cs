@@ -50,6 +50,7 @@ internal partial class WorkspaceUpgradeSimulationWindow : Window
         if (!Enum.TryParse<WorkspaceUpgradeSummaryPanelState>(tag, out var state))
             return;
 
+        if (SummaryPanel is null) return;
         SummaryPanel.CurrentState = state;
     }
 
