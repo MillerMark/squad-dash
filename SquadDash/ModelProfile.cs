@@ -14,7 +14,8 @@ internal sealed record ModelProfile(
     bool OfflineMode = false,
     bool IsDefault = false,
     bool IsEnabled = true,
-    string? WireApi = null) {
+    string? WireApi = null,
+    string? ReasoningEffort = null) {
     
     /// <summary>
     /// Returns a copy with the Alias updated. Used for profile rename.

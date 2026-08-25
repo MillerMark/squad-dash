@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace SquadDash.Tests;
 
@@ -142,5 +143,58 @@ internal sealed class ModelProfileResolverTests {
 
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.Id, Is.EqualTo("prof-b"));
+    }
+
+    [Test]
+    public void Resolution_IsInvariantToReasoningEffort() {
+        var assignments = new Dictionary<string, string> {
+            [ModelProfileCategory.Coordinator] = "prof-b"
+        };
+        var baselineProfiles = new[] { ProfileA, ProfileB, DefaultProfile };
+        var enrichedProfiles = baselineProfiles
+            .Select(p => p with { ReasoningEffort = p.Id == "prof-a" ? "low" : "high" })
+            .ToArray();
+
+        var baselineOverride = ModelProfileResolver.ResolveWithReason(
+            baselineProfiles,
+            assignments,
+            "prof-a",
+            ModelProfileCategory.Coordinator);
+        var enrichedOverride = ModelProfileResolver.ResolveWithReason(
+            enrichedProfiles,
+            assignments,
+            "prof-a",
+            ModelProfileCategory.Coordinator);
+
+        var baselineCategory = ModelProfileResolver.ResolveWithReason(
+            baselineProfiles,
+            assignments,
+            null,
+            ModelProfileCategory.Coordinator);
+        var enrichedCategory = ModelProfileResolver.ResolveWithReason(
+            enrichedProfiles,
+            assignments,
+            null,
+            ModelProfileCategory.Coordinator);
+
+        var baselineDefault = ModelProfileResolver.ResolveWithReason(
+            baselineProfiles,
+            assignments,
+            null,
+            ModelProfileCategory.RAI);
+        var enrichedDefault = ModelProfileResolver.ResolveWithReason(
+            enrichedProfiles,
+            assignments,
+            null,
+            ModelProfileCategory.RAI);
+
+        Assert.Multiple(() => {
+            Assert.That(enrichedOverride.Profile?.Id, Is.EqualTo(baselineOverride.Profile?.Id));
+            Assert.That(enrichedOverride.Reason, Is.EqualTo(baselineOverride.Reason));
+            Assert.That(enrichedCategory.Profile?.Id, Is.EqualTo(baselineCategory.Profile?.Id));
+            Assert.That(enrichedCategory.Reason, Is.EqualTo(baselineCategory.Reason));
+            Assert.That(enrichedDefault.Profile?.Id, Is.EqualTo(baselineDefault.Profile?.Id));
+            Assert.That(enrichedDefault.Reason, Is.EqualTo(baselineDefault.Reason));
+        });
     }
 }

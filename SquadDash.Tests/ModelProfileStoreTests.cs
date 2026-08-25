@@ -16,6 +16,77 @@ internal sealed class ModelProfileStoreTests {
             "The startup service container requires a public constructor for conventional activation.");
     }
 
+    [Test]
+    public void LegacySerializedProfileWithoutReasoningEffort_RoundTripsWithNullEffort_AndPreservesExistingFields() {
+        var legacyJson = """
+            {
+              "Id": "legacy-prof",
+              "Alias": "Legacy Profile",
+              "ProviderType": "openai",
+              "ProviderUrl": "https://api.example.com/v1",
+              "Model": "gpt-4o-mini",
+              "ApiKey": "sk-legacy",
+              "OfflineMode": true,
+              "IsDefault": false,
+              "IsEnabled": true,
+              "WireApi": "responses"
+            }
+            """;
+
+        var fromLegacy = JsonSerializer.Deserialize<ModelProfile>(legacyJson);
+        var roundTrip = JsonSerializer.Deserialize<ModelProfile>(JsonSerializer.Serialize(fromLegacy));
+
+        Assert.Multiple(() => {
+            Assert.That(fromLegacy, Is.Not.Null);
+            Assert.That(fromLegacy!.ReasoningEffort, Is.Null);
+            Assert.That(roundTrip, Is.Not.Null);
+            Assert.That(roundTrip!.Id, Is.EqualTo(fromLegacy.Id));
+            Assert.That(roundTrip.Alias, Is.EqualTo(fromLegacy.Alias));
+            Assert.That(roundTrip.ProviderType, Is.EqualTo(fromLegacy.ProviderType));
+            Assert.That(roundTrip.ProviderUrl, Is.EqualTo(fromLegacy.ProviderUrl));
+            Assert.That(roundTrip.Model, Is.EqualTo(fromLegacy.Model));
+            Assert.That(roundTrip.ApiKey, Is.EqualTo(fromLegacy.ApiKey));
+            Assert.That(roundTrip.OfflineMode, Is.EqualTo(fromLegacy.OfflineMode));
+            Assert.That(roundTrip.IsDefault, Is.EqualTo(fromLegacy.IsDefault));
+            Assert.That(roundTrip.IsEnabled, Is.EqualTo(fromLegacy.IsEnabled));
+            Assert.That(roundTrip.WireApi, Is.EqualTo(fromLegacy.WireApi));
+            Assert.That(roundTrip.ReasoningEffort, Is.Null);
+        });
+    }
+
+    [Test]
+    public void ProfileWithReasoningEffort_SerializeDeserialize_PreservesAllFields() {
+        var original = new ModelProfile(
+            Id: "effort-prof",
+            Alias: "Effort Profile",
+            ProviderType: "openai",
+            ProviderUrl: "https://api.example.com/v1",
+            Model: "gpt-5-mini",
+            ApiKey: "sk-effort",
+            OfflineMode: false,
+            IsDefault: true,
+            IsEnabled: false,
+            WireApi: "responses",
+            ReasoningEffort: "medium");
+
+        var rehydrated = JsonSerializer.Deserialize<ModelProfile>(JsonSerializer.Serialize(original));
+
+        Assert.Multiple(() => {
+            Assert.That(rehydrated, Is.Not.Null);
+            Assert.That(rehydrated!.Id, Is.EqualTo(original.Id));
+            Assert.That(rehydrated.Alias, Is.EqualTo(original.Alias));
+            Assert.That(rehydrated.ProviderType, Is.EqualTo(original.ProviderType));
+            Assert.That(rehydrated.ProviderUrl, Is.EqualTo(original.ProviderUrl));
+            Assert.That(rehydrated.Model, Is.EqualTo(original.Model));
+            Assert.That(rehydrated.ApiKey, Is.EqualTo(original.ApiKey));
+            Assert.That(rehydrated.OfflineMode, Is.EqualTo(original.OfflineMode));
+            Assert.That(rehydrated.IsDefault, Is.EqualTo(original.IsDefault));
+            Assert.That(rehydrated.IsEnabled, Is.EqualTo(original.IsEnabled));
+            Assert.That(rehydrated.WireApi, Is.EqualTo(original.WireApi));
+            Assert.That(rehydrated.ReasoningEffort, Is.EqualTo("medium"));
+        });
+    }
+
 
     [Test]
     public void LegacyMigration_CopilotProvider_ProducesDefaultCopilotProfile() {
