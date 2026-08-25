@@ -44,7 +44,7 @@ catch (Exception ex)
 }
 ```
 
-Use a descriptive category string (e.g. `"Preferences"`, `"HireAgent"`, `"Revision"`) so failures are discoverable in the Trace panel.
+Use a descriptive category string (e.g. `"Preferences"`, `"CastAgent"`, `"Revision"`) so failures are discoverable in the Trace panel.
 
 **Rationale:** Silent swallows make failures completely invisible — no trace entry, no user feedback, nothing to diagnose from logs. Even when a failure is non-fatal (e.g., post-dismiss cleanup), logging it is free and allows future diagnosis. The only accepted exceptions are Win32/P/Invoke best-effort fallbacks (e.g., `NativeMethods.cs`) and trace-write failures themselves (logging must never crash the app).
 

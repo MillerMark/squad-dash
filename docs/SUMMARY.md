@@ -10,7 +10,7 @@
   * [Installation](getting-started/installation.md)
   * [First Run](getting-started/first-run.md)
   * [Squad Team](concepts/squad-team.md)
-  * [Hiring Agents](features/hiring-agents.md)
+  * [Casting Agents](features/casting-agents.md)
   * [VS Tooling](getting-started/VS Tooling.md)
   * [Windows Taskbar](getting-started/Windows Taskbar.md)
   * [Stand-alone Installer](getting-started/Stand-alone Installer.md)

@@ -35,7 +35,8 @@ These commands are intercepted locally by SquadDash and execute immediately — 
 | `/doctor` | Run Squad Doctor diagnostics | No |
 | `/dropTasks` | Hide the live background-tasks popup | No |
 | `/help` | Show the built-in command reference in the transcript | No |
-| `/hire` | Open the visual hire-agent workflow | **Yes — Hire Agent dialog** |
+| `/cast` | Open the visual cast-agent workflow | **Yes — Cast Agent dialog** |
+| `/hire` | Compatibility alias for `/cast` (shows migration hint) | **Yes — Cast Agent dialog** |
 | `/maintenance` | Arm a one-shot "run-once-on-idle" flag; fires at the next true idle point regardless of the panel's mode setting | No |
 | `/model` | Show the active AI model in the transcript | No |
 | `/retire <name>` | Archive an agent and remove them from the active roster | No — delegates to AI |
@@ -83,8 +84,8 @@ Additionally, the full IntelliSense list includes Squad CLI pass-through command
 
 | Behaviour | Commands |
 |---|---|
-| **Safe while a prompt is running** | `/activate`, `/agents`, `/deactivate`, `/doctor`, `/dropTasks`, `/help`, `/hire`, `/maintenance`, `/model`, `/retire`, `/screenshot`, `/status`, `/tasks`, `/version` |
-| **Opens a dialog or overlay** | `/hire`, `/screenshot`, `/trace`, `/clear` (confirmation) |
+| **Safe while a prompt is running** | `/activate`, `/agents`, `/cast`, `/deactivate`, `/doctor`, `/dropTasks`, `/help`, `/hire`, `/maintenance`, `/model`, `/retire`, `/screenshot`, `/status`, `/tasks`, `/version` |
+| **Opens a dialog or overlay** | `/cast`, `/hire`, `/screenshot`, `/trace`, `/clear` (confirmation) |
 | **Requires a `<name>` argument** | `/activate`, `/deactivate`, `/retire` |
 | **Forwarded to AI coordinator** | All Squad AI commands + lifecycle commands |
 
@@ -92,6 +93,6 @@ Additionally, the full IntelliSense list includes Squad CLI pass-through command
 
 ## Related
 
-- **[Hiring Agents](../features/hiring-agents.md)** — Step-by-step guide to the `/hire` workflow
+- **[Casting Agents](../features/casting-agents.md)** — Step-by-step guide to the `/cast` workflow (`/hire` alias supported)
 - **[Keyboard Shortcuts](keyboard-shortcuts.md)** — Hotkeys for navigation and prompt box control
 - **[Routing](routing.md)** — How the AI coordinator chooses which agent handles each prompt

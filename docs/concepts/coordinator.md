@@ -61,7 +61,7 @@ When there is no `.squad/team.md` in the workspace, the Coordinator handles all 
 ### Team configured
 
 When a team is present, the Coordinator shifts into a **manager role**. It delegates implementation, investigation, and testing to the right specialist agents and synthesises their results back to you. Direct implementation by the Coordinator is the exception rather than the rule.
-You can create a team by using the /hire command.
+You can create a team by using the `/cast` command (`/hire` also works as a compatibility alias).
 
 ---
 

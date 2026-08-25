@@ -53,7 +53,7 @@ No team exists yet. Propose one — but **DO NOT create any files until the user
 
 5. Use the `ask_user` tool to confirm the roster. Provide choices so the user sees a selectable menu:
    - **question:** *"Look right?"*
-   - **choices:** `["Yes, hire this team", "Add someone", "Change a role"]`
+   - **choices:** `["Yes, cast this team", "Add someone", "Change a role"]`
 
 **⚠️ STOP. Your response ENDS here. Do NOT proceed to Phase 2. Do NOT create any files or directories. Wait for the user's reply.**
 
@@ -82,7 +82,7 @@ No team exists yet. Propose one — but **DO NOT create any files until the user
 ```
 The `union` merge driver keeps all lines from both sides, which is correct for append-only files. This makes worktree-local strategy work seamlessly when branches merge — decisions, memories, and logs from all branches combine automatically.
 
-7. Say: *"✅ Team hired. Try: '{FirstCastName}, set up the project structure'"*
+7. Say: *"✅ Team cast. Try: '{FirstCastName}, set up the project structure'"*
 
 8. **Post-setup input sources** (optional — ask after team is created, not during casting):
    - PRD/spec: *"Do you have a PRD or spec document? (file path, paste it, or skip)"* → If provided, follow PRD Mode flow

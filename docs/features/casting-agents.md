@@ -1,32 +1,34 @@
 ---
-title: Hiring Agents
+title: Casting Agents
 nav_order: 5
 parent: Features
 ---
 
-# Hiring Agents
+# Casting Agents
 
-**Hiring** is how you add a new specialist to your workspace's Squad team. A hired agent gets a name, a role, a `charter.md` defining its responsibilities, and a `history.md` for accumulated context. Once hired, the agent appears in the SquadDash sidebar and the coordinator can route prompts to it automatically.
-
----
-
-## Invoking `/hire`
-
-Type `/hire` in the prompt box and press **Enter** (or **Tab** if auto-fill is up).
-
-![Screenshot: /hire typed in the prompt box](images/hire-command-prompt.png)
-
-The **Hire a New Agent** dialog opens immediately — no AI turn is consumed at this point.
-
-> **Tip:** `/hire` can be invoked even while a prompt is running. SquadDash will hold the hire submission until the current turn finishes.
+**Casting** is how you add a new specialist to your workspace's Squad team. A cast agent gets a name, a role, a `charter.md` defining its responsibilities, and a `history.md` for accumulated context. Once added, the agent appears in the SquadDash sidebar and the coordinator can route prompts to it automatically.
 
 ---
 
-## The Hire Agent Dialog
+## Invoking `/cast`
+
+Type `/cast` in the prompt box and press **Enter** (or **Tab** if auto-fill is up).
+
+![Screenshot: /cast typed in the prompt box](images/cast-command-prompt.png)
+
+The **Cast a New Agent** dialog opens immediately — no AI turn is consumed at this point.
+
+> **Compatibility:** `/hire` still works as an alias for `/cast` and shows a migration hint.
+>
+> **Tip:** `/cast` (and `/hire`) can be invoked even while a prompt is running. SquadDash will hold the cast submission until the current turn finishes.
+
+---
+
+## The Cast Agent Dialog
 
 The dialog is divided into two areas: a **universe and character gallery** on the left and a **new agent** configuration form on the right.
 
-![Screenshot: Hire Agent dialog open](images/hire-agent-dialog.png)
+![Screenshot: Cast Agent dialog open](images/cast-agent-dialog.png)
 
 ### Universe Tabs
 
@@ -60,16 +62,16 @@ Click **Advanced Options** to reveal two additional fields:
 | Field | Description |
 |---|---|
 | **Model Preference** | Suggest a specific AI model for this agent (e.g., `claude-sonnet-4`). The coordinator honors this as a preference, not a hard constraint. |
-| **Extra Guidance** | Free-form instructions appended to the hire prompt — use this for anything not covered by the structured fields. |
+| **Extra Guidance** | Free-form instructions appended to the cast prompt — use this for anything not covered by the structured fields. |
 
 ---
 
-## Confirming the Hire
+## Confirming the Cast
 
-Click **Hire** to submit. SquadDash constructs a coordinator prompt from your inputs and sends it to the AI team:
+Click **Cast Agent** to submit. SquadDash constructs a coordinator prompt from your inputs and sends it to the AI team:
 
 ```
-Hire a new team member for this workspace.
+Cast a new team member for this workspace.
 
 Preferred universe: SquadDash
 Preferred name: nova-chen
@@ -79,7 +81,7 @@ Best For:
 - REST API design
 - Database migrations
 
-Use Squad's standard add-member workflow so the new hire is created correctly.
+Use Squad's standard add-member workflow so the new cast member is created correctly.
 Generate or refine a high-quality charter.md and history.md for the new agent.
 Update .squad/team.md, .squad/routing.md, and .squad/casting/registry.json.
 ```
@@ -94,12 +96,11 @@ If the requested name conflicts with an existing team member, the coordinator st
 
 ---
 
-## After Hiring
+## After Casting
 
-Once the coordinator confirms the hire, the new agent card appears in the SquadDash sidebar. The coordinator can begin routing prompts to the new specialist immediately.
+Once the coordinator confirms the cast, the new agent card appears in the SquadDash sidebar. The coordinator can begin routing prompts to the new specialist immediately.
 
-![Screenshot: New agent card in the sidebar after hiring](images/hire-agent-result-sidebar.png)
-> 📸 *Screenshot needed: The SquadDash main window after a hire completes — show the new agent card in the sidebar with its name and role visible. If an avatar was set, show the card with the image.*
+> 📸 *Screenshot needed: The SquadDash main window after casting completes — show the new agent card in the sidebar with its name and role visible. If an avatar was set, show the card with the image.*
 
 You can then:
 
@@ -111,7 +112,7 @@ You can then:
 
 ## Agent Lifecycle Commands
 
-After hiring, you can manage an agent's status with slash commands:
+After casting, you can manage an agent's status with slash commands:
 
 | Command | Effect |
 |---|---|

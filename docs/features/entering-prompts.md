@@ -101,5 +101,5 @@ Press **Ctrl+Shift+V** to attach the clipboard's text content as a follow-up att
 - **[Prompt Queue](prompt-queue.md)** — What happens when you send a prompt while an agent is already running
 - **[Voice Input](voice-input.md)** — Dictate prompts with your microphone instead of typing
 - **[Fullscreen Transcript](fullscreen-transcript.md)** — View the full conversation history in an expanded view
-- **[Hiring Agents](hiring-agents.md)** — Set up the agents you'll be prompting
+- **[Casting Agents](casting-agents.md)** — Set up the agents you'll be prompting
 - **[Keyboard Shortcuts](../reference/keyboard-shortcuts.md)** — All prompt-box shortcuts at a glance

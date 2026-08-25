@@ -72,7 +72,7 @@ Each agent appears as a card showing:
 - Hands-free prompt entry
 
 ### Team Management
-- Add new agents to the team with the integrated **Hire Agent** dialog.
+- Add new agents to the team with the integrated **Cast Agent** dialog (`/cast` primary, `/hire` alias).
 
 ### Command Line Access
 
