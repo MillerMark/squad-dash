@@ -588,6 +588,7 @@ public partial class MainWindow : Window
     private readonly ScreenshotRefreshOptions _screenshotRefreshOptions;
     private WorkspacePendingUpgradeState _workspacePendingUpgradeState = WorkspacePendingUpgradeState.None;
     private Window? _workspaceUpgradeSummaryWindow;
+    private WorkspaceUpgradeChangesWindow? _workspaceUpgradeChangesWindow;
     private string? _lastHandledRestartRequestId;
     private TranscriptThreadState? _coordinatorThread;
     private TranscriptThreadState? _selectedTranscriptThread;
@@ -30954,7 +30955,7 @@ public partial class MainWindow : Window
                 await _workspacePendingUpgradeStore.SaveResolvedAsync(workspacePath).ConfigureAwait(true);
                 await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
                 AppendLine("✅ [Simulation] Workspace update applied. Opening git changes for review.");
-                await HandleCheckGitDiffAsync().ConfigureAwait(true);
+                await OpenWorkspaceUpgradeChangesAsync(panel.DryRunResult, simulated: true).ConfigureAwait(true);
             };
 
             panel.LaterRequested = async () =>
@@ -45602,7 +45603,8 @@ public partial class MainWindow : Window
         {
             var workspaceVersion = GetWorkspaceUpgradeVersionForMenu();
             var tooltipSuffix = string.IsNullOrWhiteSpace(workspaceVersion) ? string.Empty : $" to v{workspaceVersion}";
-            WorkspaceUpgradePendingBadge.ToolTip = MakeThemedToolTip($"Workspace files pending upgrade{tooltipSuffix} — click to review");
+            WorkspaceUpgradePendingBadge.ToolTip = MakeThemedToolTip(
+                $"Workspace-file layout upgrade{tooltipSuffix} — updates this workspace's Squad-managed files; click to review");
         }
 
         UpdateTitleBarResponsiveLayout();
@@ -45956,7 +45958,7 @@ public partial class MainWindow : Window
                 UpdateStatusTitle();
                 await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
                 AppendLine("✅ Workspace update applied. Opening git changes for review.");
-                await HandleCheckGitDiffAsync().ConfigureAwait(true);
+                await OpenWorkspaceUpgradeChangesAsync(panel.DryRunResult, simulated: false).ConfigureAwait(true);
                 return;
             }
 
@@ -46072,6 +46074,47 @@ public partial class MainWindow : Window
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    private async Task OpenWorkspaceUpgradeChangesAsync(
+        WorkspaceUpgradeDryRunResult result,
+        bool simulated)
+    {
+        string? gitStatus = null;
+        string? gitDiff = null;
+
+        if (!simulated && _currentWorkspace is not null)
+        {
+            var workspacePath = _currentWorkspace.FolderPath;
+            gitStatus = await RunGitAsync(
+                workspacePath,
+                "status --short --untracked-files=all").ConfigureAwait(true);
+            gitDiff = await RunGitAsync(
+                workspacePath,
+                "diff --no-ext-diff --no-color").ConfigureAwait(true);
+        }
+
+        if (_workspaceUpgradeChangesWindow is null)
+        {
+            var window = new WorkspaceUpgradeChangesWindow(_transcriptFontSize);
+            if (CanShowOwnedWindow())
+                window.Owner = this;
+            WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
+            window.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_workspaceUpgradeChangesWindow, window))
+                    _workspaceUpgradeChangesWindow = null;
+            };
+            _workspaceUpgradeChangesWindow = window;
+        }
+
+        _workspaceUpgradeChangesWindow.UpdateEvidence(result, gitStatus, gitDiff, simulated);
+        if (!_workspaceUpgradeChangesWindow.IsVisible)
+            _workspaceUpgradeChangesWindow.Show();
+        if (_workspaceUpgradeChangesWindow.WindowState == WindowState.Minimized)
+            _workspaceUpgradeChangesWindow.WindowState = WindowState.Normal;
+        _workspaceUpgradeChangesWindow.Activate();
+        _workspaceUpgradeChangesWindow.Focus();
     }
 
     private static string GetGitShortSha(string workingDirectory)
