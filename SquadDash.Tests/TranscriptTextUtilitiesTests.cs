@@ -435,6 +435,22 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void SanitizeResponseText_UnifiedPlanReviewResponse_StripsPayloadAndPreservesVisibleText()
+    {
+        const string text = """
+            The requested amendment is ready for host processing.
+
+            PLAN_REVIEW_RESPONSE_JSON:
+            {"planId":"PLAN-1","gateId":"GATE-1","revision":"rev","requestVersion":2,
+             "action":"add-amendment","taskIds":["TASK-1"],"title":"Add fixture","instructions":"Wire it."}
+            """;
+
+        Assert.That(
+            TranscriptTextUtilities.SanitizeResponseText(text),
+            Is.EqualTo("The requested amendment is ready for host processing."));
+    }
+
+    [Test]
     public void SanitizeResponseText_TaskPlanFileTransport_StripsCompleteAndStreamingPayloads()
     {
         const string complete = """

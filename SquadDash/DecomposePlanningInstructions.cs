@@ -53,7 +53,8 @@ internal static class DecomposePlanningInstructions
 
     internal static string BuildOrdinaryPromptPointer(
         string specificationPath,
-        bool includePlanReviewActivityProtocol = true) =>
+        bool includePlanReviewActivityProtocol = true,
+        string? decisionsPath = null) =>
         "If the user's request is too large or interdependent to implement safely in one turn, " +
         "or if the user explicitly requests plan creation (using verbs like create, draft, devise, " +
         "design, write, make, propose, outline, or the /plan command), " +
@@ -79,7 +80,10 @@ internal static class DecomposePlanningInstructions
         "Emitting TASKS_JSON " +
         "proposes a plan; it does not grant execution permission. Describe the handoff as submitting or " +
         "proposing the plan. Never claim that it was staged, added to Plans, or delivered to Inbox; only " +
-        "SquadDash may report those host-owned outcomes after durable validation and persistence.";
+        "SquadDash may report those host-owned outcomes after durable validation and persistence." +
+        (string.IsNullOrWhiteSpace(decisionsPath)
+            ? string.Empty
+            : $" The authoritative decisions file for this workspace is `{decisionsPath}`. Read that exact file when the planning protocol or planning charter requires workspace decisions; do not assume it is under the repository root.");
 
     internal static string BuildPendingPlanContext(
         string squadFolderPath,
@@ -485,7 +489,11 @@ internal static class DecomposePlanningInstructions
         try
         {
             var path = EnsureMaterialized(squadFolderPath);
-            var context = BuildOrdinaryPromptPointer(path, includePlanReviewActivityProtocol) +
+            var decisionsPath = Path.Combine(squadFolderPath, "decisions.md");
+            var context = BuildOrdinaryPromptPointer(
+                              path,
+                              includePlanReviewActivityProtocol,
+                              decisionsPath) +
                           BuildPendingPlanContext(squadFolderPath, includePlanReviewActivityProtocol) +
                           "\n\n" + PlanningSpecialistInstructions.BuildDelegationGuidance();
             var continuationContext = PlanContinuationPromptContext.Build(

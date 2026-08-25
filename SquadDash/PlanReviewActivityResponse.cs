@@ -108,6 +108,10 @@ internal static class PlanReviewCorrectionTaskActivityPolicy
              string.Equals(
                  dispatchedSourceTag,
                  "plan-review-correction-draft",
+                 StringComparison.Ordinal) ||
+             string.Equals(
+                 dispatchedSourceTag,
+                 "plan-review-response-repair",
                  StringComparison.Ordinal));
         return isMatchingDispatch
             ? PlanTaskCorrectionActivityState.Running

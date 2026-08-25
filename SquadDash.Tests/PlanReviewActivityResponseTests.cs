@@ -124,6 +124,23 @@ internal sealed class PlanReviewActivityResponseTests
         Assert.That(state, Is.EqualTo(PlanTaskCorrectionActivityState.Running));
     }
 
+    [Test]
+    public void ReviewCorrectionTaskActivity_RemainsRunningDuringUnifiedMetadataRepair()
+    {
+        var correction = new PendingPlanReviewCorrectionContext(
+            "queue-1", "PLAN-1", "GATE-REVIEW", "TASK-1");
+
+        var state = PlanReviewCorrectionTaskActivityPolicy.Resolve(
+            correction,
+            "PLAN-1",
+            "TASK-1",
+            isPromptRunning: true,
+            dispatchedItemId: "repair-queue-item",
+            dispatchedSourceTag: "plan-review-response-repair");
+
+        Assert.That(state, Is.EqualTo(PlanTaskCorrectionActivityState.Running));
+    }
+
     [TestCase(false, "queue-1", "plan-recovery-correction-draft", PlanTaskCorrectionActivityState.Drafting)]
     [TestCase(true, "different", "ordinary-prompt", PlanTaskCorrectionActivityState.Drafting)]
     [TestCase(true, "queue-1", "plan-recovery-correction-draft", PlanTaskCorrectionActivityState.Running)]

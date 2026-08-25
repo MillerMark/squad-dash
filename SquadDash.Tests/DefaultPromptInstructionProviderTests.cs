@@ -238,8 +238,13 @@ internal sealed class DefaultPromptInstructionProviderTests
             var path = DecomposePlanningInstructions.EnsureMaterialized(configuredSquadFolder);
             Assert.That(path, Is.EqualTo(Path.Combine(configuredSquadFolder, "instructions", "decompose-planning.md")));
             Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 8"));
-            var pointer = DecomposePlanningInstructions.BuildOrdinaryPromptPointer(path);
+            var decisionsPath = Path.Combine(configuredSquadFolder, "decisions.md");
+            var pointer = DecomposePlanningInstructions.BuildOrdinaryPromptPointer(
+                path,
+                decisionsPath: decisionsPath);
             Assert.That(pointer, Does.Contain(path));
+            Assert.That(pointer, Does.Contain(decisionsPath));
+            Assert.That(pointer, Does.Contain("do not assume it is under the repository root"));
             Assert.That(pointer, Does.Contain("Never claim that it was staged"));
             Assert.That(pointer, Does.Contain("complete replacement TASKS_JSON with the same groupId"));
             Assert.That(pointer, Does.Contain("PLAN_REVISION_JSON is only for an accepted durable plan"));

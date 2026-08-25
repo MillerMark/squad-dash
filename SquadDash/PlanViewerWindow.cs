@@ -5306,29 +5306,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
                     });
             }
-            if (approvalChangeActive)
-            {
-                var activityStack = new StackPanel
-                {
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                };
-                activityStack.Children.Add(approvedContainer);
-                var spinner = new ActivitySpinner
-                {
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Margin = new Thickness(0, 1 * s, 0, 0),
-                    AccentColor = ResolvePlanSpinnerColor(),
-                    MinimumOpacity = 1.0,
-                };
-                spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
-                spinner.SetContinuousActive(true);
-                activityStack.Children.Add(spinner);
-                indicator = activityStack;
-            }
-            else
-            {
-                indicator = approvedContainer;
-            }
+            // The task-title activity indicator already communicates active approval work.
+            // Keep the gate lane focused on approval state so it does not show a duplicate
+            // spinner below the question-mark icon, and shows no activity while simply waiting.
+            indicator = approvedContainer;
         }
         else
         {

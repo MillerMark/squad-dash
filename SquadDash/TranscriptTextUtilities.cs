@@ -25,6 +25,7 @@ internal static class TranscriptTextUtilities
     // as copyable protocol cards. Their user-facing outcome is emitted by the plan runtime.
     private static readonly string[] HiddenProtocolMarkers =
     [
+        PlanReviewResponseParser.Marker,
         PlanValidationResultParser.Marker,
         PlanTaskVerificationResultParser.Marker,
         PlanTaskVerificationResultParser.LegacyMarker,

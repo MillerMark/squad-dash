@@ -5930,9 +5930,11 @@ public partial class MainWindow : Window
                                 TryHandleHumanReviewClarificationFromResponse(rawResponse);
                             if (expectsReviewClarification && !hasReviewClarification)
                                 hasReviewClarification = HandleMissingHumanReviewClarificationResponse();
-                            var hasReviewActivity = !hasReviewClarification &&
+                            var hasUnifiedReviewResponse = !hasReviewClarification &&
+                                TryHandleUnifiedPlanReviewResponse(rawResponse);
+                            var hasReviewActivity = !hasReviewClarification && !hasUnifiedReviewResponse &&
                                 TryHandlePlanReviewActivityFromResponse(rawResponse);
-                            if (!hasReviewClarification && !hasReviewActivity)
+                            if (!hasReviewClarification && !hasUnifiedReviewResponse && !hasReviewActivity)
                             {
                                 _ = TryHandleGateResponseFromResponseAsync(rawResponse);
                                 TryHandleGateApprovalFromResponse(rawResponse);
@@ -10883,6 +10885,14 @@ public partial class MainWindow : Window
         if (uncheckedItems.Length == 0)
             return;
 
+        activityGateId ??= uncheckedItems
+            .Select(item => item.GateId)
+            .FirstOrDefault(gateId => plan.ApprovalGates.Any(gate =>
+                string.Equals(gate.GateId, gateId, StringComparison.Ordinal)));
+        var activityGate = plan.ApprovalGates.FirstOrDefault(gate =>
+            string.Equals(gate.GateId, activityGateId, StringComparison.Ordinal));
+        var approvalToken = _planApprovalRuntime?.Actions.GetCurrentToken(plan.PlanId);
+
         var task = plan.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
@@ -10894,10 +10904,14 @@ public partial class MainWindow : Window
             $"Revision: {plan.Revision}\n" +
             $"Task ID: {taskId}\n" +
             $"Candidate commit: {uncheckedItems[0].CandidateCommit}\n\n" +
-            "The user is requesting a conversational correction at an existing human-review boundary. " +
-            "Address only the requested unchecked verification items. Keep the plan paused, do not mark the " +
-            "human checks complete, and emit the normal PLAN_REVIEW_ACTIVITY_JSON manual-correction record " +
-            "after any implementation work.\n\nUnchecked verification items:\n" + checklistText;
+            "The user is responding at an existing human-review boundary. Address only the requested " +
+            "unchecked verification items and keep the plan paused. The response may be discussion, a direct " +
+            "correction, plan rework, or a bounded amendment; report the chosen outcome through the correlated " +
+            "PLAN_REVIEW_RESPONSE_JSON contract supplied in the prompt.\n\nUnchecked verification items:\n" + checklistText +
+            (activityGate is not null && approvalToken is not null
+                ? "\n\n" + PlanReviewResponseParser.BuildInstruction(
+                    plan, activityGate, approvalToken, taskId)
+                : string.Empty);
         var attachments = new List<FollowUpAttachment>
         {
             new(
@@ -10927,10 +10941,6 @@ public partial class MainWindow : Window
             "Address unchecked items",
             "plan-review-correction-draft",
             attachments);
-        activityGateId ??= uncheckedItems
-            .Select(item => item.GateId)
-            .FirstOrDefault(gateId => plan.ApprovalGates.Any(gate =>
-                string.Equals(gate.GateId, gateId, StringComparison.Ordinal)));
         if (!string.IsNullOrWhiteSpace(activityGateId))
         {
             _pendingPlanReviewCorrectionContext = new PendingPlanReviewCorrectionContext(
@@ -10938,6 +10948,8 @@ public partial class MainWindow : Window
                 plan.PlanId,
                 activityGateId,
                 taskId);
+            if (approvalToken is not null && approvalToken.GateIds.Contains(activityGateId, StringComparer.Ordinal))
+                _pendingGateResponseContext = new PendingGateResponseContext(approvalToken, activityGateId);
             SyncGateChangeActivity(isPromptRunning: false);
             SyncPlanTaskCorrectionActivity(isPromptRunning: false);
         }
@@ -16393,9 +16405,20 @@ public partial class MainWindow : Window
     {
         if (!PlanGateResponseParser.TryParse(rawResponse, out var response) || response is null)
         {
+            SquadDashTrace.Write("Approval",
+                $"Gate response parser did not produce a payload markerPresent={rawResponse?.Contains(PlanGateResponseParser.Marker, StringComparison.Ordinal) == true} pendingContext={_pendingGateResponseContext is not null}.");
             if (PlanGateApprovalParser.TryParse(rawResponse, out var approval) && approval is not null)
             {
                 ClearPendingGateResponse(approval.PlanId, keepForClarification: false);
+                return false;
+            }
+
+            if (_pendingPlanReviewCorrectionContext is not null)
+            {
+                QueueUnifiedPlanReviewResponseRepair(
+                    rawResponse?.Contains(PlanGateResponseParser.Marker, StringComparison.Ordinal) == true
+                        ? $"The response used the legacy {PlanGateResponseParser.Marker} contract but did not match its schema."
+                        : $"The required {PlanReviewResponseParser.Marker} object was missing.");
                 return false;
             }
 
@@ -16403,7 +16426,12 @@ public partial class MainWindow : Window
                 QueueGateResponseRepairOrExplainFailure();
             return false;
         }
-        if (_planStore is null || _planApprovalRuntime is null) return false;
+        if (_planStore is null || _planApprovalRuntime is null)
+        {
+            SquadDashTrace.Write("Approval",
+                $"Gate response ignored because runtime dependencies are unavailable planStore={_planStore is not null} approvalRuntime={_planApprovalRuntime is not null}.");
+            return false;
+        }
 
         var plan = _planStore.Load(response.PlanId);
         var currentToken = _planApprovalRuntime.Actions.GetCurrentToken(response.PlanId);
@@ -16415,6 +16443,8 @@ public partial class MainWindow : Window
             response.RequestVersion != currentToken.RequestVersion ||
             !currentToken.GateIds.Contains(response.GateId, StringComparer.Ordinal))
         {
+            SquadDashTrace.Write("Approval",
+                $"Gate response rejected as stale planFound={plan is not null} tokenFound={currentToken is not null} gateFound={gate is not null} gateStatus={gate?.Status} revisionMatch={string.Equals(plan?.Revision, response.Revision, StringComparison.Ordinal)} versionExpected={currentToken?.RequestVersion} versionActual={response.RequestVersion} gateInToken={currentToken?.GateIds.Contains(response.GateId, StringComparer.Ordinal) == true}.");
             AppendLine("⚠ The plan approval response was stale. No approval or rework state changed.");
             return true;
         }
@@ -16437,6 +16467,124 @@ public partial class MainWindow : Window
             return await ApplyGateAmendmentResponseAsync(plan, gate, currentToken, response);
 
         return await ApplyGateReworkResponseAsync(plan, gate, currentToken, response);
+    }
+
+    private bool TryHandleUnifiedPlanReviewResponse(string? rawResponse)
+    {
+        if (rawResponse?.Contains(PlanReviewResponseParser.Marker, StringComparison.Ordinal) != true)
+            return false;
+
+        if (!PlanReviewResponseParser.TryParse(rawResponse, out var response, out var error) || response is null)
+        {
+            SquadDashTrace.Write("Approval", $"Unified review response parse failed: {error}");
+            QueueUnifiedPlanReviewResponseRepair(error);
+            return true;
+        }
+
+        SquadDashTrace.Write("Approval",
+            $"Unified review response parsed action={response.Action} plan={response.PlanId} gate={response.GateId} version={response.RequestVersion}.");
+        _ = ApplyUnifiedPlanReviewResponseSafelyAsync(response);
+        return true;
+    }
+
+    private async Task ApplyUnifiedPlanReviewResponseSafelyAsync(PlanReviewResponse response)
+    {
+        try
+        {
+            if (_planStore is null || _planApprovalRuntime is null)
+            {
+                SquadDashTrace.Write("Approval",
+                    $"Unified review response stopped: runtime unavailable planStore={_planStore is not null} approvalRuntime={_planApprovalRuntime is not null}.");
+                AppendLine("⚠ SquadDash could not apply the review response because approval state is unavailable.");
+                return;
+            }
+
+            var plan = _planStore.Load(response.PlanId);
+            var token = _planApprovalRuntime.Actions.GetCurrentToken(response.PlanId);
+            var gate = plan?.ApprovalGates.FirstOrDefault(candidate =>
+                string.Equals(candidate.GateId, response.GateId, StringComparison.Ordinal));
+            var validation = PlanReviewResponseCorrelation.Validate(response, plan, gate, token);
+            if (!validation.Success)
+            {
+                SquadDashTrace.Write("Approval", $"Unified review response stopped: {validation.Diagnostic}");
+                AppendLine("⚠ The human-review response no longer matches the active checkpoint. Nothing changed.");
+                return;
+            }
+
+            if (response.Action is PlanReviewResponseAction.Discuss or PlanReviewResponseAction.RecordCorrection)
+            {
+                ClearPendingGateResponse(response.PlanId, keepForClarification: false);
+                await ApplyPlanReviewActivityResponseAsync(new PlanReviewActivityResponse(
+                    response.PlanId,
+                    response.Revision,
+                    response.Action == PlanReviewResponseAction.Discuss
+                        ? PlanReviewActivityKind.ReviewDiscussion
+                        : PlanReviewActivityKind.ManualCorrection,
+                    response.TaskIds!,
+                    response.Summary!));
+                return;
+            }
+
+            var disposition = response.Action switch
+            {
+                PlanReviewResponseAction.RequestRework => PlanGateResponseDisposition.RequestRework,
+                PlanReviewResponseAction.AddAmendment => PlanGateResponseDisposition.AddAmendment,
+                PlanReviewResponseAction.Clarify => PlanGateResponseDisposition.Clarification,
+                _ => PlanGateResponseDisposition.Unrelated,
+            };
+            var gateResponse = new PlanGateResponse(
+                response.PlanId,
+                response.GateId,
+                response.Revision,
+                response.RequestVersion,
+                disposition,
+                response.TaskIds,
+                response.Title,
+                response.Instructions);
+            if (disposition == PlanGateResponseDisposition.AddAmendment)
+                await ApplyGateAmendmentResponseAsync(plan!, gate!, token!, gateResponse);
+            else if (disposition == PlanGateResponseDisposition.RequestRework)
+                await ApplyGateReworkResponseAsync(plan!, gate!, token!, gateResponse);
+            else if (disposition == PlanGateResponseDisposition.Clarification)
+                _pendingGateResponseContext = new PendingGateResponseContext(token!, response.GateId);
+            else
+                ClearPendingGateResponse(response.PlanId, keepForClarification: false);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Approval", $"Unified review response failed: {ex}");
+            AppendLine("⚠ SquadDash could not apply the human-review response. The plan remains paused.");
+        }
+    }
+
+    private void QueueUnifiedPlanReviewResponseRepair(string diagnostic)
+    {
+        var context = _pendingGateResponseContext;
+        if (context is null || _planStore?.Load(context.Token.PlanId) is not { } plan)
+        {
+            SquadDashTrace.Write("Approval", "Unified review repair not queued: correlated gate context is unavailable.");
+            return;
+        }
+        var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, context.GateId, StringComparison.Ordinal));
+        var taskId = _pendingPlanReviewCorrectionContext?.TaskId ?? gate?.AfterTaskIds.FirstOrDefault();
+        if (gate is null || string.IsNullOrWhiteSpace(taskId) || context.RepairAttempts > 0)
+        {
+            SquadDashTrace.Write("Approval",
+                $"Unified review repair not queued: gateFound={gate is not null} taskFound={!string.IsNullOrWhiteSpace(taskId)} attempts={context.RepairAttempts}.");
+            ClearPendingGateResponse(context.Token.PlanId, keepForClarification: false);
+            AppendLine("⚠ SquadDash could not read the human-review response after one repair. The plan remains paused.");
+            return;
+        }
+
+        _pendingGateResponseContext = context with { RepairAttempts = 1 };
+        _promptQueue.EnqueueAtFront(
+            PlanReviewResponseParser.BuildInstruction(plan, gate, context.Token, taskId, repair: true, diagnostic),
+            _promptQueueCoordinator.NextSequenceNumber(),
+            sourceTag: "plan-review-response-repair",
+            isSystemInjected: true);
+        SyncQueuePanel();
+        AppendLine("SquadDash could not read the human-review response. It requested one metadata-only repair; the plan remains paused.");
     }
 
     private bool TryHandleHumanReviewClarificationFromResponse(string? rawResponse)
@@ -16961,6 +17109,7 @@ public partial class MainWindow : Window
         RefreshPlanProjectionBestEffort(result.UpdatedPlan, "approval-rework");
 
         _pendingGateResponseContext = null;
+        ClearPendingPlanReviewCorrection(restoreCard: false);
         _activePlanAwaitingGateApproval = result.UpdatedPlan.ApprovalGates
             .FirstOrDefault(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)?.GateId;
         if (_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
@@ -17196,7 +17345,11 @@ public partial class MainWindow : Window
     {
         if (_currentWorkspace is null || string.IsNullOrWhiteSpace(response.Title) ||
             string.IsNullOrWhiteSpace(response.Instructions))
+        {
+            SquadDashTrace.Write("Approval",
+                $"Gate amendment stopped before validation workspace={_currentWorkspace is not null} title={!string.IsNullOrWhiteSpace(response.Title)} instructions={!string.IsNullOrWhiteSpace(response.Instructions)}.");
             return false;
+        }
 
         var relatedTaskIds = response.TaskIds is { Count: > 0 }
             ? response.TaskIds.Distinct(StringComparer.Ordinal).ToArray()
@@ -17207,6 +17360,8 @@ public partial class MainWindow : Window
                 task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Partial)).ToArray();
         if (invalidTargets.Length > 0)
         {
+            SquadDashTrace.Write("Approval",
+                $"Gate amendment rejected invalidTargets=[{string.Join(",", invalidTargets)}] gate={gate.GateId}.");
             AppendLine("⚠ The requested amendment named tasks outside the current completed approval boundary: " +
                        string.Join(", ", invalidTargets) + ". The plan remains unchanged.");
             return true;
@@ -17222,6 +17377,8 @@ public partial class MainWindow : Window
             persistPlan: updated => TryPublishPlanProgress(updated, out _));
         if (result.Result != ApprovalClickResult.Approved || result.UpdatedPlan is null)
         {
+            SquadDashTrace.Write("Approval",
+                $"Gate amendment runtime rejected result={result.Result} updatedPlan={result.UpdatedPlan is not null}.");
             AppendLine(result.Result == ApprovalClickResult.PersistenceFailed
                 ? "⚠ SquadDash could not persist the amendment. The approval remains unchanged."
                 : "⚠ The amendment request became stale. Reopen the current approval and try again.");
@@ -17232,6 +17389,7 @@ public partial class MainWindow : Window
         var amendmentTask = result.UpdatedPlan.Tasks.Single(task =>
             !plan.Tasks.Any(existing => string.Equals(existing.TaskId, task.TaskId, StringComparison.Ordinal)));
         _pendingGateResponseContext = null;
+        ClearPendingPlanReviewCorrection(restoreCard: false);
         _activePlanAwaitingGateApproval = result.UpdatedPlan.ApprovalGates
             .FirstOrDefault(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)?.GateId;
         if (_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
@@ -17252,6 +17410,8 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         AppendLine($"＋ Added amendment \"{amendmentTask.Title}\". Previously completed tasks remain accepted; " +
                    "SquadDash will verify only the additional work before returning to this approval checkpoint.");
+        SquadDashTrace.Write("Approval",
+            $"Gate amendment persisted plan={plan.PlanId} gate={gate.GateId} task={amendmentTask.TaskId} revision={result.UpdatedPlan.Revision}.");
 
         var group = PendingDecomposePlanAdapter.FromPlan(result.UpdatedPlan).Group with
         {

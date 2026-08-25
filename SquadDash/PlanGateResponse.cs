@@ -202,3 +202,154 @@ internal sealed record PendingGateResponseContext(
     ApprovalClickToken Token,
     string GateId,
     int RepairAttempts = 0);
+
+internal static class PlanReviewResponseAction
+{
+    internal const string Discuss = "discuss";
+    internal const string RecordCorrection = "record-correction";
+    internal const string RequestRework = "request-rework";
+    internal const string AddAmendment = "add-amendment";
+    internal const string Clarify = "clarify";
+    internal const string Unrelated = "unrelated";
+}
+
+/// <summary>
+/// One correlated response contract for every legitimate outcome of an editable human-review
+/// prompt. The explicit action is semantic model output; host dispatch never infers intent from
+/// keywords in visible prose.
+/// </summary>
+internal sealed record PlanReviewResponse(
+    [property: JsonPropertyName("planId")] string PlanId,
+    [property: JsonPropertyName("gateId")] string GateId,
+    [property: JsonPropertyName("revision")] string Revision,
+    [property: JsonPropertyName("requestVersion")] int RequestVersion,
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("taskIds")] IReadOnlyList<string>? TaskIds = null,
+    [property: JsonPropertyName("summary")] string? Summary = null,
+    [property: JsonPropertyName("title")] string? Title = null,
+    [property: JsonPropertyName("instructions")] string? Instructions = null);
+
+internal static class PlanReviewResponseParser
+{
+    internal const string Marker = "PLAN_REVIEW_RESPONSE_JSON:";
+
+    internal static bool TryParse(
+        string? text,
+        out PlanReviewResponse? response,
+        out string error)
+    {
+        response = null;
+        error = string.Empty;
+        if (!StructuredJsonBlockParser.TryExtractObject<PlanReviewResponse>(text, Marker, out var extraction) ||
+            extraction is null)
+        {
+            error = $"missing or unreadable {Marker} object";
+            return false;
+        }
+
+        var payload = extraction.Payload;
+        var action = payload.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+        var taskIds = payload.TaskIds?
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var errors = new List<string>();
+        if (string.IsNullOrWhiteSpace(payload.PlanId)) errors.Add("planId is required");
+        if (string.IsNullOrWhiteSpace(payload.GateId)) errors.Add("gateId is required");
+        if (string.IsNullOrWhiteSpace(payload.Revision)) errors.Add("revision is required");
+        if (payload.RequestVersion <= 0) errors.Add("requestVersion must be positive");
+        if (action is not (
+                PlanReviewResponseAction.Discuss or
+                PlanReviewResponseAction.RecordCorrection or
+                PlanReviewResponseAction.RequestRework or
+                PlanReviewResponseAction.AddAmendment or
+                PlanReviewResponseAction.Clarify or
+                PlanReviewResponseAction.Unrelated))
+            errors.Add("action is not supported");
+        if (action is PlanReviewResponseAction.Discuss or PlanReviewResponseAction.RecordCorrection)
+        {
+            if (taskIds is not { Length: > 0 }) errors.Add("taskIds are required for review activity");
+            if (string.IsNullOrWhiteSpace(payload.Summary)) errors.Add("summary is required for review activity");
+        }
+        if (action == PlanReviewResponseAction.RequestRework)
+        {
+            if (taskIds is not { Length: > 0 }) errors.Add("taskIds are required for rework");
+            if (string.IsNullOrWhiteSpace(payload.Instructions)) errors.Add("instructions are required for rework");
+        }
+        if (action == PlanReviewResponseAction.AddAmendment && string.IsNullOrWhiteSpace(payload.Instructions))
+            errors.Add("instructions are required for an amendment");
+
+        if (errors.Count > 0)
+        {
+            error = string.Join("; ", errors);
+            return false;
+        }
+
+        response = payload with
+        {
+            Action = action,
+            TaskIds = taskIds,
+            Summary = payload.Summary?.Trim(),
+            Title = payload.Title?.Trim(),
+            Instructions = payload.Instructions?.Trim(),
+        };
+        return true;
+    }
+
+    internal static string BuildInstruction(
+        Plan plan,
+        PlanApprovalGate gate,
+        ApprovalClickToken token,
+        string taskId,
+        bool repair = false,
+        string? diagnostic = null)
+    {
+        var prefix = repair
+            ? $"Repair only the previous response metadata. The prior payload was invalid: {diagnostic ?? "unknown schema error"}. Do not repeat work."
+            : "Respond to the user's editable human-review request using one correlated outcome contract.";
+        return $$"""
+            ## Correlated human-review response
+            {{prefix}}
+
+            Exact correlation: planId={{plan.PlanId}}; gateId={{gate.GateId}}; revision={{plan.Revision}}; requestVersion={{token.RequestVersion}}; reviewedTask={{taskId}}.
+            Choose exactly one action: `discuss`, `record-correction`, `request-rework`, `add-amendment`, `clarify`, or `unrelated`.
+            The host dispatches only the explicit action; do not rely on keywords in prose.
+            - `discuss` and `record-correction`: include taskIds and summary.
+            - `request-rework`: include taskIds and independently executable instructions.
+            - `add-amendment`: include taskIds, title, and independently executable instructions.
+            - `clarify` and `unrelated`: correlation fields and action are sufficient.
+            End with exactly one object:
+            {{Marker}}
+            {"planId":"{{plan.PlanId}}","gateId":"{{gate.GateId}}","revision":"{{plan.Revision}}","requestVersion":{{token.RequestVersion}},"action":"add-amendment","taskIds":["{{taskId}}"],"title":"Add the requested review fixture","instructions":"Describe the bounded additional work precisely."}
+            """;
+    }
+}
+
+internal sealed record PlanReviewResponseCorrelationResult(bool Success, string Diagnostic);
+
+internal static class PlanReviewResponseCorrelation
+{
+    internal static PlanReviewResponseCorrelationResult Validate(
+        PlanReviewResponse response,
+        Plan? plan,
+        PlanApprovalGate? gate,
+        ApprovalClickToken? token)
+    {
+        if (plan is null) return new(false, $"plan not found: {response.PlanId}");
+        if (gate is null) return new(false, $"gate not found: {response.GateId}");
+        if (token is null) return new(false, $"approval token not found: {response.PlanId}");
+        if (gate.Status != PlanGateStatus.AwaitingApproval)
+            return new(false, $"gate is not awaiting approval: {gate.Status}");
+        if (!string.Equals(plan.Revision, response.Revision, StringComparison.Ordinal))
+            return new(false, $"revision mismatch expected={plan.Revision} actual={response.Revision}");
+        if (response.RequestVersion != token.RequestVersion)
+            return new(false, $"request version mismatch expected={token.RequestVersion} actual={response.RequestVersion}");
+        if (!token.GateIds.Contains(response.GateId, StringComparer.Ordinal))
+            return new(false, $"gate is absent from approval token: {response.GateId}");
+        if (response.TaskIds?.Any(taskId => !plan.Tasks.Any(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))) == true)
+            return new(false, "one or more taskIds do not exist in the plan");
+        return new(true, "correlation accepted");
+    }
+}
