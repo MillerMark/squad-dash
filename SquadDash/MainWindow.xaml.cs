@@ -30368,6 +30368,84 @@ public partial class MainWindow : Window
         }
     }
 
+    private async void SimulateWorkspaceUpgradePending_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null)
+                throw new InvalidOperationException("Open a workspace before simulating a workspace upgrade state.");
+
+            var recordedCliVersion = !string.IsNullOrWhiteSpace(_squadCliAdapter.SquadVersion)
+                ? _squadCliAdapter.SquadVersion!
+                : "simulated-v1.0";
+            await _workspacePendingUpgradeStore
+                .SavePendingAsync(_currentWorkspace.FolderPath, recordedCliVersion)
+                .ConfigureAwait(true);
+            await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
+
+            MessageBox.Show(
+                "Workspace marked as pending upgrade. Restart SquadDash and verify that the 'W↑' badge appears and the 'Upgrade workspace files' entry is in the version context menu.",
+                "Workspace Upgrade Simulation",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SimulateWorkspaceUpgradePending_Click), ex);
+        }
+    }
+
+    private async void SimulateWorkspaceUpgradeDetected_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null)
+                throw new InvalidOperationException("Open a workspace before simulating a workspace upgrade state.");
+
+            var recordedCliVersion = !string.IsNullOrWhiteSpace(_squadCliAdapter.SquadVersion)
+                ? _squadCliAdapter.SquadVersion!
+                : "simulated-v1.0";
+            await _workspacePendingUpgradeStore
+                .SavePendingAsync(_currentWorkspace.FolderPath, recordedCliVersion)
+                .ConfigureAwait(true);
+            await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
+
+            MessageBox.Show(
+                "Workspace upgrade simulated. Check the title bar for the 'W↑' badge and right-click the version area to confirm the 'Upgrade workspace files' entry appears.",
+                "Workspace Upgrade Simulation",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SimulateWorkspaceUpgradeDetected_Click), ex);
+        }
+    }
+
+    private async void SimulateClearWorkspaceUpgrade_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_currentWorkspace is null)
+                throw new InvalidOperationException("Open a workspace before clearing a simulated workspace upgrade state.");
+
+            await _workspacePendingUpgradeStore
+                .SaveResolvedAsync(_currentWorkspace.FolderPath)
+                .ConfigureAwait(true);
+            await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
+
+            MessageBox.Show(
+                "Simulated workspace upgrade cleared. The 'W↑' badge and context menu entry should no longer appear.",
+                "Workspace Upgrade Simulation",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(SimulateClearWorkspaceUpgrade_Click), ex);
+        }
+    }
+
     private void SimulateHumanReviewChangeDialog_Click(object sender, RoutedEventArgs e)
     {
         try

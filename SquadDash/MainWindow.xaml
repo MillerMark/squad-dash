@@ -893,8 +893,18 @@
                                    Click="SimulateBridgeDisposed_Click" />
                         <MenuItem Header="Simulate _Workspace Upgrade Panel"
                                   Click="SimulateWorkspaceUpgradePanel_Click" />
-                         <MenuItem Header="_Plans"
+                         <MenuItem Header="Workspace _Upgrade State"
                                    ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
+                            <MenuItem Header="Mark Current Workspace _Pending Upgrade"
+                                      Click="SimulateWorkspaceUpgradePending_Click" />
+                            <MenuItem Header="Simulate Newly Detected _Workspace Upgrade"
+                                      Click="SimulateWorkspaceUpgradeDetected_Click" />
+                            <MenuItem Header="Clear Simulated Workspace _Upgrade"
+                                      Click="SimulateClearWorkspaceUpgrade_Click" />
+                         </MenuItem>
+                         <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                          <MenuItem Header="_Plans"
+                                    ItemContainerStyle="{StaticResource ThemedMenuItemStyle}">
                             <MenuItem Header="Show _all response cards"
                                       Tag="All"
                                       Click="SimulatePlanResponseCard_Click" />
