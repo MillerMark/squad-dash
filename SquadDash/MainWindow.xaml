@@ -3782,9 +3782,10 @@
             <TextBlock x:Name="WorkspaceUpgradePendingBadge"
                        Margin="5,0,0,0"
                        FontSize="{DynamicResource FontSizeBody}"
+                       FontWeight="Bold"
                        Cursor="Hand"
                        Visibility="Collapsed"
-                       Foreground="{DynamicResource AlertBodyText}"
+                       Foreground="{DynamicResource PriorityMid}"
                        MouseLeftButtonUp="SquadUpdateBadge_MouseLeftButtonUp"
                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
                        Text="W↑" />
