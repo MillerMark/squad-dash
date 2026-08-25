@@ -1011,6 +1011,51 @@ internal sealed class PlanStoreUpdaterTests
     }
 
     [Test]
+    public void ApplyGateAmendmentRequested_TerminalHumanReviewGateAddsExecutableTask()
+    {
+        var reviewed = new PlanTask(
+            "TASK-REVIEW", "Reviewed work", "Work", [], "high",
+            PlanTaskStatus.HumanReviewRequired, DisplayStepLabel: "5");
+        var unrelatedComplete = new PlanTask(
+            "TASK-OTHER", "Other branch", "Work", [], "high",
+            PlanTaskStatus.Complete, DisplayStepLabel: "6");
+        var gate = new PlanApprovalGate(
+            "GATE-HUMAN", "Verify reviewed work", [reviewed.TaskId], [],
+            PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "PROOF-1", "live-ui-observation", "Observe it")
+            ]);
+        var plan = new Plan(
+            "PLAN-TERMINAL", "rev", PlanSource.Manual, PlanLifecycleStatus.AwaitingApproval,
+            "Plan", "feature/plan", "Summary", [reviewed, unrelatedComplete], [gate],
+            new PlanProgress(1, 2), new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var updated = PlanStoreUpdater.ApplyGateAmendmentRequested(
+            plan,
+            gate.GateId,
+            [reviewed.TaskId],
+            "Add review simulation",
+            "Make the human verification reproducible.");
+        var amendment = updated.Tasks.Single(task => task.AmendmentGateId == gate.GateId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated, Is.Not.SameAs(plan));
+            Assert.That(updated.Tasks.Select(task => task.TaskId), Is.EqualTo(new[]
+            {
+                reviewed.TaskId, amendment.TaskId, unrelatedComplete.TaskId,
+            }));
+            Assert.That(amendment.DependsOn, Is.EqualTo(new[] { reviewed.TaskId }));
+            Assert.That(updated.ApprovalGates.Single().BeforeTaskIds, Is.Empty);
+            Assert.That(updated.ApprovalGates.Single().AfterTaskIds, Does.Contain(amendment.TaskId));
+            Assert.That(ApprovalGateReadinessEvaluator.SelectNextUngatedTask(updated),
+                Is.EqualTo(amendment.TaskId));
+        });
+    }
+
+    [Test]
     public void ApplyGateAmendmentRequested_RewiresAllJoinBranchesThroughInsertedBarrier()
     {
         var group = new DecomposedTaskGroup(

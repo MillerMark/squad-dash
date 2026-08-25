@@ -1037,7 +1037,7 @@ internal static class PlanStoreUpdater
         // Only the unstarted side of the boundary may be rewritten. Unrelated plan branches may
         // continue running, but accepted or active downstream history is immutable.
         var beforeIds = gate.BeforeTaskIds.ToHashSet(StringComparer.Ordinal);
-        if (beforeIds.Count == 0 || existing.Tasks
+        if (existing.Tasks
                 .Where(task => beforeIds.Contains(task.TaskId))
                 .Any(task => task.Status != PlanTaskStatus.Pending))
             return existing;
@@ -1096,10 +1096,14 @@ internal static class PlanStoreUpdater
             GenericAgentReason: "This user-authored boundary amendment may span accepted task contracts and has no preapproved roster assignment.",
             AmendmentGateId: gateId);
 
-        var firstDownstreamIndex = existing.Tasks
+        var indexedTasks = existing.Tasks
             .Select((task, index) => (task, index))
-            .Where(entry => beforeIds.Contains(entry.task.TaskId))
-            .Min(entry => entry.index);
+            .ToArray();
+        var insertionIndex = beforeIds.Count > 0
+            ? indexedTasks.Where(entry => beforeIds.Contains(entry.task.TaskId))
+                .Min(entry => entry.index)
+            : indexedTasks.Where(entry => reviewedSet.Contains(entry.task.TaskId))
+                .Max(entry => entry.index) + 1;
         var updatedTasks = existing.Tasks
             .Select(task => beforeIds.Contains(task.TaskId)
                 ? task with
@@ -1112,7 +1116,7 @@ internal static class PlanStoreUpdater
                 }
                 : task)
             .ToList();
-        updatedTasks.Insert(firstDownstreamIndex, amendment);
+        updatedTasks.Insert(insertionIndex, amendment);
         updatedTasks = AssignMutableDisplayStepLabels(existing.Tasks, updatedTasks).ToList();
         var now = DateTimeOffset.UtcNow;
         var updatedGate = gate with

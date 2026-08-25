@@ -17118,12 +17118,17 @@ public partial class MainWindow : Window
             gate.GateId,
             taskIds,
             response.Instructions,
-            persistPlan: updated => TryPublishPlanProgress(updated, out _));
+            persistPlan: updated => TryPublishPlanProgress(updated, out _),
+            allowEquivalentTokenRefresh: true);
         if (result.Result != ApprovalClickResult.Approved || result.UpdatedPlan is null)
         {
+            SquadDashTrace.Write("Approval",
+                $"Gate rework runtime rejected result={result.Result} updatedPlan={result.UpdatedPlan is not null} reason={result.RejectionReason ?? "none"}.");
             AppendLine(result.Result == ApprovalClickResult.PersistenceFailed
                 ? "⚠ SquadDash could not persist the rework transition. The approval remains unchanged."
-                : "⚠ The rework request became stale. Reopen the current approval and try again.");
+                : "⚠ SquadDash could not apply the rework request. " +
+                  (result.RejectionReason ?? "The approval action changed before persistence.") +
+                  " The plan remains unchanged.");
             return true;
         }
         RefreshPlanProjectionBestEffort(result.UpdatedPlan, "approval-rework");
@@ -17397,14 +17402,17 @@ public partial class MainWindow : Window
             relatedTaskIds,
             response.Title,
             response.Instructions,
-            persistPlan: updated => TryPublishPlanProgress(updated, out _));
+            persistPlan: updated => TryPublishPlanProgress(updated, out _),
+            allowEquivalentTokenRefresh: true);
         if (result.Result != ApprovalClickResult.Approved || result.UpdatedPlan is null)
         {
             SquadDashTrace.Write("Approval",
-                $"Gate amendment runtime rejected result={result.Result} updatedPlan={result.UpdatedPlan is not null}.");
+                $"Gate amendment runtime rejected result={result.Result} updatedPlan={result.UpdatedPlan is not null} reason={result.RejectionReason ?? "none"}.");
             AppendLine(result.Result == ApprovalClickResult.PersistenceFailed
                 ? "⚠ SquadDash could not persist the amendment. The approval remains unchanged."
-                : "⚠ The amendment request became stale. Reopen the current approval and try again.");
+                : "⚠ SquadDash could not apply the amendment. " +
+                  (result.RejectionReason ?? "The approval action changed before persistence.") +
+                  " The plan remains unchanged.");
             return true;
         }
         RefreshPlanProjectionBestEffort(result.UpdatedPlan, "approval-amendment");

@@ -24,7 +24,8 @@ internal sealed record ApprovalRuntimeResolutionResult(
 internal sealed record ApprovalRuntimeReworkResult(
     ApprovalClickResult Result,
     Plan? UpdatedPlan,
-    ApprovalClickToken? NextClickToken = null);
+    ApprovalClickToken? NextClickToken = null,
+    string? RejectionReason = null);
 
 internal enum ApprovalResumeRetryDecision
 {
@@ -338,12 +339,15 @@ internal sealed class PlanApprovalRuntime
         IReadOnlyCollection<string> taskIds,
         string instructions,
         Func<Plan, bool> persistPlan,
+        bool allowEquivalentTokenRefresh = false,
         CancellationToken cancellationToken = default)
     {
         if (!string.Equals(clickToken.PlanId, currentPlan.PlanId, StringComparison.Ordinal) ||
             !string.Equals(clickToken.PlanRevision, currentPlan.Revision, StringComparison.Ordinal) ||
             !clickToken.GateIds.Contains(gateId, StringComparer.Ordinal))
-            return new ApprovalRuntimeReworkResult(ApprovalClickResult.StaleRejected, null);
+            return new ApprovalRuntimeReworkResult(
+                ApprovalClickResult.StaleRejected, null,
+                RejectionReason: "The response correlation no longer matches the plan revision or approval gate.");
 
         var updated = PlanStoreUpdater.ApplyGateReworkRequested(
             currentPlan,
@@ -351,15 +355,24 @@ internal sealed class PlanApprovalRuntime
             taskIds,
             instructions);
         if (ReferenceEquals(updated, currentPlan))
-            return new ApprovalRuntimeReworkResult(ApprovalClickResult.StaleRejected, null);
+            return new ApprovalRuntimeReworkResult(
+                ApprovalClickResult.StaleRejected, null,
+                RejectionReason: "The requested rework could not produce a valid plan transition.");
+
+        var actionToken = ResolveEquivalentCurrentToken(
+            clickToken, currentPlan, gateId, allowEquivalentTokenRefresh);
 
         var result = await _actions.TryRequestReworkAsync(
-            clickToken,
+            actionToken,
             gateId,
             () => persistPlan(updated),
             cancellationToken).ConfigureAwait(false);
         if (result != ApprovalClickResult.Approved)
-            return new ApprovalRuntimeReworkResult(result, null);
+            return new ApprovalRuntimeReworkResult(
+                result, null,
+                RejectionReason: result == ApprovalClickResult.StaleRejected
+                    ? BuildStaleActionDiagnostic(actionToken)
+                    : null);
 
         await _requests.RecordReworkAsync(updated, gateId, instructions, cancellationToken)
             .ConfigureAwait(false);
@@ -386,25 +399,37 @@ internal sealed class PlanApprovalRuntime
         string title,
         string instructions,
         Func<Plan, bool> persistPlan,
+        bool allowEquivalentTokenRefresh = false,
         CancellationToken cancellationToken = default)
     {
         if (!string.Equals(clickToken.PlanId, currentPlan.PlanId, StringComparison.Ordinal) ||
             !string.Equals(clickToken.PlanRevision, currentPlan.Revision, StringComparison.Ordinal) ||
             !clickToken.GateIds.Contains(gateId, StringComparer.Ordinal))
-            return new ApprovalRuntimeReworkResult(ApprovalClickResult.StaleRejected, null);
+            return new ApprovalRuntimeReworkResult(
+                ApprovalClickResult.StaleRejected, null,
+                RejectionReason: "The response correlation no longer matches the plan revision or approval gate.");
 
         var updated = PlanStoreUpdater.ApplyGateAmendmentRequested(
             currentPlan, gateId, relatedTaskIds, title, instructions);
         if (ReferenceEquals(updated, currentPlan))
-            return new ApprovalRuntimeReworkResult(ApprovalClickResult.StaleRejected, null);
+            return new ApprovalRuntimeReworkResult(
+                ApprovalClickResult.StaleRejected, null,
+                RejectionReason: "The amendment could not be inserted at this approval boundary.");
+
+        var actionToken = ResolveEquivalentCurrentToken(
+            clickToken, currentPlan, gateId, allowEquivalentTokenRefresh);
 
         var result = await _actions.TryRequestReworkAsync(
-            clickToken,
+            actionToken,
             gateId,
             () => persistPlan(updated),
             cancellationToken).ConfigureAwait(false);
         if (result != ApprovalClickResult.Approved)
-            return new ApprovalRuntimeReworkResult(result, null);
+            return new ApprovalRuntimeReworkResult(
+                result, null,
+                RejectionReason: result == ApprovalClickResult.StaleRejected
+                    ? BuildStaleActionDiagnostic(actionToken)
+                    : null);
 
         await _requests.RecordReworkAsync(updated, gateId, instructions, cancellationToken)
             .ConfigureAwait(false);
@@ -420,6 +445,31 @@ internal sealed class PlanApprovalRuntime
                 cancellationToken).ConfigureAwait(false);
         }
         return new ApprovalRuntimeReworkResult(result, updated, nextToken);
+    }
+
+    private ApprovalClickToken ResolveEquivalentCurrentToken(
+        ApprovalClickToken supplied,
+        Plan plan,
+        string gateId,
+        bool allowEquivalentTokenRefresh)
+    {
+        if (!allowEquivalentTokenRefresh) return supplied;
+        var current = _actions.GetCurrentToken(plan.PlanId);
+        return current is not null &&
+               string.Equals(current.PlanRevision, plan.Revision, StringComparison.Ordinal) &&
+               current.GateIds.Contains(gateId, StringComparer.Ordinal)
+            ? current
+            : supplied;
+    }
+
+    private string BuildStaleActionDiagnostic(ApprovalClickToken attempted)
+    {
+        var current = _actions.GetCurrentToken(attempted.PlanId);
+        return current is null
+            ? "The live approval action is no longer registered."
+            : "The live approval action changed before persistence: " +
+              $"attempted revision={attempted.PlanRevision}, version={attempted.RequestVersion}, gates=[{string.Join(",", attempted.GateIds)}]; " +
+              $"current revision={current.PlanRevision}, version={current.RequestVersion}, gates=[{string.Join(",", current.GateIds)}].";
     }
 
     private static ApprovalReviewSnapshot CombineSnapshots(IReadOnlyList<ApprovalReviewSnapshot> snapshots)

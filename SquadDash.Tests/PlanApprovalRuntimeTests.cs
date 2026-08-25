@@ -296,6 +296,75 @@ public sealed class PlanApprovalRuntimeTests
     }
 
     [Test]
+    public async Task RequestAmendment_EquivalentTokenRefreshSurvivesVersionOnlyRace()
+    {
+        var stopped = await _runtime.AdvanceAsync(MakePlan(taskBStatus: PlanTaskStatus.Complete));
+        var originalToken = stopped.ClickToken!;
+        var refreshedToken = await _actions.RegisterAsync(
+            stopped.UpdatedPlan.PlanId,
+            stopped.UpdatedPlan.Revision,
+            originalToken.GateIds);
+        Plan? persisted = null;
+
+        var result = await _runtime.RequestAmendmentAsync(
+            originalToken,
+            stopped.UpdatedPlan,
+            "GATE-AC",
+            ["A"],
+            "Add joined-result cleanup",
+            "Clean up on every exit path.",
+            plan => { persisted = plan; return true; },
+            allowEquivalentTokenRefresh: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(refreshedToken.RequestVersion, Is.GreaterThan(originalToken.RequestVersion));
+            Assert.That(result.Result, Is.EqualTo(ApprovalClickResult.Approved));
+            Assert.That(persisted, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public async Task RequestAmendment_TerminalHumanReviewGatePersistsAndSchedulesFixture()
+    {
+        var reviewed = new PlanTask(
+            "TASK-REVIEW", "Reviewed work", "Work", [], "high",
+            PlanTaskStatus.HumanReviewRequired);
+        var gate = new PlanApprovalGate(
+            "GATE-HUMAN", "Verify reviewed work", [reviewed.TaskId], [],
+            PlanGateStatus.AwaitingApproval);
+        var plan = new Plan(
+            "PLAN-TERMINAL", "rev", PlanSource.Manual, PlanLifecycleStatus.AwaitingApproval,
+            "Plan", "feature/plan", "Summary", [reviewed], [gate],
+            new PlanProgress(0, 1), new PlanTimestamps(DateTimeOffset.UtcNow));
+        await _requests.AppendCheckpointAsync(
+            plan, gate, await BuildSnapshotAsync(plan, gate, default));
+        var state = _requests.GetState(plan.PlanId)!;
+        var token = await _actions.RestoreAsync(
+            plan.PlanId, plan.Revision, state.Version, state.ActiveGateIds);
+        Plan? persisted = null;
+
+        var result = await _runtime.RequestAmendmentAsync(
+            token,
+            plan,
+            gate.GateId,
+            [reviewed.TaskId],
+            "Add review simulation",
+            "Make the human verification reproducible.",
+            updated => { persisted = updated; return true; },
+            allowEquivalentTokenRefresh: true);
+
+        var amendment = persisted!.Tasks.Single(task => task.AmendmentGateId == gate.GateId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Result, Is.EqualTo(ApprovalClickResult.Approved));
+            Assert.That(persisted.ApprovalGates.Single().Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(ApprovalGateReadinessEvaluator.SelectNextUngatedTask(persisted),
+                Is.EqualTo(amendment.TaskId));
+        });
+    }
+
+    [Test]
     public async Task Approve_OneGateFromViewer_LeavesOtherGateVersionedAndActive()
     {
         var basePlan = MakePlan(taskBStatus: PlanTaskStatus.Complete);

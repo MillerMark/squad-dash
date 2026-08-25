@@ -100,11 +100,14 @@ internal static class ApprovalGateReadinessEvaluator
         foreach (var task in plan.Tasks)
         {
             if (task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded
-                or PlanTaskStatus.Failed || PlanTaskStatus.IsWorkInProgress(task.Status))
+                or PlanTaskStatus.Failed or PlanTaskStatus.HumanReviewRequired ||
+                PlanTaskStatus.IsWorkInProgress(task.Status))
                 continue;
             if (blockedIds.Contains(task.TaskId))
                 continue;
-            if (task.DependsOn.All(id => completedIds.Contains(id)))
+            if (task.DependsOn.All(id =>
+                    completedIds.Contains(id) ||
+                    IsAwaitingHumanReviewDependencyForAmendment(plan, task, id)))
                 return task.TaskId;
         }
         return null;
@@ -251,6 +254,22 @@ internal static class ApprovalGateReadinessEvaluator
             .Where(t => t.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)
             .Select(t => t.TaskId)
             .ToHashSet(StringComparer.Ordinal);
+
+    private static bool IsAwaitingHumanReviewDependencyForAmendment(
+        Plan plan,
+        PlanTask task,
+        string dependencyId)
+    {
+        if (string.IsNullOrWhiteSpace(task.AmendmentGateId)) return false;
+        var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, task.AmendmentGateId, StringComparison.Ordinal));
+        if (gate is null || gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval) ||
+            !gate.AfterTaskIds.Contains(dependencyId, StringComparer.Ordinal))
+            return false;
+        return plan.Tasks.Any(candidate =>
+            string.Equals(candidate.TaskId, dependencyId, StringComparison.Ordinal) &&
+            candidate.Status == PlanTaskStatus.HumanReviewRequired);
+    }
 
     internal static bool AllRequiredApproved(Plan plan) =>
         plan.ApprovalGates.All(gate =>
