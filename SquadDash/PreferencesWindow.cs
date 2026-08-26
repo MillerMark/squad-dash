@@ -1789,11 +1789,22 @@ internal sealed class PreferencesWindow : Window {
 
         form.Children.Add(_customModelProviderPanel);
 
-        AddSectionHeader(form, "Model Metadata", topMargin: 12);
-        AddMetadataRow(form, "Category:", _modelCategoryValueText);
-        AddMetadataRow(form, "Input Price (per 1M tokens):", _modelInputPriceValueText);
-        AddMetadataRow(form, "Output Price (per 1M tokens):", _modelOutputPriceValueText);
-        AddMetadataRow(form, "Release Status:", _modelReleaseStatusValueText);
+        AddSectionHeader(form, "Metadata", topMargin: 12);
+        var metadataGrid = new Grid {
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        metadataGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        metadataGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        metadataGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        metadataGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        metadataGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        metadataGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        AddMetadataGridRow(metadataGrid, 0, "Category:", _modelCategoryValueText);
+        AddMetadataGridRow(metadataGrid, 1, "Input Price (per 1M tokens):", _modelInputPriceValueText);
+        AddMetadataGridRow(metadataGrid, 2, "Output Price (per 1M tokens):", _modelOutputPriceValueText);
+        AddMetadataGridRow(metadataGrid, 3, "Release Status:", _modelReleaseStatusValueText);
+        form.Children.Add(metadataGrid);
         AddLabel(form, "Reasoning Effort:");
         form.Children.Add(_reasoningEffortComboBox);
 
@@ -1894,8 +1905,21 @@ internal sealed class PreferencesWindow : Window {
         return text;
     }
 
-    private static void AddMetadataRow(Panel parent, string label, TextBlock valueBlock) {
-        AddLabel(parent, label);
+    private static void AddMetadataGridRow(Grid parent, int rowIndex, string label, TextBlock valueBlock) {
+        var labelBlock = new TextBlock {
+            Text = label,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 12, 6),
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        labelBlock.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        labelBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        Grid.SetRow(labelBlock, rowIndex);
+        Grid.SetColumn(labelBlock, 0);
+        parent.Children.Add(labelBlock);
+
+        Grid.SetRow(valueBlock, rowIndex);
+        Grid.SetColumn(valueBlock, 1);
         parent.Children.Add(valueBlock);
     }
 
