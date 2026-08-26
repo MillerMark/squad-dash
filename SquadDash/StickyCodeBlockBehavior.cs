@@ -91,22 +91,31 @@ internal static class StickyCodeBlockBehavior
                 return;
             }
 
-            Rect containerBounds;
-            try
+            var hostWindow = Window.GetWindow(_container);
+            if (hostWindow is null)
             {
-                containerBounds = _container.TransformToAncestor(_scrollViewer)
-                    .TransformBounds(new Rect(0, 0, _container.ActualWidth, _container.ActualHeight));
-            }
-            catch
-            {
+                _button.Visibility = Visibility.Visible;
+                _translateTransform.Y = 0;
                 return;
             }
 
-            var viewportHeight = _scrollViewer.ViewportHeight;
-            if (viewportHeight <= 0)
-                viewportHeight = _scrollViewer.ActualHeight;
+            Rect containerBounds;
+            Rect viewportBounds;
+            try
+            {
+                containerBounds = _container.TransformToAncestor(hostWindow)
+                    .TransformBounds(new Rect(0, 0, _container.ActualWidth, _container.ActualHeight));
+                viewportBounds = _scrollViewer.TransformToAncestor(hostWindow)
+                    .TransformBounds(new Rect(0, 0, _scrollViewer.ActualWidth, _scrollViewer.ActualHeight));
+            }
+            catch (InvalidOperationException)
+            {
+                _button.Visibility = Visibility.Visible;
+                _translateTransform.Y = 0;
+                return;
+            }
 
-            if (containerBounds.Bottom <= 0 || containerBounds.Top >= viewportHeight)
+            if (containerBounds.Bottom <= viewportBounds.Top || containerBounds.Top >= viewportBounds.Bottom)
             {
                 _button.Visibility = Visibility.Collapsed;
                 return;
@@ -115,8 +124,8 @@ internal static class StickyCodeBlockBehavior
             _button.Visibility = Visibility.Visible;
 
             var buttonHeight = _button.ActualHeight;
-            var minViewportY = containerBounds.Top;
-            var maxViewportY = containerBounds.Bottom - buttonHeight;
+            var minViewportY = viewportBounds.Top - containerBounds.Top;
+            var maxViewportY = viewportBounds.Bottom - containerBounds.Top - buttonHeight;
             if (maxViewportY < minViewportY)
                 maxViewportY = minViewportY;
 

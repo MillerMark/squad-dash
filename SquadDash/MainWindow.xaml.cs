@@ -41511,6 +41511,9 @@ public partial class MainWindow : Window
         var copyBtn = new CopyButton
         {
             CopyTooltip = "Copy code",
+            Width = 26,
+            Height = 22,
+            Padding = new Thickness(0),
             Margin = new Thickness(4, 2, 4, 2),
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Top,
@@ -41523,6 +41526,7 @@ public partial class MainWindow : Window
         var container = new Grid();
         container.Children.Add(textBox);
         container.Children.Add(copyBtn);
+        Panel.SetZIndex(copyBtn, 1);
         StickyCodeBlockBehavior.Attach(container, copyBtn);
         return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
     }

@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 
 namespace SquadDash;
@@ -8,6 +9,7 @@ namespace SquadDash;
 public class CopyButton : Button
 {
     private readonly DispatcherTimer _resetTimer;
+    private readonly Popup _copiedPopup;
 
     public static readonly DependencyProperty CopyTooltipProperty =
         DependencyProperty.Register(
@@ -52,6 +54,36 @@ public class CopyButton : Button
 
     public CopyButton()
     {
+        var popupText = new TextBlock
+        {
+            Text = "Copied."
+        };
+        popupText.SetResourceReference(TextBlock.ForegroundProperty, "ToolTipForeground");
+
+        var popupBorder = new Border
+        {
+            Child = popupText,
+            Padding = new Thickness(6, 4, 6, 4),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            SnapsToDevicePixels = true
+        };
+        popupBorder.SetResourceReference(Border.BackgroundProperty, "InputSurface");
+        popupBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+
+        _copiedPopup = new Popup
+        {
+            PlacementTarget = this,
+            Placement = PlacementMode.Top,
+            VerticalOffset = -4,
+            StaysOpen = true,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade,
+            Focusable = false,
+            IsHitTestVisible = false,
+            Child = popupBorder
+        };
+
         _resetTimer = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher)
         {
             Interval = FeedbackDuration
@@ -59,9 +91,14 @@ public class CopyButton : Button
         _resetTimer.Tick += (_, _) =>
         {
             _resetTimer.Stop();
+            _copiedPopup.IsOpen = false;
             IsCopied = false;
         };
-        Unloaded += (_, _) => _resetTimer.Stop();
+        Unloaded += (_, _) =>
+        {
+            _resetTimer.Stop();
+            _copiedPopup.IsOpen = false;
+        };
         UpdateVisualState();
     }
 
@@ -69,6 +106,8 @@ public class CopyButton : Button
     {
         base.OnClick();
         IsCopied = true;
+        _copiedPopup.IsOpen = false;
+        _copiedPopup.IsOpen = true;
         _resetTimer.Stop();
         _resetTimer.Interval = FeedbackDuration;
         _resetTimer.Start();
