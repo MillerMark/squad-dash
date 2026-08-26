@@ -7,6 +7,125 @@ internal sealed record PlanReviewAttentionPresentation(
     string Title,
     string Summary);
 
+internal enum PlanCheckpointPrimaryActionKind
+{
+    ApproveCheckpoint,
+    CompleteHumanReviewTasks,
+}
+
+internal sealed record PlanCheckpointPrimaryActionPresentation(
+    PlanCheckpointPrimaryActionKind Kind,
+    string Label,
+    string Hint,
+    IReadOnlyList<PlanReviewAttentionPresentation> ReviewAttentions)
+{
+    internal PlanReviewAttentionPresentation? ReviewAttention =>
+        ReviewAttentions.Count == 1 ? ReviewAttentions[0] : null;
+}
+
+/// <summary>
+/// Defines the single primary action represented by an approval boundary. UI surfaces must use
+/// this presentation instead of inferring task completion from a gate's AfterTaskIds. A gate can
+/// review an already-complete task without owning a task-completion transition.
+/// </summary>
+internal static class PlanCheckpointPrimaryActionPresentationResolver
+{
+    internal static PlanCheckpointPrimaryActionPresentation Resolve(
+        Plan plan,
+        IReadOnlyList<string> representedGateIds)
+    {
+        var representedGates = plan.ApprovalGates
+            .Where(gate => representedGateIds.Contains(gate.GateId, StringComparer.Ordinal) &&
+                           gate.Status == PlanGateStatus.AwaitingApproval)
+            .ToArray();
+        var reviewAttentions = representedGates.Select(gate =>
+        {
+            var taskId = gate.AfterTaskIds.Count == 1 ? gate.AfterTaskIds[0] : null;
+            var reviewAttention = PlanReviewAttentionPresentationResolver.Resolve(plan, taskId);
+            return reviewAttention is not null &&
+                   string.Equals(reviewAttention.Gate.GateId, gate.GateId, StringComparison.Ordinal)
+                ? reviewAttention
+                : null;
+        }).OfType<PlanReviewAttentionPresentation>().ToArray();
+        if (reviewAttentions.Length > 0)
+        {
+            var singleReview = reviewAttentions.Length == 1 ? reviewAttentions[0] : null;
+            var stepLabel = singleReview is null
+                ? "Reviewed Steps"
+                : PlanRecoveryPresentationBuilder.FormatStepLabel(
+                    singleReview.Task.DisplayStepLabel,
+                    singleReview.Task.Title ?? singleReview.Task.TaskId);
+            var label = representedGates.Length == 1
+                ? $"{stepLabel} Is Complete"
+                : singleReview is null
+                    ? "Complete Reviewed Steps & Approve Checkpoints"
+                    : $"Complete {stepLabel} & Approve Checkpoints";
+            if (!plan.IsPaused) label += " & Continue";
+            return new PlanCheckpointPrimaryActionPresentation(
+                PlanCheckpointPrimaryActionKind.CompleteHumanReviewTasks,
+                label,
+                plan.IsPaused
+                    ? "Accept every represented human-reviewed step, approve all represented checkpoints, and keep the plan paused in one durable transition."
+                    : "Accept every represented human-reviewed step, approve all represented checkpoints, and continue in one durable transition.",
+                reviewAttentions);
+        }
+
+        var scope = representedGates.Length switch
+        {
+            2 => "Both Checkpoints",
+            > 2 => "All Checkpoints",
+            _ => "Checkpoint",
+        };
+        return new PlanCheckpointPrimaryActionPresentation(
+            PlanCheckpointPrimaryActionKind.ApproveCheckpoint,
+            plan.IsPaused ? $"Approve {scope}" : $"Approve {scope} & Continue",
+            plan.IsPaused
+                ? "Approve the represented checkpoint without changing task completion and keep the plan paused."
+                : "Approve the represented checkpoint without changing task completion, then continue the plan.",
+            []);
+    }
+}
+
+internal static class PlanHumanReviewStepAcceptance
+{
+    internal static Plan ApplyTasks(
+        Plan plan,
+        IReadOnlyList<PlanReviewAttentionPresentation> reviewAttentions)
+    {
+        var updated = plan;
+        foreach (var reviewAttention in reviewAttentions)
+        {
+            var handoff = reviewAttention.Task.Handoff ??
+                throw new InvalidOperationException("The reviewed task has no durable implementation handoff.");
+            if (string.IsNullOrWhiteSpace(handoff.Commit))
+                throw new InvalidOperationException("The reviewed task handoff has no commit.");
+            var commits = reviewAttention.Task.Commits ??
+                [new PlanEvidenceCommit(
+                    handoff.Commit,
+                    PlanRecoveryCommitRelation.Task,
+                    "Host-validated implementation handoff reviewed at the human checkpoint.")];
+            var result = new DecomposeStepResult(
+                updated.PlanId,
+                reviewAttention.Task.TaskId,
+                updated.Revision,
+                "complete",
+                handoff.Commit,
+                handoff.Summary,
+                [],
+                handoff.Verification)
+            {
+                Commits = commits,
+            };
+            updated = PlanStoreUpdater.ApplyStepAccepted(updated, null, result);
+        }
+        return updated with
+        {
+            InterruptionData = null,
+            Progress = updated.Progress with { ExecutingTaskId = null },
+        };
+    }
+}
+
 internal static class PlanReviewAttentionPresentationResolver
 {
     internal static PlanReviewAttentionPresentation? Resolve(Plan plan, string? taskId = null)

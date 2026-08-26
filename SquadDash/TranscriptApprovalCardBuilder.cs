@@ -623,21 +623,15 @@ internal static class TranscriptApprovalCardBuilder
             Margin = new Thickness(0, 0, 0, 2),
         };
 
-        var reviewedTaskIds = activeGates.SelectMany(candidate => candidate.AfterTaskIds)
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        var approveLabel = reviewedTaskIds.Length == 1
-            ? $"{ResolveCompletionStepLabel(plan, reviewedTaskIds[0])} Is Complete"
-            : "Reviewed Steps Are Complete";
-        if (!plan.IsPaused)
-            approveLabel += " & Continue";
+        var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
+            plan,
+            activeGates.Select(candidate => candidate.GateId).ToArray());
+        var approveLabel = primaryAction.Label;
 
         approveButton = TranscriptQuickReplyFactory.CreateButton(
             approveLabel,
             fontSize,
-            toolTip: plan.IsPaused
-                ? "Enabled after every verification item is checked. Records your human verification and keeps the plan paused."
-                : "Enabled after every verification item is checked. Records your human verification and continues the plan without another AI review.");
+            toolTip: $"Enabled after every verification item is checked. {primaryAction.Hint}");
         AutomationProperties.SetName(approveButton, approveLabel);
 
         // Shared approve action used by button click and keyboard shortcut
@@ -782,16 +776,6 @@ internal static class TranscriptApprovalCardBuilder
             if (addressUncheckedItemsButton is not null)
                 addressUncheckedItemsButton.IsEnabled = checklistState.Values.Any(value => !value);
         }
-    }
-
-    private static string ResolveCompletionStepLabel(Plan plan, string taskId)
-    {
-        var task = plan.Tasks.FirstOrDefault(candidate =>
-            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
-        var label = PlanRecoveryPresentationBuilder.FormatStepLabel(
-            task?.DisplayStepLabel,
-            task?.Title ?? taskId);
-        return label;
     }
 
     internal static void FocusNoteEditorAtPoint(TextBox noteBox, Point point)

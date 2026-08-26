@@ -672,7 +672,17 @@ internal sealed class PlansPanelController
         if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval) &&
             _approveGate is not null)
         {
-            var approveItem = new MenuItem { Header = "Approve & Continue" };
+            var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
+                plan,
+                plan.ApprovalGates
+                    .Where(gate => gate.Status == PlanGateStatus.AwaitingApproval)
+                    .Select(gate => gate.GateId)
+                    .ToArray());
+            var approveItem = new MenuItem
+            {
+                Header = primaryAction.Label,
+                ToolTip = ToolTipHelper.MakeThemedToolTip(primaryAction.Hint),
+            };
             approveItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             approveItem.Click += (_, _) => _approveGate(plan);
             menu.Items.Add(approveItem);

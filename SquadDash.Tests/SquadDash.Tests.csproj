@@ -444,6 +444,7 @@
     <!-- First-class Plans (PLANS-20260727) -->
     <Compile Include="..\SquadDash\Plan.cs" Link="Source\Plan.cs" />
     <Compile Include="..\SquadDash\PlanRecoveryPresentation.cs" Link="Source\PlanRecoveryPresentation.cs" />
+    <Compile Include="..\SquadDash\PlanReviewAttentionPresentation.cs" Link="Source\PlanReviewAttentionPresentation.cs" />
     <Compile Include="..\SquadDash\CommitViewerLayout.cs" Link="Source\CommitViewerLayout.cs" />
     <Compile Include="..\SquadDash\CommitViewerGit.cs" Link="Source\CommitViewerGit.cs" />
     <Compile Include="..\SquadDash\CompletedWorkReviewPresentation.cs" Link="Source\CompletedWorkReviewPresentation.cs" />

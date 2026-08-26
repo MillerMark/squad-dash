@@ -830,16 +830,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (onAdoptVerifiedCommitRange is not null)
             {
                 var capturedPlan = durablePlan;
-                var reviewedStepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
-                    reviewAttention.Task.DisplayStepLabel,
-                    reviewAttention.Task.Title ?? reviewAttention.Task.TaskId);
+                var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
+                    capturedPlan,
+                    [reviewAttention.Gate.GateId]);
                 completeReviewButton = TranscriptQuickReplyFactory.CreateButton(
-                    capturedPlan.IsPaused
-                        ? $"{reviewedStepLabel} Is Complete"
-                        : $"{reviewedStepLabel} Is Complete & Continue",
+                    primaryAction.Label,
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Enabled after every review item is checked."));
+                        $"Enabled after every review item is checked. {primaryAction.Hint}"));
                 completeReviewButton.Click += async (_, _) =>
                 {
                     reviewActions.IsEnabled = false;
@@ -1313,6 +1311,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var capturedApprPlan = durablePlan;
                 var capturedApprGate = awaitingGate;
                 var capturedApprove  = onApproveGate;
+                var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
+                    capturedApprPlan,
+                    capturedApprPlan.ApprovalGates
+                        .Where(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)
+                        .Select(candidate => candidate.GateId)
+                        .ToArray());
                 var approvePanel = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
                 var gateMsg = new TextBlock
                 {
@@ -1324,11 +1328,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 gateMsg.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 gateMsg.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 var approveButton = TranscriptQuickReplyFactory.CreateButton(
-                    durablePlan.IsPaused ? "Approve" : "Approve & Continue",
+                    primaryAction.Label,
                     quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip(durablePlan.IsPaused
-                        ? "Approve this gate while keeping the plan paused."
-                        : "Approve this gate and resume plan execution."));
+                    toolTip: ToolTipHelper.MakeThemedToolTip(primaryAction.Hint));
                 approveButton.Focusable = false;
                 approveButton.Click += (_, _) =>
                 {

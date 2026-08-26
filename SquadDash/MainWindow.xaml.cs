@@ -16077,13 +16077,40 @@ public partial class MainWindow : Window
         var resolvedBy = _currentWorkspace is null
             ? Environment.UserName
             : await HumanApprovalIdentityResolver.ResolveAsync(_currentWorkspace.FolderPath);
+        var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
+            plan,
+            gateIdsToResolve ?? clickToken.GateIds);
+        Func<Plan, Plan>? prepareResolution = null;
+        if (primaryAction is
+            {
+                Kind: PlanCheckpointPrimaryActionKind.CompleteHumanReviewTasks,
+                ReviewAttentions.Count: > 0,
+            })
+        {
+            foreach (var reviewAttention in primaryAction.ReviewAttentions)
+            {
+                if (await ValidateHumanReviewStepAcceptanceAsync(plan, reviewAttention)) continue;
+                if (cards is not null)
+                    foreach (var card in cards) TranscriptApprovalCardBuilder.HideUpdatingState(card);
+                const string validationMessage =
+                    "The review was not completed, so no task or checkpoint state changed.";
+                if (_openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var reviewWindow))
+                    reviewWindow.CancelApprovalUpdate(validationMessage);
+                if (_inboxStore?.GetById(messageId) is { } reviewMessage)
+                    RefreshOpenApprovalInboxWindows(messageId, reviewMessage);
+                return;
+            }
+            prepareResolution = current =>
+                PlanHumanReviewStepAcceptance.ApplyTasks(current, primaryAction.ReviewAttentions);
+        }
         var resolution = await _planApprovalRuntime.ApproveAsync(
             clickToken,
             plan,
             note,
             persistPlan: updated => TryPublishPlanProgress(updated, out _),
             gateIdsToResolve: gateIdsToResolve,
-            resolvedBy: resolvedBy);
+            resolvedBy: resolvedBy,
+            prepareResolution: prepareResolution);
 
         if (resolution.Result == ApprovalClickResult.Approved && resolution.UpdatedPlan is not null)
         {
@@ -20358,13 +20385,36 @@ public partial class MainWindow : Window
         Plan storedPlan,
         PlanReviewAttentionPresentation reviewAttention)
     {
-        if (_currentWorkspace is null || _planStore is null) return false;
+        if (_planStore is null || _planApprovalRuntime is null) return false;
+        var token = _planApprovalRuntime.Actions.GetCurrentToken(storedPlan.PlanId);
+        if (token is null || !token.GateIds.Contains(reviewAttention.Gate.GateId, StringComparer.Ordinal))
+        {
+            UIErrorHelper.ShowWarning(
+                "Review Changed",
+                "The human-review checkpoint changed. Reopen the current review before continuing.");
+            return false;
+        }
+
+        await HandleApprovalClickAsync(token, gateIdsToResolve: [reviewAttention.Gate.GateId]);
+        var current = _planStore.Load(storedPlan.PlanId);
+        return current?.Tasks.Any(task =>
+                   string.Equals(task.TaskId, reviewAttention.Task.TaskId, StringComparison.Ordinal) &&
+                   task.Status == PlanTaskStatus.Complete) == true &&
+               current.ApprovalGates.Any(gate =>
+                   string.Equals(gate.GateId, reviewAttention.Gate.GateId, StringComparison.Ordinal) &&
+                   gate.Status == PlanGateStatus.Approved);
+    }
+
+    private async Task<bool> ValidateHumanReviewStepAcceptanceAsync(
+        Plan plan,
+        PlanReviewAttentionPresentation reviewAttention)
+    {
+        if (_currentWorkspace is null) return false;
         if (reviewAttention.Checklist.Count == 0 || reviewAttention.Checklist.Any(item => !item.IsChecked))
         {
             UIErrorHelper.ShowWarning("Review Incomplete", "Verify every checklist item before continuing.");
             return false;
         }
-
         var handoff = reviewAttention.Task.Handoff;
         if (handoff is null || string.IsNullOrWhiteSpace(handoff.Commit))
         {
@@ -20374,51 +20424,25 @@ public partial class MainWindow : Window
 
         var workspace = _currentWorkspace.FolderPath;
         var activeBranch = ReadGitBranch(workspace);
-        if (!string.Equals(activeBranch, storedPlan.Branch, StringComparison.Ordinal))
+        if (!string.Equals(activeBranch, plan.Branch, StringComparison.Ordinal))
         {
             UIErrorHelper.ShowError(
                 "Branch Mismatch",
-                $"Plan '{storedPlan.PlanId}' requires branch '{storedPlan.Branch}', but '{activeBranch}' is active.");
+                $"Plan '{plan.PlanId}' requires branch '{plan.Branch}', but '{activeBranch}' is active.");
             return false;
         }
-        await RunGitAsync(workspace, $"merge-base --is-ancestor \"{handoff.Commit}\" HEAD");
-        if (PlanRecoveryAcceptancePolicy.RequiresCleanWorktreeBeforeAcceptance(storedPlan))
-            await EnsurePlanWorktreeReadyAsync(workspace, storedPlan.PlanId);
-
-        var commits = reviewAttention.Task.Commits ??
-            [new PlanEvidenceCommit(handoff.Commit, PlanRecoveryCommitRelation.Task,
-                "Host-validated implementation handoff reviewed at the human checkpoint.")];
-        var result = new DecomposeStepResult(
-            storedPlan.PlanId,
-            reviewAttention.Task.TaskId,
-            storedPlan.Revision,
-            "complete",
-            handoff.Commit,
-            handoff.Summary,
-            [],
-            handoff.Verification)
+        try
         {
-            Commits = commits,
-        };
-        var updated = PlanStoreUpdater.ApplyStepAccepted(storedPlan, null, result);
-        var resolvedBy = await HumanApprovalIdentityResolver.ResolveAsync(workspace);
-        updated = PlanStoreUpdater.ApplyGateApproved(
-            updated,
-            reviewAttention.Gate.GateId,
-            "Confirmed the reviewed implementation through the human-observation checklist.",
-            resolvedBy);
-        updated = updated with
+            await RunGitAsync(workspace, $"merge-base --is-ancestor \"{handoff.Commit}\" HEAD");
+            if (PlanRecoveryAcceptancePolicy.RequiresCleanWorktreeBeforeAcceptance(plan))
+                await EnsurePlanWorktreeReadyAsync(workspace, plan.PlanId);
+            return true;
+        }
+        catch (Exception ex)
         {
-            InterruptionData = null,
-            Progress = updated.Progress with { ExecutingTaskId = null },
-        };
-        if (!TryPublishPlanProgress(updated, out var error))
-            throw new IOException(error ?? "The reviewed plan state could not be saved.");
-
-        ResolveRecoveryTranscript($"✓ Review completed. {reviewAttention.Task.Title ?? reviewAttention.Task.TaskId} was accepted.");
-        if (PlanRecoveryAcceptancePolicy.ShouldAdvanceAfterAcceptance(updated))
-            await StartOrResumeDurablePlanAsync(updated);
-        return true;
+            UIErrorHelper.ShowError("Review Could Not Be Completed", ex.Message);
+            return false;
+        }
     }
 
     /// <summary>

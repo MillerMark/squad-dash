@@ -206,6 +206,72 @@ public sealed class PlanApprovalRuntimeTests
     }
 
     [Test]
+    public async Task Approve_HumanReviewCompletion_PersistsTaskAndGateAtomically()
+    {
+        const string commit = "abcdef1234567890";
+        var task = new PlanTask(
+            "REVIEW", "Review UI", "Verify the UI", [], "high",
+            PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff(
+                commit,
+                "Implemented the reviewed UI.",
+                ["Feature.cs"],
+                new DecomposeStepVerification("passed", "dotnet test", "Tests passed."),
+                DateTimeOffset.UtcNow),
+            DisplayStepLabel: "4");
+        var gate = new PlanApprovalGate(
+            "GATE-REVIEW",
+            "Confirm the UI.",
+            [task.TaskId],
+            [],
+            PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [new PlanTaskProofRequirement(
+                "visual", "live-ui-observation", "Observe the UI.", "Does the UI work?")],
+            HumanReviewSelections:
+            [new PlanHumanReviewSelection("visual", true, commit, DateTimeOffset.UtcNow)]);
+        var plan = new Plan(
+            "REVIEW-PLAN", "rev-1", PlanSource.DecomposeDecision,
+            PlanLifecycleStatus.AwaitingApproval, "Review plan", "feature/review", "Review",
+            [task], [gate], new PlanProgress(0, 1, task.TaskId),
+            new PlanTimestamps(DateTimeOffset.UtcNow));
+        await _requests.AppendCheckpointAsync(plan, gate, await BuildSnapshotAsync(plan, gate, CancellationToken.None));
+        var state = _requests.GetState(plan.PlanId)!;
+        var token = await _actions.RestoreAsync(
+            plan.PlanId, plan.Revision, state.Version, state.ActiveGateIds);
+        var presentation = PlanCheckpointPrimaryActionPresentationResolver.Resolve(plan, token.GateIds);
+        Plan? persisted = null;
+
+        var resolution = await _runtime.ApproveAsync(
+            token,
+            plan,
+            null,
+            updated => { persisted = updated; return true; },
+            resolvedBy: "Reviewer",
+            prepareResolution: current =>
+                PlanHumanReviewStepAcceptance.ApplyTasks(
+                    current,
+                    presentation.ReviewAttentions));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Kind,
+                Is.EqualTo(PlanCheckpointPrimaryActionKind.CompleteHumanReviewTasks));
+            Assert.That(presentation.Label, Is.EqualTo("Step 4 Is Complete & Continue"));
+            Assert.That(resolution.Result, Is.EqualTo(ApprovalClickResult.Approved));
+            Assert.That(resolution.ShouldResume, Is.True);
+            Assert.That(persisted, Is.Not.Null);
+            Assert.That(persisted!.Tasks.Single().Status, Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(persisted.ApprovalGates.Single().Status, Is.EqualTo(PlanGateStatus.Approved));
+            Assert.That(persisted.Progress.CompletedCount, Is.EqualTo(1));
+            Assert.That(persisted.Progress.ExecutingTaskId, Is.Null);
+            Assert.That(_actions.HasActiveGates(plan.PlanId), Is.False);
+            Assert.That(_requests.GetState(plan.PlanId)?.Archived, Is.True);
+            Assert.That(_requests.GetState(plan.PlanId)?.ActiveGateIds, Is.Empty);
+        });
+    }
+
+    [Test]
     public async Task RequestRework_FromAiCompatibilityResponse_ReopensTaskAndInvalidatesValidationAtomically()
     {
         var validation = new PlanValidationNode(

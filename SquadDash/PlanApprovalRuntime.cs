@@ -280,6 +280,7 @@ internal sealed class PlanApprovalRuntime
         Func<Plan, bool> persistPlan,
         IReadOnlyList<string>? gateIdsToResolve = null,
         string? resolvedBy = null,
+        Func<Plan, Plan>? prepareResolution = null,
         CancellationToken cancellationToken = default)
     {
         if (!string.Equals(clickToken.PlanId, currentPlan.PlanId, StringComparison.Ordinal) ||
@@ -295,9 +296,14 @@ internal sealed class PlanApprovalRuntime
             return new ApprovalRuntimeResolutionResult(ApprovalClickResult.StaleRejected, null, false);
 
         var wasPaused = currentPlan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval;
-        var updated = currentPlan;
-        foreach (var gateId in resolutionIds)
-            updated = PlanStoreUpdater.ApplyGateApproved(updated, gateId, note, resolvedBy);
+        var updated = prepareResolution?.Invoke(currentPlan) ?? currentPlan;
+        updated = resolutionIds.Aggregate(
+            updated,
+            (plan, gateId) => PlanStoreUpdater.ApplyGateApproved(plan, gateId, note, resolvedBy));
+        if (resolutionIds.Any(gateId => !updated.ApprovalGates.Any(gate =>
+                string.Equals(gate.GateId, gateId, StringComparison.Ordinal) &&
+                gate.Status == PlanGateStatus.Approved)))
+            return new ApprovalRuntimeResolutionResult(ApprovalClickResult.PersistenceFailed, null, false);
 
         var result = await _actions.TryApproveAsync(
             clickToken,

@@ -523,7 +523,7 @@ public class TranscriptApprovalCardBuilderTests
                 text => text.Contains("See your inbox message for more detail.", StringComparison.Ordinal));
             Assert.That(inboxIndex, Is.GreaterThan(step7Index));
             Assert.That(card.ApproveButton.Content?.ToString(),
-                Is.EqualTo("Reviewed Steps Are Complete & Continue"));
+                Is.EqualTo("Approve Both Checkpoints & Continue"));
         });
     }
 
@@ -537,11 +537,11 @@ public class TranscriptApprovalCardBuilderTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(card.ApproveButton.Content?.ToString(), Is.EqualTo("Reviewed Steps Are Complete"));
+            Assert.That(card.ApproveButton.Content?.ToString(), Is.EqualTo("Approve Checkpoint"));
             Assert.That(card.ApproveButton.Content?.ToString(), Does.Not.Contain("Stay Paused"));
             Assert.That(
                 card.ApproveButton.ToolTip?.ToString(),
-                Does.Contain("keeps the plan paused"));
+                Does.Contain("keep the plan paused"));
         });
     }
 
