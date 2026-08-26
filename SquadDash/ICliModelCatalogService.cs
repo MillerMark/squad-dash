@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace SquadDash;
 
@@ -10,4 +11,6 @@ internal interface ICliModelCatalogService {
         CancellationToken cancellationToken = default);
 
     Task RefreshAsync(CancellationToken cancellationToken = default);
+
+    IReadOnlyList<string> GetAllModelIds();
 }

@@ -106,6 +106,21 @@ internal sealed class CliModelCatalogServiceTests {
     }
 
     [Test]
+    public async Task GetAllModelIds_AfterRefresh_ReturnsCachedModelIds() {
+        var service = new CliModelCatalogService(
+            _ => Task.FromResult<IReadOnlyList<CliModelMetadata>>([
+                new CliModelMetadata("gpt-5", "chat", null, null, "ga", ["low"]),
+                new CliModelMetadata("claude-sonnet-4.6", "chat", null, null, "ga", ["low", "medium", "high"])
+            ]));
+
+        Assert.That(service.GetAllModelIds(), Is.Empty);
+
+        await service.RefreshAsync();
+
+        Assert.That(service.GetAllModelIds(), Is.EquivalentTo(new[] { "gpt-5", "claude-sonnet-4.6" }));
+    }
+
+    [Test]
     public void ParseCatalog_EnrichedFieldsPresent_HydratesMetadata() {
         var parsed = CliModelCatalogService.ParseCatalog("""
             [

@@ -63,6 +63,9 @@ internal sealed class CliModelCatalogService : ICliModelCatalogService {
     public Task RefreshAsync(CancellationToken cancellationToken = default) =>
         RefreshCoreAsync(force: true, cancellationToken);
 
+    public IReadOnlyList<string> GetAllModelIds() =>
+        _hasCache ? _cacheByModelId.Keys.ToArray() : [];
+
     private Task EnsureCatalogAsync(CancellationToken cancellationToken) {
         var now = _utcNow();
         var shouldRefresh = !_hasCache || now >= _nextRefreshAtUtc;
@@ -160,9 +163,10 @@ internal sealed class CliModelCatalogService : ICliModelCatalogService {
         var stdout = await stdoutTask.ConfigureAwait(false);
         var stderr = await stderrTask.ConfigureAwait(false);
         if (process.ExitCode != 0) {
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr)
-                ? $"Model discovery exited with code {process.ExitCode}."
-                : stderr.Trim());
+            var errorDetail = string.IsNullOrWhiteSpace(stderr)
+                ? $"exit code {process.ExitCode}"
+                : $"exit code {process.ExitCode}: {stderr.Trim()}";
+            throw new InvalidOperationException($"Model discovery failed — {errorDetail}");
         }
 
         return ParseCatalog(stdout);

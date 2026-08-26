@@ -99,6 +99,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly Dictionary<string, CheckBox> _categoryCheckBoxes = new(StringComparer.OrdinalIgnoreCase);
     private bool _suppressProfileSave;
     private bool _suppressReasoningEffortSave;
+    private bool _suppressModelComboBoxRefresh;
     private string? _currentlyEditedProfileId;
     private int _metadataRefreshVersion;
     private readonly Stack<(List<ModelProfile> Profiles, Dictionary<string, string> Assignments)> _undoStack = new();
@@ -934,6 +935,7 @@ internal sealed class PreferencesWindow : Window {
             QueueSelectedModelMetadataRefresh();
         };
         _copilotModelComboBox.SelectionChanged += (_, _) => {
+            if (_suppressModelComboBoxRefresh) return;
             SaveModelSettingsNow();
             QueueSelectedModelMetadataRefresh();
         };
@@ -1827,7 +1829,8 @@ internal sealed class PreferencesWindow : Window {
     private async Task LoadCopilotModelsIntoComboBoxAsync() {
         var currentModel = ReadCopilotDefaultModelInput();
         try {
-            var modelIds = await FetchCopilotModelIdsAsync();
+            await _cliModelCatalogService.RefreshAsync();
+            var modelIds = _cliModelCatalogService.GetAllModelIds();
             if (modelIds.Count == 0)
                 throw new InvalidOperationException("The Copilot API returned no models.");
 
@@ -1852,11 +1855,17 @@ internal sealed class PreferencesWindow : Window {
             .ThenBy(model => model, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        _copilotModelComboBox.Items.Clear();
-        foreach (var model in options)
-            _copilotModelComboBox.Items.Add(model);
+        _suppressModelComboBoxRefresh = true;
+        try {
+            _copilotModelComboBox.Items.Clear();
+            foreach (var model in options)
+                _copilotModelComboBox.Items.Add(model);
 
-        SelectCopilotModel(selectedModel);
+            SelectCopilotModel(selectedModel);
+        }
+        finally {
+            _suppressModelComboBoxRefresh = false;
+        }
     }
 
     private void SelectCopilotModel(string model) {
@@ -2000,104 +2009,6 @@ internal sealed class PreferencesWindow : Window {
         price.HasValue
             ? $"{price.Value.ToString("0.####", CultureInfo.InvariantCulture)} USD"
             : NotReportedMetadataText;
-
-    private async Task<IReadOnlyList<string>> FetchCopilotModelIdsAsync() {
-        var sdkDirectory = _workspacePaths.SquadSdkDirectory;
-        var scriptPath = Path.Combine(sdkDirectory, "listModels.js");
-        if (!File.Exists(scriptPath))
-            throw new FileNotFoundException("Bundled model discovery script was not found.", scriptPath);
-
-        using var process = new Process {
-            StartInfo = new ProcessStartInfo {
-                FileName = ResolveNodeExecutablePath(),
-                Arguments = "listModels.js",
-                WorkingDirectory = sdkDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            }
-        };
-
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(12));
-        process.Start();
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
-        var stderrTask = process.StandardError.ReadToEndAsync();
-
-        try {
-            await process.WaitForExitAsync(timeout.Token);
-        }
-        catch (OperationCanceledException) {
-            TryKillProcess(process);
-            throw new TimeoutException("Timed out while asking GitHub Copilot for models.");
-        }
-
-        var stdout = await stdoutTask;
-        var stderr = await stderrTask;
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(stderr)
-                ? $"Model discovery exited with code {process.ExitCode}."
-                : stderr.Trim());
-
-        return ParseModelIds(stdout);
-    }
-
-    private static IReadOnlyList<string> ParseModelIds(string json) {
-        using var document = JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
-            return Array.Empty<string>();
-
-        var models = new List<string>();
-        foreach (var element in document.RootElement.EnumerateArray()) {
-            string? id = element.ValueKind switch {
-                JsonValueKind.String => element.GetString(),
-                JsonValueKind.Object when element.TryGetProperty("id", out var idProperty) => idProperty.GetString(),
-                _ => null
-            };
-
-            if (!string.IsNullOrWhiteSpace(id))
-                models.Add(id.Trim());
-        }
-
-        return models
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
-    private static string ResolveNodeExecutablePath() {
-        static IEnumerable<string> SplitPath(string? value) =>
-            string.IsNullOrWhiteSpace(value)
-                ? Enumerable.Empty<string>()
-                : value.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        var candidates = new[] {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs", "node.exe"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "nodejs", "node.exe")
-        };
-
-        foreach (var candidate in candidates)
-            if (File.Exists(candidate))
-                return candidate;
-
-        foreach (var scope in new[] { EnvironmentVariableTarget.Process, EnvironmentVariableTarget.User, EnvironmentVariableTarget.Machine }) {
-            foreach (var directory in SplitPath(Environment.GetEnvironmentVariable("PATH", scope))) {
-                var nodePath = Path.Combine(directory.Trim('"'), "node.exe");
-                if (File.Exists(nodePath))
-                    return nodePath;
-            }
-        }
-
-        return "node";
-    }
-
-    private static void TryKillProcess(Process process) {
-        try {
-            if (!process.HasExited)
-                process.Kill(entireProcessTree: true);
-        }
-        catch {
-        }
-    }
 
     private UIElement BuildNotificationsPage(ApplicationSettingsSnapshot currentSettings) {
         var form = new StackPanel { Margin = new Thickness(20, 16, 20, 20) };
