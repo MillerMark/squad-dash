@@ -41504,6 +41504,8 @@ public partial class MainWindow : Window
 
     private Block BuildCodeBlock(string code)
     {
+        var copyButtonSize = _transcriptFontSize * 1.5;
+        var codeTopPadding = Math.Max(30, copyButtonSize + 8);
         var textBox = new TextBox
         {
             Text = code,
@@ -41515,7 +41517,7 @@ public partial class MainWindow : Window
             FontFamily = new FontFamily("Consolas"),
             FontSize = _transcriptFontSize * 0.9,
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 30, 10, 8),
+            Padding = new Thickness(10, codeTopPadding, 10, 8),
             Tag = "codeblock"
         };
         textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
@@ -41524,21 +41526,40 @@ public partial class MainWindow : Window
         var copyBtn = new CopyButton
         {
             CopyTooltip = "Copy code",
-            Width = 26,
-            Height = 22,
+            Width = copyButtonSize,
+            Height = copyButtonSize,
             Padding = new Thickness(0),
-            Margin = new Thickness(4, 2, 4, 2),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
         };
         copyBtn.Click += (_, _) =>
         {
             try { Clipboard.SetText(code); } catch { }
         };
 
+        var copyButtonBackdrop = new Border
+        {
+            CornerRadius = new CornerRadius(2),
+            Opacity = 0.5,
+            BorderThickness = new Thickness(0)
+        };
+        copyButtonBackdrop.SetResourceReference(Border.BackgroundProperty, "CodeSurface");
+
+        var stickyCopyHost = new Grid
+        {
+            Width = copyButtonSize,
+            Height = copyButtonSize,
+            Margin = new Thickness(4, 2, 4, 2),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        stickyCopyHost.Children.Add(copyButtonBackdrop);
+        stickyCopyHost.Children.Add(copyBtn);
+
         var container = new Grid();
         container.Children.Add(textBox);
-        StickyCodeBlockBehavior.Attach(container, copyBtn);
+        StickyCodeBlockBehavior.Attach(container, stickyCopyHost);
         return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
     }
 

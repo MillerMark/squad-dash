@@ -399,6 +399,8 @@ internal sealed class MarkdownDocumentRenderer {
     }
 
     private Block BuildCodeBlock(string code) {
+        var copyButtonSize = _getFontSize() * 1.5;
+        var codeTopPadding = Math.Max(30, copyButtonSize + 8);
         var textBox = new TextBox {
             Text = code,
             IsReadOnly = true,
@@ -409,7 +411,7 @@ internal sealed class MarkdownDocumentRenderer {
             FontFamily = new FontFamily("Consolas"),
             FontSize = _getFontSize() * 0.9,
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 30, 10, 8),
+            Padding = new Thickness(10, codeTopPadding, 10, 8),
             Tag = "codeblock"
         };
         textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
@@ -417,12 +419,12 @@ internal sealed class MarkdownDocumentRenderer {
 
         var copyBtn = new CopyButton {
             CopyTooltip = "Copy code",
-            Width = 26,
-            Height = 22,
+            Width = copyButtonSize,
+            Height = copyButtonSize,
             Padding = new Thickness(0),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(4, 2, 4, 2)
+            Margin = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch
         };
 
         copyBtn.Click += (_, _) => {
@@ -434,6 +436,23 @@ internal sealed class MarkdownDocumentRenderer {
             }
             if (!copied) return;
         };
+
+        var copyButtonBackdrop = new Border {
+            CornerRadius = new CornerRadius(2),
+            Opacity = 0.5,
+            BorderThickness = new Thickness(0)
+        };
+        copyButtonBackdrop.SetResourceReference(Border.BackgroundProperty, "CodeSurface");
+
+        var stickyCopyHost = new Grid {
+            Width = copyButtonSize,
+            Height = copyButtonSize,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(4, 2, 4, 2)
+        };
+        stickyCopyHost.Children.Add(copyButtonBackdrop);
+        stickyCopyHost.Children.Add(copyBtn);
 
         // Explicit context menu so right-click Copy works regardless of keyboard focus.
         // WPF's auto-generated ContextMenu evaluates ApplicationCommands.Copy.CanExecute
@@ -461,7 +480,7 @@ internal sealed class MarkdownDocumentRenderer {
 
         var container = new Grid();
         container.Children.Add(textBox);
-        StickyCodeBlockBehavior.Attach(container, copyBtn);
+        StickyCodeBlockBehavior.Attach(container, stickyCopyHost);
 
         return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
     }

@@ -73,6 +73,7 @@ internal static class StickyCodeBlockBehavior
     {
         private readonly FrameworkElement _container;
         private readonly FrameworkElement _button;
+        private readonly CopyButton? _copyButton;
         private readonly Thickness _inset;
         private ScrollViewer? _scrollViewer;
         private FrameworkElement? _viewport;
@@ -83,6 +84,7 @@ internal static class StickyCodeBlockBehavior
         {
             _container = container;
             _button = button;
+            _copyButton = button as CopyButton ?? FindDescendantCopyButton(button);
             _inset = button.Margin;
             _button.Margin = new Thickness(0);
 
@@ -118,8 +120,7 @@ internal static class StickyCodeBlockBehavior
 
         private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
         {
-            if (_button is CopyButton copyButton)
-                copyButton.DismissFeedback();
+            _copyButton?.DismissFeedback();
             RefreshPosition();
         }
 
@@ -214,6 +215,23 @@ internal static class StickyCodeBlockBehavior
             }
 
             return (null, null);
+        }
+
+        private static CopyButton? FindDescendantCopyButton(DependencyObject root)
+        {
+            var childCount = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < childCount; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is CopyButton copyButton)
+                    return copyButton;
+
+                var nestedMatch = FindDescendantCopyButton(child);
+                if (nestedMatch is not null)
+                    return nestedMatch;
+            }
+
+            return null;
         }
     }
 
