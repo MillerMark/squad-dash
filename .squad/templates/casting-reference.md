@@ -22,60 +22,52 @@ On-demand reference for Squad's casting system. Loaded during Init Mode or when 
 | DC Universe | 18 | large, action, ensemble | justice, duality, powers, mythology |
 | Futurama | 12 | medium, sci-fi, comedy | future, robots, space, absurdity |
 
-**Total: 15 universes** — capacity range 6–25.
+**Total: 15 built-in universes** — capacity range 6–25.
 
-## Character Pools
+## Descriptive Defaults
 
-Eligible characters per universe. Casting draws from this pool when assembling a team. Names are listed in priority/prominence order.
+When the user does not request a themed universe, use **descriptive role-based names** instead of character names. Descriptive names are the default naming convention.
 
-### The Usual Suspects (6)
-Verbal Kint, Dean Keaton, Michael McManus, Fred Fenster, Todd Hockney, Dave Kujan
+| Role | Descriptive Name |
+|---|---|
+| Lead | Lead |
+| Frontend Dev | Frontend |
+| Backend Dev | Backend |
+| Tester / QA | Tester |
+| Security | Security |
+| DevRel / Docs | Docs |
+| Reviewer | Reviewer |
+| DevOps / Infra | Infra |
 
-### Reservoir Dogs (8)
-Mr. White, Mr. Orange, Mr. Blonde, Mr. Pink, Joe Cabot, Nice Guy Eddie, Mr. Blue, Mr. Brown
+Rules for descriptive naming:
+- Use short, functional names that describe the agent's role.
+- Agent folder names are the descriptive name in lowercase (e.g., `.squad/agents/lead/`).
+- Set `"universe": "descriptive"` in `registry.json`.
+- If the user later requests a themed universe via re-cast, replace all descriptive names with character names from the chosen universe.
 
-### Alien (8)
-Ellen Ripley, Dallas, Kane, Lambert, Parker, Ash, Brett, Bishop
+## Custom Universes
 
-### Ocean's Eleven (14)
-Danny Ocean, Rusty Ryan, Linus Caldwell, Reuben Tishkoff, Frank Catton, Livingston Dell, Basher Tarr, Saul Bloom, Virgil Malloy, Turk Malloy, Yen, Isabel Lahiri, Roman Nagel, Lenny Pepperidge
+Users may request **any universe** — not just those in the built-in allowlist. When a user specifies a universe not in the table above, treat it as a custom universe.
 
-### Arrested Development (15)
-Michael Bluth, George Michael Bluth, George Bluth Sr., Lucille Bluth, G.O.B. Bluth, Lindsay Bluth Fünke, Tobias Fünke, Maeby Fünke, Buster Bluth, Lucille Austero, Barry Zuckerkorn, Ann Veal, Annyong, Steve Holt, Herb Love
+### Custom Universe Rules
 
-### Star Wars (12)
-Luke Skywalker, Han Solo, Princess Leia, Obi-Wan Kenobi, Yoda, Darth Vader, R2-D2, C-3PO, Chewbacca, Lando Calrissian, Ahsoka Tano, Mace Windu
+1. **Accept the request.** Do not reject a universe because it is not in the allowlist.
+2. **Allocate character names from your knowledge** of the source material. Pick characters whose traits or roles loosely resonate with the agent's function.
+3. **Spoiler awareness still applies.** Follow all spoiler rules (see below) — prefer names as introduced early, avoid fate-revealing epithets.
+4. **Capacity is flexible.** There is no pre-set capacity for custom universes. If the source material has enough named characters for the team, proceed. If not, tell the user and suggest a different universe.
+5. **Record as custom.** In `registry.json`, set `"universe"` to the user-specified universe name (e.g., `"Doctor Who"`, `"The Office"`). In `history.json`, record the universe name as given by the user.
+6. **ONE UNIVERSE PER ASSIGNMENT** still applies — do not mix custom and built-in characters.
+7. **Re-casting is allowed.** The user can re-cast at any time by requesting a different universe (custom or built-in). All active agents are renamed; folder names and file references are updated.
 
-### The Matrix (10)
-Neo, Trinity, Morpheus, Agent Smith, The Oracle, Tank, Dozer, Apoc, Switch, Mouse
+### Custom Universe in policy.json
 
-### Firefly (10)
-Malcolm Reynolds, Zoe Washburne, Hoban Washburne, Jayne Cobb, Kaylee Frye, Inara Serra, Simon Tam, River Tam, Shepherd Book, Saffron
-
-### The Goonies (8)
-Mikey Walsh, Brand Walsh, Chunk Cohen, Mouth Devereaux, Data Wang, Andy, Stef, Sloth Fratelli
-
-### The Simpsons (20)
-Homer Simpson, Marge Simpson, Bart Simpson, Lisa Simpson, Ned Flanders, Moe Szyslak, Barney Gumble, Chief Wiggum, Apu Nahasapeemapetilon, Mr. Burns, Waylon Smithers, Krusty the Clown, Sideshow Bob, Milhouse Van Houten, Nelson Muntz, Ralph Wiggum, Lenny Leonard, Carl Carlson, Professor Frink, Comic Book Guy
-
-### Breaking Bad (12)
-Walter White, Jesse Pinkman, Hank Schrader, Mike Ehrmantraut, Saul Goodman, Gustavo Fring, Skyler White, Marie Schrader, Walter White Jr., Todd Alquist, Lydia Rodarte-Quayle, Skinny Pete
-
-### Lost (18)
-Jack Shephard, Kate Austen, John Locke, James "Sawyer" Ford, Hugo "Hurley" Reyes, Jin-Soo Kwon, Sun-Hwa Kwon, Charlie Pace, Sayid Jarrah, Claire Littleton, Desmond Hume, Benjamin Linus, Michael Dawson, Shannon Rutherford, Boone Carlyle, Ana Lucia Cortez, Mr. Eko, Walt Lloyd
-
-### Marvel Cinematic Universe (25)
-Tony Stark, Steve Rogers, Thor, Natasha Romanoff, Bruce Banner, Clint Barton, Nick Fury, Peter Parker, Doctor Strange, T'Challa, Carol Danvers, Scott Lang, Hope Van Dyne, Vision, Wanda Maximoff, Sam Wilson, Bucky Barnes, Loki, Groot, Rocket Raccoon, Peter Quill, Gamora, Drax, Nebula, Shuri
-
-### DC Universe (18)
-Bruce Wayne, Clark Kent, Diana Prince, Barry Allen, Hal Jordan, Arthur Curry, Oliver Queen, Dinah Lance, Victor Stone, J'onn J'onzz, Dick Grayson, Tim Drake, Barbara Gordon, Alfred Pennyworth, Commissioner Gordon, Lex Luthor, Joker, Harley Quinn
-
-### Futurama (12)
-Philip J. Fry, Turanga Leela, Bender Bending Rodriguez, Professor Hubert J. Farnsworth, Amy Wong, Hermes Conrad, Dr. John Zoidberg, Zapp Brannigan, Kif Kroker, Mom, Calculon, Nibbler
+When `"allow_custom_universes": true` is set in `policy.json` (this is the default), any user-specified universe is accepted. Built-in universes are preferred for auto-selection (no user preference), but the user can always override.
 
 ## Selection Algorithm
 
-Universe selection is deterministic. Score each universe and pick the highest:
+Universe selection is deterministic and applies **only when the user has not specified a universe**. If the user requests a specific universe (built-in or custom), use it directly — skip scoring.
+
+When auto-selecting, score each built-in universe and pick the highest:
 
 ```
 score = size_fit + shape_fit + resonance_fit + LRU
@@ -89,6 +81,24 @@ score = size_fit + shape_fit + resonance_fit + LRU
 | `LRU` | Least-recently-used bonus — prefer universes not used in recent assignments (from `history.json`). |
 
 Same inputs → same choice (unless LRU changes between assignments).
+
+## Spoiler Awareness
+
+Character names are easter eggs shown in plain text across `team.md`, prompts, logs, and generated files. The user configuring the squad may be midway through the source material. A name that bakes in a future title, role, transformation, or fate can spoil later plot events even when the casting rationale stays hidden.
+
+How to avoid it:
+
+- Prefer the name a character has when first introduced.
+- Avoid titles or epithets earned later.
+- Avoid names that describe a transformation, fate, hidden identity, or reveal.
+- When unsure, pick a safer character from the same universe.
+- Keep existing name mappings stable — do not rename already-allocated agents or switch universes to dodge a spoiler. Only the next/new allocation should pick a different spoiler-safe character.
+
+> **Motivating example.** A user setting up a squad requested the *Malazan Book of the Fallen* universe (Steven Erikson) and was only four books into the series. The casting allocated two spoiler-bearing names:
+> - One name bundled a **title/epithet the character only earns after a major mid-series development** — encoding a role they do not yet hold at the reader's current point in the story.
+> - The other referenced a **state/transformation that has not yet occurred** at the reader's position — revealing what later becomes of that character.
+>
+> Both leaked future plot. (Character names are deliberately omitted here so this document does not reproduce the spoiler.)
 
 ## Casting State File Schemas
 

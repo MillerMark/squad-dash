@@ -37,23 +37,6 @@
 - **Rationale:** Coordinator selects the best model based on task type — cost first unless writing code
 - **Fallback:** Standard chain — the coordinator handles fallback automatically
 
-## Output Conventions
-
-**Commit hash reporting (required):** After every `git commit`, include the **bare short hash (7 chars) as plain text** in the transcript response — immediately after describing the commit. Do **not** construct a markdown hyperlink or embed a GitHub URL.
-
-```
-Committed: `a1b2c3d`
-```
-
-Obtain the short hash immediately after committing:
-```bash
-git rev-parse --short HEAD   # → a1b2c3d
-```
-
-Example response line: `Committed agent refactor. \`a1b2c3d\``
-
-**Why plain hash, not a link:** SquadDash auto-detects bare commit hashes and wraps them in the correct hyperlinks automatically. Constructing the URL manually caused hallucination of the wrong repo owner/name, producing broken links. See `decisions.md` — *"Policy: Agents must report bare commit hash in transcript after every commit"*.
-
 ## Collaboration
 
 Before starting work, run `git rev-parse --show-toplevel` to find the repo root, or use the `TEAM ROOT` provided in the spawn prompt. All `.squad/` paths must be resolved relative to this root — do not assume CWD is the repo root (you may be in a worktree or subdirectory).
