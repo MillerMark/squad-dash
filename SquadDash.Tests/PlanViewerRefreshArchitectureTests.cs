@@ -73,6 +73,14 @@ internal sealed class PlanViewerRefreshArchitectureTests
             Assert.That(viewer, Does.Contain("RefreshDetailPanel();\n            RebuildPreservingScroll(saved, _durablePlan);")
                 .Or.Contain("RefreshDetailPanel();\r\n            RebuildPreservingScroll(saved, _durablePlan);"),
                 "The selected inserted step must reach the inspector before the deferred graph rebuild.");
+            Assert.That(viewer, Does.Contain("ApplySelectionVisual();\n        RefreshDetailPanel();\n        FocusPrimaryInspectorEditorIfRequested(currentBuildSeq);")
+                .Or.Contain("ApplySelectionVisual();\r\n        RefreshDetailPanel();\r\n        FocusPrimaryInspectorEditorIfRequested(currentBuildSeq);"),
+                "The rebuilt graph and inspector must restore the inserted element's selection and edit form.");
+            Assert.That(viewer, Does.Contain("_focusPrimaryEditorAfterRebuild = true;")
+                .And.Contain("editor.Focus();")
+                .And.Contain("Keyboard.Focus(editor);")
+                .And.Contain("editor.SelectAll();"),
+                "New definitions must place keyboard focus in the first editable field after rebuilding.");
             Assert.That(viewer, Does.Contain("CreateAssignToSubmenu")
                 .And.Contain("CreateThemedMenuItem(\"Assign to\""),
                 "Editable task menus must enumerate the active workspace roster.");

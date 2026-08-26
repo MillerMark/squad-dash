@@ -92,6 +92,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private WrapPanel? _inspectorToolbarPanel;
     private Func<string?>? _inspectorEditorSaveAction;
     private TextBlock? _inspectorEditorStatus;
+    private TextBox? _inspectorPrimaryEditor;
     private FrameworkElement? _header;
     private FrameworkElement? _readingHint;
     private double _canvasContentWidth;
@@ -103,6 +104,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private bool _initialLayoutApplied;
     private StagedPlanEditHistory? _editHistory;
     private bool _isInspectorEditing;
+    private bool _focusPrimaryEditorAfterRebuild;
     private PlanVisualizerReviewPayload? _review;
     private int _reviewIndex = -1;
     private FrmUltimateCallout? _reviewCallout;
@@ -4003,6 +4005,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _canvasContentHeight = canvas.Height;
         ResolveAutomaticScrollTarget(durablePlan, levels, positions, canvas.Margin.Left);
 
+        // BuildContent replaces both the graph and inspector visual trees. Restore the logical
+        // selection and editor after every rebuild so inserting a new definition behaves exactly
+        // like selecting it and choosing its explicit Edit command.
+        ApplySelectionVisual();
+        RefreshDetailPanel();
+        FocusPrimaryInspectorEditorIfRequested(currentBuildSeq);
+
     }
 
     private PlanTaskCorrectionActivityState ResolveTaskCorrectionActivity(string taskId)
@@ -4320,6 +4329,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 _reviewIndex = -1;
             }
             _isInspectorEditing = beginEditingSelection;
+            if (beginEditingSelection)
+                _focusPrimaryEditorAfterRebuild = true;
 
             if (selectKind is not null)
             {
@@ -6329,6 +6340,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         _inspectorEditorSaveAction = null;
         _inspectorEditorStatus = null;
+        _inspectorPrimaryEditor = null;
 
         if (_isInspectorEditing && TryPopulateStagedEditor())
         {
@@ -6474,7 +6486,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             AddButton(_isInspectorEditing ? "Cancel edit" : editLabel, () =>
             {
                 _isInspectorEditing = !_isInspectorEditing;
+                if (_isInspectorEditing)
+                    _focusPrimaryEditorAfterRebuild = true;
                 RefreshDetailPanel();
+                FocusPrimaryInspectorEditorIfRequested(_buildSeq);
             }, "Edit this staged-plan element in the inspector.");
 
             if (_isInspectorEditing && _inspectorEditorSaveAction is not null)
@@ -6837,6 +6852,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Clear();
         var panel = CreateEditorPanel("Edit plan", out var status);
         var title = AddEditorField(panel, "Plan title", _plan.Group.GroupTitle, 34);
+        _inspectorPrimaryEditor = title;
         var branch = AddEditorField(panel, "Branch", _plan.Group.Branch, 34);
         var summary = AddEditorField(panel, "Summary", _plan.Group.Summary, 140);
         var delivery = AddEditorField(panel, "Delivery", _plan.Group.Delivery, 70);
@@ -6860,6 +6876,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Clear();
         var panel = CreateEditorPanel("Edit step", out var status);
         var title = AddEditorField(panel, "Title", task.Title, 34);
+        _inspectorPrimaryEditor = title;
         var description = AddEditorField(panel, "Description", task.Description, 170);
         var priority = AddEditorField(panel, "Priority", task.Priority, 34);
         var dependencies = AddEditorField(
@@ -6910,6 +6927,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Clear();
         var panel = CreateEditorPanel("Edit validation", out var status);
         var title = AddEditorField(panel, "Title", validation.Title, 34);
+        _inspectorPrimaryEditor = title;
         var description = AddEditorField(panel, "Description", validation.Description, 100);
         var mode = AddEditorField(panel, "Mode", validation.Mode, 34);
         var after = AddEditorField(panel, "After step IDs", string.Join(Environment.NewLine, validation.AfterTaskIds), 64);
@@ -6958,6 +6976,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Clear();
         var panel = CreateEditorPanel("Edit human approval", out var status);
         var message = AddEditorField(panel, "Message", gate.Message, 75);
+        _inspectorPrimaryEditor = message;
         var question = AddEditorField(panel, "Approval question", gate.Question, 75);
         var after = AddEditorField(panel, "After step IDs", string.Join(Environment.NewLine, gate.AfterTaskIds ?? []), 64);
         var before = AddEditorField(panel, "Before step IDs", string.Join(Environment.NewLine, gate.BeforeTaskIds ?? []), 64);
@@ -7023,6 +7042,26 @@ internal sealed class PlanViewerWindow : ChromedWindow
         panel.Children.Add(label);
         panel.Children.Add(editor);
         return editor;
+    }
+
+    private void FocusPrimaryInspectorEditorIfRequested(int expectedBuildSequence)
+    {
+        if (!_focusPrimaryEditorAfterRebuild || _inspectorPrimaryEditor is null)
+            return;
+
+        var editor = _inspectorPrimaryEditor;
+        _focusPrimaryEditorAfterRebuild = false;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_buildSeq != expectedBuildSequence ||
+                !ReferenceEquals(_inspectorPrimaryEditor, editor) ||
+                !editor.IsVisible)
+                return;
+
+            editor.Focus();
+            Keyboard.Focus(editor);
+            editor.SelectAll();
+        }, System.Windows.Threading.DispatcherPriority.Input);
     }
 
     private void AddEditorActions(StackPanel panel, TextBlock status, Func<string?> save)
