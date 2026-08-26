@@ -62,8 +62,7 @@ public class CopyButtonTests
     [Test]
     public void ClickThenDismissFeedback_ChangesToCopiedIconAndRestoresCopyIcon()
     {
-        var app = Application.Current ?? new Application();
-        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var app = EnsureApplicationStaysAliveForWindowTests();
         var resources = app.Resources;
         var oldFontSize = resources.Contains("FontSizeNormal") ? resources["FontSizeNormal"] : null;
         var oldCopyIcon = resources.Contains("CopyButton") ? resources["CopyButton"] : null;
@@ -106,6 +105,21 @@ public class CopyButtonTests
             resources.Remove(key);
         else
             resources[key] = value;
+    }
+
+    private static Application EnsureApplicationStaysAliveForWindowTests()
+    {
+        var app = Application.Current ?? new Application();
+        if (app.Dispatcher.CheckAccess())
+        {
+            app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        }
+        else
+        {
+            app.Dispatcher.Invoke(() => app.ShutdownMode = ShutdownMode.OnExplicitShutdown);
+        }
+
+        return app;
     }
 
     private sealed class TestCopyButton : CopyButton

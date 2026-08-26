@@ -116,7 +116,8 @@ internal sealed class DefaultPromptInstructionProviderTests
                 Assert.That(context, Does.Contain(pending.Revision));
                 Assert.That(context, Does.Contain(".squad/tmp/decompose/CONTEXT-20260814.json"));
                 Assert.That(context, Does.Contain(".squad/instructions/decompose-planning.md"));
-                Assert.That(context, Does.Contain("The envelope is not an\noutput"));
+                Assert.That(context, Does.Contain("The envelope is not an"));
+                Assert.That(context, Does.Contain("output protocol"));
                 Assert.That(context, Does.Contain("must not appear in the final response"));
                 Assert.That(context, Does.Contain("collected and applied directly by SquadDash"));
                 Assert.That(context, Does.Contain("do not extract or re-emit Rory's JSON"));

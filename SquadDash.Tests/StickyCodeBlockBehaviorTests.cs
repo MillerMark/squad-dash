@@ -315,6 +315,13 @@ public class StickyCodeBlockBehaviorTests
     private static void EnsureApplicationStaysAliveForWindowTests()
     {
         var app = Application.Current ?? new Application();
-        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        if (app.Dispatcher.CheckAccess())
+        {
+            app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        }
+        else
+        {
+            app.Dispatcher.Invoke(() => app.ShutdownMode = ShutdownMode.OnExplicitShutdown);
+        }
     }
 }
