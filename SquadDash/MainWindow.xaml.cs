@@ -23048,16 +23048,35 @@ public partial class MainWindow : Window
         {
             foreach (var inner in section.Blocks.OfType<BlockUIContainer>())
             {
-                // Code block: BlockUIContainer > StackPanel > [DockPanel header, TextBox]
+                // Code block: BlockUIContainer > Grid > TextBox (Tag="codeblock")
+                // Also handles legacy StackPanel wrappers from earlier code paths.
                 var codeBox = inner.Child switch
                 {
                     TextBox tb when tb.Tag is "codeblock" => tb,
+                    Grid g =>
+                        g.Children.OfType<TextBox>().FirstOrDefault(tb => tb.Tag is "codeblock"),
                     System.Windows.Controls.StackPanel sp =>
                         sp.Children.OfType<TextBox>().FirstOrDefault(tb => tb.Tag is "codeblock"),
                     _ => null
                 };
                 if (codeBox is not null)
+                {
                     codeBox.FontSize = codeBlockFontSize;
+                    // Update top padding so copy button (sized to 1.5× font) still fits.
+                    var btnSize = _transcriptFontSize * 1.5;
+                    var topPad = Math.Max(30, btnSize + 8);
+                    codeBox.Padding = new Thickness(codeBox.Padding.Left, topPad, codeBox.Padding.Right, codeBox.Padding.Bottom);
+                    // Resize the sticky copy host (Grid that wraps backdrop + CopyButton).
+                    if (inner.Child is Grid outerGrid)
+                    {
+                        var stickyHost = outerGrid.Children.OfType<Grid>().FirstOrDefault();
+                        if (stickyHost is not null)
+                        {
+                            stickyHost.Width = btnSize;
+                            stickyHost.Height = btnSize;
+                        }
+                    }
+                }
 
                 if (TranscriptQuickReplyFactory.IsQuickReplyContainer(inner))
                     foreach (var button in TranscriptQuickReplyFactory.EnumerateButtons(inner.Child))
