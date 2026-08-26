@@ -117,6 +117,90 @@ internal sealed class PlanInterruptionPersistenceTests
     }
 
     [Test]
+    public void Apply_TerminalExecutingPlanCompletesInsteadOfCreatingTasklessInterruption()
+    {
+        var task = new PlanTask(
+            "PLAN-1-004", "Step 4", "Final step", [], "high", PlanTaskStatus.Complete);
+        var plan = PlanFactory.CreateExecuting("PLAN-1", null) with
+        {
+            Tasks = [task],
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "PLAN-1-004-HUMAN-PROOF", "Review Step 4", [task.TaskId], [],
+                    PlanGateStatus.Approved),
+            ],
+            Progress = new PlanProgress(1, 1, null),
+        };
+        Plan? persisted = null;
+
+        var result = PlanInterruptionPersistence.Apply(
+            plan,
+            plan.PlanId,
+            null,
+            "Plan execution stopped before the current task was accepted.",
+            0,
+            null,
+            preferDurableTaskId: true,
+            persist: updated =>
+            {
+                persisted = updated;
+                return (true, null);
+            });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanInterruptionPersistenceOutcome.Completed));
+            Assert.That(persisted?.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Completed));
+            Assert.That(persisted?.InterruptionData, Is.Null);
+            Assert.That(result.Plan, Is.SameAs(persisted));
+        });
+    }
+
+    [Test]
+    public void Apply_CompletedTasksWithPendingFinalShieldRemainIncomplete()
+    {
+        var task = new PlanTask(
+            "PLAN-1-004", "Step 4", "Final step", [], "high", PlanTaskStatus.Complete);
+        var plan = PlanFactory.CreateExecuting("PLAN-1", null) with
+        {
+            Tasks = [task],
+            Progress = new PlanProgress(1, 1, null),
+            Validations =
+            [
+                new PlanValidationNode(
+                    "PLAN-1-FINAL-SHIELD", "Final shield", "Validate the completed plan",
+                    [task.TaskId], [], ["All final assertions pass."], [], "evidence", [],
+                    true, PlanValidationStatus.Ready),
+            ],
+        };
+        Plan? persisted = null;
+
+        var result = PlanInterruptionPersistence.Apply(
+            plan,
+            plan.PlanId,
+            null,
+            "native loop stopped before final validation",
+            0,
+            null,
+            preferDurableTaskId: true,
+            persist: updated =>
+            {
+                persisted = updated;
+                return (true, null);
+            });
+
+        Assert.That(persisted, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanInterruptionPersistenceOutcome.Persisted));
+            Assert.That(persisted!.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Interrupted));
+            Assert.That(persisted.Validations!.Single().Status, Is.EqualTo(PlanValidationStatus.Ready));
+            Assert.That(persisted.Timestamps.CompletedAt, Is.Null);
+        });
+    }
+
+    [Test]
     public void Apply_ErrorKeepsCapturedRoundTaskAheadOfAdvancedDurableProgress()
     {
         Plan? persisted = null;

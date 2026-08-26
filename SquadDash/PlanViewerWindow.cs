@@ -925,7 +925,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 interruptedTask?.DisplayStepLabel,
                 interruptedTask?.Title ?? interruptedTaskId ?? "Interrupted Step");
 
-            if (onAdoptVerifiedCommitRange is not null)
+            if (onAdoptVerifiedCommitRange is not null && interruptedTask is not null)
             {
                 var acceptButton = TranscriptQuickReplyFactory.CreateButton(
                     _interruptedPrimaryActionLabel ?? $"{stepLabel} Is Complete", quickReplyFontSize,
@@ -949,7 +949,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 assessmentPanel.Children.Add(acceptButton);
             }
-            if (onContinueInterruptedTask is not null)
+            if (onContinueInterruptedTask is not null && interruptedTask is not null)
             {
                 var continueButton = TranscriptQuickReplyFactory.CreateButton(
                     $"Continue Working on {stepLabel}", quickReplyFontSize,
@@ -986,6 +986,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Margin      = new Thickness(0, 0, 0, 8),
             };
             var safeResume = PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan);
+            var interruptedActionTask = durablePlan.Tasks.FirstOrDefault(task => string.Equals(
+                task.TaskId,
+                durablePlan.InterruptionData?.InterruptedTaskId,
+                StringComparison.Ordinal));
             if (onAdoptVerifiedCommitRange is not null && !safeResume && _onOpenCommits is not null)
             {
                 var interruptedTask = durablePlan.Tasks.FirstOrDefault(task => string.Equals(
@@ -1056,19 +1060,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 interruptedPanel.Children.Add(adoptButton);
             }
-            if (onContinueInterruptedTask is not null && !safeResume)
+            if (onContinueInterruptedTask is not null && !safeResume && interruptedActionTask is not null)
             {
                 var capturedPlan = durablePlan;
                 var continueButton = TranscriptQuickReplyFactory.CreateButton(
                     $"✎ Continue Working on {PlanRecoveryPresentationBuilder.FormatStepLabel(
-                        capturedPlan.Tasks.FirstOrDefault(task => string.Equals(
-                            task.TaskId,
-                            capturedPlan.InterruptionData?.InterruptedTaskId,
-                            StringComparison.Ordinal))?.DisplayStepLabel,
-                        capturedPlan.Tasks.FirstOrDefault(task => string.Equals(
-                            task.TaskId,
-                            capturedPlan.InterruptionData?.InterruptedTaskId,
-                            StringComparison.Ordinal))?.Title ?? "Step")}…",
+                        interruptedActionTask.DisplayStepLabel,
+                        interruptedActionTask.Title ?? interruptedActionTask.Description)}…",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
                         "Open an editable correction prompt without rerunning the completed step from scratch."));

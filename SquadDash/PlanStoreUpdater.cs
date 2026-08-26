@@ -1593,7 +1593,8 @@ internal static class PlanStoreUpdater
     /// </summary>
     /// <remarks>
     /// Repair cases are checked in priority order; the first match is repaired and returned.
-    /// Interrupted and Blocked plans are never modified — they have their own recovery flows.
+    /// Interrupted plans are modified only when every terminal requirement is already satisfied;
+    /// ordinary interrupted and blocked plans retain their dedicated recovery flows.
     /// </remarks>
     internal static Plan RepairInconsistentState(Plan plan, IReadOnlyList<TaskItem>? currentItems = null)
     {
@@ -1605,6 +1606,13 @@ internal static class PlanStoreUpdater
         plan = RepairInterruptedMissingTaskIdentity(plan);
         plan = RepairLegacyImplicitHumanProofApproval(plan);
         plan = RepairTasklessAcceptedWorkBoundary(plan);
+
+        // A terminal plan cannot legitimately have a recovery action. This also repairs plans
+        // written by the old final-acceptance/empty-runner race even when its generic stop reason
+        // replaced the more specific accepted-work continuation evidence.
+        if (plan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+            PlanExecutionBoundaryPolicy.IsReadyToComplete(plan))
+            return ApplyCompleted(plan with { InterruptionData = null });
 
         // Never repair plans that have their own recovery flows.
         if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked)
@@ -1637,7 +1645,7 @@ internal static class PlanStoreUpdater
             if (plan.Tasks.Any(t => t.Status is PlanTaskStatus.Failed or PlanTaskStatus.Partial))
                 return ApplyBlocked(plan, blockedTaskId: null);
             // Only complete if all mandatory validations have passed; otherwise stay Executing.
-            return PlanValidationReadinessEvaluator.AllRequiredPassed(plan)
+            return PlanExecutionBoundaryPolicy.IsReadyToComplete(plan)
                 ? ApplyCompleted(plan)
                 : plan with { Progress = plan.Progress with { ExecutingTaskId = null } };
         }
@@ -1722,11 +1730,7 @@ internal static class PlanStoreUpdater
                 InterruptionData = null,
             };
 
-        var allTasksComplete = plan.Tasks.Count > 0 && plan.Tasks.All(task =>
-            task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded);
-        var allGatesApproved = plan.ApprovalGates.All(gate => gate.Status == PlanGateStatus.Approved);
-        return allTasksComplete && allGatesApproved &&
-               PlanValidationReadinessEvaluator.AllRequiredPassed(plan)
+        return PlanExecutionBoundaryPolicy.IsReadyToComplete(plan)
             ? ApplyCompleted(plan with { InterruptionData = null })
             : plan;
     }

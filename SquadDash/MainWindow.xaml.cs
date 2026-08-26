@@ -7213,8 +7213,9 @@ public partial class MainWindow : Window
                     : unacceptedStopReason),
                 stoppedIteration,
                 preferDurableTaskId: true);
-            interruptedTaskId = interruptionResult.Plan?.InterruptionData?.InterruptedTaskId
-                ?? interruptedTaskId;
+            interruptedTaskId = interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Completed
+                ? null
+                : interruptionResult.Plan?.InterruptionData?.InterruptedTaskId ?? interruptedTaskId;
         }
 
         if (!resumeDecision.PreserveExecution)
@@ -7230,8 +7231,9 @@ public partial class MainWindow : Window
         AppendLoopOutputLine($"✅ Loop stopped — {LoopTimestamp()}", LoopLifecycleBrush);
         if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(stoppedPlanId is not null))
             AppendLine("✅ Loop stopped");
+        var completedAtStop = interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Completed;
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
-            Kind: "plan_stopped",
+            Kind: completedAtStop ? "plan_completed" : "plan_stopped",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
             PlanId: stoppedPlanId,
             Revision: stoppedExecution?.Revision,
@@ -7239,10 +7241,19 @@ public partial class MainWindow : Window
             TaskId: interruptedTaskId,
             TaskTitle: stoppedExecution?.TaskTitle,
             Message: null,
-            Outcome: "stopped"));
+            Outcome: completedAtStop ? "completed" : "stopped"));
         _loopRoundExecutionIdentity = null;
 
-        if (interruptionResult.Plan is { } newlyInterruptedPlan)
+        if (completedAtStop && interruptionResult.Plan is { } completedPlan)
+        {
+            PublishPlanCompletionSummary(completedPlan);
+            ScheduleDecomposeSystemEntry(
+                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(
+                    completedPlan, "Final accepted state reconciled at loop shutdown"));
+            ReconcileDecomposeRecoveryInboxMessages(completedPlan.PlanId);
+        }
+        else if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Persisted &&
+                 interruptionResult.Plan is { } newlyInterruptedPlan)
         {
             ScheduleDecomposeSystemEntry(
                 pausedAfterStep
@@ -7359,6 +7370,36 @@ public partial class MainWindow : Window
             ClearExecutingPlanState();
         _loopResumeSuppressed = false;
         _pausePlanAfterCurrentStepRequested = false;
+        if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Completed &&
+            interruptionResult.Plan is { } completedPlan)
+        {
+            AppendLoopOutputLine(
+                $"✅ Plan completion reconciled while the native loop was shutting down — {LoopTimestamp()}",
+                LoopLifecycleBrush);
+            _planExecutionLog?.Append(new PlanExecutionLogEntry(
+                Kind: "plan_completed",
+                Timestamp: DateTimeOffset.UtcNow.ToString("O"),
+                PlanId: completedPlan.PlanId,
+                Revision: completedPlan.Revision,
+                Round: failedIteration > 0 ? failedIteration : null,
+                TaskId: null,
+                TaskTitle: null,
+                Message: null,
+                Outcome: "completed"));
+            PublishPlanCompletionSummary(completedPlan);
+            ScheduleDecomposeSystemEntry(
+                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(
+                    completedPlan, "Final accepted state reconciled at loop shutdown"));
+            ReconcileDecomposeRecoveryInboxMessages(completedPlan.PlanId);
+            _planAbortRequestedByUser = false;
+            _planBranchLeasePausePending = false;
+            _planProviderWaitInterruptionReason = null;
+            _loopRoundExecutionIdentity = null;
+            SyncLoopPanel();
+            SoundNotifications.Play(SoundEvent.LoopStopped);
+            TryFireDeferredCodeHealth();
+            return;
+        }
         AppendLoopOutputLine(
             providerWaitReason is not null
                 ? "⏸ Plan paused after provider recovery was exhausted; recovery state was preserved."
@@ -16166,9 +16207,7 @@ public partial class MainWindow : Window
                 resolvedWindow.Close();
             }
             var completedAtApproval = false;
-            if (resolution.UpdatedPlan.Progress.CompletedCount == resolution.UpdatedPlan.Progress.TotalCount &&
-                PlanValidationReadinessEvaluator.AllRequiredPassed(resolution.UpdatedPlan) &&
-                ApprovalGateReadinessEvaluator.AllRequiredApproved(resolution.UpdatedPlan))
+            if (PlanExecutionBoundaryPolicy.IsReadyToComplete(resolution.UpdatedPlan))
             {
                 var completedPlan = PlanStoreUpdater.ApplyCompleted(resolution.UpdatedPlan);
                 if (TryPublishPlanProgress(completedPlan, out var completionError))
@@ -20304,27 +20343,34 @@ public partial class MainWindow : Window
                         : $"Confirmed {stepLabel} complete while reviewing its commit evidence and human-observation checkpoint.",
                     resolvedBy);
             }
-            var nextTaskId = updated.Tasks.FirstOrDefault(task =>
-                task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
-            var interruptionData = (updated.InterruptionData ?? new PlanInterruptionData(
-                "Preserved work was accepted by the human reviewer.",
-                PlanRecoveryState.PendingRecovery,
-                0)) with
+            if (PlanExecutionBoundaryPolicy.IsReadyToComplete(updated))
             {
-                Reason = PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason(
-                    $"Preserved work for {taskId} was adopted as {rangeLabel}."),
-                InterruptedTaskId = nextTaskId,
-                LastCompletedTaskId = taskId,
-                LastCommit = terminalCommit,
-                AffectedPaths = changedPaths,
-                PartialWorkEvidence = $"Human-accepted commit range {rangeLabel}"
-            };
-            updated = updated with
+                updated = PlanStoreUpdater.ApplyCompleted(updated with { InterruptionData = null });
+            }
+            else
             {
-                LifecycleStatus = PlanLifecycleStatus.Interrupted,
-                InterruptionData = interruptionData,
-                Progress = updated.Progress with { ExecutingTaskId = null }
-            };
+                var nextTaskId = updated.Tasks.FirstOrDefault(task =>
+                    task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
+                var interruptionData = (updated.InterruptionData ?? new PlanInterruptionData(
+                    "Preserved work was accepted by the human reviewer.",
+                    PlanRecoveryState.PendingRecovery,
+                    0)) with
+                {
+                    Reason = PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason(
+                        $"Preserved work for {taskId} was adopted as {rangeLabel}."),
+                    InterruptedTaskId = nextTaskId,
+                    LastCompletedTaskId = taskId,
+                    LastCommit = terminalCommit,
+                    AffectedPaths = changedPaths,
+                    PartialWorkEvidence = $"Human-accepted commit range {rangeLabel}"
+                };
+                updated = updated with
+                {
+                    LifecycleStatus = PlanLifecycleStatus.Interrupted,
+                    InterruptionData = interruptionData,
+                    Progress = updated.Progress with { ExecutingTaskId = null }
+                };
+            }
             if (!TryPublishPlanProgress(updated, out var saveError))
                 throw new IOException(saveError ?? "The durable plan could not be saved.");
             RefreshPlanProjectionBestEffort(updated, "verified-commit-range-adopted");
@@ -20335,6 +20381,20 @@ public partial class MainWindow : Window
         catch { throw; }
 
         LoadTasksPanel();
+        if (acceptedPlan!.LifecycleStatus == PlanLifecycleStatus.Completed)
+        {
+            ResolveRecoveryTranscript(combinedHumanReviewGate is not null
+                ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human checkpoint is approved and the plan is complete."
+                : combinedAmendmentGate is not null
+                    ? $"✓ Recovery completed. Accepted reviewed amendment {rangeLabel}, approved its checkpoint, and completed the plan."
+                    : $"✓ Recovery completed. Human accepted {rangeLabel} for {stepLabel}; the plan is complete.");
+            PublishPlanCompletionSummary(acceptedPlan);
+            ScheduleDecomposeSystemEntry(
+                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(
+                    acceptedPlan, "Final reviewed work accepted"));
+            ReconcileDecomposeRecoveryInboxMessages(acceptedPlan.PlanId);
+            return true;
+        }
         var nextValidation = PlanExecutionBoundaryPolicy.SelectValidation(acceptedPlan!);
         var hasReadyApprovalBoundary = nextValidation is null &&
                                        HasReadyPendingApprovalGate(acceptedPlan!);

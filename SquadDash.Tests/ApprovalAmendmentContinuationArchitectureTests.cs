@@ -81,6 +81,40 @@ internal sealed class ApprovalAmendmentContinuationArchitectureTests
     }
 
     [Test]
+    public void RecoveryAcceptance_CompletesTerminalPlanBeforeAnyResumeAttempt()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var start = source.IndexOf(
+            "private async Task<bool> AcceptInterruptedStepAfterReviewAsync(",
+            StringComparison.Ordinal);
+        var end = source.IndexOf(
+            "private async Task<bool> AcceptAwaitingReviewStepAsync(",
+            start,
+            StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0));
+        Assert.That(end, Is.GreaterThan(start));
+        var handler = source[start..end];
+        var terminalCheck = handler.IndexOf(
+            "PlanExecutionBoundaryPolicy.IsReadyToComplete(updated)",
+            StringComparison.Ordinal);
+        var completion = handler.IndexOf(
+            "PlanStoreUpdater.ApplyCompleted(updated with { InterruptionData = null })",
+            StringComparison.Ordinal);
+        var resume = handler.LastIndexOf(
+            "await StartOrResumeDurablePlanAsync(acceptedPlan)",
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(terminalCheck, Is.GreaterThanOrEqualTo(0));
+            Assert.That(completion, Is.GreaterThan(terminalCheck));
+            Assert.That(resume, Is.GreaterThan(completion));
+            Assert.That(handler, Does.Contain(
+                "if (acceptedPlan!.LifecycleStatus == PlanLifecycleStatus.Completed)"));
+        });
+    }
+
+    [Test]
     public void PlanViewer_DoesNotOfferPauseWhileAlreadyWaitingForApproval()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
@@ -95,6 +129,22 @@ internal sealed class ApprovalAmendmentContinuationArchitectureTests
             Assert.That(editHistory, Is.GreaterThan(pauseCondition));
             Assert.That(source[pauseCondition..editHistory],
                 Does.Not.Contain("PlanLifecycleStatus.AwaitingApproval"));
+        });
+    }
+
+    [Test]
+    public void PlanViewer_DoesNotOfferTaskSpecificRecoveryWithoutTaskIdentity()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain(
+                "onContinueInterruptedTask is not null && !safeResume && interruptedActionTask is not null"));
+            Assert.That(source, Does.Contain(
+                "onContinueInterruptedTask is not null && interruptedTask is not null"));
+            Assert.That(source, Does.Not.Contain("?.Title ?? \"Step\""),
+                "A missing durable task identity must not produce a truncated 'Continue Working on Step' action.");
         });
     }
 

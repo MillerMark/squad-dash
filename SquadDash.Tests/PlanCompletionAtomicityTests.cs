@@ -265,6 +265,65 @@ internal sealed class PlanCompletionAtomicityTests
     }
 
     [Test]
+    public void RepairInconsistentState_TasklessInterruptedTerminalPlanBecomesCompleted()
+    {
+        var tasks = new[]
+        {
+            MakePlanTask("PLANS-20260727-001", PlanTaskStatus.Complete),
+            MakePlanTask("PLANS-20260727-002", PlanTaskStatus.Complete),
+            MakePlanTask("PLANS-20260727-003", PlanTaskStatus.Complete),
+            MakePlanTask("PLANS-20260727-004", PlanTaskStatus.Complete),
+        };
+        var plan = MakePlan(PlanLifecycleStatus.Interrupted, tasks) with
+        {
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "PLANS-20260727-004-HUMAN-PROOF", "Review Step 4", [tasks[3].TaskId], [],
+                    PlanGateStatus.Approved),
+            ],
+            InterruptionData = new PlanInterruptionData(
+                "Plan execution stopped before the current task was accepted.",
+                PlanRecoveryState.PendingRecovery,
+                0),
+        };
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Completed));
+            Assert.That(repaired.Progress.CompletedCount, Is.EqualTo(4));
+            Assert.That(repaired.Progress.ExecutingTaskId, Is.Null);
+            Assert.That(repaired.InterruptionData, Is.Null);
+            Assert.That(repaired.Timestamps.CompletedAt, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public void RepairInconsistentState_TerminalTasksWithPendingGateRemainExecuting()
+    {
+        var tasks = new[]
+        {
+            MakePlanTask("PLANS-20260727-001", PlanTaskStatus.Complete),
+        };
+        var plan = MakePlan(PlanLifecycleStatus.Executing, tasks) with
+        {
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    "PLANS-20260727-001-HUMAN-PROOF", "Review Step 1", [tasks[0].TaskId], [],
+                    PlanGateStatus.Pending),
+            ],
+        };
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+
+        Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing),
+            "Terminal task status alone must not bypass a required human gate.");
+    }
+
+    [Test]
     public void RepairInconsistentState_CompletedPlan_AllTasksComplete_NothingToRepair()
     {
         // A fully consistent Completed plan must be returned unchanged.

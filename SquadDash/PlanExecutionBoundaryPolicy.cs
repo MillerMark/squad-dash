@@ -63,6 +63,19 @@ internal static class PlanExecutionBoundaryPolicy
             validation.Status == PlanValidationStatus.Failed);
 
     /// <summary>
+    /// The single terminal-boundary invariant for a successfully completed plan. Callers that
+    /// own lifecycle transitions must consult this before starting work or recording a generic
+    /// interruption; otherwise a late loop callback can turn a fully accepted plan back into a
+    /// recoverable one with no task identity.
+    /// </summary>
+    internal static bool IsReadyToComplete(Plan plan) =>
+        plan.Tasks.Count > 0 &&
+        plan.Tasks.All(task =>
+            task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded) &&
+        PlanValidationReadinessEvaluator.AllRequiredPassed(plan) &&
+        ApprovalGateReadinessEvaluator.AllRequiredApproved(plan);
+
+    /// <summary>
     /// Identifies plans written by the pre-fix validation boundary path: the validation passed,
     /// a pending human gate became the only remaining frontier, and shutdown recorded a generic
     /// interruption before the approval runtime could activate that gate.
