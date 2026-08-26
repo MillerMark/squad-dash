@@ -152,7 +152,10 @@ public class CopyButton : Button
         ToolTip = IsCopied ? "Copied." : CopyTooltip;
 
         var resourceKey = IsCopied ? "CopiedFeedback" : "CopyButton";
-        var icon = TryFindResource(resourceKey) ?? Application.Current.TryFindResource(resourceKey);
+        var icon = TryFindResource(resourceKey);
+        var application = Application.Current;
+        if (icon is null && application?.Dispatcher.CheckAccess() == true)
+            icon = application.TryFindResource(resourceKey);
         if (icon is FrameworkElement iconElement)
         {
             var fontSizeBinding = new Binding(nameof(FontSize)) { Source = this };

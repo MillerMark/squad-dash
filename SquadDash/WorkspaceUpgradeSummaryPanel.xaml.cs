@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Threading;
 
 namespace SquadDash;
@@ -44,7 +45,7 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
 
     public ObservableCollection<string> PartiallyAppliedFiles { get; } = new();
 
-    public Func<Task>? ReviewChangesRequested { get; set; }
+    public Func<string, WorkspaceUpgradeFileCategory, Task>? FilePreviewRequested { get; set; }
 
     public Func<Task>? ApplyWorkspaceUpdateRequested { get; set; }
 
@@ -128,7 +129,7 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
         CurrentState switch
         {
             WorkspaceUpgradeSummaryPanelState.Idle =>
-                "Idle — review the dry-run summary and choose how to proceed.",
+                "Review the dry-run summary and choose how to proceed.",
             WorkspaceUpgradeSummaryPanelState.Running =>
                 "Running — workspace upgrade operation is in progress.",
             WorkspaceUpgradeSummaryPanelState.Succeeded =>
@@ -138,7 +139,7 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
             WorkspaceUpgradeSummaryPanelState.PartiallyApplied =>
                 "Partially applied — some files were updated before completion stopped.",
             _ =>
-                "Idle — review the dry-run summary and choose how to proceed.",
+                "Review the dry-run summary and choose how to proceed.",
         };
 
     public void SetPartiallyAppliedFiles(IEnumerable<string> files)
@@ -207,17 +208,44 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
     {
         Dispatcher.BeginInvoke(
             DispatcherPriority.Input,
-            new Action(() => ReviewChangesButton.Focus()));
+            new Action(() => ApplyWorkspaceUpdateButton.Focus()));
     }
 
-    private async void ReviewChangesButton_Click(object sender, RoutedEventArgs e) =>
-        await ExecuteCallbackAsync(ReviewChangesRequested, "Review Changes").ConfigureAwait(true);
+    private async void SafeFileLink_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteFilePreviewAsync(sender, WorkspaceUpgradeFileCategory.SafeAdditionOrRefresh).ConfigureAwait(true);
+
+    private async void TrackedFileLink_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteFilePreviewAsync(sender, WorkspaceUpgradeFileCategory.TrackedLocalChange).ConfigureAwait(true);
+
+    private async void GeneratedFileLink_Click(object sender, RoutedEventArgs e) =>
+        await ExecuteFilePreviewAsync(sender, WorkspaceUpgradeFileCategory.GeneratedFile).ConfigureAwait(true);
 
     private async void ApplyWorkspaceUpdateButton_Click(object sender, RoutedEventArgs e) =>
         await ExecuteCallbackAsync(ApplyWorkspaceUpdateRequested, "Apply Workspace Update").ConfigureAwait(true);
 
     private async void LaterButton_Click(object sender, RoutedEventArgs e) =>
         await ExecuteCallbackAsync(LaterRequested, "Later").ConfigureAwait(true);
+
+    private async Task ExecuteFilePreviewAsync(object sender, WorkspaceUpgradeFileCategory category)
+    {
+        if (sender is not Hyperlink { DataContext: string path } || string.IsNullOrWhiteSpace(path))
+            return;
+
+        if (FilePreviewRequested is null)
+        {
+            Debug.WriteLine($"WorkspaceUpgradeSummaryPanel preview clicked without callback wiring: {path}");
+            return;
+        }
+
+        try
+        {
+            await FilePreviewRequested(path, category).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Workspace", $"Workspace upgrade file preview failed for '{path}': {ex.Message}");
+        }
+    }
 
     private async Task ExecuteCallbackAsync(Func<Task>? callback, string actionName)
     {

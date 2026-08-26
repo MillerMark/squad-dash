@@ -72,7 +72,9 @@ internal sealed class WorkspaceUpgradeService : IWorkspaceUpgradeService
         if (!candidate.IsAvailable)
             return WorkspaceUpgradeDryRunResult.Failed(BuildCliUnavailableMessage(candidate));
 
-        if (!_workspaceUpgradeDryRunSupported || _workspaceUpgradeDryRunArguments.Count == 0)
+        if (!_workspaceUpgradeDryRunSupported ||
+            _workspaceUpgradeDryRunArguments.Count == 0 ||
+            !SquadCliCommands.SupportsWorkspaceUpgradeDryRun(candidate.Version))
             return WorkspaceUpgradeDryRunResult.Failed(_workspaceUpgradeDryRunUnsupportedMessage);
 
         var result = await _commandRunner

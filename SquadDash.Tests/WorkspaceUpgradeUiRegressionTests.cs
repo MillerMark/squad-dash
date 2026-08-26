@@ -8,6 +8,24 @@ namespace SquadDash.Tests;
 internal sealed class WorkspaceUpgradeUiRegressionTests
 {
     [Test]
+    public void DryRunSummary_UsesFileLinksInsteadOfReviewChangesButton()
+    {
+        var xaml = File.ReadAllText(FindRepoFile("SquadDash", "WorkspaceUpgradeSummaryPanel.xaml"));
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "WorkspaceUpgradeSummaryPanel.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(xaml, Does.Not.Contain("Review Changes"));
+            Assert.That(xaml, Does.Contain("Click=\"SafeFileLink_Click\""));
+            Assert.That(xaml, Does.Contain("Click=\"TrackedFileLink_Click\""));
+            Assert.That(xaml, Does.Contain("Click=\"GeneratedFileLink_Click\""));
+            Assert.That(xaml, Does.Contain("Generated files at risk (would be replaced)"));
+            Assert.That(source, Does.Contain("Review the dry-run summary and choose how to proceed."));
+            Assert.That(source, Does.Not.Contain("Idle — review"));
+        });
+    }
+
+    [Test]
     public void ApplyCallbacks_OpenPassiveChangesViewerWithoutDispatchingCoordinatorPrompt()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

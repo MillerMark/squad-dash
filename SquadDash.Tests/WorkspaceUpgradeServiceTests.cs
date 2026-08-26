@@ -66,13 +66,13 @@ internal sealed class WorkspaceUpgradeServiceTests
     }
 
     [Test]
-    public async Task DryRunAsync_WhenDryRunUnsupported_FailsWithoutSpawningCommand()
+    public async Task DryRunAsync_WhenDryRunFeatureDisabled_FailsWithoutSpawningCommand()
     {
         var runner = new RecordingCommandRunner();
         var service = CreateService(
             runner,
-            dryRunSupported: SquadCliCommands.WorkspaceUpgradeDryRunSupported,
-            dryRunArguments: SquadCliCommands.WorkspaceUpgradeDryRunArguments,
+            dryRunSupported: false,
+            dryRunArguments: [],
             dryRunUnsupportedMessage: SquadCliCommands.WorkspaceUpgradeDryRunUnsupportedMessage);
 
         var result = await service.DryRunAsync(CreateAvailableCandidate(), @"C:\workspace");
@@ -86,11 +86,36 @@ internal sealed class WorkspaceUpgradeServiceTests
     }
 
     [Test]
+    public async Task DryRunAsync_WhenCliPredatesSafeDryRun_FailsWithoutSpawningCommand()
+    {
+        var runner = new RecordingCommandRunner();
+        var service = CreateService(
+            runner,
+            dryRunSupported: SquadCliCommands.WorkspaceUpgradeDryRunSupported,
+            dryRunArguments: SquadCliCommands.WorkspaceUpgradeDryRunArguments,
+            dryRunUnsupportedMessage: SquadCliCommands.WorkspaceUpgradeDryRunUnsupportedMessage);
+
+        var result = await service.DryRunAsync(
+            CreateAvailableCandidate() with { Version = "0.10.0" },
+            @"C:\workspace");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Success, Is.False);
+            Assert.That(result.ErrorMessage, Is.EqualTo(SquadCliCommands.WorkspaceUpgradeDryRunUnsupportedMessage));
+            Assert.That(runner.Invocations, Is.Empty);
+        });
+    }
+
+    [Test]
     public async Task DryRunAsync_WhenDryRunSupported_InvokesRunnerWithExpectedArguments()
     {
-        var expectedArguments = (IReadOnlyList<string>)["upgrade", "--preview"];
+        var expectedArguments = SquadCliCommands.WorkspaceUpgradeDryRunArguments;
         var runner = new RecordingCommandRunner();
-        var service = CreateService(runner, dryRunSupported: true, dryRunArguments: expectedArguments);
+        var service = CreateService(
+            runner,
+            dryRunSupported: SquadCliCommands.WorkspaceUpgradeDryRunSupported,
+            dryRunArguments: expectedArguments);
 
         var result = await service.DryRunAsync(CreateAvailableCandidate(), @"C:\workspace");
 
@@ -101,6 +126,18 @@ internal sealed class WorkspaceUpgradeServiceTests
             Assert.That(runner.Invocations[0].DisplayName, Is.EqualTo("Dry Run Workspace Upgrade"));
             Assert.That(runner.Invocations[0].Arguments, Is.EqualTo(expectedArguments));
         });
+    }
+
+    [TestCase("0.10.0", false)]
+    [TestCase("0.11.0", true)]
+    [TestCase("0.12.0", true)]
+    [TestCase("v0.12.0", true)]
+    [TestCase("0.13.0-insider.1", true)]
+    [TestCase(null, false)]
+    [TestCase("unknown", false)]
+    public void SupportsWorkspaceUpgradeDryRun_UsesSafeCliVersionBoundary(string? version, bool expected)
+    {
+        Assert.That(SquadCliCommands.SupportsWorkspaceUpgradeDryRun(version), Is.EqualTo(expected));
     }
 
     [Test]
@@ -249,7 +286,7 @@ internal sealed class WorkspaceUpgradeServiceTests
             RuntimeType: CliRuntimeType.NodeScript,
             ExecutablePath: "node",
             EntryScriptPath: @"C:\workspace\node_modules\@bradygaster\squad-cli\dist\cli-entry.js",
-            Version: "0.10.0",
+            Version: "0.13.0",
             IsAvailable: true,
             AgentCmdSupport: CliCapabilityStatus.Supported,
             ProbeError: null,

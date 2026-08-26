@@ -14,112 +14,72 @@ public class CopyButtonTests
     [Test]
     public void ExplicitStyleReplacement_StillConstrainsIconToLiveFontSize()
     {
-        var app = Application.Current ?? new Application();
-        var resources = app.Resources;
-        var oldFontSize = resources.Contains("FontSizeNormal") ? resources["FontSizeNormal"] : null;
-        var oldCopyIcon = resources.Contains("CopyButton") ? resources["CopyButton"] : null;
-        var oldCopiedIcon = resources.Contains("CopiedFeedback") ? resources["CopiedFeedback"] : null;
-
-        try
+        var button = new CopyButton
         {
-            resources["FontSizeNormal"] = 14.0;
-            resources["CopyButton"] = new Viewbox { Child = new Border { Width = 100, Height = 120 } };
-            resources["CopiedFeedback"] = new Viewbox { Child = new Border { Width = 80, Height = 80 } };
+            Resources = CreateResources(
+                new Viewbox { Child = new Border { Width = 100, Height = 120 } },
+                new Viewbox { Child = new Border { Width = 80, Height = 80 } }),
+            // Reproduces chromed windows that intentionally replace the implicit
+            // CopyButton style with ThemedButtonStyle or QuickReplyButtonStyle.
+            Style = new Style(typeof(Button)),
+            FontSize = 18,
+            CopyTooltip = "Copy test content",
+        };
+        var icon = (FrameworkElement)button.Content;
 
-            var button = new CopyButton
-            {
-                // Reproduces chromed windows that intentionally replace the implicit
-                // CopyButton style with ThemedButtonStyle or QuickReplyButtonStyle.
-                Style = new Style(typeof(Button)),
-                FontSize = 18,
-            };
-            var icon = (FrameworkElement)button.Content;
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(BindingOperations.GetBinding(icon, FrameworkElement.WidthProperty), Is.Not.Null);
-                Assert.That(BindingOperations.GetBinding(icon, FrameworkElement.HeightProperty), Is.Not.Null);
-                Assert.That(icon.Width, Is.EqualTo(18));
-                Assert.That(icon.Height, Is.EqualTo(18));
-            });
-
-            button.FontSize = 24;
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(icon.Width, Is.EqualTo(24));
-                Assert.That(icon.Height, Is.EqualTo(24));
-            });
-        }
-        finally
+        Assert.Multiple(() =>
         {
-            RestoreResource(resources, "FontSizeNormal", oldFontSize);
-            RestoreResource(resources, "CopyButton", oldCopyIcon);
-            RestoreResource(resources, "CopiedFeedback", oldCopiedIcon);
-        }
+            Assert.That(BindingOperations.GetBinding(icon, FrameworkElement.WidthProperty), Is.Not.Null);
+            Assert.That(BindingOperations.GetBinding(icon, FrameworkElement.HeightProperty), Is.Not.Null);
+            Assert.That(icon.Width, Is.EqualTo(18));
+            Assert.That(icon.Height, Is.EqualTo(18));
+        });
+
+        button.FontSize = 24;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(icon.Width, Is.EqualTo(24));
+            Assert.That(icon.Height, Is.EqualTo(24));
+        });
     }
 
     [Test]
     public void ClickThenDismissFeedback_ChangesToCopiedIconAndRestoresCopyIcon()
     {
-        var app = EnsureApplicationStaysAliveForWindowTests();
-        var resources = app.Resources;
-        var oldFontSize = resources.Contains("FontSizeNormal") ? resources["FontSizeNormal"] : null;
-        var oldCopyIcon = resources.Contains("CopyButton") ? resources["CopyButton"] : null;
-        var oldCopiedIcon = resources.Contains("CopiedFeedback") ? resources["CopiedFeedback"] : null;
-
-        try
+        var button = new TestCopyButton
         {
-            resources["FontSizeNormal"] = 14.0;
-            resources["CopyButton"] = new Viewbox { Tag = "copy" };
-            resources["CopiedFeedback"] = new Viewbox { Tag = "copied" };
-            var button = new TestCopyButton();
+            Resources = CreateResources(
+                new Viewbox { Tag = "copy" },
+                new Viewbox { Tag = "copied" }),
+            CopyTooltip = "Copy test content",
+        };
 
-            button.InvokeClick();
+        button.InvokeClick();
 
-            Assert.Multiple(() =>
-            {
-                Assert.That(button.IsCopied, Is.True);
-                Assert.That(((FrameworkElement)button.Content).Tag, Is.EqualTo("copied"));
-            });
-
-            button.DismissFeedback();
-
-            Assert.Multiple(() =>
-            {
-                Assert.That(button.IsCopied, Is.False);
-                Assert.That(((FrameworkElement)button.Content).Tag, Is.EqualTo("copy"));
-            });
-        }
-        finally
+        Assert.Multiple(() =>
         {
-            RestoreResource(resources, "FontSizeNormal", oldFontSize);
-            RestoreResource(resources, "CopyButton", oldCopyIcon);
-            RestoreResource(resources, "CopiedFeedback", oldCopiedIcon);
-        }
+            Assert.That(button.IsCopied, Is.True);
+            Assert.That(((FrameworkElement)button.Content).Tag, Is.EqualTo("copied"));
+        });
+
+        button.DismissFeedback();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(button.IsCopied, Is.False);
+            Assert.That(((FrameworkElement)button.Content).Tag, Is.EqualTo("copy"));
+        });
     }
 
-    private static void RestoreResource(ResourceDictionary resources, string key, object? value)
+    private static ResourceDictionary CreateResources(object copyIcon, object copiedIcon)
     {
-        if (value is null)
-            resources.Remove(key);
-        else
-            resources[key] = value;
-    }
-
-    private static Application EnsureApplicationStaysAliveForWindowTests()
-    {
-        var app = Application.Current ?? new Application();
-        if (app.Dispatcher.CheckAccess())
+        return new ResourceDictionary
         {
-            app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        }
-        else
-        {
-            app.Dispatcher.Invoke(() => app.ShutdownMode = ShutdownMode.OnExplicitShutdown);
-        }
-
-        return app;
+            ["FontSizeNormal"] = 14.0,
+            ["CopyButton"] = copyIcon,
+            ["CopiedFeedback"] = copiedIcon,
+        };
     }
 
     private sealed class TestCopyButton : CopyButton

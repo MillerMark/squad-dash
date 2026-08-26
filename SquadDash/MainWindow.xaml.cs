@@ -31027,11 +31027,12 @@ public partial class MainWindow : Window
                 window.Owner = this;
             WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
 
-            panel.ReviewChangesRequested = () =>
-            {
-                AppendWorkspaceUpgradeReviewSummary(panel.DryRunResult);
-                return Task.CompletedTask;
-            };
+            panel.FilePreviewRequested = (path, category) =>
+                OpenWorkspaceUpgradeFilePreviewAsync(
+                    _squadCliAdapter.LastResolvedCandidate,
+                    workspacePath,
+                    path,
+                    category);
 
             panel.ApplyWorkspaceUpdateRequested = async () =>
             {
@@ -45982,11 +45983,8 @@ public partial class MainWindow : Window
                 _workspaceUpgradeSummaryWindow = null;
         };
 
-        panel.ReviewChangesRequested = () =>
-        {
-            AppendWorkspaceUpgradeReviewSummary(panel.DryRunResult);
-            return Task.CompletedTask;
-        };
+        panel.FilePreviewRequested = (path, category) =>
+            OpenWorkspaceUpgradeFilePreviewAsync(candidate, _currentWorkspace.FolderPath, path, category);
 
         panel.ApplyWorkspaceUpdateRequested = async () =>
         {
@@ -46077,7 +46075,7 @@ public partial class MainWindow : Window
                     applyResult.TrackedLocalChangesAtRisk,
                     applyResult.GeneratedFilesAtRisk));
                 AppendLine($"⚠ Workspace update partially applied: {panel.ErrorMessage}");
-                AppendWorkspaceUpgradeReviewSummary(panel.DryRunResult);
+                await OpenWorkspaceUpgradeChangesAsync(panel.DryRunResult, simulated: false).ConfigureAwait(true);
                 return;
             }
 
@@ -46143,31 +46141,21 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AppendWorkspaceUpgradeReviewSummary(WorkspaceUpgradeDryRunResult dryRunResult)
+    private async Task OpenWorkspaceUpgradeFilePreviewAsync(
+        ResolvedCliCandidate? candidate,
+        string workspacePath,
+        string reportedPath,
+        WorkspaceUpgradeFileCategory category)
     {
-        AppendLine("📋 Workspace upgrade review (file names only — no pre/post content diff).");
-        AppendWorkspaceUpgradeCategory(
-            "Safe additions/refreshes (non-destructive files)",
-            dryRunResult.SafeAdditionsOrRefreshes);
-        AppendWorkspaceUpgradeCategory(
-            "Tracked-local-changes at risk (would be overwritten)",
-            dryRunResult.TrackedLocalChangesAtRisk);
-        AppendWorkspaceUpgradeCategory(
-            "Generated-files at risk",
-            dryRunResult.GeneratedFilesAtRisk);
-    }
-
-    private void AppendWorkspaceUpgradeCategory(string category, IReadOnlyList<string> files)
-    {
-        AppendLine($"  {category}:");
-        if (files.Count == 0)
-        {
-            AppendLine("    (none)");
-            return;
-        }
-
-        foreach (var file in files)
-            AppendLine($"    - {file}");
+        var preview = await WorkspaceUpgradeFilePreviewService
+            .CreateAsync(candidate, workspacePath, reportedPath, category)
+            .ConfigureAwait(true);
+        var window = new WorkspaceUpgradeFileDiffWindow(preview);
+        if (CanShowOwnedWindow())
+            window.Owner = this;
+        WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
+        window.Show();
+        window.Activate();
     }
 
     private static IReadOnlyList<string> CollectWorkspaceUpgradePaths(params IReadOnlyList<string>[] groups)

@@ -140,7 +140,6 @@ public class StickyCodeBlockBehaviorTests
     [NonParallelizable]
     public void LiveAdornerLayer_MultipleBlocksResizeAndClose_CleansUpEveryAdorner()
     {
-        EnsureApplicationStaysAliveForWindowTests();
         var firstBlock = new Grid { Width = 700, Height = 180 };
         var secondBlock = new Grid { Width = 700, Height = 180 };
         var firstButton = new Button { Width = 26, Height = 22, Margin = Inset };
@@ -206,7 +205,6 @@ public class StickyCodeBlockBehaviorTests
     [NonParallelizable]
     public void LiveFlowDocument_CodeBlockAttachesAdornerOutsideDocumentVisual()
     {
-        EnsureApplicationStaysAliveForWindowTests();
         var block = new Grid { Height = 180 };
         var button = new Button { Width = 26, Height = 22, Margin = Inset };
         StickyCodeBlockBehavior.Attach(block, button);
@@ -258,7 +256,6 @@ public class StickyCodeBlockBehaviorTests
     [NonParallelizable]
     public void LiveFlowDocument_ZeroSizedHydrationThenExpand_ButtonRecovers()
     {
-        EnsureApplicationStaysAliveForWindowTests();
         var block = new Grid { Height = 0 };
         var button = new Button { Width = 26, Height = 22, Margin = Inset };
         StickyCodeBlockBehavior.Attach(block, button);
@@ -312,16 +309,4 @@ public class StickyCodeBlockBehaviorTests
         window.UpdateLayout();
     }
 
-    private static void EnsureApplicationStaysAliveForWindowTests()
-    {
-        var app = Application.Current ?? new Application();
-        if (app.Dispatcher.CheckAccess())
-        {
-            app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        }
-        else
-        {
-            app.Dispatcher.Invoke(() => app.ShutdownMode = ShutdownMode.OnExplicitShutdown);
-        }
-    }
 }

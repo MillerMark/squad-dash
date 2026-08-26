@@ -245,6 +245,7 @@
     <Compile Include="..\SquadDash\SquadOrchestrationService.cs" Link="Source\SquadOrchestrationService.cs" />
     <Compile Include="..\SquadDash\IWorkspaceUpgradeService.cs" Link="Source\IWorkspaceUpgradeService.cs" />
     <Compile Include="..\SquadDash\WorkspaceUpgradeChangesPresentation.cs" Link="Source\WorkspaceUpgradeChangesPresentation.cs" />
+    <Compile Include="..\SquadDash\WorkspaceUpgradeFilePreviewService.cs" Link="Source\WorkspaceUpgradeFilePreviewService.cs" />
     <Compile Include="..\SquadDash\WorkspaceUpgradeService.cs" Link="Source\WorkspaceUpgradeService.cs" />
     <Compile Include="..\SquadDash\WorkspacePendingUpgradeStore.cs" Link="Source\WorkspacePendingUpgradeStore.cs" />
     <Compile Include="..\SquadDash\SquadScribeWorkspaceRepairService.cs" Link="Source\SquadScribeWorkspaceRepairService.cs" />
