@@ -10,7 +10,11 @@ internal static class DirectQuickReplyCompletionPolicy {
     internal static DirectQuickReplyCompletionAction Decide(
         bool needsDirectQuickReplyFollowUp,
         bool isPromptRunning,
-        bool reportPromoted) {
+        bool reportPromoted,
+        bool hostPayloadHandled = false) {
+        if (hostPayloadHandled)
+            return DirectQuickReplyCompletionAction.None;
+
         if (needsDirectQuickReplyFollowUp)
             return isPromptRunning
                 ? DirectQuickReplyCompletionAction.RegisterSilentWatchdog

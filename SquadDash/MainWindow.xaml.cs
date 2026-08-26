@@ -6530,6 +6530,7 @@ public partial class MainWindow : Window
             thread.SuppressCoordinatorPromotion = true;
         if (!string.IsNullOrWhiteSpace(evt.LatestResponse))
             ReconcileFinalSubagentResponseText(thread, evt.LatestResponse!);
+        var directTaskPlanHandled = TryCollectInboxLaunchedTaskPlan(thread, evt.LatestResponse);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Completed", detailText: AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt));
         RecordPlanAgentCompletion(thread, evt, succeeded: true);
         // Pass the raw (unsanitized) response so ParseAndApplyApprovalGroups can detect
@@ -6571,7 +6572,8 @@ public partial class MainWindow : Window
         switch (DirectQuickReplyCompletionPolicy.Decide(
                     needsDirectQuickReplyFollowUp,
                     _isPromptRunning,
-                    promoted))
+                    promoted,
+                    directTaskPlanHandled))
         {
             case DirectQuickReplyCompletionAction.RegisterSilentWatchdog:
                 _pec.NotifySubagentCompletedDuringTurn(thread, thread.Title ?? evt.AgentDisplayName ?? evt.AgentName ?? "Unknown agent");
@@ -6587,6 +6589,26 @@ public partial class MainWindow : Window
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
         DrainQueueAfterBackgroundWorkChanged("subagent-completed");
         TryCompletePendingRestart("subagent-completed");
+    }
+
+    private bool TryCollectInboxLaunchedTaskPlan(
+        TranscriptThreadState thread,
+        string? rawResponse)
+    {
+        if (!thread.LaunchedFromInbox ||
+            rawResponse?.Contains("TASKS_JSON:", StringComparison.Ordinal) != true)
+        {
+            return false;
+        }
+
+        TryStartDecomposeGroupFromResponse(rawResponse, thread.CurrentTurn);
+        if (!_lastResponseContainedTaskPlan)
+            return false;
+
+        SquadDashTrace.Write(
+            "PlanRouting",
+            $"Collected TASKS_JSON directly from inbox-launched agent thread={thread.ThreadId} agent={thread.AgentId ?? thread.Title ?? "(unknown)"}; suppressed generic silent-completion recovery.");
+        return true;
     }
 
     private void HandleSubagentFailed(SquadSdkEvent evt)

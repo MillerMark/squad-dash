@@ -682,6 +682,38 @@ export function normalizeAssistantResponseContent(content: string | undefined): 
         : content;
 }
 
+/**
+ * Reconciles incremental message text with the authoritative message returned by
+ * sendAndWait. Compaction and multi-turn provider flows can leave the streamed
+ * accumulator containing progress messages plus only the opening of the final
+ * response. In that case the final message must win; otherwise host protocols
+ * such as TASKS_JSON are delivered truncated.
+ */
+export function reconcileStreamedAndFinalResponse(
+    streamedContent: string | undefined,
+    finalContent: string | undefined
+): string | undefined {
+    const streamed = streamedContent ?? "";
+    const final = finalContent ?? "";
+
+    if (!streamed)
+        return final || undefined;
+    if (!final)
+        return streamed;
+    if (streamed === final)
+        return final;
+    if (final.startsWith(streamed))
+        return final;
+    if (streamed.startsWith(final))
+        return streamed;
+
+    // The final sendAndWait message is authoritative when the two values are
+    // different response bodies. This is the shape produced after automatic
+    // compaction: streamed progress remains accumulated while final contains
+    // the complete last assistant message.
+    return final;
+}
+
 function longestTagPrefixSuffix(text: string, tag: string): number {
     const max = Math.min(text.length, tag.length - 1);
     for (let length = max; length > 0; length--) {
@@ -2427,7 +2459,7 @@ export class SquadBridgeService {
         request: SquadNamedAgentRequest,
         handlers: SquadRunHandlers
     ) {
-        await this.runSessionRequest(
+        return await this.runSessionRequest(
             buildNamedAgentPrompt(request),
             handlers,
             {
@@ -2523,7 +2555,13 @@ export class SquadBridgeService {
                 extractAssistantMessageContent(finalMessage) ||
                 requestContext.lastAssistantMessageContent ||
                 state.lastAssistantMessageContent;
-            const responseContent = requestContext.streamedMessageContent || finalContent;
+            const finalSplit = splitLocalThinkFinalContent(finalContent ?? "");
+            const finalResponseContent = finalSplit.thinkingText.length > 0
+                ? finalSplit.responseText
+                : finalContent;
+            const responseContent = reconcileStreamedAndFinalResponse(
+                requestContext.streamedMessageContent,
+                finalResponseContent);
             const normalizedContent = normalizeAssistantResponseContent(responseContent);
             if (normalizedContent)
                 handlers.onDelta?.(normalizedContent);

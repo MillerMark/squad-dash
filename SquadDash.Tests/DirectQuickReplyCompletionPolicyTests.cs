@@ -31,4 +31,15 @@ internal sealed class DirectQuickReplyCompletionPolicyTests {
 
         Assert.That(action, Is.EqualTo(DirectQuickReplyCompletionAction.RegisterSilentWatchdog));
     }
+
+    [Test]
+    public void Decide_DoesNotQueueGenericRecovery_WhenHostCollectedPlanPayload() {
+        var action = DirectQuickReplyCompletionPolicy.Decide(
+            needsDirectQuickReplyFollowUp: true,
+            isPromptRunning: true,
+            reportPromoted: true,
+            hostPayloadHandled: true);
+
+        Assert.That(action, Is.EqualTo(DirectQuickReplyCompletionAction.None));
+    }
 }

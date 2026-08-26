@@ -1224,6 +1224,7 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
     } catch { /* no charter, proceed without */ }
 
     const toolCallId = request.requestId ?? randomUUID();
+    let finalResponse: string | undefined;
     emit({
         type: "subagent_started",
         sessionId: request.sessionId,
@@ -1254,7 +1255,7 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
             message: `target=${handle} selectedOptionChars=${request.selectedOption.trim().length} handoffContextChars=${handoffContext?.length ?? 0} charterChars=${charterContent?.trim().length ?? 0} inlinePromptChars=${inlinePromptChars}`
         });
 
-        await bridge.runNamedAgent(
+        finalResponse = await bridge.runNamedAgent(
             {
                 cwd: request.cwd,
                 selectedOption: request.selectedOption,
@@ -1291,7 +1292,8 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
         agentName: handle,
         agentDisplayName: displayName,
         prompt: request.selectedOption,
-        workingDirectory: request.cwd
+        workingDirectory: request.cwd,
+        latestResponse: finalResponse
     });
 
     // Signal the C# bridge that this request is fully complete.

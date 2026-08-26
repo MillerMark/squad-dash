@@ -18,6 +18,7 @@ import {
     maybeRewritePowerShellToolArgs,
     matchesStagedPlanRevisionCandidate,
     normalizeAssistantResponseContent,
+    reconcileStreamedAndFinalResponse,
     resolvePermissionApprovalKind,
     resolvePermissionApprovalKindFromSchema,
     SquadBridgeService,
@@ -905,6 +906,51 @@ test("runPrompt buffers streamed raw report JSON and emits assistant body text",
         });
 
     assert.deepEqual(deltas, ["Hello, world!"]);
+});
+
+test("reconciles stale streamed progress with the authoritative final response", () => {
+    const streamed = "Gathering context. Finalizing now. TASKS_JSON:\n{";
+    const final = 'TASKS_JSON:\n{"groupId":"SQUADCLI-20260826","tasks":[]}';
+
+    assert.equal(reconcileStreamedAndFinalResponse(streamed, final), final);
+});
+
+test("runNamedAgent returns and emits the complete final response after partial streaming", async () => {
+    const listeners = new Map();
+    const deltas = [];
+    const streamed = "Gathering context. Finalizing now. TASKS_JSON:\n{";
+    const final = 'TASKS_JSON:\n{"groupId":"SQUADCLI-20260826","tasks":[]}';
+    const session = {
+        sessionId: "session-named-agent-partial-stream",
+        on(eventName, handler) {
+            listeners.set(eventName, handler);
+        },
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => {
+            listeners.get("message_delta")?.({ deltaContent: streamed });
+            return { content: final };
+        }
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => session
+    };
+
+    const response = await service.runNamedAgent(
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public",
+            selectedOption: "Plan the full 0.12 upgrade",
+            targetAgent: "rory"
+        },
+        {
+            onDelta(chunk) {
+                deltas.push(chunk);
+            }
+        });
+
+    assert.equal(response, final);
+    assert.deepEqual(deltas, [final]);
 });
 
 test("runPrompt routes streamed local think tags as thinking deltas", async () => {
