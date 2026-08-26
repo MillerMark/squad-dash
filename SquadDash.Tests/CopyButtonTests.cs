@@ -18,11 +18,13 @@ public class CopyButtonTests
         var resources = app.Resources;
         var oldFontSize = resources.Contains("FontSizeNormal") ? resources["FontSizeNormal"] : null;
         var oldCopyIcon = resources.Contains("CopyButton") ? resources["CopyButton"] : null;
+        var oldCopiedIcon = resources.Contains("CopiedFeedback") ? resources["CopiedFeedback"] : null;
 
         try
         {
             resources["FontSizeNormal"] = 14.0;
             resources["CopyButton"] = new Viewbox { Child = new Border { Width = 100, Height = 120 } };
+            resources["CopiedFeedback"] = new Viewbox { Child = new Border { Width = 80, Height = 80 } };
 
             var button = new CopyButton
             {
@@ -53,6 +55,48 @@ public class CopyButtonTests
         {
             RestoreResource(resources, "FontSizeNormal", oldFontSize);
             RestoreResource(resources, "CopyButton", oldCopyIcon);
+            RestoreResource(resources, "CopiedFeedback", oldCopiedIcon);
+        }
+    }
+
+    [Test]
+    public void ClickThenDismissFeedback_ChangesToCopiedIconAndRestoresCopyIcon()
+    {
+        var app = Application.Current ?? new Application();
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var resources = app.Resources;
+        var oldFontSize = resources.Contains("FontSizeNormal") ? resources["FontSizeNormal"] : null;
+        var oldCopyIcon = resources.Contains("CopyButton") ? resources["CopyButton"] : null;
+        var oldCopiedIcon = resources.Contains("CopiedFeedback") ? resources["CopiedFeedback"] : null;
+
+        try
+        {
+            resources["FontSizeNormal"] = 14.0;
+            resources["CopyButton"] = new Viewbox { Tag = "copy" };
+            resources["CopiedFeedback"] = new Viewbox { Tag = "copied" };
+            var button = new TestCopyButton();
+
+            button.InvokeClick();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(button.IsCopied, Is.True);
+                Assert.That(((FrameworkElement)button.Content).Tag, Is.EqualTo("copied"));
+            });
+
+            button.DismissFeedback();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(button.IsCopied, Is.False);
+                Assert.That(((FrameworkElement)button.Content).Tag, Is.EqualTo("copy"));
+            });
+        }
+        finally
+        {
+            RestoreResource(resources, "FontSizeNormal", oldFontSize);
+            RestoreResource(resources, "CopyButton", oldCopyIcon);
+            RestoreResource(resources, "CopiedFeedback", oldCopiedIcon);
         }
     }
 
@@ -62,5 +106,10 @@ public class CopyButtonTests
             resources.Remove(key);
         else
             resources[key] = value;
+    }
+
+    private sealed class TestCopyButton : CopyButton
+    {
+        internal void InvokeClick() => OnClick();
     }
 }

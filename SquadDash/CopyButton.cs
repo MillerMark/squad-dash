@@ -95,14 +95,11 @@ public class CopyButton : Button
         };
         _resetTimer.Tick += (_, _) =>
         {
-            _resetTimer.Stop();
-            _copiedPopup.IsOpen = false;
-            IsCopied = false;
+            DismissFeedback();
         };
         Unloaded += (_, _) =>
         {
-            _resetTimer.Stop();
-            _copiedPopup.IsOpen = false;
+            DismissFeedback();
         };
         UpdateVisualState();
     }
@@ -116,6 +113,18 @@ public class CopyButton : Button
         _resetTimer.Stop();
         _resetTimer.Interval = FeedbackDuration;
         _resetTimer.Start();
+    }
+
+    /// <summary>
+    /// Closes transient copied feedback and restores the copy icon. Sticky transcript
+    /// actions call this as soon as their viewport scrolls so a detached Popup never
+    /// appears to float independently from its code block.
+    /// </summary>
+    internal void DismissFeedback()
+    {
+        _resetTimer.Stop();
+        _copiedPopup.IsOpen = false;
+        IsCopied = false;
     }
 
     private static void OnCopyTooltipChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

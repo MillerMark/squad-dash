@@ -140,6 +140,7 @@ public class StickyCodeBlockBehaviorTests
     [NonParallelizable]
     public void LiveAdornerLayer_MultipleBlocksResizeAndClose_CleansUpEveryAdorner()
     {
+        EnsureApplicationStaysAliveForWindowTests();
         var firstBlock = new Grid { Width = 700, Height = 180 };
         var secondBlock = new Grid { Width = 700, Height = 180 };
         var firstButton = new Button { Width = 26, Height = 22, Margin = Inset };
@@ -201,10 +202,119 @@ public class StickyCodeBlockBehaviorTests
         });
     }
 
+    [Test]
+    [NonParallelizable]
+    public void LiveFlowDocument_CodeBlockAttachesAdornerOutsideDocumentVisual()
+    {
+        EnsureApplicationStaysAliveForWindowTests();
+        var block = new Grid { Height = 180 };
+        var button = new Button { Width = 26, Height = 22, Margin = Inset };
+        StickyCodeBlockBehavior.Attach(block, button);
+
+        var document = new FlowDocument();
+        document.Blocks.Add(new BlockUIContainer(block));
+        var transcript = new RichTextBox(document)
+        {
+            IsReadOnly = true,
+            IsDocumentEnabled = true,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
+        var decorator = new AdornerDecorator { Child = transcript };
+        var window = new Window
+        {
+            Content = decorator,
+            Width = 640,
+            Height = 320,
+            Left = -10000,
+            Top = -10000,
+            ShowActivated = false,
+            ShowInTaskbar = false,
+            WindowStyle = WindowStyle.None,
+        };
+
+        try
+        {
+            window.Show();
+            FlushLayout(window);
+            var layer = AdornerLayer.GetAdornerLayer(block);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(layer, Is.Not.Null);
+                Assert.That(layer!.GetAdorners(block), Has.Exactly(1).Items);
+                Assert.That(button.Visibility, Is.EqualTo(Visibility.Visible));
+                Assert.That(button.ActualWidth, Is.EqualTo(26));
+                Assert.That(button.ActualHeight, Is.EqualTo(22));
+            });
+        }
+        finally
+        {
+            window.Close();
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+        }
+    }
+
+    [Test]
+    [NonParallelizable]
+    public void LiveFlowDocument_ZeroSizedHydrationThenExpand_ButtonRecovers()
+    {
+        EnsureApplicationStaysAliveForWindowTests();
+        var block = new Grid { Height = 0 };
+        var button = new Button { Width = 26, Height = 22, Margin = Inset };
+        StickyCodeBlockBehavior.Attach(block, button);
+
+        var document = new FlowDocument();
+        document.Blocks.Add(new BlockUIContainer(block));
+        var transcript = new RichTextBox(document)
+        {
+            IsReadOnly = true,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
+        var window = new Window
+        {
+            Content = new AdornerDecorator { Child = transcript },
+            Width = 640,
+            Height = 320,
+            Left = -10000,
+            Top = -10000,
+            ShowActivated = false,
+            ShowInTaskbar = false,
+            WindowStyle = WindowStyle.None,
+        };
+
+        try
+        {
+            window.Show();
+            FlushLayout(window);
+            Assert.That(button.Visibility, Is.EqualTo(Visibility.Hidden));
+
+            block.Height = 180;
+            FlushLayout(window);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(button.Visibility, Is.EqualTo(Visibility.Visible));
+                Assert.That(button.ActualWidth, Is.EqualTo(26));
+                Assert.That(button.ActualHeight, Is.EqualTo(22));
+            });
+        }
+        finally
+        {
+            window.Close();
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+        }
+    }
+
     private static void FlushLayout(Window window)
     {
         window.UpdateLayout();
         window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         window.UpdateLayout();
+    }
+
+    private static void EnsureApplicationStaysAliveForWindowTests()
+    {
+        var app = Application.Current ?? new Application();
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
     }
 }

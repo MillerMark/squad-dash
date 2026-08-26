@@ -116,7 +116,12 @@ internal static class StickyCodeBlockBehavior
             RemoveAdorner();
         }
 
-        private void OnScrollChanged(object? sender, ScrollChangedEventArgs e) => RefreshPosition();
+        private void OnScrollChanged(object? sender, ScrollChangedEventArgs e)
+        {
+            if (_button is CopyButton copyButton)
+                copyButton.DismissFeedback();
+            RefreshPosition();
+        }
 
         private void OnLayoutChanged(object? sender, EventArgs e) => RefreshPosition();
 
@@ -242,6 +247,11 @@ internal static class StickyCodeBlockBehavior
 
         protected override Size MeasureOverride(Size constraint)
         {
+            // Hidden elements still participate in measure. Collapsed elements do not,
+            // which can permanently strand the button at DesiredSize=(0,0) when the
+            // FlowDocument performs an early zero-sized layout during hydration.
+            if (_button.Visibility == Visibility.Collapsed)
+                _button.Visibility = Visibility.Hidden;
             _button.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             return AdornedElement.RenderSize;
         }
@@ -285,7 +295,7 @@ internal static class StickyCodeBlockBehavior
 
         private void HideButton()
         {
-            _button.Visibility = Visibility.Collapsed;
+            _button.Visibility = Visibility.Hidden;
             Clip = null;
         }
     }
