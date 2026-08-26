@@ -19,16 +19,26 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
 
     private readonly IProcessRunner _processRunner;
     private readonly IEnvironmentProvider _environmentProvider;
+    private readonly ISquadCliSelectionStore? _selectionStore;
 
-    public SquadCliResolutionService(IProcessRunner processRunner, IEnvironmentProvider environmentProvider)
+    public SquadCliResolutionService(
+        IProcessRunner processRunner,
+        IEnvironmentProvider environmentProvider,
+        ISquadCliSelectionStore? selectionStore = null)
     {
         _processRunner = processRunner;
         _environmentProvider = environmentProvider;
+        _selectionStore = selectionStore;
     }
 
     public Task<ResolvedCliCandidate> ResolveAsync(string workspaceDir)
     {
-        return ResolveWithModeAsync(CliSelectionMode.Auto, workspaceDir);
+        var mode = _selectionStore?.GetSelectionMode(workspaceDir) ?? CliSelectionMode.Auto;
+        if (mode != CliSelectionMode.CustomPath)
+            return ResolveWithModeAsync(mode, workspaceDir);
+
+        var customPath = _selectionStore?.GetCustomPath(workspaceDir);
+        return ResolveWithModeAsync(mode, customPath ?? string.Empty);
     }
 
     public async Task<ResolvedCliCandidate> ResolveWithModeAsync(CliSelectionMode mode, string workspaceDir)

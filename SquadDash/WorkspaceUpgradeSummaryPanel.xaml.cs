@@ -96,6 +96,10 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
 
     public bool IsPartiallyApplied => CurrentState == WorkspaceUpgradeSummaryPanelState.PartiallyApplied;
 
+    public bool IsSucceeded => CurrentState == WorkspaceUpgradeSummaryPanelState.Succeeded;
+
+    public bool IsDryRunSummaryVisible => !IsSucceeded;
+
     public bool IsSafeAdditionsEmpty => SafeAdditionsOrRefreshes.Count == 0;
 
     public bool IsTrackedChangesEmpty => TrackedLocalChangesAtRisk.Count == 0;
@@ -121,9 +125,17 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
 
     public bool IsApplyButtonEnabled => IsActionButtonsEnabled && CanApplyWorkspaceUpdate;
 
+    public bool IsApplyButtonVisible => !IsSucceeded;
+
     public bool IsApplyUnavailable => !CanApplyWorkspaceUpdate;
 
     public string ApplyUnavailableExplanation => _applyUnavailableExplanation;
+
+    public string PanelTitle => IsSucceeded
+        ? "Workspace Upgrade Complete"
+        : "Workspace Upgrade Dry-Run Summary";
+
+    public string DismissButtonLabel => IsSucceeded ? "Close" : "Later";
 
     public string StateMessage =>
         CurrentState switch
@@ -191,7 +203,19 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
         OnPropertyChanged(nameof(IsRunning));
         OnPropertyChanged(nameof(IsFailed));
         OnPropertyChanged(nameof(IsPartiallyApplied));
+        OnPropertyChanged(nameof(IsSucceeded));
+        OnPropertyChanged(nameof(IsDryRunSummaryVisible));
+        OnPropertyChanged(nameof(IsApplyButtonVisible));
+        OnPropertyChanged(nameof(PanelTitle));
+        OnPropertyChanged(nameof(DismissButtonLabel));
         RaiseActionStateChanged();
+
+        if (IsSucceeded && IsLoaded)
+        {
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.Input,
+                new Action(() => DismissButton.Focus()));
+        }
     }
 
     private void RaiseActionStateChanged()
@@ -208,7 +232,13 @@ internal partial class WorkspaceUpgradeSummaryPanel : UserControl, INotifyProper
     {
         Dispatcher.BeginInvoke(
             DispatcherPriority.Input,
-            new Action(() => ApplyWorkspaceUpdateButton.Focus()));
+            new Action(() =>
+            {
+                if (IsSucceeded)
+                    DismissButton.Focus();
+                else
+                    ApplyWorkspaceUpdateButton.Focus();
+            }));
     }
 
     private async void SafeFileLink_Click(object sender, RoutedEventArgs e) =>

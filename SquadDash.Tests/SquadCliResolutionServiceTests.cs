@@ -10,6 +10,76 @@ namespace SquadDash.Tests;
 internal sealed class SquadCliResolutionServiceTests
 {
     [Test]
+    public async Task ResolveAsync_PersistedGlobalSelection_OverridesWorkspaceLocalCli()
+    {
+        using var workspace = new TestWorkspace();
+        var localPackage = workspace.GetPath("node_modules", "@bradygaster", "squad-cli");
+        var localEntry = Path.Combine(localPackage, "dist", "cli-entry.js");
+        Directory.CreateDirectory(Path.GetDirectoryName(localEntry)!);
+        File.WriteAllText(localEntry, "console.log('local');");
+
+        var npmPrefix = workspace.GetPath("global-npm");
+        var nodeDir = workspace.GetPath("node");
+        var globalPackage = Path.Combine(npmPrefix, "node_modules", "@bradygaster", "squad-cli");
+        var globalEntry = Path.Combine(globalPackage, "dist", "cli-entry.js");
+        Directory.CreateDirectory(Path.GetDirectoryName(globalEntry)!);
+        Directory.CreateDirectory(nodeDir);
+        File.WriteAllText(Path.Combine(npmPrefix, "squad.cmd"), "@echo off");
+        File.WriteAllText(Path.Combine(nodeDir, "node.exe"), "node");
+        File.WriteAllText(globalEntry, "console.log('global');");
+        File.WriteAllText(
+            Path.Combine(globalPackage, "package.json"),
+            """
+            {
+              "bin": {
+                "squad": "dist/cli-entry.js"
+              }
+            }
+            """);
+
+        var environment = new FakeEnvironmentProvider(
+            processPath: string.Join(";", npmPrefix, nodeDir),
+            userPath: null,
+            machinePath: null);
+        var runner = new FakeProcessRunner((fileName, args, _) =>
+        {
+            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["config", "get", "prefix"]))
+            {
+                return new CliInvocationResult(0, npmPrefix, string.Empty, false);
+            }
+
+            if (fileName.Equals(Path.Combine(nodeDir, "node.exe"), StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual([globalEntry, "--version"]))
+            {
+                return new CliInvocationResult(0, "0.13.0", string.Empty, false);
+            }
+
+            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["view", "@bradygaster/squad-cli", "version"]))
+            {
+                return new CliInvocationResult(0, "0.13.0", string.Empty, false);
+            }
+
+            throw new AssertionException($"Unexpected invocation: {fileName} {string.Join(" ", args)}");
+        });
+        var service = new SquadCliResolutionService(
+            runner,
+            environment,
+            new StubSelectionStore(CliSelectionMode.GlobalNpm));
+
+        var resolved = await service.ResolveAsync(workspace.RootPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved.SelectionMode, Is.EqualTo(CliSelectionMode.GlobalNpm));
+            Assert.That(resolved.DetectedSource, Is.EqualTo(CliInstallSource.GlobalNpm));
+            Assert.That(resolved.EntryScriptPath, Is.EqualTo(globalEntry));
+            Assert.That(resolved.Version, Is.EqualTo("0.13.0"));
+        });
+    }
+
+    [Test]
     public async Task ResolveWithModeAsync_NativeSystem_UsesMergedPathOrderWithDedup()
     {
         using var workspace = new TestWorkspace();
@@ -570,6 +640,18 @@ internal sealed class SquadCliResolutionServiceTests
             Calls.Add(new Invocation(fileName, args, timeout));
             return Task.FromResult(_handler(fileName, args, timeout));
         }
+    }
+
+    private sealed class StubSelectionStore(
+        CliSelectionMode mode,
+        string? customPath = null) : ISquadCliSelectionStore
+    {
+        public CliSelectionMode GetSelectionMode(string workspaceDir) => mode;
+
+        public string? GetCustomPath(string workspaceDir) => customPath;
+
+        public Task SaveSelectionAsync(string workspaceDir, CliSelectionMode selectedMode, string? selectedCustomPath) =>
+            Task.CompletedTask;
     }
 
     private sealed record Invocation(string FileName, string[] Args, TimeSpan Timeout);

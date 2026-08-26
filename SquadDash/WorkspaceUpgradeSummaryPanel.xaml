@@ -32,7 +32,7 @@
             </Grid.RowDefinitions>
 
             <TextBlock Grid.Row="0"
-                       Text="Workspace Upgrade Dry-Run Summary"
+                       Text="{Binding PanelTitle}"
                        Foreground="{DynamicResource ImportantText}"
                        FontSize="{DynamicResource FontSizeSubtitle}"
                        FontWeight="SemiBold"
@@ -62,15 +62,29 @@
                 </StackPanel>
             </Border>
 
-            <TextBlock Grid.Row="2"
-                       Text="Select a file to compare its current content with the incoming Squad template. Template-level previews are identified when Squad performs additional workspace-specific rendering during apply."
-                       Foreground="{DynamicResource BodyText}"
-                       TextWrapping="Wrap"
-                       Margin="0,0,0,10" />
+            <Grid Grid.Row="2">
+                <TextBlock Text="Select a file to compare its current content with the incoming Squad template. Template-level previews are identified when Squad performs additional workspace-specific rendering during apply."
+                           Foreground="{DynamicResource BodyText}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,10"
+                           Visibility="{Binding IsDryRunSummaryVisible, Converter={StaticResource BoolToVisibilityConverter}}" />
+                <Border Background="{DynamicResource CardSurface}"
+                        BorderBrush="{DynamicResource InputBorder}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="10"
+                        Margin="0,0,0,10"
+                        Visibility="{Binding IsSucceeded, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="The workspace-managed files were updated. This operation is complete; close this window when you are finished reviewing the applied changes."
+                               Foreground="{DynamicResource BodyText}"
+                               TextWrapping="Wrap" />
+                </Border>
+            </Grid>
 
             <ScrollViewer Grid.Row="3"
                           VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled">
+                          HorizontalScrollBarVisibility="Disabled"
+                          Visibility="{Binding IsDryRunSummaryVisible, Converter={StaticResource BoolToVisibilityConverter}}">
                 <StackPanel>
                     <Border Style="{StaticResource SectionBorderStyle}"
                             AutomationProperties.AutomationId="WorkspaceUpgradeSafeFilesSection"
@@ -88,7 +102,7 @@
                                                    Margin="0,0,0,4">
                                             <Hyperlink Click="SafeFileLink_Click"
                                                        ToolTip="Preview current and proposed content">
-                                                <Run Text="{Binding}" />
+                                                <Run Text="{Binding Path=., Mode=OneWay}" />
                                             </Hyperlink>
                                         </TextBlock>
                                     </DataTemplate>
@@ -116,7 +130,7 @@
                                                    Margin="0,0,0,4">
                                             <Hyperlink Click="TrackedFileLink_Click"
                                                        ToolTip="Preview changes that would overwrite this customized file">
-                                                <Run Text="{Binding}" />
+                                                <Run Text="{Binding Path=., Mode=OneWay}" />
                                             </Hyperlink>
                                         </TextBlock>
                                     </DataTemplate>
@@ -144,7 +158,7 @@
                                                    Margin="0,0,0,4">
                                             <Hyperlink Click="GeneratedFileLink_Click"
                                                        ToolTip="Preview generated content that would replace this file">
-                                                <Run Text="{Binding}" />
+                                                <Run Text="{Binding Path=., Mode=OneWay}" />
                                             </Hyperlink>
                                         </TextBlock>
                                     </DataTemplate>
@@ -193,15 +207,17 @@
                         Margin="0,0,8,0"
                         TabIndex="0"
                         IsEnabled="{Binding IsApplyButtonEnabled}"
+                        Visibility="{Binding IsApplyButtonVisible, Converter={StaticResource BoolToVisibilityConverter}}"
                         AutomationProperties.AutomationId="WorkspaceUpgradeApplyButton"
                         AutomationProperties.Name="Apply Workspace Update"
                         Click="ApplyWorkspaceUpdateButton_Click" />
-                <Button Content="Later"
+                <Button x:Name="DismissButton"
+                        Content="{Binding DismissButtonLabel}"
                         Style="{StaticResource ThemedButtonStyle}"
                         TabIndex="1"
                         IsEnabled="{Binding IsActionButtonsEnabled}"
                         AutomationProperties.AutomationId="WorkspaceUpgradeLaterButton"
-                        AutomationProperties.Name="Later"
+                        AutomationProperties.Name="{Binding DismissButtonLabel}"
                         Click="LaterButton_Click" />
             </StackPanel>
             <TextBlock Grid.Row="5"

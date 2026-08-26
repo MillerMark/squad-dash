@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -7,6 +8,73 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class WorkspaceUpgradeUiRegressionTests
 {
+    [Test]
+    public void StartupCliProbe_UsesActiveWorkspaceRatherThanApplicationRoot()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var loaded = ExtractMethod(source, "private async void MainWindow_Loaded(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded, Does.Contain(
+                "ResolveSquadVersionAsync(_currentWorkspace?.FolderPath)"));
+            Assert.That(loaded, Does.Not.Contain(
+                "_squadCliAdapter.ResolveSquadVersionAsync().ContinueWith"));
+        });
+    }
+
+    [Test]
+    public void CliUpdateCommand_RunsInsideActiveWorkspace()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var update = ExtractMethod(source, "private void RunSquadCliUpdate(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(update, Does.Contain(
+                "LaunchPowerShellCommandWindow(action, workspaceFolder)"));
+            Assert.That(update, Does.Contain(
+                "ResolveSquadVersionAsync(workspaceFolder)"));
+        });
+    }
+
+    [Test]
+    public void CliUpdateMenu_OffersWorkspaceAndGlobalActionsWithoutSelectionManager()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var menu = ExtractMethod(source, "private async Task ShowVersionContextMenuAsync()");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(menu, Does.Contain("Update this workspace's Squad CLI to v"));
+            Assert.That(menu, Does.Contain("Install global Squad CLI v"));
+            Assert.That(menu, Does.Contain("Update global Squad CLI to v"));
+            Assert.That(menu, Does.Contain("Use global Squad CLI v"));
+            Assert.That(menu, Does.Contain("InstallOrUpdateGlobalSquadCliAndUse"));
+            Assert.That(menu, Does.Contain("UseGlobalSquadCliAsync"));
+            Assert.That(menu, Does.Not.Contain("Manage CLI selection"));
+        });
+    }
+
+    [Test]
+    public void GlobalCliActions_PersistSelectionOnlyAfterSuccessfulDetection()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var install = ExtractMethod(source, "private void InstallOrUpdateGlobalSquadCliAndUse(");
+        var select = ExtractMethod(source, "private async Task UseGlobalSquadCliAsync(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(install.IndexOf("ResolveWithModeAsync", StringComparison.Ordinal),
+                Is.LessThan(install.IndexOf("SaveSelectionAsync", StringComparison.Ordinal)));
+            Assert.That(install, Does.Contain("CliSelectionMode.GlobalNpm"));
+            Assert.That(install, Does.Contain("MatchesActiveCandidate"));
+            Assert.That(select, Does.Contain("SaveSelectionAsync"));
+            Assert.That(select, Does.Contain("previousMode"));
+            Assert.That(select, Does.Contain("previousCustomPath"));
+        });
+    }
+
     [Test]
     public void DryRunSummary_UsesFileLinksInsteadOfReviewChangesButton()
     {
@@ -19,6 +87,12 @@ internal sealed class WorkspaceUpgradeUiRegressionTests
             Assert.That(xaml, Does.Contain("Click=\"SafeFileLink_Click\""));
             Assert.That(xaml, Does.Contain("Click=\"TrackedFileLink_Click\""));
             Assert.That(xaml, Does.Contain("Click=\"GeneratedFileLink_Click\""));
+            Assert.That(Regex.Matches(
+                    xaml,
+                    "<Run Text=\\\"\\{Binding Path=\\., Mode=OneWay\\}\\\" />",
+                    RegexOptions.CultureInvariant).Count,
+                Is.EqualTo(3));
+            Assert.That(xaml, Does.Not.Contain("<Run Text=\"{Binding}\" />"));
             Assert.That(xaml, Does.Contain("Generated files at risk (would be replaced)"));
             Assert.That(source, Does.Contain("Review the dry-run summary and choose how to proceed."));
             Assert.That(source, Does.Not.Contain("Idle — review"));
@@ -36,13 +110,37 @@ internal sealed class WorkspaceUpgradeUiRegressionTests
         Assert.Multiple(() =>
         {
             Assert.That(simulation, Does.Contain(
-                "OpenWorkspaceUpgradeChangesAsync(panel.DryRunResult, simulated: true)"));
+                "OpenWorkspaceUpgradeChangesAsync(appliedResult, simulated: true)"));
             Assert.That(simulation, Does.Not.Contain("HandleCheckGitDiffAsync"));
             Assert.That(production, Does.Contain(
-                "OpenWorkspaceUpgradeChangesAsync(panel.DryRunResult, simulated: false)"));
+                "OpenWorkspaceUpgradeChangesAsync(appliedResult, simulated: false)"));
             Assert.That(production, Does.Not.Contain("HandleCheckGitDiffAsync"));
             Assert.That(passiveViewer, Does.Not.Contain("ExecutePromptAsync"));
             Assert.That(passiveViewer, Does.Not.Contain("HandleCheckGitDiffAsync"));
+        });
+    }
+
+    [Test]
+    public void SuccessfulUpgrade_BecomesCompletedNonRepeatableState()
+    {
+        var xaml = File.ReadAllText(FindRepoFile("SquadDash", "WorkspaceUpgradeSummaryPanel.xaml"));
+        var panel = File.ReadAllText(FindRepoFile("SquadDash", "WorkspaceUpgradeSummaryPanel.xaml.cs"));
+        var mainWindow = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var production = ExtractMethod(mainWindow, "private async Task OpenWorkspaceUpgradeSummaryAsync()");
+        var simulation = ExtractMethod(mainWindow, "private async void SimulateWorkspaceUpgradeButtonFlow_Click(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(xaml, Does.Contain("Text=\"{Binding PanelTitle}\""));
+            Assert.That(xaml, Does.Contain("Visibility=\"{Binding IsDryRunSummaryVisible"));
+            Assert.That(xaml, Does.Contain("Visibility=\"{Binding IsApplyButtonVisible"));
+            Assert.That(xaml, Does.Contain("Content=\"{Binding DismissButtonLabel}\""));
+            Assert.That(panel, Does.Contain("Workspace Upgrade Complete"));
+            Assert.That(panel, Does.Contain("DismissButtonLabel => IsSucceeded ? \"Close\" : \"Later\""));
+            Assert.That(production, Does.Contain(
+                "if (panel.CurrentState == WorkspaceUpgradeSummaryPanelState.Succeeded)"));
+            Assert.That(simulation, Does.Contain(
+                "if (panel.CurrentState == WorkspaceUpgradeSummaryPanelState.Succeeded)"));
         });
     }
 

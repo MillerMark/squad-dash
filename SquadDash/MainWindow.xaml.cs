@@ -872,12 +872,13 @@ public partial class MainWindow : Window
         _routingDocumentService = serviceProvider?.GetRequiredService<SquadRoutingDocumentService>() ?? new SquadRoutingDocumentService();
         _installationStateService = serviceProvider?.GetRequiredService<SquadInstallationStateService>() ?? new SquadInstallationStateService();
         _installerService = serviceProvider?.GetRequiredService<SquadInstallerService>() ?? new SquadInstallerService();
+        _cliSelectionStore = serviceProvider?.GetService<ISquadCliSelectionStore>() ??
+                             new SquadCliSelectionStore(_settingsStore);
         _cliResolutionService = serviceProvider?.GetService<ISquadCliResolutionService>() ??
                                 new SquadCliResolutionService(
                                     new SystemProcessRunner(),
-                                    new SystemEnvironmentProvider());
-        _cliSelectionStore = serviceProvider?.GetService<ISquadCliSelectionStore>() ??
-                             new SquadCliSelectionStore(_settingsStore);
+                                    new SystemEnvironmentProvider(),
+                                    _cliSelectionStore);
         _cliModelCatalogService = serviceProvider?.GetService<ICliModelCatalogService>() ??
                                   new CliModelCatalogService(workspacePaths ?? WorkspacePathsProvider.Discover());
         _squadOrchestrationService = serviceProvider?.GetService<SquadOrchestrationService>() ?? new SquadOrchestrationService();
@@ -2187,7 +2188,7 @@ public partial class MainWindow : Window
             // will refresh it once it completes.
             UpdateStatusTitle();
             var resolveVersionSw = Stopwatch.StartNew();
-            _ = _squadCliAdapter.ResolveSquadVersionAsync().ContinueWith(_ =>
+            _ = _squadCliAdapter.ResolveSquadVersionAsync(_currentWorkspace?.FolderPath).ContinueWith(_ =>
                 Dispatcher.Invoke(() =>
                 {
                     resolveVersionSw.Stop();
@@ -31047,7 +31048,7 @@ public partial class MainWindow : Window
                     .UpgradeAsync(null!, workspacePath)
                     .ConfigureAwait(true);
 
-                panel.DryRunResult = new WorkspaceUpgradeDryRunResult(
+                var appliedResult = new WorkspaceUpgradeDryRunResult(
                     fakeResult.SafeAdditionsOrRefreshes,
                     fakeResult.TrackedLocalChangesAtRisk,
                     fakeResult.GeneratedFilesAtRisk);
@@ -31063,11 +31064,17 @@ public partial class MainWindow : Window
                 await _workspacePendingUpgradeStore.SaveResolvedAsync(workspacePath).ConfigureAwait(true);
                 await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
                 AppendLine("✅ [Simulation] Workspace update applied. Opening git changes for review.");
-                await OpenWorkspaceUpgradeChangesAsync(panel.DryRunResult, simulated: true).ConfigureAwait(true);
+                await OpenWorkspaceUpgradeChangesAsync(appliedResult, simulated: true).ConfigureAwait(true);
             };
 
             panel.LaterRequested = async () =>
             {
+                if (panel.CurrentState == WorkspaceUpgradeSummaryPanelState.Succeeded)
+                {
+                    window.Close();
+                    return;
+                }
+
                 await _workspacePendingUpgradeStore
                     .SavePendingAsync(workspacePath, simulationVersion)
                     .ConfigureAwait(true);
@@ -45643,25 +45650,25 @@ public partial class MainWindow : Window
         }
     }
 
-    private void VersionTextBlock_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private async void VersionTextBlock_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        ShowVersionContextMenu();
         e.Handled = true;
+        await ShowVersionContextMenuAsync().ConfigureAwait(true);
     }
 
-    private void VersionTextBlock_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    private async void VersionTextBlock_MouseRightButtonUp(object sender, MouseButtonEventArgs e)
     {
-        ShowVersionContextMenu();
         e.Handled = true;
+        await ShowVersionContextMenuAsync().ConfigureAwait(true);
     }
 
-    private void SquadUpdateBadge_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private async void SquadUpdateBadge_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        ShowVersionContextMenu();
         e.Handled = true;
+        await ShowVersionContextMenuAsync().ConfigureAwait(true);
     }
 
-    private void ShowVersionContextMenu()
+    private async Task ShowVersionContextMenuAsync()
     {
         var menu = MakeMenu();
         var copyItem = MakeItem("Copy Squad system info");
@@ -45670,13 +45677,75 @@ public partial class MainWindow : Window
 
         var candidate = _squadCliAdapter.LastResolvedCandidate;
         var updateInstruction = candidate?.UpdateInstruction;
+        var workspaceFolder = _currentWorkspace?.FolderPath;
+        var globalCandidate = await TryResolveGlobalSquadCliAsync(workspaceFolder).ConfigureAwait(true);
+        var cliActionAdded = false;
+
+        void AddCliAction(MenuItem item)
+        {
+            if (!cliActionAdded)
+            {
+                menu.Items.Add(MakeSep());
+                cliActionAdded = true;
+            }
+
+            menu.Items.Add(item);
+        }
+
         if (updateInstruction?.CanAutoUpdate == true &&
             !string.IsNullOrWhiteSpace(updateInstruction.TargetVersion))
         {
-            menu.Items.Add(MakeSep());
-            var updateItem = MakeItem($"Update Squad CLI to v{updateInstruction.TargetVersion}");
+            var updateLabel = candidate?.DetectedSource switch
+            {
+                CliInstallSource.WorkspaceNpm =>
+                    $"Update this workspace's Squad CLI to v{updateInstruction.TargetVersion}",
+                CliInstallSource.GlobalNpm =>
+                    $"Update global Squad CLI to v{updateInstruction.TargetVersion}",
+                _ => $"Update Squad CLI to v{updateInstruction.TargetVersion}"
+            };
+            var updateItem = MakeItem(updateLabel);
             updateItem.Click += (_, _) => RunSquadCliUpdate(updateInstruction);
-            menu.Items.Add(updateItem);
+            AddCliAction(updateItem);
+        }
+
+        var isUsingGlobalCli = candidate?.DetectedSource == CliInstallSource.GlobalNpm;
+        if (!isUsingGlobalCli && !string.IsNullOrWhiteSpace(workspaceFolder))
+        {
+            var detectedGlobalCli = globalCandidate is
+            {
+                IsAvailable: true,
+                DetectedSource: CliInstallSource.GlobalNpm
+            };
+            var globalTargetVersion = globalCandidate?.UpdateInstruction.TargetVersion ??
+                                      updateInstruction?.TargetVersion;
+
+            if (detectedGlobalCli &&
+                globalCandidate!.UpdateInstruction.CanAutoUpdate &&
+                !string.IsNullOrWhiteSpace(globalTargetVersion))
+            {
+                var updateGlobalItem = MakeItem(
+                    $"Update global Squad CLI to v{globalTargetVersion} and use it for this workspace");
+                updateGlobalItem.Click += (_, _) =>
+                    InstallOrUpdateGlobalSquadCliAndUse(globalTargetVersion!);
+                AddCliAction(updateGlobalItem);
+            }
+            else if (!detectedGlobalCli && !string.IsNullOrWhiteSpace(globalTargetVersion))
+            {
+                var installGlobalItem = MakeItem(
+                    $"Install global Squad CLI v{globalTargetVersion} and use it for this workspace");
+                installGlobalItem.Click += (_, _) =>
+                    InstallOrUpdateGlobalSquadCliAndUse(globalTargetVersion!);
+                AddCliAction(installGlobalItem);
+            }
+
+            if (detectedGlobalCli && !string.IsNullOrWhiteSpace(globalCandidate!.Version))
+            {
+                var useGlobalItem = MakeItem(
+                    $"Use global Squad CLI v{globalCandidate.Version} for this workspace");
+                useGlobalItem.Click += async (_, _) =>
+                    await UseGlobalSquadCliAsync(workspaceFolder).ConfigureAwait(true);
+                AddCliAction(useGlobalItem);
+            }
         }
 
         var workspaceUpgradeVersion = GetWorkspaceUpgradeVersionForMenu();
@@ -45689,6 +45758,24 @@ public partial class MainWindow : Window
         }
 
         menu.IsOpen = true;
+    }
+
+    private async Task<ResolvedCliCandidate?> TryResolveGlobalSquadCliAsync(string? workspaceFolder)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceFolder))
+            return null;
+
+        try
+        {
+            return await _cliResolutionService
+                .ResolveWithModeAsync(CliSelectionMode.GlobalNpm, workspaceFolder)
+                .ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("CliResolution", $"Global Squad CLI probe failed: {ex.Message}");
+            return null;
+        }
     }
 
     private void UpdateSquadUpdateBadge()
@@ -45820,7 +45907,7 @@ public partial class MainWindow : Window
             "Update Squad CLI",
             WorkspaceIssueActionKind.LaunchPowerShellCommand,
             command);
-        var updateProcess = _squadCliAdapter.LaunchPowerShellCommandWindow(action);
+        var updateProcess = _squadCliAdapter.LaunchPowerShellCommandWindow(action, workspaceFolder);
         if (updateProcess is null)
             return;
 
@@ -45834,17 +45921,7 @@ public partial class MainWindow : Window
                     try
                     {
                         await _squadCliAdapter.ResolveSquadVersionAsync(workspaceFolder).ConfigureAwait(true);
-                        UpdateStatusTitle();
-
-                        var currentVersion = _squadCliAdapter.SquadVersion;
-                        if (!string.IsNullOrWhiteSpace(workspaceFolder) &&
-                            !string.IsNullOrWhiteSpace(currentVersion) &&
-                            IsNewerSquadVersion(currentVersion, previousVersion))
-                        {
-                            await _workspacePendingUpgradeStore.SavePendingAsync(workspaceFolder, currentVersion).ConfigureAwait(true);
-                        }
-
-                        await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
+                        await CompleteCliChangeAsync(workspaceFolder, previousVersion).ConfigureAwait(true);
                     }
                     catch (Exception ex)
                     {
@@ -45857,6 +45934,118 @@ public partial class MainWindow : Window
         {
             HandleUiCallbackException(nameof(RunSquadCliUpdate), ex);
         }
+    }
+
+    private void InstallOrUpdateGlobalSquadCliAndUse(string targetVersion)
+    {
+        var workspaceFolder = _currentWorkspace?.FolderPath;
+        if (string.IsNullOrWhiteSpace(workspaceFolder) || string.IsNullOrWhiteSpace(targetVersion))
+            return;
+
+        var previousVersion = _squadCliAdapter.SquadVersion;
+        var action = new WorkspaceIssueAction(
+            "Install global Squad CLI",
+            WorkspaceIssueActionKind.LaunchPowerShellCommand,
+            $"npm install -g @bradygaster/squad-cli@{targetVersion}");
+        var updateProcess = _squadCliAdapter.LaunchPowerShellCommandWindow(action, workspaceFolder);
+        if (updateProcess is null)
+            return;
+
+        try
+        {
+            updateProcess.EnableRaisingEvents = true;
+            updateProcess.Exited += (_, _) =>
+            {
+                _ = Dispatcher.InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        var globalCandidate = await _cliResolutionService
+                            .ResolveWithModeAsync(CliSelectionMode.GlobalNpm, workspaceFolder)
+                            .ConfigureAwait(true);
+                        if (!globalCandidate.IsAvailable ||
+                            globalCandidate.DetectedSource != CliInstallSource.GlobalNpm ||
+                            !WorkspaceUpgradeVersionPolicy.MatchesActiveCandidate(
+                                targetVersion,
+                                globalCandidate.Version))
+                        {
+                            throw new InvalidOperationException(
+                                $"Global Squad CLI v{targetVersion} was not detected after installation. " +
+                                "This workspace is still using its previous CLI selection.");
+                        }
+
+                        await _cliSelectionStore
+                            .SaveSelectionAsync(workspaceFolder, CliSelectionMode.GlobalNpm, customPath: null)
+                            .ConfigureAwait(true);
+                        await _squadCliAdapter.ResolveSquadVersionAsync(workspaceFolder).ConfigureAwait(true);
+                        await CompleteCliChangeAsync(workspaceFolder, previousVersion).ConfigureAwait(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        HandleUiCallbackException(nameof(InstallOrUpdateGlobalSquadCliAndUse), ex);
+                    }
+                });
+            };
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(InstallOrUpdateGlobalSquadCliAndUse), ex);
+        }
+    }
+
+    private async Task UseGlobalSquadCliAsync(string workspaceFolder)
+    {
+        var previousVersion = _squadCliAdapter.SquadVersion;
+        var previousMode = _cliSelectionStore.GetSelectionMode(workspaceFolder);
+        var previousCustomPath = _cliSelectionStore.GetCustomPath(workspaceFolder);
+
+        try
+        {
+            await _cliSelectionStore
+                .SaveSelectionAsync(workspaceFolder, CliSelectionMode.GlobalNpm, customPath: null)
+                .ConfigureAwait(true);
+            await _squadCliAdapter.ResolveSquadVersionAsync(workspaceFolder).ConfigureAwait(true);
+            var selectedCandidate = _squadCliAdapter.LastResolvedCandidate;
+            if (selectedCandidate is not
+                {
+                    IsAvailable: true,
+                    DetectedSource: CliInstallSource.GlobalNpm
+                })
+            {
+                throw new InvalidOperationException(
+                    "The global Squad CLI could not be selected. The previous CLI selection has been restored.");
+            }
+
+            await CompleteCliChangeAsync(workspaceFolder, previousVersion).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            await _cliSelectionStore
+                .SaveSelectionAsync(workspaceFolder, previousMode, previousCustomPath)
+                .ConfigureAwait(true);
+            await _squadCliAdapter.ResolveSquadVersionAsync(workspaceFolder).ConfigureAwait(true);
+            UpdateStatusTitle();
+            UpdateSquadUpdateBadge();
+            HandleUiCallbackException(nameof(UseGlobalSquadCliAsync), ex);
+        }
+    }
+
+    private async Task CompleteCliChangeAsync(string? workspaceFolder, string? previousVersion)
+    {
+        UpdateStatusTitle();
+        SyncLoopPanel();
+
+        var currentVersion = _squadCliAdapter.SquadVersion;
+        if (!string.IsNullOrWhiteSpace(workspaceFolder) &&
+            !string.IsNullOrWhiteSpace(currentVersion) &&
+            IsNewerSquadVersion(currentVersion, previousVersion))
+        {
+            await _workspacePendingUpgradeStore
+                .SavePendingAsync(workspaceFolder, currentVersion)
+                .ConfigureAwait(true);
+        }
+
+        await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
     }
 
     private async Task RefreshWorkspaceUpgradeStateAsync()
@@ -46045,7 +46234,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            panel.DryRunResult = new WorkspaceUpgradeDryRunResult(
+            var appliedResult = new WorkspaceUpgradeDryRunResult(
                 applyResult.SafeAdditionsOrRefreshes,
                 applyResult.TrackedLocalChangesAtRisk,
                 applyResult.GeneratedFilesAtRisk);
@@ -46060,12 +46249,13 @@ public partial class MainWindow : Window
                 UpdateStatusTitle();
                 await RefreshWorkspaceUpgradeStateAsync().ConfigureAwait(true);
                 AppendLine("✅ Workspace update applied. Opening git changes for review.");
-                await OpenWorkspaceUpgradeChangesAsync(panel.DryRunResult, simulated: false).ConfigureAwait(true);
+                await OpenWorkspaceUpgradeChangesAsync(appliedResult, simulated: false).ConfigureAwait(true);
                 return;
             }
 
             if (applyResult.IsPartial)
             {
+                panel.DryRunResult = appliedResult;
                 panel.CurrentState = WorkspaceUpgradeSummaryPanelState.PartiallyApplied;
                 panel.ErrorMessage = string.IsNullOrWhiteSpace(applyResult.ErrorMessage)
                     ? "Workspace upgrade was partially applied."
@@ -46087,6 +46277,12 @@ public partial class MainWindow : Window
 
         panel.LaterRequested = async () =>
         {
+            if (panel.CurrentState == WorkspaceUpgradeSummaryPanelState.Succeeded)
+            {
+                window.Close();
+                return;
+            }
+
             if (_currentWorkspace is null)
                 return;
 
