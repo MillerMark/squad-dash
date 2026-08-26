@@ -409,33 +409,18 @@ internal sealed class MarkdownDocumentRenderer {
             FontFamily = new FontFamily("Consolas"),
             FontSize = _getFontSize() * 0.9,
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 8, 10, 8),
+            Padding = new Thickness(10, 30, 10, 8),
             Tag = "codeblock"
         };
         textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
 
-        // ── Copy button with "Copied!" feedback ──────────────────────────
-        var copyTip = new ToolTip { Content = "Copy", Placement = PlacementMode.Bottom };
-        copyTip.SetResourceReference(Control.BackgroundProperty, "InputSurface");
-        copyTip.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
-
-        var copyBtn = new Button {
-            Content             = "📋",
-            ToolTip             = copyTip,
-            FontSize = (double)Application.Current.Resources["FontSizeNormal"],
-            Width               = 26,
-            Height              = 22,
-            Padding             = new Thickness(0),
-            Margin              = new Thickness(4, 2, 4, 2),
-            BorderThickness     = new Thickness(0),
-            Background          = Brushes.Transparent,
-            Cursor              = Cursors.Hand,
+        var copyBtn = new CopyButton {
+            CopyTooltip = "Copy code",
             HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment   = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(4, 2, 4, 2)
         };
-        copyBtn.SetResourceReference(Control.ForegroundProperty, "SubtleText");
-        copyBtn.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
 
         copyBtn.Click += (_, _) => {
             bool copied = false;
@@ -445,11 +430,6 @@ internal sealed class MarkdownDocumentRenderer {
                 catch { System.Threading.Thread.Sleep(50); }
             }
             if (!copied) return;
-
-            copyTip.Content = "Copied!";
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-            timer.Tick += (_, _) => { copyTip.Content = "Copy"; timer.Stop(); };
-            timer.Start();
         };
 
         // Explicit context menu so right-click Copy works regardless of keyboard focus.
@@ -476,16 +456,10 @@ internal sealed class MarkdownDocumentRenderer {
             copyMenuItem.Header = textBox.SelectionLength > 0 ? "Copy Selection" : "Copy All";
         textBox.ContextMenu = ctxMenu;
 
-        // ── Header row: copy button pinned right ─────────────────────────
-        var header = new DockPanel { LastChildFill = false };
-        header.SetResourceReference(DockPanel.BackgroundProperty, "CodeSurface");
-        DockPanel.SetDock(copyBtn, Dock.Right);
-        header.Children.Add(copyBtn);
-
-        // ── Outer container ───────────────────────────────────────────────
-        var container = new StackPanel();
-        container.Children.Add(header);
+        var container = new Grid();
         container.Children.Add(textBox);
+        container.Children.Add(copyBtn);
+        StickyCodeBlockBehavior.Attach(container, copyBtn);
 
         return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
     }

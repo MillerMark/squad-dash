@@ -62,16 +62,14 @@ internal sealed class WorkspaceInstallDiagnosticsWindow : ChromedWindow {
             Margin = new Thickness(0, 12, 0, 0)
         };
 
-        var copyButton = new Button {
-            Content = "Copy",
+        var copyButton = new CopyButton {
+            CopyTooltip = "Copy to clipboard",
             MinWidth = 84,
             Height = 30,
             Margin = new Thickness(0, 0, 8, 0)
         };
-        copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         copyButton.Click += (_, _) => {
             Clipboard.SetText(_diagnosticsText);
-            copyButton.Content = "Copied";
         };
         buttons.Children.Add(copyButton);
 

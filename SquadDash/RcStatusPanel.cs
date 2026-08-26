@@ -278,14 +278,13 @@ internal sealed class RcStatusPanel : ChromedWindow
         var urlRow = new DockPanel { LastChildFill = true };
         WindowChrome.SetIsHitTestVisibleInChrome(urlRow, true);
 
-        var copyButton = new Button
+        var copyButton = new CopyButton
         {
-            Content = "Copy",
+            CopyTooltip = "Copy to clipboard",
             Width   = 52,
             Height  = 28,
             Margin  = new Thickness(6, 0, 0, 0),
         };
-        copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
         DockPanel.SetDock(copyButton, Dock.Right);
 

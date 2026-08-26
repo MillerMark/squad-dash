@@ -49,8 +49,7 @@ internal sealed class LoopOutputWindow : ChromedWindow
         DockPanel.SetDock(titleBlock, Dock.Left);
         header.Children.Add(titleBlock);
 
-        var copyButton = new Button { Content = "Copy", MinWidth = 76, Height = 30, Margin = new Thickness(0, 0, 8, 0) };
-        copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        var copyButton = new CopyButton { CopyTooltip = "Copy to clipboard", Margin = new Thickness(0, 0, 8, 0) };
         WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
         copyButton.Click += (_, _) =>
         {

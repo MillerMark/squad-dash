@@ -4069,7 +4069,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = TranscriptQuickReplyFactory.CreateButton("View Changes", _quickReplyFontSize);
-        var copyButton = TranscriptQuickReplyFactory.CreateButton("Copy Details", _quickReplyFontSize);
+        var copyButton = new CopyButton
+        {
+            CopyTooltip = "Copy details",
+            Margin = new Thickness(0, 0, 8, 0),
+            Padding = new Thickness(10, 4, 10, 4),
+            MinHeight = 28,
+            Cursor = Cursors.Hand,
+            FontSize = _quickReplyFontSize,
+        };
+        if (TryFindResource("QuickReplyButtonStyle") is Style copyButtonStyle)
+            copyButton.Style = copyButtonStyle;
+        copyButton.SetResourceReference(Button.BackgroundProperty, "QuickReplySurface");
+        copyButton.SetResourceReference(Button.ForegroundProperty, "QuickReplyText");
+        copyButton.SetResourceReference(Button.BorderBrushProperty, "QuickReplyBorder");
         var retryButton = TranscriptQuickReplyFactory.CreateButton(
             exception.RequiresRepositoryInitialization
                 ? "Initialize repository and start plan"

@@ -28,14 +28,13 @@ internal sealed class RecoveryAssessmentErrorReportWindow : ChromedWindow
         Grid.SetRow(header, 0);
         root.Children.Add(header);
 
-        var copyButton = new Button
+        var copyButton = new CopyButton
         {
-            Content = "Copy report",
+            CopyTooltip = "Copy to clipboard",
             MinWidth = 104,
             Height = 30,
             Margin = new Thickness(10, 0, 0, 8),
         };
-        copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
         copyButton.Click += (_, _) => Clipboard.SetText(report);
         System.Windows.Automation.AutomationProperties.SetName(copyButton, "Copy validation report");

@@ -413,7 +413,19 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
         var viewButton = BuildRecoveryButton("View Changes");
-        var copyButton = BuildRecoveryButton("Copy Details");
+        var copyButton = new CopyButton
+        {
+            CopyTooltip = "Copy details",
+            Margin = new Thickness(0, 0, 8, 0),
+            Padding = new Thickness(10, 4, 10, 4),
+            MinHeight = 28,
+            Cursor = Cursors.Hand,
+        };
+        if (TryFindResource("QuickReplyButtonStyle") is Style copyButtonStyle)
+            copyButton.Style = copyButtonStyle;
+        copyButton.SetResourceReference(Button.BackgroundProperty, "QuickReplySurface");
+        copyButton.SetResourceReference(Button.ForegroundProperty, "QuickReplyText");
+        copyButton.SetResourceReference(Button.BorderBrushProperty, "QuickReplyBorder");
         var retryButton = BuildRecoveryButton(exception.RequiresRepositoryInitialization
             ? "Initialize repository and start plan"
             : "Retry");

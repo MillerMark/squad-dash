@@ -11521,26 +11521,16 @@ public partial class MainWindow : Window
         title.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         header.Children.Add(title);
 
-        var copyTip = new ToolTip { Content = "Copy details", Placement = PlacementMode.Bottom };
-        copyTip.SetResourceReference(Control.BackgroundProperty, "InputSurface");
-        copyTip.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
-        var copyButton = new Button
+        var copyButton = new CopyButton
         {
-            Content = "📋",
-            ToolTip = copyTip,
-            FontSize = (double)Application.Current.Resources["FontSizeNormal"],
+            CopyTooltip = "Copy details",
             Width = 26,
             Height = 22,
             Padding = new Thickness(0),
             Margin = new Thickness(4, 2, 4, 2),
-            BorderThickness = new Thickness(0),
-            Background = Brushes.Transparent,
-            Cursor = Cursors.Hand,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        copyButton.SetResourceReference(Control.ForegroundProperty, "SubtleText");
-        copyButton.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
         System.Windows.Automation.AutomationProperties.SetName(copyButton, "Copy details");
         Grid.SetColumn(copyButton, 1);
         header.Children.Add(copyButton);
@@ -11594,22 +11584,6 @@ public partial class MainWindow : Window
         if (TryFindResource("TranscriptExpanderStyle") is Style transcriptExpanderStyle)
             details.Style = transcriptExpanderStyle;
         stack.Children.Add(details);
-
-        copyButton.Click += (_, _) => {
-            try {
-                Clipboard.SetText(string.Join("\n\n", new[] {
-                    content.Title,
-                    content.Summary,
-                    content.ChangedFilesSummary,
-                    content.TechnicalDetails,
-                    content.RecoveryGuidance
-                }.Where(text => !string.IsNullOrWhiteSpace(text))));
-                copyTip.Content = "Details copied to the clipboard.";
-            }
-            catch (System.Runtime.InteropServices.COMException) {
-                copyTip.Content = "The clipboard is busy. Try Copy Details again.";
-            }
-        };
 
         var readiness = new TextBlock
         {
@@ -11667,14 +11641,6 @@ public partial class MainWindow : Window
         {
             SetClipboardTextWithRetry(content.ClipboardText);
             readiness.Text = "Details copied to the clipboard.";
-            copyTip.Content = "Copied!";
-            var copyFeedbackTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
-            copyFeedbackTimer.Tick += (_, _) =>
-            {
-                copyTip.Content = "Copy details";
-                copyFeedbackTimer.Stop();
-            };
-            copyFeedbackTimer.Start();
         };
         var retryInFlight = false;
         DispatcherTimer? timer = null;
@@ -41536,55 +41502,28 @@ public partial class MainWindow : Window
             FontFamily = new FontFamily("Consolas"),
             FontSize = _transcriptFontSize * 0.9,
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, 8, 10, 8),
+            Padding = new Thickness(10, 30, 10, 8),
             Tag = "codeblock"
         };
         textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
 
-        var copiedTip = new System.Windows.Controls.ToolTip
+        var copyBtn = new CopyButton
         {
-            Content = "Copied!",
-            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
-        };
-        var copyBtn = new Button
-        {
-            Content = "📋",
-            ToolTip = copiedTip,
-            FontSize = (double)Application.Current.Resources["FontSizeNormal"],
-            Width = 26,
-            Height = 22,
-            Padding = new Thickness(0),
+            CopyTooltip = "Copy code",
             Margin = new Thickness(4, 2, 4, 2),
-            BorderThickness = new Thickness(0),
-            Background = Brushes.Transparent,
-            Cursor = Cursors.Hand,
             HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
         };
-        copyBtn.SetResourceReference(Control.StyleProperty, "TranscriptInlineButtonStyle");
-        copyBtn.SetResourceReference(Control.ForegroundProperty, "SubtleText");
         copyBtn.Click += (_, _) =>
         {
             try { Clipboard.SetText(code); } catch { }
-            copiedTip.PlacementTarget = copyBtn;
-            copiedTip.IsOpen = true;
-            var timer = new System.Windows.Threading.DispatcherTimer
-            {
-                Interval = UiTimingConstants.CopiedTooltipDismissInterval
-            };
-            timer.Tick += (_, _) => { copiedTip.IsOpen = false; timer.Stop(); };
-            timer.Start();
         };
 
-        var header = new DockPanel { LastChildFill = false };
-        header.SetResourceReference(DockPanel.BackgroundProperty, "CodeSurface");
-        DockPanel.SetDock(copyBtn, Dock.Right);
-        header.Children.Add(copyBtn);
-
-        var container = new StackPanel();
-        container.Children.Add(header);
+        var container = new Grid();
         container.Children.Add(textBox);
+        container.Children.Add(copyBtn);
+        StickyCodeBlockBehavior.Attach(container, copyBtn);
         return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
     }
 

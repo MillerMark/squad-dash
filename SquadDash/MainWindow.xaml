@@ -3551,13 +3551,10 @@
                                         Click="AddExceptionToChatButton_Click">
                                     Add to Chat
                                 </Button>
-                                <Button x:Name="CopyExceptionDetailsButton"
-                                        Margin="0,0,8,0"
-                                        Padding="10,4"
-                                        Style="{StaticResource ThemedButtonStyle}"
-                                        Click="CopyExceptionDetailsButton_Click">
-                                    Copy details
-                                </Button>
+                                <local:CopyButton x:Name="CopyExceptionDetailsButton"
+                                                  Margin="0,0,8,0"
+                                                  CopyTooltip="Copy details"
+                                                  Click="CopyExceptionDetailsButton_Click" />
                                 <Button x:Name="DismissExceptionPanelButton"
                                         Padding="10,4"
                                         Style="{StaticResource ThemedButtonStyle}"

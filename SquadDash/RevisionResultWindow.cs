@@ -39,8 +39,8 @@ internal sealed class RevisionResultWindow : ChromedWindow
         };
         DockPanel.SetDock(buttonRow, Dock.Bottom);
 
-        var copyBtn = new Button {
-            Content  = "Copy & Close",
+        var copyBtn = new CopyButton {
+            CopyTooltip = "Copy to clipboard",
             MinWidth = 100,
             Height   = 28,
             FontSize = (double)Application.Current.Resources["FontSizeBody"],

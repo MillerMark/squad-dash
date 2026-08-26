@@ -72,13 +72,12 @@ internal sealed class TasksStatusWindow : ChromedWindow {
 
         // Copy button docked right, with margin to align its right edge with the close button's left edge.
         // Close button = 38px wide; root right margin = 12px → offset = 38 - 12 = 26px.
-        var copyButton = new Button {
-            Content  = "Copy",
+        var copyButton = new CopyButton {
+            CopyTooltip = "Copy to clipboard",
             MinWidth = 76,
             Height   = 30,
             Margin   = new Thickness(0, 0, 26, 0),
         };
-        copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
         copyButton.Click += (_, _) => {
             if (!string.IsNullOrEmpty(_rawContent))
@@ -244,7 +243,14 @@ internal sealed class TasksStatusWindow : ChromedWindow {
         _watchRefreshButton = MakeWatchButton("Refresh");
         _watchRefreshButton.Click += async (_, _) => await WatchHealthRefreshAsync();
 
-        var copyButton = MakeWatchButton("Copy");
+        var copyButton = new CopyButton {
+            CopyTooltip = "Copy to clipboard",
+            Height  = 20,
+            Padding = new Thickness(6, 0, 6, 0),
+            Margin  = new Thickness(0, 0, 4, 4),
+        };
+        copyButton.SetResourceReference(Button.FontSizeProperty, "FontSizeXSmall");
+        copyButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         copyButton.Click += (_, _) => WatchHealthCopy();
 
         _watchStartButton = MakeWatchButton("Start");

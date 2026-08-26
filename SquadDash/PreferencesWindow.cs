@@ -2353,12 +2353,11 @@ internal sealed class PreferencesWindow : Window {
         ttsErrorText.SetResourceReference(TextBlock.ForegroundProperty, "ErrorText");
         ttsErrorText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
-        var copyErrorButton = new Button {
-            Content = "📋 Copy error",
+        var copyErrorButton = new CopyButton {
+            CopyTooltip = "Copy to clipboard",
             HorizontalAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(0, 4, 0, 0)
         };
-        copyErrorButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         copyErrorButton.Click += (_, _) => Clipboard.SetText(ttsErrorText.Text);
 
         var ttsErrorPanel = new StackPanel {

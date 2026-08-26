@@ -78,14 +78,13 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
         DockPanel.SetDock(clearButton, Dock.Right);
         header.Children.Add(clearButton);
 
-        var copyButton = new Button
+        var copyButton = new CopyButton
         {
-            Content  = "Copy",
+            CopyTooltip = "Copy to clipboard",
             MinWidth = 76,
             Height   = 30,
             Margin   = new Thickness(0, 0, 8, 0),
         };
-        copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         WindowChrome.SetIsHitTestVisibleInChrome(copyButton, true);
         copyButton.Click += (_, _) =>
         {

@@ -166,7 +166,13 @@ internal sealed class ModelProviderProbeWindow : ChromedWindow {
         DockPanel.SetDock(_useButton, Dock.Right);
         footer.Children.Add(_useButton);
 
-        _copyAllButton = MakeButton("Copy All Details", 140);
+        _copyAllButton = new CopyButton {
+            CopyTooltip = "Copy to clipboard",
+            Width = 140,
+            Height = 30,
+            Padding = new Thickness(10, 4, 10, 4),
+        };
+        _copyAllButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         _copyAllButton.IsEnabled = _models.Count > 0;
         _copyAllButton.Margin = new Thickness(0, 0, 8, 0);
         _copyAllButton.Click += (_, _) => CopyAllDetails();
@@ -1116,7 +1122,13 @@ internal sealed class ModelProviderProbeNoteWindow : ChromedWindow {
         DockPanel.SetDock(closeButton, Dock.Right);
         footer.Children.Add(closeButton);
 
-        var copyButton = MakeButton("Copy", 86);
+        var copyButton = new CopyButton {
+            CopyTooltip = "Copy to clipboard",
+            Width = 86,
+            Height = 30,
+            Padding = new Thickness(10, 4, 10, 4),
+        };
+        copyButton.SetResourceReference(Button.StyleProperty, "ThemedButtonStyle");
         copyButton.Margin = new Thickness(0, 0, 8, 0);
         copyButton.Click += (_, _) => CopyNote();
         DockPanel.SetDock(copyButton, Dock.Right);

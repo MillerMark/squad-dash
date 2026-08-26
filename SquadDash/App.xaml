@@ -6,13 +6,14 @@
              xmlns:local="clr-namespace:SquadDash">
     <Application.Resources>
         <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Themes/Light.xaml" />
-                <ResourceDictionary Source="Themes/ToolIcons.xaml" />
-                <ResourceDictionary Source="Themes/ValidationShields.xaml" />
-                <ResourceDictionary Source="Themes/TaskStatusIcons.xaml" />
-                <ResourceDictionary Source="Themes/ImageEditorIcons.xaml" />
-            </ResourceDictionary.MergedDictionaries>
+             <ResourceDictionary.MergedDictionaries>
+                 <ResourceDictionary Source="Themes/Light.xaml" />
+                 <ResourceDictionary Source="Themes/ToolIcons.xaml" />
+                 <ResourceDictionary Source="Themes/CopyIcons.xaml" />
+                 <ResourceDictionary Source="Themes/ValidationShields.xaml" />
+                 <ResourceDictionary Source="Themes/TaskStatusIcons.xaml" />
+                 <ResourceDictionary Source="Themes/ImageEditorIcons.xaml" />
+             </ResourceDictionary.MergedDictionaries>
 
             <!-- Transcript selection dimmed at 50% opacity when context menu is open (focus leaves RTB) -->
             <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"
@@ -261,6 +262,13 @@
                         </ControlTemplate>
                     </Setter.Value>
                 </Setter>
+            </Style>
+
+            <Style TargetType="{x:Type local:CopyButton}" BasedOn="{StaticResource TranscriptInlineButtonStyle}">
+                <Setter Property="Width" Value="26"/>
+                <Setter Property="Height" Value="22"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Margin" Value="4,2,4,2"/>
             </Style>
 
             <!-- Transcript action button (agent launch / report viewer).

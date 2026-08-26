@@ -166,14 +166,12 @@ internal sealed class QueueItemDeleteConfirmWindow : Window {
         buttonRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         body.Children.Add(buttonRow);
 
-        var copyBtn = new Button
+        var copyBtn = new CopyButton
         {
-            Content = "Copy",
+            CopyTooltip = "Copy to clipboard",
             Height  = 30,
             Padding = new Thickness(12, 0, 12, 0),
-            ToolTip = "Copy full prompt text to clipboard",
         };
-        copyBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         copyBtn.Click += (_, _) =>
         {
             if (!string.IsNullOrEmpty(_fullText))

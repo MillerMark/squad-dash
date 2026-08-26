@@ -1208,14 +1208,12 @@ internal sealed class ClipboardImageEditorWindow : ChromedWindow {
         string copyTooltip = _sel.IsEmpty
             ? "Copy annotated image to clipboard"
             : "Copy cropped region to clipboard";
-        var copyBtn = new Button {
-            Content = "Copy",
+        var copyBtn = new CopyButton {
+            CopyTooltip = copyTooltip,
             Width = 60,
             Height = 28,
             Margin = new Thickness(0, 0, 4, 0),
-            ToolTip = copyTooltip
         };
-        copyBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         copyBtn.Click += (_, _) => DoCopyToClipboard();
 
         _zoomLabel = new TextBlock {
