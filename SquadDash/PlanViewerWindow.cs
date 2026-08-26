@@ -67,6 +67,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Dictionary<string, double>>? _saveLayoutNudges;
     private readonly Action<Plan, string>? _onRetryValidation;
     private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
+    private readonly Func<IReadOnlyList<RosterAgent>>? _getAssignableAgents;
     private PttTextBoxAttachment? _pttAttachment;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
@@ -219,7 +220,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<PlanVisualizerReviewPayload?>? saveReviewState = null,
         Action<Dictionary<string, double>>? saveLayoutNudges = null,
         Action<Plan, string>? onRetryValidation = null,
-        Func<ApplicationSettingsSnapshot>? getSettings = null)
+        Func<ApplicationSettingsSnapshot>? getSettings = null,
+        Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -270,6 +272,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _saveLayoutNudges = saveLayoutNudges;
         _onRetryValidation = onRetryValidation;
         _getSettings = getSettings;
+        _getAssignableAgents = getAssignableAgents;
         if (_getSettings is not null)
             _pttAttachment = new PttTextBoxAttachment(_getSettings, this, Dispatcher);
         if (saveDefinitionEdit is not null)
@@ -2961,6 +2964,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 {
                     var definitionEditable = IsTaskDefinitionEditable(capturedTask.Id);
                     contextMenu.Items.Add(CreateThemedMenuSeparator());
+                    var assignToSubmenu1 = CreateAssignToSubmenu(capturedTask.Id);
+                    if (assignToSubmenu1 is not null)
+                    {
+                        contextMenu.Items.Add(assignToSubmenu1);
+                        contextMenu.Items.Add(CreateThemedMenuSeparator());
+                    }
                     var dependsOnSubmenu1 = CreateDependsOnSubmenu(capturedTask.Id, group, levels, positions);
                     if (dependsOnSubmenu1 is not null)
                     {
@@ -3054,6 +3063,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 insertAfter.IsEnabled = definitionEditable;
                 contextMenu.Items.Add(insertAfter);
                 contextMenu.Items.Add(CreateThemedMenuSeparator());
+                var assignToSubmenu2 = CreateAssignToSubmenu(capturedTaskId);
+                if (assignToSubmenu2 is not null)
+                {
+                    contextMenu.Items.Add(assignToSubmenu2);
+                    contextMenu.Items.Add(CreateThemedMenuSeparator());
+                }
                 var dependsOnSubmenu2 = CreateDependsOnSubmenu(capturedTaskId, group, levels, positions);
                 if (dependsOnSubmenu2 is not null)
                 {
@@ -4322,6 +4337,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 _selectedElement = null;
             }
 
+            // The graph rebuild is intentionally deferred until the current WPF input event
+            // completes. Refresh the inspector now so an inserted-and-selected step never leaves
+            // the still-visible toolbar targeting the whole plan during that dispatcher gap.
+            RefreshDetailPanel();
             RebuildPreservingScroll(saved, _durablePlan);
             Title = $"Plan — {_durablePlan?.DisplayName ?? saved.Group.GroupTitle}";
             return true;
@@ -4595,6 +4614,56 @@ internal sealed class PlanViewerWindow : ChromedWindow
             submenu.Items.Add(item);
         }
 
+        return submenu;
+    }
+
+    private MenuItem? CreateAssignToSubmenu(string taskId)
+    {
+        if (_saveDefinitionEdit is null || _plan is null || _getAssignableAgents is null)
+            return null;
+
+        var task = _plan.Group.Tasks.FirstOrDefault(candidate => candidate.Id == taskId);
+        if (task is null) return null;
+        var agents = _getAssignableAgents()
+            .Where(agent => agent.IsActive)
+            .OrderBy(agent => agent.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var definitionEditable = IsTaskDefinitionEditable(taskId);
+        var submenu = CreateThemedMenuItem("Assign to", definitionEditable && agents.Length > 0);
+        if (agents.Length == 0)
+        {
+            submenu.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                "No active agents are available in this workspace roster.");
+            return submenu;
+        }
+
+        var assignedHandles = (task.AgentAssignments ?? [])
+            .Select(assignment => assignment.AgentHandle)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var agent in agents)
+        {
+            var capturedAgent = agent;
+            var wasAssigned = assignedHandles.Contains(capturedAgent.Handle);
+            var item = CreateThemedMenuItem(capturedAgent.Name, definitionEditable);
+            item.IsCheckable = true;
+            item.IsChecked = wasAssigned;
+            item.ToolTip = ToolTipHelper.MakeThemedToolTip($"Assign this step to {capturedAgent.Handle}.");
+            item.Click += (_, _) =>
+            {
+                if (_plan is null || !IsTaskDefinitionEditable(taskId)) return;
+                if (wasAssigned)
+                {
+                    item.IsChecked = true;
+                    return;
+                }
+
+                ApplyStagedMutation(
+                    StagedPlanEditor.AssignTaskToAgent(_plan.Group, taskId, capturedAgent.Handle),
+                    selectKind: "task",
+                    selectId: taskId);
+            };
+            submenu.Items.Add(item);
+        }
         return submenu;
     }
 
@@ -6394,7 +6463,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (CanEditSelectedElement())
         {
-            AddButton(_isInspectorEditing ? "Cancel edit" : "Edit", () =>
+            var editLabel = _selectedElement?.Kind switch
+            {
+                null => "Edit Plan Details",
+                "task" => "Edit Task",
+                "validation" => "Edit Validation",
+                "gate" or "humanapproval" => "Edit Approval",
+                _ => "Edit",
+            };
+            AddButton(_isInspectorEditing ? "Cancel edit" : editLabel, () =>
             {
                 _isInspectorEditing = !_isInspectorEditing;
                 RefreshDetailPanel();

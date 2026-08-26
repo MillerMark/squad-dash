@@ -185,6 +185,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             CopyTooltip = "Copy markdown",
             Margin = new Thickness(0, 0, 8, 0)
         };
+        _copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
         _copyButton.Click += CopyButton_Click;
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(_copyButton, true);
         actionPanel.Children.Add(_copyButton);

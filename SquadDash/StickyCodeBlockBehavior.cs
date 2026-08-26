@@ -133,7 +133,7 @@ internal static class StickyCodeBlockBehavior
             desiredViewportY = Math.Max(desiredViewportY, minViewportY);
             desiredViewportY = Math.Min(desiredViewportY, maxViewportY);
 
-            _translateTransform.Y = desiredViewportY - containerBounds.Top;
+            _translateTransform.Y = desiredViewportY;
         }
 
         private static ScrollViewer? FindAncestorScrollViewer(DependencyObject start)

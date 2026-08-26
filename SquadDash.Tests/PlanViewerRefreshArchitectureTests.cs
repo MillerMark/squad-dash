@@ -41,7 +41,10 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 .And.Contain("private bool PopulateValidationEditor")
                 .And.Contain("private bool PopulateGateEditor"));
             Assert.That(source, Does.Contain("new BlockUIContainer(panel)")
-                .And.Contain("AddButton(_isInspectorEditing ? \"Cancel edit\" : \"Edit\""),
+                .And.Contain("null => \"Edit Plan Details\"")
+                .And.Contain("\"task\" => \"Edit Task\"")
+                .And.Contain("\"validation\" => \"Edit Validation\"")
+                .And.Contain("\"gate\" or \"humanapproval\" => \"Edit Approval\""),
                 "Editors must be hosted by the existing inspector and stay read-only until Edit.");
             Assert.That(source, Does.Contain("Header = \"Add validation after this step\"")
                 .And.Contain("Header = \"Delete step\"")
@@ -55,6 +58,31 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 .And.Contain("ApplyActiveReviewChange"));
             Assert.That(source, Does.Not.Contain("new PlanEditorWindow")
                 .And.Not.Contain("new PlanReviewWindow"));
+        });
+    }
+
+    [Test]
+    public void InsertAndAssignmentInteractions_UpdateTheVisiblePlanImmediately()
+    {
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var editor = File.ReadAllText(FindRepoFile("SquadDash", "StagedPlanEditor.cs"));
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer, Does.Contain("RefreshDetailPanel();\n            RebuildPreservingScroll(saved, _durablePlan);")
+                .Or.Contain("RefreshDetailPanel();\r\n            RebuildPreservingScroll(saved, _durablePlan);"),
+                "The selected inserted step must reach the inspector before the deferred graph rebuild.");
+            Assert.That(viewer, Does.Contain("CreateAssignToSubmenu")
+                .And.Contain("CreateThemedMenuItem(\"Assign to\""),
+                "Editable task menus must enumerate the active workspace roster.");
+            Assert.That(main, Does.Contain("getAssignableAgents: GetAssignablePlanAgentsForViewer")
+                .And.Contain("PlanStepAgentResolver.ParseTeamMd("),
+                "The viewer must receive the active workspace roster rather than infer agents from existing tasks.");
+            Assert.That(editor, Does.Contain("AssignTaskToAgent")
+                .And.Contain("AgentRoutingMode = \"assigned\"")
+                .And.Contain("GenericAgentReason = null"),
+                "Reassignment must persist an executable named-agent contract.");
         });
     }
 

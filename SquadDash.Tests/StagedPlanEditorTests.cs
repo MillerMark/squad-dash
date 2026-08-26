@@ -114,6 +114,54 @@ internal sealed class StagedPlanEditorTests
     }
 
     [Test]
+    public void AssignTaskToAgent_ReplacesPrimaryAndPreservesTheWorkRole()
+    {
+        var original = MakeGroup();
+        original = StagedPlanEditor.UpdateTaskAdvanced(
+            original,
+            Id(2),
+            [new DecomposedAgentAssignment("arjun-sen", "Build the backend contract", false)],
+            "assigned",
+            true,
+            null,
+            "implementation");
+
+        var updated = StagedPlanEditor.AssignTaskToAgent(original, Id(2), "lyra-morn");
+        var assignment = updated.Tasks.Single(task => task.Id == Id(2)).AgentAssignments!.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(assignment.AgentHandle, Is.EqualTo("lyra-morn"));
+            Assert.That(assignment.Role, Is.EqualTo("Build the backend contract"));
+            Assert.That(assignment.AllowGenericChildren, Is.False);
+            Assert.That(updated.Tasks.Single(task => task.Id == Id(2)).AgentRoutingMode, Is.EqualTo("assigned"));
+            Assert.That(updated.Tasks.Single(task => task.Id == Id(1)),
+                Is.EqualTo(original.Tasks.Single(task => task.Id == Id(1))));
+        });
+    }
+
+    [Test]
+    public void AssignTaskToAgent_ConvertsInsertedGenericTaskToAssignedRouting()
+    {
+        var inserted = StagedPlanEditor.InsertTask(MakeGroup(), Id(2), before: false);
+        var insertedId = Id(4);
+
+        var updated = StagedPlanEditor.AssignTaskToAgent(inserted, insertedId, "lyra-morn");
+        var task = updated.Tasks.Single(candidate => candidate.Id == insertedId);
+        var assignment = task.AgentAssignments!.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(assignment.AgentHandle, Is.EqualTo("lyra-morn"));
+            Assert.That(assignment.Role,
+                Is.EqualTo("Primary implementation owner for this plan step."));
+            Assert.That(assignment.AllowGenericChildren, Is.True);
+            Assert.That(task.AgentRoutingMode, Is.EqualTo("assigned"));
+            Assert.That(task.GenericAgentReason, Is.Null);
+        });
+    }
+
+    [Test]
     public void UpdateValidationAndGate_ChangeEveryInspectorProperty()
     {
         var group = MakeGroup() with

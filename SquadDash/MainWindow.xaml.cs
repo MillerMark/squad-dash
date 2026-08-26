@@ -12643,7 +12643,8 @@ public partial class MainWindow : Window
             saveLayoutNudges: saveLayoutNudges,
             onRetryValidation: (current, validationId) =>
                 _ = RetryFailedPlanValidationAsync(current.PlanId, validationId),
-            getSettings: () => _settingsSnapshot)
+            getSettings: () => _settingsSnapshot,
+            getAssignableAgents: GetAssignablePlanAgentsForViewer)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -12709,6 +12710,18 @@ public partial class MainWindow : Window
         }
         if (card is null) return null;
         return (card.AgentImageSource, card.Initial, card.EffectiveAccentBrush);
+    }
+
+    private IReadOnlyList<RosterAgent> GetAssignablePlanAgentsForViewer()
+    {
+        if (_currentWorkspace is null) return [];
+        var teamPath = Path.Combine(_currentWorkspace.SquadFolderPath, "team.md");
+        var roster = PlanStepAgentResolver.ParseTeamMd(
+            File.Exists(teamPath) ? File.ReadAllText(teamPath) : string.Empty);
+        return roster
+            .Where(agent => agent.IsActive)
+            .OrderBy(agent => agent.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private void CaptureExecutingPlanStepResult(string? rawResponse)
