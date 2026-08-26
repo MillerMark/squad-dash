@@ -2,6 +2,7 @@ using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Threading;
 
 namespace SquadDash;
@@ -54,6 +55,10 @@ public class CopyButton : Button
 
     public CopyButton()
     {
+        // Keep icon-only copy actions tied to the application's live font scale even
+        // when a caller replaces the implicit CopyButton style with a keyed style.
+        SetResourceReference(FontSizeProperty, "FontSizeNormal");
+
         var popupText = new TextBlock
         {
             Text = "Copied."
@@ -139,6 +144,15 @@ public class CopyButton : Button
 
         var resourceKey = IsCopied ? "CopiedFeedback" : "CopyButton";
         var icon = TryFindResource(resourceKey) ?? Application.Current.TryFindResource(resourceKey);
+        if (icon is FrameworkElement iconElement)
+        {
+            var fontSizeBinding = new Binding(nameof(FontSize)) { Source = this };
+            BindingOperations.SetBinding(iconElement, FrameworkElement.WidthProperty, fontSizeBinding);
+            BindingOperations.SetBinding(
+                iconElement,
+                FrameworkElement.HeightProperty,
+                new Binding(nameof(FontSize)) { Source = this });
+        }
         Content = icon ?? (IsCopied ? "✔" : "⧉");
     }
 }

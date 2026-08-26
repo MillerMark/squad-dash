@@ -1,9 +1,17 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
+/// <summary>
+/// Hosts a code block action in the window's adorner layer rather than inside the
+/// FlowDocument. The action follows the visible top-right corner of the code block,
+/// so FlowDocument clipping and a code TextBox's horizontal scrolling cannot move it.
+/// </summary>
 internal static class StickyCodeBlockBehavior
 {
     private static readonly DependencyProperty StateProperty =
@@ -21,18 +29,63 @@ internal static class StickyCodeBlockBehavior
         codeBlockContainer.SetValue(StateProperty, new StickyCodeBlockState(codeBlockContainer, stickyButton));
     }
 
+    internal readonly record struct StickyLayout(bool IsVisible, Rect ButtonBounds, Rect ClipBounds);
+
+    /// <summary>
+    /// Calculates the action bounds in the same coordinate space as the code block and
+    /// viewport. Keeping this math independent from WPF layout makes the scroll-edge
+    /// behavior deterministic and unit-testable.
+    /// </summary>
+    internal static StickyLayout CalculateLayout(
+        Rect codeBlockBounds,
+        Rect viewportBounds,
+        Size buttonSize,
+        Thickness inset)
+    {
+        var visibleBounds = Rect.Intersect(codeBlockBounds, viewportBounds);
+        if (visibleBounds.IsEmpty || visibleBounds.Width <= 0 || visibleBounds.Height <= 0 ||
+            buttonSize.Width <= 0 || buttonSize.Height <= 0)
+        {
+            return new StickyLayout(false, Rect.Empty, Rect.Empty);
+        }
+
+        // Anchor to the visible right edge, not the code TextBox's horizontally-scrolled
+        // content. Near an edge the viewport clip progressively hides the action instead
+        // of allowing it to escape the code block.
+        var x = Math.Min(
+            visibleBounds.Right - inset.Right - buttonSize.Width,
+            codeBlockBounds.Right - inset.Right - buttonSize.Width);
+        x = Math.Max(x, codeBlockBounds.Left + inset.Left);
+
+        var preferredY = Math.Max(
+            codeBlockBounds.Top + inset.Top,
+            viewportBounds.Top + inset.Top);
+        var lastContainedY = codeBlockBounds.Bottom - inset.Bottom - buttonSize.Height;
+        var y = Math.Min(preferredY, lastContainedY);
+
+        return new StickyLayout(
+            true,
+            new Rect(new Point(x, y), buttonSize),
+            visibleBounds);
+    }
+
     private sealed class StickyCodeBlockState
     {
         private readonly FrameworkElement _container;
         private readonly FrameworkElement _button;
-        private readonly TranslateTransform _translateTransform = new();
+        private readonly Thickness _inset;
         private ScrollViewer? _scrollViewer;
+        private FrameworkElement? _viewport;
+        private AdornerLayer? _adornerLayer;
+        private StickyCodeButtonAdorner? _adorner;
 
         internal StickyCodeBlockState(FrameworkElement container, FrameworkElement button)
         {
             _container = container;
             _button = button;
-            _button.RenderTransform = _translateTransform;
+            _inset = button.Margin;
+            _button.Margin = new Thickness(0);
+
             _container.Loaded += OnLoaded;
             _container.Unloaded += OnUnloaded;
             _container.SizeChanged += OnLayoutChanged;
@@ -42,112 +95,198 @@ internal static class StickyCodeBlockBehavior
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             BindToAncestorScrollViewer();
-            UpdatePosition();
+
+            // BlockUIContainer.Loaded can precede the final adorner layer and button
+            // measure pass. Deferring one dispatcher turn makes attachment reliable.
+            _container.Dispatcher.BeginInvoke(
+                DispatcherPriority.Loaded,
+                new Action(() =>
+                {
+                    if (!_container.IsLoaded)
+                        return;
+
+                    TryAttachAdorner();
+                    RefreshPosition();
+                }));
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
-            if (_scrollViewer is not null)
-            {
-                _scrollViewer.ScrollChanged -= OnScrollChanged;
-                _scrollViewer.SizeChanged -= OnLayoutChanged;
-            }
+            UnbindFromScrollViewer();
+            RemoveAdorner();
         }
 
-        private void OnScrollChanged(object? sender, ScrollChangedEventArgs e) => UpdatePosition();
+        private void OnScrollChanged(object? sender, ScrollChangedEventArgs e) => RefreshPosition();
 
-        private void OnLayoutChanged(object? sender, EventArgs e) => UpdatePosition();
+        private void OnLayoutChanged(object? sender, EventArgs e) => RefreshPosition();
+
+        private void TryAttachAdorner()
+        {
+            if (_adorner is not null)
+                return;
+
+            var layer = AdornerLayer.GetAdornerLayer(_container);
+            if (layer is null)
+                return;
+
+            _adorner = new StickyCodeButtonAdorner(_container, _button, ResolveViewport, _inset);
+            _adornerLayer = layer;
+            layer.Add(_adorner);
+        }
+
+        private void RemoveAdorner()
+        {
+            if (_adornerLayer is not null && _adorner is not null)
+            {
+                try { _adornerLayer.Remove(_adorner); }
+                catch (InvalidOperationException) { }
+            }
+
+            _adorner = null;
+            _adornerLayer = null;
+        }
+
+        private void RefreshPosition()
+        {
+            if (!_container.IsLoaded)
+                return;
+
+            BindToAncestorScrollViewer();
+            TryAttachAdorner();
+            _adorner?.InvalidateMeasure();
+            _adorner?.InvalidateArrange();
+            _adornerLayer?.Update(_container);
+        }
+
+        private FrameworkElement? ResolveViewport() => _viewport ?? _scrollViewer;
 
         private void BindToAncestorScrollViewer()
         {
-            var scrollViewer = FindAncestorScrollViewer(_container);
-            if (ReferenceEquals(scrollViewer, _scrollViewer))
+            var (scrollViewer, viewport) = FindAncestorScrollViewer(_container);
+            if (ReferenceEquals(scrollViewer, _scrollViewer) && ReferenceEquals(viewport, _viewport))
                 return;
 
-            if (_scrollViewer is not null)
-            {
-                _scrollViewer.ScrollChanged -= OnScrollChanged;
-                _scrollViewer.SizeChanged -= OnLayoutChanged;
-            }
-
+            UnbindFromScrollViewer();
             _scrollViewer = scrollViewer;
+            _viewport = viewport;
             if (_scrollViewer is not null)
             {
                 _scrollViewer.ScrollChanged += OnScrollChanged;
                 _scrollViewer.SizeChanged += OnLayoutChanged;
             }
+            if (_viewport is not null && !ReferenceEquals(_viewport, _scrollViewer))
+                _viewport.SizeChanged += OnLayoutChanged;
         }
 
-        private void UpdatePosition()
+        private void UnbindFromScrollViewer()
         {
-            if (!_container.IsLoaded || _button.ActualHeight <= 0)
-                return;
-
-            BindToAncestorScrollViewer();
-            if (_scrollViewer is null)
+            if (_scrollViewer is not null)
             {
-                _button.Visibility = Visibility.Visible;
-                _translateTransform.Y = 0;
-                return;
+                _scrollViewer.ScrollChanged -= OnScrollChanged;
+                _scrollViewer.SizeChanged -= OnLayoutChanged;
             }
+            if (_viewport is not null && !ReferenceEquals(_viewport, _scrollViewer))
+                _viewport.SizeChanged -= OnLayoutChanged;
 
-            var hostWindow = Window.GetWindow(_container);
-            if (hostWindow is null)
-            {
-                _button.Visibility = Visibility.Visible;
-                _translateTransform.Y = 0;
-                return;
-            }
-
-            Rect containerBounds;
-            Rect viewportBounds;
-            try
-            {
-                containerBounds = _container.TransformToAncestor(hostWindow)
-                    .TransformBounds(new Rect(0, 0, _container.ActualWidth, _container.ActualHeight));
-                viewportBounds = _scrollViewer.TransformToAncestor(hostWindow)
-                    .TransformBounds(new Rect(0, 0, _scrollViewer.ActualWidth, _scrollViewer.ActualHeight));
-            }
-            catch (InvalidOperationException)
-            {
-                _button.Visibility = Visibility.Visible;
-                _translateTransform.Y = 0;
-                return;
-            }
-
-            if (containerBounds.Bottom <= viewportBounds.Top || containerBounds.Top >= viewportBounds.Bottom)
-            {
-                _button.Visibility = Visibility.Collapsed;
-                return;
-            }
-
-            _button.Visibility = Visibility.Visible;
-
-            var buttonHeight = _button.ActualHeight;
-            var minViewportY = viewportBounds.Top - containerBounds.Top;
-            var maxViewportY = viewportBounds.Bottom - containerBounds.Top - buttonHeight;
-            if (maxViewportY < minViewportY)
-                maxViewportY = minViewportY;
-
-            var desiredViewportY = 0.0;
-            desiredViewportY = Math.Max(desiredViewportY, minViewportY);
-            desiredViewportY = Math.Min(desiredViewportY, maxViewportY);
-
-            _translateTransform.Y = desiredViewportY;
+            _scrollViewer = null;
+            _viewport = null;
         }
 
-        private static ScrollViewer? FindAncestorScrollViewer(DependencyObject start)
+        private static (ScrollViewer? ScrollViewer, FrameworkElement? Viewport)
+            FindAncestorScrollViewer(DependencyObject start)
         {
+            FrameworkElement? viewport = null;
             DependencyObject? current = start;
             while (current is not null)
             {
+                if (current is ScrollContentPresenter presenter)
+                    viewport ??= presenter;
+
                 if (current is ScrollViewer scrollViewer)
-                    return scrollViewer;
+                    return (scrollViewer, viewport ?? scrollViewer);
 
                 current = VisualTreeHelper.GetParent(current);
             }
 
-            return null;
+            return (null, null);
+        }
+    }
+
+    private sealed class StickyCodeButtonAdorner : Adorner
+    {
+        private readonly FrameworkElement _button;
+        private readonly Func<FrameworkElement?> _resolveViewport;
+        private readonly Thickness _inset;
+        private readonly VisualCollection _visuals;
+
+        internal StickyCodeButtonAdorner(
+            FrameworkElement adornedElement,
+            FrameworkElement button,
+            Func<FrameworkElement?> resolveViewport,
+            Thickness inset)
+            : base(adornedElement)
+        {
+            _button = button;
+            _resolveViewport = resolveViewport;
+            _inset = inset;
+            _visuals = new VisualCollection(this) { _button };
+        }
+
+        protected override int VisualChildrenCount => _visuals.Count;
+
+        protected override Visual GetVisualChild(int index) => _visuals[index];
+
+        // Only the child button should receive input; the transparent remainder of the
+        // adorner must not interfere with code selection or the TextBox scrollbar.
+        protected override HitTestResult? HitTestCore(PointHitTestParameters hitTestParameters) => null;
+
+        protected override Size MeasureOverride(Size constraint)
+        {
+            _button.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            return AdornedElement.RenderSize;
+        }
+
+        protected override Size ArrangeOverride(Size finalSize)
+        {
+            var viewport = _resolveViewport();
+            if (viewport is null || !viewport.IsVisible || finalSize.Width <= 0 || finalSize.Height <= 0)
+            {
+                HideButton();
+                return finalSize;
+            }
+
+            try
+            {
+                var viewportBounds = viewport.TransformToVisual(AdornedElement)
+                    .TransformBounds(new Rect(new Point(0, 0), viewport.RenderSize));
+                var layout = CalculateLayout(
+                    new Rect(new Point(0, 0), finalSize),
+                    viewportBounds,
+                    _button.DesiredSize,
+                    _inset);
+
+                if (!layout.IsVisible)
+                {
+                    HideButton();
+                    return finalSize;
+                }
+
+                _button.Visibility = Visibility.Visible;
+                Clip = new RectangleGeometry(layout.ClipBounds);
+                _button.Arrange(layout.ButtonBounds);
+            }
+            catch (InvalidOperationException)
+            {
+                HideButton();
+            }
+
+            return finalSize;
+        }
+
+        private void HideButton()
+        {
+            _button.Visibility = Visibility.Collapsed;
+            Clip = null;
         }
     }
 }

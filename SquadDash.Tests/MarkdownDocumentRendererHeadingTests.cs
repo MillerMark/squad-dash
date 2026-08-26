@@ -108,8 +108,8 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
 
     private static TextBox FindCodeTextBox(Block block) {
         var container = (BlockUIContainer)block;
-        var stack = (StackPanel)container.Child;
-        return stack.Children.OfType<TextBox>().Single();
+        var panel = (Panel)container.Child;
+        return panel.Children.OfType<TextBox>().Single();
     }
 
     // ── Commit hash in heading ────────────────────────────────────────────

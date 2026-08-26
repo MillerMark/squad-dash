@@ -186,6 +186,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             Margin = new Thickness(0, 0, 8, 0)
         };
         _copyButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _copyButton.SetResourceReference(TextElement.FontSizeProperty, "FontSizeNormal");
         _copyButton.Click += CopyButton_Click;
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(_copyButton, true);
         actionPanel.Children.Add(_copyButton);

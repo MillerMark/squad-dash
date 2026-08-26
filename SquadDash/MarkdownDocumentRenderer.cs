@@ -461,8 +461,6 @@ internal sealed class MarkdownDocumentRenderer {
 
         var container = new Grid();
         container.Children.Add(textBox);
-        container.Children.Add(copyBtn);
-        Panel.SetZIndex(copyBtn, 1);
         StickyCodeBlockBehavior.Attach(container, copyBtn);
 
         return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
