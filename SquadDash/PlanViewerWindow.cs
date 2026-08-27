@@ -8811,9 +8811,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         PlanTask? currentVerifyingTask = null;
         var hasActiveVerifyingTask = false;
+        var activeValidation = isVerityCross
+            ? _durablePlan?.Validations?.FirstOrDefault(v =>
+                string.Equals(v.Status, PlanValidationStatus.Validating, StringComparison.Ordinal))
+            : null;
 
         // Agent name heading (below image)
-        var titleText = isVerityCross && hasActiveVerifyingTask
+        var titleText = isVerityCross && (hasActiveVerifyingTask || activeValidation is not null)
             ? HumanizeAgentHandle(agentHandle)
             : agentHandle;
         var titlePara = new Paragraph(new Run(titleText) { FontWeight = FontWeights.Bold });
@@ -8965,6 +8969,48 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 historyPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 historyPara.Margin = new Thickness(0, 0, 0, 8);
                 _detailDocument.Blocks.Add(historyPara);
+            }
+        }
+        else if (isVerityCross && activeValidation is not null)
+        {
+            _detailDocument.Blocks.Remove(titlePara);
+
+            var verityTitlePara = new Paragraph(new Run(HumanizeAgentHandle(agentHandle)) { FontWeight = FontWeights.Bold });
+            verityTitlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            verityTitlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+            verityTitlePara.Margin = new Thickness(0, 0, 0, 8);
+            _detailDocument.Blocks.Add(verityTitlePara);
+
+            AddSectionHeader("Currently validating");
+
+            var validationTitlePara = new Paragraph(new Run(activeValidation.Title) { FontWeight = FontWeights.Bold });
+            validationTitlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            validationTitlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            validationTitlePara.Margin = new Thickness(0, 0, 0, 4);
+            _detailDocument.Blocks.Add(validationTitlePara);
+
+            if (!string.IsNullOrWhiteSpace(activeValidation.Description))
+            {
+                var descriptionPara = new Paragraph(new Run(activeValidation.Description));
+                descriptionPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                descriptionPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                descriptionPara.Margin = new Thickness(0, 0, 0, 6);
+                _detailDocument.Blocks.Add(descriptionPara);
+            }
+
+            if (activeValidation.Assertions is { Count: > 0 } assertions)
+            {
+                AddSectionHeader("What she's checking");
+                var assertionList = new List();
+                assertionList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                assertionList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                assertionList.MarkerStyle = TextMarkerStyle.Disc;
+                assertionList.Margin = new Thickness(0, 0, 0, 12);
+                foreach (var assertion in assertions)
+                {
+                    assertionList.ListItems.Add(new ListItem(new Paragraph(new Run(assertion))));
+                }
+                _detailDocument.Blocks.Add(assertionList);
             }
         }
         else if (!string.IsNullOrWhiteSpace(currentVerifyingTask?.Title ?? currentVerifyingTask?.TaskId))
