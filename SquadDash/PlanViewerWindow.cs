@@ -7402,9 +7402,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             foreach (var assignment in task.AgentAssignments)
             {
                 var agentPara = new Paragraph();
-                var handleRun = new Run(HumanizeAgentHandle(assignment.AgentHandle)) { FontWeight = FontWeights.SemiBold };
-                handleRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
-                agentPara.Inlines.Add(handleRun);
+                agentPara.Inlines.Add(CreateAgentLink(assignment.AgentHandle));
                 agentPara.Inlines.Add(new Run($" — {assignment.Role}"));
                 agentList.ListItems.Add(new ListItem(agentPara));
             }
@@ -7609,6 +7607,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 nodeBorder.Effect = null;
         };
         link.Click += (_, _) => NavigateToTask(taskId);
+        return link;
+    }
+
+    private Hyperlink CreateAgentLink(string agentHandle)
+    {
+        var link = new Hyperlink(new Run(HumanizeAgentHandle(agentHandle)))
+        {
+            Cursor = Cursors.Hand,
+            TextDecorations = new TextDecorationCollection(),
+        };
+        link.SetResourceReference(TextElement.ForegroundProperty, "TaskLinkText");
+        link.Click += (_, _) => SelectElement("agent", agentHandle);
         return link;
     }
 
@@ -8081,8 +8091,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 _detailDocument.Blocks.Add(new BlockUIContainer(chip) { Margin = new Thickness(0, 4, 0, 4) });
             }
 
-            var namePara = new Paragraph(new Run(reviewerDisplayName) { FontWeight = FontWeights.SemiBold });
-            namePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            var namePara = new Paragraph(CreateAgentLink(reviewerHandle));
             namePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             namePara.Margin = new Thickness(0, 0, 0, 2);
             _detailDocument.Blocks.Add(namePara);
