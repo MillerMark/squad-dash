@@ -6341,10 +6341,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var handle = _selectedElement.Id;
             if (_agentChipElements.TryGetValue(handle, out var chips))
             {
+                var avatarInfo = _resolveAgentAvatar?.Invoke(handle);
+                var accentBrush = avatarInfo?.Accent ?? Brushes.Gray;
                 foreach (var chip in chips)
                 {
-                    chip.SetResourceReference(Border.BorderBrushProperty, "ChipSelectedBorder");
-                    chip.BorderThickness = new Thickness(2);
+                    chip.BorderBrush = accentBrush;
+                    chip.BorderThickness = new Thickness(4);
                     _selectedAgentChipBorders.Add(chip);
                 }
             }
