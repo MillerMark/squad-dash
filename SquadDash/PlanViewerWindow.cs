@@ -8858,14 +8858,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 var titleLink = CreateTaskLink(task.Title ?? task.TaskId, task.TaskId);
                 var statusColorKey = GetTaskStatusColorKey(task.Status);
-                var statusRun = new Run($"  ● {FormatTaskStatus(task.Status)}");
-                statusRun.SetResourceReference(TextElement.ForegroundProperty, statusColorKey);
+                var statusText = FormatTaskStatus(task.Status)?.ToLowerInvariant();
                 var roleRun = new Run($"\n{assignment.Role}");
                 roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
 
                 var para = new Paragraph();
                 para.Inlines.Add(titleLink);
-                para.Inlines.Add(statusRun);
+                if (!string.IsNullOrWhiteSpace(statusText))
+                {
+                    var statusRun = new Run($" ({statusText})");
+                    statusRun.SetResourceReference(TextElement.ForegroundProperty, statusColorKey);
+                    para.Inlines.Add(statusRun);
+                }
                 para.Inlines.Add(roleRun);
                 para.Margin = new Thickness(0, 0, 0, 4);
                 taskList.ListItems.Add(new ListItem(para));
