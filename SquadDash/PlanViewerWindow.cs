@@ -170,6 +170,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private (Border border, Thickness original)? _selectionBorderState;
     private TextBlock? _selectedStageTitleBlock; // stage title whose Foreground was overridden on selection
     private FrameworkElement? _selectionGlowElement;
+    private readonly Dictionary<string, List<Border>> _agentChipElements = new(StringComparer.OrdinalIgnoreCase);
+    private List<Border> _selectedAgentChipBorders = [];
     private TaskCardDragState? _taskCardDragState;
     private CommittedColumnReorder? _lastCommittedColumnOrder;
     private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
@@ -1355,6 +1357,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             VerticalAlignment   = VerticalAlignment.Top,
         };
         _graphCanvas = canvas;
+        _agentChipElements.Clear();
         canvas.MouseLeftButtonDown += (_, e) =>
         {
             if (e.OriginalSource == canvas)
@@ -2171,6 +2174,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var verityChip = CreateAgentAvatarChip(verityInfo, chipSize, VerityCrossHandle);
                         verityChip.ToolTip = ToolTipHelper.MakeThemedToolTip("Verity Cross — Fact Checker");
                         verityChip.Tag = $"agent:{VerityCrossHandle}";
+                        if (!_agentChipElements.TryGetValue(VerityCrossHandle, out var chipList))
+                        {
+                            chipList = [];
+                            _agentChipElements[VerityCrossHandle] = chipList;
+                        }
+                        chipList.Add((Border)verityChip);
                         WireSelectionClick(verityChip);
                         var currentShieldWidth = Math.Round(chipSize * 29.0 / 31.0);
                         var chipLeft = left + validationWidth / 2 + currentShieldWidth / 2 + 4 * _scaleFactor;
@@ -3360,6 +3369,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var info = _resolveAgentAvatar!(assignment.AgentHandle);
                     var chip = CreateAgentAvatarChip(info, avatarChipSize, assignment.AgentHandle);
                     chip.Tag = $"agent:{assignment.AgentHandle}";
+                    if (!_agentChipElements.TryGetValue(assignment.AgentHandle, out var chipList))
+                    {
+                        chipList = [];
+                        _agentChipElements[assignment.AgentHandle] = chipList;
+                    }
+                    chipList.Add((Border)chip);
                     WireSelectionClick(chip);
                     chip.ToolTip = ToolTipHelper.MakeThemedToolTip(
                         $"{assignment.AgentHandle} — {assignment.Role}");
@@ -3450,6 +3465,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var verityChip = CreateAgentAvatarChip(verityInfo, chipSize, VerityCrossHandle);
                     verityChip.ToolTip = ToolTipHelper.MakeThemedToolTip("Verity Cross — Fact Checker (verifying)");
                     verityChip.Tag = $"agent:{VerityCrossHandle}";
+                    if (!_agentChipElements.TryGetValue(VerityCrossHandle, out var chipList))
+                    {
+                        chipList = [];
+                        _agentChipElements[VerityCrossHandle] = chipList;
+                    }
+                    chipList.Add((Border)verityChip);
                     WireSelectionClick(verityChip);
                     Canvas.SetLeft(verityChip, position.X + NodeWidth - chipSize - 4 * _scaleFactor);
                     Canvas.SetTop(verityChip, position.Y - chipSize);
@@ -3472,6 +3493,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     coordinatorChip.ToolTip = ToolTipHelper.MakeThemedToolTip(
                         "Squad — Coordinator (assessing completed work)");
                     coordinatorChip.Tag = $"agent:{SquadCoordinatorHandle}";
+                    if (!_agentChipElements.TryGetValue(SquadCoordinatorHandle, out var chipList))
+                    {
+                        chipList = [];
+                        _agentChipElements[SquadCoordinatorHandle] = chipList;
+                    }
+                    chipList.Add((Border)coordinatorChip);
                     WireSelectionClick(coordinatorChip);
                     Canvas.SetLeft(coordinatorChip, position.X + NodeWidth - chipSize - 4 * _scaleFactor);
                     Canvas.SetTop(coordinatorChip, position.Y - chipSize);
@@ -6263,13 +6290,28 @@ internal sealed class PlanViewerWindow : ChromedWindow
         RefreshDetailPanel();
     }
 
-    // Applies selection indicator: border doubling for task/gate, glow-behind for others.
+    // Applies selection indicator: border overlays or chip border accents by selected kind.
     // Always clears previous selection first to ensure single-selection invariant.
     private void ApplySelectionVisual()
     {
         ClearSelectionVisual();
         if (_selectedElement is null || _graphCanvas is null)
             return;
+
+        if (_selectedElement.Kind == "agent")
+        {
+            var handle = _selectedElement.Id;
+            if (_agentChipElements.TryGetValue(handle, out var chips))
+            {
+                foreach (var chip in chips)
+                {
+                    chip.SetResourceReference(Border.BorderBrushProperty, "ChipSelectedBorder");
+                    chip.BorderThickness = new Thickness(2);
+                    _selectedAgentChipBorders.Add(chip);
+                }
+            }
+            return;
+        }
 
         var tag = $"{_selectedElement.Kind}:{_selectedElement.Id}";
         FrameworkElement? target = null;
@@ -6303,6 +6345,69 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var top  = Canvas.GetTop(target);
             Canvas.SetLeft(overlay, double.IsNaN(left) ? left : left - thickness);
             Canvas.SetTop(overlay,  double.IsNaN(top)  ? top  : top  - thickness);
+            Panel.SetZIndex(overlay, Panel.GetZIndex(target) + 1);
+            _graphCanvas.Children.Add(overlay);
+            _selectionGlowElement = overlay;
+        }
+        else if (_selectedElement.Kind == "validation" && target is StackPanel validationPanel)
+        {
+            const double selBorderThickness = 1.5;
+            var overlay = new Border
+            {
+                Width            = (validationPanel.ActualWidth  > 0 ? validationPanel.ActualWidth  : validationPanel.Width)  + 2 * selBorderThickness,
+                Height           = (validationPanel.ActualHeight > 0 ? validationPanel.ActualHeight : validationPanel.Height) + 2 * selBorderThickness,
+                CornerRadius     = new CornerRadius(3),
+                BorderThickness  = new Thickness(selBorderThickness),
+                Background       = Brushes.Transparent,
+                IsHitTestVisible = false,
+            };
+            overlay.SetResourceReference(Border.BorderBrushProperty, "ChipSelectedBorder");
+            var left = Canvas.GetLeft(target);
+            var top  = Canvas.GetTop(target);
+            Canvas.SetLeft(overlay, double.IsNaN(left) ? left : left - selBorderThickness);
+            Canvas.SetTop(overlay,  double.IsNaN(top)  ? top  : top  - selBorderThickness);
+            Panel.SetZIndex(overlay, Panel.GetZIndex(target) + 1);
+            _graphCanvas.Children.Add(overlay);
+            _selectionGlowElement = overlay;
+        }
+        else if (_selectedElement.Kind == "alljoin" && target is Border alljoinBorder)
+        {
+            var thickness = alljoinBorder.BorderThickness.Left;
+            var overlay = new Border
+            {
+                Width            = (alljoinBorder.ActualWidth  > 0 ? alljoinBorder.ActualWidth  : alljoinBorder.Width)  + 2 * thickness,
+                Height           = (alljoinBorder.ActualHeight > 0 ? alljoinBorder.ActualHeight : alljoinBorder.Height) + 2 * thickness,
+                CornerRadius     = alljoinBorder.CornerRadius,
+                BorderThickness  = new Thickness(thickness * 2),
+                Background       = Brushes.Transparent,
+                IsHitTestVisible = false,
+            };
+            overlay.SetResourceReference(Border.BorderBrushProperty, "ChipSelectedBorder");
+            var left = Canvas.GetLeft(target);
+            var top  = Canvas.GetTop(target);
+            Canvas.SetLeft(overlay, double.IsNaN(left) ? left : left - thickness);
+            Canvas.SetTop(overlay,  double.IsNaN(top)  ? top  : top  - thickness);
+            Panel.SetZIndex(overlay, Panel.GetZIndex(target) + 1);
+            _graphCanvas.Children.Add(overlay);
+            _selectionGlowElement = overlay;
+        }
+        else if (_selectedElement.Kind == "milestone" && target is Border milestoneBorder)
+        {
+            const double selThickness = 1.5;
+            var overlay = new Border
+            {
+                Width            = (milestoneBorder.ActualWidth  > 0 ? milestoneBorder.ActualWidth  : milestoneBorder.Width)  + 2 * selThickness,
+                Height           = (milestoneBorder.ActualHeight > 0 ? milestoneBorder.ActualHeight : milestoneBorder.Height) + 2 * selThickness,
+                CornerRadius     = milestoneBorder.CornerRadius,
+                BorderThickness  = new Thickness(selThickness),
+                Background       = Brushes.Transparent,
+                IsHitTestVisible = false,
+            };
+            overlay.SetResourceReference(Border.BorderBrushProperty, "ChipSelectedBorder");
+            var left = Canvas.GetLeft(target);
+            var top  = Canvas.GetTop(target);
+            Canvas.SetLeft(overlay, double.IsNaN(left) ? left : left - selThickness);
+            Canvas.SetTop(overlay,  double.IsNaN(top)  ? top  : top  - selThickness);
             Panel.SetZIndex(overlay, Panel.GetZIndex(target) + 1);
             _graphCanvas.Children.Add(overlay);
             _selectionGlowElement = overlay;
@@ -6341,6 +6446,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
     // Restores previous element to its default visual state.
     private void ClearSelectionVisual()
     {
+        foreach (var chip in _selectedAgentChipBorders)
+        {
+            chip.BorderBrush = Brushes.Gray;
+            chip.BorderThickness = new Thickness(1);
+        }
+        _selectedAgentChipBorders.Clear();
+
         if (_selectionBorderState is var (border, original))
         {
             border.BorderThickness = original;
