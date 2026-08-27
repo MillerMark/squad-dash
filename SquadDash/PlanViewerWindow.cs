@@ -7801,10 +7801,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         // After Task IDs
-        AddTaskIdList("After Steps", validation.AfterTaskIds, plan);
+        AddTaskIdList("Starts After These:", validation.AfterTaskIds, plan);
 
         // Before Task IDs
-        AddTaskIdList("Before Steps", validation.BeforeTaskIds, plan);
+        AddTaskIdList("Starts Before These:", validation.BeforeTaskIds, plan);
     }
 
     private FrameworkElement BuildStandardInlineIcon(double opacity)
@@ -8226,10 +8226,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Add(statusPara);
 
         // After Task IDs
-        AddTaskIdList("After Steps", gate.AfterTaskIds, plan);
+        AddTaskIdList("Starts After These:", gate.AfterTaskIds, plan);
 
         // Before Task IDs
-        AddTaskIdList("Before Steps", gate.BeforeTaskIds, plan);
+        AddTaskIdList("Starts Before These:", gate.BeforeTaskIds, plan);
 
         // Resolution note
         if (!string.IsNullOrWhiteSpace(gate.ResolutionNote))
@@ -8350,10 +8350,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Add(statusPara);
 
         // After Tasks
-        AddTaskIdList("After Steps", gate.AfterTaskIds, _durablePlan);
+        AddTaskIdList("Starts After These:", gate.AfterTaskIds, _durablePlan);
 
         // Before Tasks
-        AddTaskIdList("Before Steps", gate.BeforeTaskIds, _durablePlan);
+        AddTaskIdList("Starts Before These:", gate.BeforeTaskIds, _durablePlan);
 
         // Resolution Note
         if (!string.IsNullOrWhiteSpace(gate.ResolutionNote))
