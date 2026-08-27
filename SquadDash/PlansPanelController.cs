@@ -9,7 +9,6 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
-using System.Windows.Shapes;
 
 /// <summary>Manages content in the inline Plans panel.</summary>
 internal sealed class PlansPanelController
@@ -423,14 +422,11 @@ internal sealed class PlansPanelController
 
         var rowStack = new StackPanel { Orientation = Orientation.Vertical };
 
-        // ── Title row: status icon + title ────────────────────────────────
+        // ── Title row: title only ─────────────────────────────────────────
         var titleRow = new Grid();
-        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         if (isUpdated)
             titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var iconBlock = BuildTitleStatusOrControl(plan);
 
         var titleBlock = new TextBlock
         {
@@ -442,9 +438,7 @@ internal sealed class PlansPanelController
         titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
 
-        Grid.SetColumn(iconBlock, 0);
-        Grid.SetColumn(titleBlock, 1);
-        titleRow.Children.Add(iconBlock);
+        Grid.SetColumn(titleBlock, 0);
         titleRow.Children.Add(titleBlock);
         if (isUpdated)
         {
@@ -457,7 +451,7 @@ internal sealed class PlansPanelController
             };
             updatedBadge.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
             updatedBadge.SetResourceReference(TextBlock.ForegroundProperty, "PriorityMid");
-            Grid.SetColumn(updatedBadge, 2);
+            Grid.SetColumn(updatedBadge, 1);
             titleRow.Children.Add(updatedBadge);
         }
         rowStack.Children.Add(titleRow);
@@ -468,82 +462,96 @@ internal sealed class PlansPanelController
         // ── Progress row (only when plan has tasks) ───────────────────────
         if (plan.Progress.TotalCount > 0)
         {
-            var progressRow = new StackPanel
+            if (plan.LifecycleStatus is PlanLifecycleStatus.Staged or PlanLifecycleStatus.Approved)
             {
-                Orientation = Orientation.Horizontal,
-                Margin      = new Thickness(20, 2, 0, 0),
-            };
-
-            if (PlanTaskActivityResolver.ResolvePlanLevel(plan) == PlanTaskActivityState.Executing &&
-                _isPromptRunning?.Invoke() == true)
-            {
-                var spinnerBlock = new TextBlock
+                var readyBlock = new TextBlock
                 {
-                    Text = UiTimingConstants.ToolSpinnerFrames[0],
-                    Width = 14,
-                    Margin = new Thickness(-20, 0, 6, 0),
+                    Text   = "Ready to start",
+                    Margin = new Thickness(0, 2, 0, 0),
+                };
+                readyBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                readyBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                rowStack.Children.Add(readyBlock);
+            }
+            else
+            {
+                var progressRow = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin      = new Thickness(0, 2, 0, 0),
+                };
+
+                if (PlanTaskActivityResolver.ResolvePlanLevel(plan) == PlanTaskActivityState.Executing &&
+                    _isPromptRunning?.Invoke() == true)
+                {
+                    var spinnerBlock = new TextBlock
+                    {
+                        Text = UiTimingConstants.ToolSpinnerFrames[0],
+                        Width = 14,
+                        Margin = new Thickness(0, 0, 6, 0),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        ToolTip = ToolTipHelper.MakeThemedToolTip("Plan is actively executing"),
+                    };
+                    spinnerBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                    spinnerBlock.SetResourceReference(TextBlock.ForegroundProperty, "PriorityMid");
+                    progressRow.Children.Add(spinnerBlock);
+                    _executingSpinnerBlock = spinnerBlock;
+                }
+
+                var bar = new ProgressBar
+                {
+                    Height  = 3,
+                    Width   = 100,
+                    Minimum = 0,
+                    Maximum = plan.Progress.TotalCount,
+                    Value   = plan.Progress.CompletedCount,
+                };
+                bar.SetResourceReference(ProgressBar.ForegroundProperty, "PriorityMid");
+                bar.SetResourceReference(ProgressBar.BackgroundProperty, "SubtleBorder");
+                bar.SetResourceReference(ProgressBar.BorderBrushProperty, "Transparent");
+
+                var countBlock = new TextBlock
+                {
+                    Text   = BuildProgressCountLabel(plan),
+                    Margin = new Thickness(6, 0, 0, 0),
                     VerticalAlignment = VerticalAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip("Plan is actively executing"),
                 };
-                spinnerBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                spinnerBlock.SetResourceReference(TextBlock.ForegroundProperty, "PriorityMid");
-                progressRow.Children.Add(spinnerBlock);
-                _executingSpinnerBlock = spinnerBlock;
-            }
+                countBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                countBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
-            var bar = new ProgressBar
-            {
-                Height  = 3,
-                Width   = 100,
-                Minimum = 0,
-                Maximum = plan.Progress.TotalCount,
-                Value   = plan.Progress.CompletedCount,
-            };
-            bar.SetResourceReference(ProgressBar.ForegroundProperty, "PriorityMid");
-            bar.SetResourceReference(ProgressBar.BackgroundProperty, "SubtleBorder");
-            bar.SetResourceReference(ProgressBar.BorderBrushProperty, "Transparent");
+                progressRow.Children.Add(bar);
+                progressRow.Children.Add(countBlock);
+                rowStack.Children.Add(progressRow);
 
-            var countBlock = new TextBlock
-            {
-                Text   = BuildProgressCountLabel(plan),
-                Margin = new Thickness(6, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            countBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-            countBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-
-            progressRow.Children.Add(bar);
-            progressRow.Children.Add(countBlock);
-            rowStack.Children.Add(progressRow);
-
-            if (BuildActivityLabel(plan) is { Length: > 0 } activityLabel)
-            {
-                var activityBlock = new TextBlock
+                if (BuildActivityLabel(plan) is { Length: > 0 } activityLabel)
                 {
-                    Text = activityLabel,
-                    Margin = new Thickness(20, 1, 0, 0),
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                };
-                activityBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                activityBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                rowStack.Children.Add(activityBlock);
-            }
+                    var activityBlock = new TextBlock
+                    {
+                        Text = activityLabel,
+                        Margin = new Thickness(0, 1, 0, 0),
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                    };
+                    activityBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                    activityBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                    rowStack.Children.Add(activityBlock);
+                }
 
-            // ── Validation summary row ────────────────────────────────────
-            if (ValidationShieldPresenter.BuildSummaryLabel(
-                    ValidationShieldPresenter.Summarize(plan)) is { } validationLabel)
-            {
-                var summary = ValidationShieldPresenter.Summarize(plan)!;
-                var validationBlock = new TextBlock
+                // ── Validation summary row ────────────────────────────────────
+                if (ValidationShieldPresenter.BuildSummaryLabel(
+                        ValidationShieldPresenter.Summarize(plan)) is { } validationLabel)
                 {
-                    Text = validationLabel,
-                    Margin = new Thickness(20, 1, 0, 0),
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                };
-                validationBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                validationBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-                rowStack.Children.Add(validationBlock);
+                    var summary = ValidationShieldPresenter.Summarize(plan)!;
+                    var validationBlock = new TextBlock
+                    {
+                        Text = validationLabel,
+                        Margin = new Thickness(0, 1, 0, 0),
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                    };
+                    validationBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                    validationBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+                    rowStack.Children.Add(validationBlock);
+                }
             }
         }
 
@@ -864,63 +872,6 @@ internal sealed class PlansPanelController
             : "Executing";
     }
 
-    private FrameworkElement BuildTitleStatusOrControl(Plan plan)
-    {
-        if (plan.LifecycleStatus == PlanLifecycleStatus.Completed)
-        {
-            const double size = 14;
-            const double inset = 3.25;
-            var canvas = new Canvas { Width = size, Height = size };
-
-            var square = new Rectangle
-            {
-                Width = size,
-                Height = size,
-                StrokeThickness = 1.5,
-                Fill = Brushes.Transparent,
-            };
-            square.SetResourceReference(Shape.StrokeProperty, "SubtleBorder");
-            canvas.Children.Add(square);
-
-            var line1 = new Line
-            {
-                X1 = inset, Y1 = inset,
-                X2 = size - inset, Y2 = size - inset,
-                StrokeThickness = 2,
-            };
-            line1.SetResourceReference(Shape.StrokeProperty, "ImportantText");
-            canvas.Children.Add(line1);
-
-            var line2 = new Line
-            {
-                X1 = size - inset, Y1 = inset,
-                X2 = inset, Y2 = size - inset,
-                StrokeThickness = 2,
-            };
-            line2.SetResourceReference(Shape.StrokeProperty, "ImportantText");
-            canvas.Children.Add(line2);
-
-            return new Border
-            {
-                Child = canvas,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 5, 0),
-            };
-        }
-
-        var iconBlock = new TextBlock
-        {
-            Text = StatusIcon(plan.LifecycleStatus),
-            Margin = new Thickness(0, 0, 5, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        };
-        iconBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        iconBlock.SetResourceReference(TextBlock.ForegroundProperty, StatusForegroundKey(plan.LifecycleStatus));
-
-        return iconBlock;
-    }
-
     private static TextBlock BuildTransientStatusBlock(string status)
     {
         var block = new TextBlock
@@ -968,30 +919,4 @@ internal sealed class PlansPanelController
         panel.Children.Add(label);
     }
 
-    private static string StatusIcon(string status) => status switch
-    {
-        PlanLifecycleStatus.Staged           => "📋",
-        PlanLifecycleStatus.Approved         => "✅",
-        PlanLifecycleStatus.Executing        => "⟳",
-        PlanLifecycleStatus.AwaitingApproval => "⏸",
-        PlanLifecycleStatus.Interrupted      => "⚠",
-        PlanLifecycleStatus.Stopped          => "⏹",
-        PlanLifecycleStatus.Completed        => "✓",
-        PlanLifecycleStatus.Archived         => "📁",
-        PlanLifecycleStatus.Blocked          => "✖",
-        PlanLifecycleStatus.WaitingForCleanWorktree => "⏳",
-        _                                    => "•",
-    };
-
-    private static string StatusForegroundKey(string status) => status switch
-    {
-        PlanLifecycleStatus.Executing        => "PriorityMid",
-        PlanLifecycleStatus.Interrupted      => "PriorityHigh",
-        PlanLifecycleStatus.Blocked          => "PriorityHigh",
-        PlanLifecycleStatus.WaitingForCleanWorktree => "PriorityMid",
-        PlanLifecycleStatus.Completed        => "PriorityLow",
-        PlanLifecycleStatus.Archived         => "SubtleText",
-        PlanLifecycleStatus.Stopped          => "SubtleText",
-        _                                    => "LabelText",
-    };
 }
