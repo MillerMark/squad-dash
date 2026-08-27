@@ -8850,7 +8850,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     hasActiveVerifyingTask = isVerifying;
                 }
 
-                var titleRun = new Run(task.Title ?? task.TaskId) { FontWeight = FontWeights.SemiBold };
+                var titleLink = CreateTaskLink(task.Title ?? task.TaskId, task.TaskId);
                 var statusColorKey = GetTaskStatusColorKey(task.Status);
                 var statusRun = new Run($"  ● {FormatTaskStatus(task.Status)}");
                 statusRun.SetResourceReference(TextElement.ForegroundProperty, statusColorKey);
@@ -8858,7 +8858,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
 
                 var para = new Paragraph();
-                para.Inlines.Add(titleRun);
+                para.Inlines.Add(titleLink);
                 para.Inlines.Add(statusRun);
                 para.Inlines.Add(roleRun);
                 para.Margin = new Thickness(0, 0, 0, 4);
@@ -8877,12 +8877,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         string.Equals(a.AgentHandle, agentHandle, StringComparison.OrdinalIgnoreCase));
                     if (assignment is null) continue;
 
-                    var titleRun = new Run(task.Title ?? task.Id) { FontWeight = FontWeights.SemiBold };
+                    var titleLink = CreateTaskLink(task.Title ?? task.Id, task.Id);
                     var roleRun = new Run($"\n{assignment.Role}");
                     roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
 
                     var para = new Paragraph();
-                    para.Inlines.Add(titleRun);
+                    para.Inlines.Add(titleLink);
                     para.Inlines.Add(roleRun);
                     para.Margin = new Thickness(0, 0, 0, 4);
                     taskList.ListItems.Add(new ListItem(para));
