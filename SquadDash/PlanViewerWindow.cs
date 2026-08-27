@@ -6295,10 +6295,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Height           = (border.ActualHeight > 0 ? border.ActualHeight : border.Height) + 2 * thickness,
                 CornerRadius     = border.CornerRadius,
                 BorderThickness  = new Thickness(thickness * 2),
-                BorderBrush      = border.BorderBrush,
                 Background       = Brushes.Transparent,
                 IsHitTestVisible = false,
             };
+            overlay.SetResourceReference(Border.BorderBrushProperty, "ChipSelectedBorder");
             var left = Canvas.GetLeft(target);
             var top  = Canvas.GetTop(target);
             Canvas.SetLeft(overlay, double.IsNaN(left) ? left : left - thickness);
