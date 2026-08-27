@@ -7329,9 +7329,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         titlePara.Margin = new Thickness(0, 0, 0, 4);
         _detailDocument.Blocks.Add(titlePara);
 
-        // 2. Status with color-coded indicator
-        var statusColorKey = GetTaskStatusColorKey(task.Status);
-        var statusRun = new Run($"● {FormatTaskStatus(task.Status)}");
+        // 2. Status: lowercase in parentheses, no icon; active = ImportantText, others = SubtleText
+        var statusColorKey = (string.Equals(task.Status, PlanTaskStatus.Executing, StringComparison.Ordinal)
+            || PlanTaskStatus.IsVerifying(task.Status)) ? "ImportantText" : "SubtleText";
+        var statusRun = new Run($"({FormatTaskStatus(task.Status)?.ToLowerInvariant()})");
         statusRun.SetResourceReference(TextElement.ForegroundProperty, statusColorKey);
         var statusPara = new Paragraph(statusRun);
         statusPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
@@ -7369,16 +7370,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var depPara = new Paragraph();
                 var depTask = plan?.Tasks?.FirstOrDefault(t => t.TaskId == depId);
                 var depTitle = depTask?.Title ?? depTask?.Description ?? depId;
-                var depStatus = depTask is not null ? $" ({FormatTaskStatus(depTask.Status)})" : "";
                 if (depTask is not null)
                 {
                     depPara.Inlines.Add(CreateTaskLink(depTitle, depId));
-                    if (!string.IsNullOrEmpty(depStatus))
-                        depPara.Inlines.Add(new Run(depStatus));
+                    var depStatusText = $" ({FormatTaskStatus(depTask.Status)?.ToLowerInvariant()})";
+                    var depIsActive = string.Equals(depTask.Status, PlanTaskStatus.Executing, StringComparison.Ordinal)
+                        || PlanTaskStatus.IsVerifying(depTask.Status);
+                    var depStatusRun = new Run(depStatusText);
+                    depStatusRun.SetResourceReference(TextElement.ForegroundProperty, depIsActive ? "ImportantText" : "SubtleText");
+                    depPara.Inlines.Add(depStatusRun);
                 }
                 else
                 {
-                    depPara.Inlines.Add(new Run($"{depTitle}{depStatus}"));
+                    depPara.Inlines.Add(new Run(depTitle));
                 }
                 var item = new ListItem(depPara);
                 depList.ListItems.Add(item);
@@ -8857,7 +8861,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
 
                 var titleLink = CreateTaskLink(task.Title ?? task.TaskId, task.TaskId);
-                var statusColorKey = GetTaskStatusColorKey(task.Status);
+                var isActiveTask = string.Equals(task.Status, PlanTaskStatus.Executing, StringComparison.Ordinal)
+                    || PlanTaskStatus.IsVerifying(task.Status);
+                var statusColorKey = isActiveTask ? "ImportantText" : "SubtleText";
                 var statusText = FormatTaskStatus(task.Status)?.ToLowerInvariant();
                 var roleRun = new Run($"\n{assignment.Role}");
                 roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
