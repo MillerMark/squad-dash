@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -38,8 +39,14 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action? _onRepliedInChat;
     private readonly Action<double>? _onFontSizeChanged;
     private readonly Action<InboxAttachment>? _openDecomposePlan;
+    private readonly Action<string>? _openPlanByGroupId;
+    private readonly Func<string, DecomposedTaskGroup?>? _resolvePlanGroupForThumbnail;
     private double _bodyFontSize;
     private bool _markedRead;
+    private readonly string? _planGroupId;
+    private readonly Image _planThumbnailImage;
+    private PlanThumbnailRenderer? _planThumbnailRenderer;
+    private Action<ImageSource>? _planThumbnailImageUpdatedHandler;
 
     public InboxMessageWindow(
         InboxMessage message,
@@ -53,7 +60,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
         double initialFontSize = 14,
         Action<double>? onFontSizeChanged = null,
         Action<InboxAttachment>? openDecomposePlan = null,
-        Action<string>? openCommit = null)
+        Action<string>? openCommit = null,
+        Action<string>? openPlanByGroupId = null,
+        Func<string, DecomposedTaskGroup?>? resolvePlanGroupForThumbnail = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
         _lookupTask             = lookupTask;
@@ -65,8 +74,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _onRepliedInChat        = onRepliedInChat;
         _onFontSizeChanged      = onFontSizeChanged;
         _openDecomposePlan      = openDecomposePlan;
+        _openPlanByGroupId      = openPlanByGroupId;
+        _resolvePlanGroupForThumbnail = resolvePlanGroupForThumbnail;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
         MessageId               = message.Id;
+        _planGroupId            = message.ResolvePlanGroupId();
         Title                   = message.Subject;
         SizeToContent           = SizeToContent.Manual;
         Width                   = 1312;
@@ -79,13 +91,14 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.ctor: msgId={message.Id} subject='{message.Subject}' attachments={message.Attachments.Count} actions={message.Actions.Count}");
 
-        // Root grid: header / attachments / actions / body
+        // Root grid: header / attachments / actions / thumbnail / body
         var root = new Grid();
         _rootGrid = root;
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 0 header
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 1 attachments
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 2 actions
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 3 body
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 3 thumbnail
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 4 body
         var outerBorder = ApplyOuterBorder();
         outerBorder.Child = root;
 
@@ -211,6 +224,57 @@ internal sealed class InboxMessageWindow : ChromedWindow
         };
         actionRegion.Children.Add(_preflightRecoveryHost);
 
+        // ── Plan thumbnail ─────────────────────────────────────────────────────
+        _planThumbnailImage = new Image
+        {
+            Height = 400,
+            Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        var thumbnailBorder = new Border
+        {
+            Margin = new Thickness(8, 2, 8, 2),
+            Padding = new Thickness(8),
+            BorderThickness = new Thickness(1),
+            Child = _planThumbnailImage,
+            Visibility = string.IsNullOrWhiteSpace(_planGroupId) ? Visibility.Collapsed : Visibility.Visible,
+            Cursor = string.IsNullOrWhiteSpace(_planGroupId) ? Cursors.Arrow : Cursors.Hand,
+        };
+        thumbnailBorder.SetResourceReference(Border.BackgroundProperty, "InboxBodySurface");
+        thumbnailBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+        Grid.SetRow(thumbnailBorder, 3);
+        root.Children.Add(thumbnailBorder);
+
+        if (!string.IsNullOrWhiteSpace(_planGroupId))
+        {
+            thumbnailBorder.ToolTip = ToolTipHelper.MakeThemedToolTip("Open plan viewer");
+            thumbnailBorder.MouseLeftButtonUp += (_, _) =>
+            {
+                if (!string.IsNullOrWhiteSpace(_planGroupId))
+                {
+                    _openPlanByGroupId?.Invoke(_planGroupId);
+                    return;
+                }
+
+                var attachment = _message.ResolvePlanAttachment();
+                if (attachment is not null)
+                    _openDecomposePlan?.Invoke(attachment);
+            };
+
+            _planThumbnailRenderer = new PlanThumbnailRenderer(Dispatcher);
+            _planThumbnailImage.Source = _planThumbnailRenderer.CurrentImage;
+            _planThumbnailImageUpdatedHandler = image =>
+            {
+                if (Dispatcher.CheckAccess())
+                    _planThumbnailImage.Source = image;
+                else
+                    Dispatcher.BeginInvoke(DispatcherPriority.Render, () => _planThumbnailImage.Source = image);
+            };
+            _planThumbnailRenderer.ImageUpdated += _planThumbnailImageUpdatedHandler;
+        }
+
         // ── Body ──────────────────────────────────────────────────────────────
         var doc = MarkdownFlowDocumentBuilder.BuildInbox(message.Body ?? string.Empty, _bodyFontSize);
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
@@ -259,12 +323,13 @@ internal sealed class InboxMessageWindow : ChromedWindow
             Child  = _bodyViewer,
         };
         bodyBorder.SetResourceReference(Border.BackgroundProperty, "InboxBodySurface");
-        Grid.SetRow(bodyBorder, 3);
+        Grid.SetRow(bodyBorder, 4);
         root.Children.Add(bodyBorder);
 
         Loaded += (_, _) =>
         {
             SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.Loaded: msgId={MessageId} ActualWidth={ActualWidth} ActualHeight={ActualHeight} bodyDocBlocks={_bodyViewer.Document?.Blocks.Count ?? -1}");
+            RequestInitialPlanThumbnailRender();
 
             // Deferred mark-as-read: fire after 3 s of viewing OR on any downward scroll.
             if (_onMarkedRead is not null)
@@ -336,7 +401,29 @@ internal sealed class InboxMessageWindow : ChromedWindow
         {
             _preflightPollTimer?.Stop();
             _preflightPollTimer = null;
+            DisposePlanThumbnailRenderer();
         };
+    }
+
+    private void RequestInitialPlanThumbnailRender()
+    {
+        if (_planThumbnailRenderer is null || string.IsNullOrWhiteSpace(_planGroupId))
+            return;
+
+        var group = _resolvePlanGroupForThumbnail?.Invoke(_planGroupId);
+        _ = _planThumbnailRenderer.RequestRenderAsync(group, CancellationToken.None);
+    }
+
+    private void DisposePlanThumbnailRenderer()
+    {
+        if (_planThumbnailRenderer is null)
+            return;
+
+        if (_planThumbnailImageUpdatedHandler is not null)
+            _planThumbnailRenderer.ImageUpdated -= _planThumbnailImageUpdatedHandler;
+        _planThumbnailImageUpdatedHandler = null;
+        _planThumbnailRenderer.Dispose();
+        _planThumbnailRenderer = null;
     }
 
     /// <summary>Shows a persistent, contextual recovery card for a blocked plan action.</summary>

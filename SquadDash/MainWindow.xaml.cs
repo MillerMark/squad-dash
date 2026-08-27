@@ -21124,6 +21124,39 @@ public partial class MainWindow : Window
         OpenDecomposePlanViewer(plan, durablePlan);
     }
 
+    private DecomposedTaskGroup? ResolveInboxPlanGroupForThumbnail(string groupId)
+    {
+        if (_currentWorkspace is null || string.IsNullOrWhiteSpace(groupId))
+            return null;
+
+        var durablePlan = _planStore?.Load(groupId);
+        if (durablePlan is not null)
+            return PendingDecomposePlanAdapter.FromPlan(durablePlan).Group;
+
+        var pendingPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Load(groupId);
+        return pendingPlan?.Group;
+    }
+
+    private void OpenInboxPlanViewerByGroupId(string groupId)
+    {
+        if (_currentWorkspace is null || string.IsNullOrWhiteSpace(groupId))
+            return;
+
+        Plan? durablePlan = string.Equals(groupId, DeveloperApprovalSimulator.PlanId, StringComparison.Ordinal)
+            ? _developerApprovalSimulator?.CurrentPlan
+            : _planStore?.Load(groupId);
+        var pendingPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Load(groupId);
+        var plan = pendingPlan ??
+                   (durablePlan is not null ? PendingDecomposePlanAdapter.FromPlan(durablePlan) : null);
+        if (plan is null)
+        {
+            UIErrorHelper.ShowWarning("Plan Unavailable", "The linked plan could not be loaded.");
+            return;
+        }
+
+        OpenDecomposePlanViewer(plan, durablePlan);
+    }
+
     // ── Loop config flyout helpers ───────────────────────────────────────────
 
     private void _LoopConfigFlyout_Opened(object sender, EventArgs e)
@@ -51568,7 +51601,9 @@ public partial class MainWindow : Window
                                 initialFontSize:   _inboxFontSize,
                                 onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
                                 openDecomposePlan: OpenDecomposePlanAttachment,
-                                openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
+                                openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
+                                openPlanByGroupId: OpenInboxPlanViewerByGroupId,
+                                resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail);
                             win.Owner = this;
                             _openInboxWindows.Add(win);
                             win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -53294,7 +53329,9 @@ public partial class MainWindow : Window
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
             openDecomposePlan: OpenDecomposePlanAttachment,
-            openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
+            openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
+            openPlanByGroupId: OpenInboxPlanViewerByGroupId,
+            resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed    += (_, _) => _openInboxWindows.Remove(win);
@@ -53388,7 +53425,9 @@ public partial class MainWindow : Window
             initialFontSize:   _inboxFontSize,
             onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
             openDecomposePlan: OpenDecomposePlanAttachment,
-            openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha));
+            openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
+            openPlanByGroupId: OpenInboxPlanViewerByGroupId,
+            resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
