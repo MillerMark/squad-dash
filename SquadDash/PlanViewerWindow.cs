@@ -3391,7 +3391,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     chipList.Add((Border)chip);
                     WireSelectionClick(chip);
                     chip.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        $"{assignment.AgentHandle} — {assignment.Role}");
+                        $"{HumanizeAgentHandle(assignment.AgentHandle)} — {assignment.Role}");
 
                     // Track for cross-highlight
                     if (!avatarChipsByAgent.TryGetValue(assignment.AgentHandle, out var list))
@@ -7402,7 +7402,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             foreach (var assignment in task.AgentAssignments)
             {
                 var agentPara = new Paragraph();
-                var handleRun = new Run(assignment.AgentHandle) { FontWeight = FontWeights.SemiBold };
+                var handleRun = new Run(HumanizeAgentHandle(assignment.AgentHandle)) { FontWeight = FontWeights.SemiBold };
                 handleRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
                 agentPara.Inlines.Add(handleRun);
                 agentPara.Inlines.Add(new Run($" — {assignment.Role}"));
@@ -8827,9 +8827,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             : null;
 
         // Agent name heading (below image)
-        var titleText = isVerityCross && (hasActiveVerifyingTask || activeValidation is not null)
-            ? HumanizeAgentHandle(agentHandle)
-            : agentHandle;
+        var titleText = HumanizeAgentHandle(agentHandle);
         var titlePara = new Paragraph(new Run(titleText) { FontWeight = FontWeights.Bold });
         titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
         titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
