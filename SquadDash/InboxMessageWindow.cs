@@ -45,6 +45,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private bool _markedRead;
     private readonly string? _planGroupId;
     private readonly Image _planThumbnailImage;
+    private readonly TextBlock _planNotFoundLabel;
+    private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private PlanThumbnailRenderer? _planThumbnailRenderer;
     private Action<ImageSource>? _planThumbnailImageUpdatedHandler;
 
@@ -62,7 +64,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Action<InboxAttachment>? openDecomposePlan = null,
         Action<string>? openCommit = null,
         Action<string>? openPlanByGroupId = null,
-        Func<string, DecomposedTaskGroup?>? resolvePlanGroupForThumbnail = null)
+        Func<string, DecomposedTaskGroup?>? resolvePlanGroupForThumbnail = null,
+        Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
         _lookupTask             = lookupTask;
@@ -76,6 +79,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _openDecomposePlan      = openDecomposePlan;
         _openPlanByGroupId      = openPlanByGroupId;
         _resolvePlanGroupForThumbnail = resolvePlanGroupForThumbnail;
+        _resolveAgentAvatar     = resolveAgentAvatar;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
         MessageId               = message.Id;
         _planGroupId            = message.ResolvePlanGroupId();
@@ -229,16 +233,31 @@ internal sealed class InboxMessageWindow : ChromedWindow
         {
             Height = 400,
             Stretch = Stretch.Uniform,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
         };
+
+        _planNotFoundLabel = new TextBlock
+        {
+            Text = "Plan not found",
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 12, 8, 12),
+            Visibility = Visibility.Collapsed,
+        };
+        _planNotFoundLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        _planNotFoundLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
+
+        var thumbnailContent = new Grid();
+        thumbnailContent.Children.Add(_planThumbnailImage);
+        thumbnailContent.Children.Add(_planNotFoundLabel);
 
         var thumbnailBorder = new Border
         {
             Margin = new Thickness(8, 2, 8, 2),
             Padding = new Thickness(8),
             BorderThickness = new Thickness(1),
-            Child = _planThumbnailImage,
+            Child = thumbnailContent,
             Visibility = string.IsNullOrWhiteSpace(_planGroupId) ? Visibility.Collapsed : Visibility.Visible,
             Cursor = string.IsNullOrWhiteSpace(_planGroupId) ? Cursors.Arrow : Cursors.Hand,
         };
@@ -263,7 +282,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
                     _openDecomposePlan?.Invoke(attachment);
             };
 
-            _planThumbnailRenderer = new PlanThumbnailRenderer(Dispatcher);
+            _planThumbnailRenderer = new PlanThumbnailRenderer(Dispatcher, resolveAgentAvatar: _resolveAgentAvatar);
             _planThumbnailImage.Source = _planThumbnailRenderer.CurrentImage;
             _planThumbnailImageUpdatedHandler = image =>
             {
@@ -407,10 +426,22 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     private void RequestInitialPlanThumbnailRender()
     {
-        if (_planThumbnailRenderer is null || string.IsNullOrWhiteSpace(_planGroupId))
+        if (string.IsNullOrWhiteSpace(_planGroupId))
             return;
 
         var group = _resolvePlanGroupForThumbnail?.Invoke(_planGroupId);
+        if (group is null)
+        {
+            _planThumbnailImage.Visibility = Visibility.Collapsed;
+            _planNotFoundLabel.Visibility = Visibility.Visible;
+            return;
+        }
+
+        if (_planThumbnailRenderer is null)
+            return;
+
+        _planThumbnailImage.Visibility = Visibility.Visible;
+        _planNotFoundLabel.Visibility = Visibility.Collapsed;
         _ = _planThumbnailRenderer.RequestRenderAsync(group, CancellationToken.None);
     }
 

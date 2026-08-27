@@ -26,6 +26,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
     private readonly Border _graphHost;
     private readonly Canvas _graphCanvas;
     private readonly PlanGraphEdgeRenderingContract _edgeRenderingContract;
+    private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private readonly object _requestGate = new();
 
     private CancellationTokenSource? _pendingRenderCts;
@@ -35,11 +36,13 @@ internal sealed class PlanThumbnailRenderer : IDisposable
     internal PlanThumbnailRenderer(
         Dispatcher? dispatcher = null,
         double targetHeightPixels = DefaultTargetHeightPixels,
-        double lineThicknessMultiplier = 1.0)
+        double lineThicknessMultiplier = 1.0,
+        Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null)
     {
         _dispatcher = dispatcher ?? Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         _targetHeightPixels = targetHeightPixels > 0 ? targetHeightPixels : DefaultTargetHeightPixels;
         _edgeRenderingContract = new PlanGraphEdgeRenderingContract(lineThicknessMultiplier);
+        _resolveAgentAvatar = resolveAgentAvatar;
         _graphCanvas = new Canvas
         {
             HorizontalAlignment = HorizontalAlignment.Left,
@@ -173,6 +176,9 @@ internal sealed class PlanThumbnailRenderer : IDisposable
         var columnSpacing = BaseColumnSpacing * scaleFactor;
         var rowSpacing = BaseRowSpacing * scaleFactor;
         var graphTop = 52 * scaleFactor;
+        var avatarChipSize = _resolveAgentAvatar is not null
+            ? Math.Round(BaseNodeHeight * 0.375 * scaleFactor)
+            : 0.0;
 
         var levels = ValidationShieldPresenter.ComputeValidationAwareLevels(tasks, group.Validations ?? []);
         var originalIndexByTaskId = tasks
@@ -206,6 +212,9 @@ internal sealed class PlanThumbnailRenderer : IDisposable
 
             foreach (var task in column.OrderBy(task => originalIndexByTaskId[task.Id]))
             {
+                var hasAvatars = avatarChipSize > 0 && task.AgentAssignments is { Count: > 0 };
+                if (hasAvatars)
+                    y += avatarChipSize;
                 positions[task.Id] = new Point(x, y);
                 y += nodeHeight + rowSpacing;
             }
@@ -244,6 +253,21 @@ internal sealed class PlanThumbnailRenderer : IDisposable
             Canvas.SetLeft(card, position.X);
             Canvas.SetTop(card, position.Y);
             _graphCanvas.Children.Add(card);
+
+            if (avatarChipSize > 0 && task.AgentAssignments is { Count: > 0 })
+            {
+                var avatarPanel = new StackPanel { Orientation = Orientation.Horizontal };
+                foreach (var assignment in task.AgentAssignments)
+                {
+                    var info = _resolveAgentAvatar!(assignment.AgentHandle);
+                    var chip = CreateAvatarChip(info, avatarChipSize, assignment.AgentHandle, scaleFactor);
+                    avatarPanel.Children.Add(chip);
+                }
+                Canvas.SetLeft(avatarPanel, position.X + 4 * scaleFactor);
+                Canvas.SetTop(avatarPanel, position.Y - avatarChipSize);
+                Panel.SetZIndex(avatarPanel, 35);
+                _graphCanvas.Children.Add(avatarPanel);
+            }
         }
 
         var maxX = positions.Values.Max(point => point.X);
@@ -310,6 +334,72 @@ internal sealed class PlanThumbnailRenderer : IDisposable
             Background = ResolveBrush("CardSurface", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x24, 0x20, 0x1D) : Color.FromRgb(0xFF, 0xFB, 0xF5)),
             Child = stack,
         };
+    }
+
+    private FrameworkElement CreateAvatarChip(
+        (ImageSource? Image, string Initial, Brush Accent)? info,
+        double chipSize,
+        string agentHandle,
+        double scaleFactor)
+    {
+        UIElement content;
+        if (info?.Image is { } image)
+        {
+            var cropFraction = 0.15;
+            var innerScale = 1.0 / (1.0 - 2 * cropFraction);
+            var innerSize = chipSize * innerScale;
+            var offset = (innerSize - chipSize) / 2;
+            var img = new Image
+            {
+                Source = image,
+                Width = innerSize,
+                Height = innerSize,
+                Stretch = Stretch.UniformToFill,
+            };
+            RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+            var clipGrid = new Grid
+            {
+                Width = chipSize - 4,
+                Height = chipSize - 4,
+                ClipToBounds = true,
+            };
+            img.Margin = new Thickness(-offset);
+            clipGrid.Children.Add(img);
+            content = clipGrid;
+        }
+        else
+        {
+            var initial = info?.Initial ?? (agentHandle.Length > 0
+                ? agentHandle[0].ToString().ToUpperInvariant()
+                : "?");
+            var tb = new TextBlock
+            {
+                Text = initial,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = chipSize * 0.5,
+            };
+            if (info?.Accent is { } accent)
+                tb.Foreground = accent;
+            else
+                tb.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            content = tb;
+        }
+
+        var chip = new Border
+        {
+            Width = chipSize,
+            Height = chipSize,
+            CornerRadius = new CornerRadius(3),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Brushes.Gray,
+            ClipToBounds = true,
+            Margin = new Thickness(0, 0, 3 * scaleFactor, 0),
+            Child = content is Grid ? content : new Viewbox { Child = (UIElement)content },
+        };
+        chip.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+        return chip;
     }
 
     private BitmapSource CreatePlaceholderBitmap()

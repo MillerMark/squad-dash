@@ -51603,7 +51603,8 @@ public partial class MainWindow : Window
                                 openDecomposePlan: OpenDecomposePlanAttachment,
                                 openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
                                 openPlanByGroupId: OpenInboxPlanViewerByGroupId,
-                                resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail);
+                                resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
+                                resolveAgentAvatar: ResolveAgentAvatarForPlanViewer);
                             win.Owner = this;
                             _openInboxWindows.Add(win);
                             win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -53331,7 +53332,8 @@ public partial class MainWindow : Window
             openDecomposePlan: OpenDecomposePlanAttachment,
             openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
             openPlanByGroupId: OpenInboxPlanViewerByGroupId,
-            resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail);
+            resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
+            resolveAgentAvatar: ResolveAgentAvatarForPlanViewer);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed    += (_, _) => _openInboxWindows.Remove(win);
@@ -53427,13 +53429,13 @@ public partial class MainWindow : Window
             openDecomposePlan: OpenDecomposePlanAttachment,
             openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
             openPlanByGroupId: OpenInboxPlanViewerByGroupId,
-            resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail);
+            resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
+            resolveAgentAvatar: ResolveAgentAvatarForPlanViewer);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
         win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
         FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
-        
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessageAndSelectText: hooking win.Loaded to defer SelectAndScrollToText via Dispatcher.BeginInvoke(Loaded priority) — excerptLen={excerptText.Length}");
         win.Loaded += (_, _) =>
         {
