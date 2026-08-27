@@ -550,7 +550,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Approved && onStartPlan is not null)
             {
                 AddPrimaryButton("Start", "Begin executing this approved plan.",
-                    () => { onStartPlan(durablePlan); Close(); });
+                    () => onStartPlan(durablePlan));
             }
             else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing &&
                      planRunnerActive && onPausePlan is not null)
