@@ -7322,7 +7322,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // 1. Title
         var titlePara = new Paragraph(new Run(task.Title ?? task.TaskId) { FontWeight = FontWeights.Bold });
-        titlePara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "TitleText");
         titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeTitle");
         titlePara.Margin = new Thickness(0, 0, 0, 4);
         _detailDocument.Blocks.Add(titlePara);
