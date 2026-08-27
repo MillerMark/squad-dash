@@ -16020,8 +16020,7 @@ public partial class MainWindow : Window
     {
         plan = null;
         message = _inboxStore?.GetById(messageId);
-        var attachment = message?.Attachments.FirstOrDefault(candidate =>
-            string.Equals(candidate.Type, DecomposePlanInbox.AttachmentType, StringComparison.OrdinalIgnoreCase));
+        var attachment = message?.ResolvePlanAttachment();
         if (_currentWorkspace is null || attachment?.PlanGroupId is not { Length: > 0 } groupId)
             return false;
 

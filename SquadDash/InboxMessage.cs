@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace SquadDash;
 
 public sealed record InboxMessage
 {
+    private const string DurablePlanAttachmentType = "decompose-plan";
+
     [JsonPropertyName("id")]
     public string Id { get; init; } = string.Empty;
 
@@ -49,6 +52,41 @@ public sealed record InboxMessage
     /// </summary>
     [JsonPropertyName("priority")]
     public string? Priority { get; init; }
+
+    /// <summary>
+    /// Resolves the durable plan group ID associated with this inbox message.
+    /// Deterministic resolution order:
+    /// 1) first "decompose-plan" attachment with a non-empty planGroupId,
+    /// 2) first attachment with a non-empty planGroupId (legacy compatibility).
+    /// Returns null when the message is not plan-linked.
+    /// </summary>
+    public string? ResolvePlanGroupId()
+    {
+        var attachment = ResolvePlanAttachment();
+        return string.IsNullOrWhiteSpace(attachment?.PlanGroupId)
+            ? null
+            : attachment.PlanGroupId;
+    }
+
+    /// <summary>
+    /// Resolves the canonical plan-linked attachment for this message.
+    /// Prefers the host-owned decompose-plan attachment type and falls back to
+    /// any attachment that still carries planGroupId for backward compatibility.
+    /// </summary>
+    public InboxAttachment? ResolvePlanAttachment()
+    {
+        var attachments = Attachments ?? [];
+        var canonical = attachments.FirstOrDefault(attachment =>
+            attachment is not null &&
+            string.Equals(attachment.Type, DurablePlanAttachmentType, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(attachment.PlanGroupId));
+        if (canonical is not null)
+            return canonical;
+
+        return attachments.FirstOrDefault(attachment =>
+            attachment is not null &&
+            !string.IsNullOrWhiteSpace(attachment.PlanGroupId));
+    }
 }
 
 public sealed record InboxAttachment

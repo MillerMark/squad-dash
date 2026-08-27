@@ -20,18 +20,14 @@ internal static class DecomposeRecoveryInboxReconciler
              DecomposePlanInbox.RecoveryRouteMode,
              StringComparison.OrdinalIgnoreCase)) == true);
 
-    internal static string? GetPlanId(InboxMessage message) =>
-        message.Attachments?.FirstOrDefault(attachment => attachment is not null &&
-            string.Equals(attachment.Type, DecomposePlanInbox.AttachmentType, StringComparison.OrdinalIgnoreCase))
-            ?.PlanGroupId;
+    internal static string? GetPlanId(InboxMessage message) => message.ResolvePlanGroupId();
 
     internal static Result Reconcile(InboxMessage message, Plan? plan)
     {
         if (!IsRecoveryMessage(message))
             return new Result(message, IsActionable: true, ShouldArchive: false);
 
-        var attachment = message.Attachments?.FirstOrDefault(candidate => candidate is not null &&
-            string.Equals(candidate.Type, DecomposePlanInbox.AttachmentType, StringComparison.OrdinalIgnoreCase));
+        var attachment = message.ResolvePlanAttachment();
         var planId = attachment?.PlanGroupId;
         var revision = attachment?.PlanRevision;
         var activeLifecycle = plan?.LifecycleStatus is PlanLifecycleStatus.Blocked or PlanLifecycleStatus.Interrupted;

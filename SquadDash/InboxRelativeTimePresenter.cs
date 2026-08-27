@@ -187,8 +187,7 @@ internal static class InboxPlanLinkPresenter
         Action<InboxAttachment>? openPlan)
     {
         if (openPlan is null) return;
-        var attachment = message.Attachments.FirstOrDefault(candidate =>
-            !string.IsNullOrWhiteSpace(candidate.PlanGroupId));
+        var attachment = message.ResolvePlanAttachment();
         if (attachment is null) return;
 
         var prefix = "Blocked plan: ";
