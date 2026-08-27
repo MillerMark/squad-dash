@@ -62,12 +62,18 @@ internal sealed class PlanThumbnailRenderer : IDisposable
     internal event Action<ImageSource>? ImageUpdated;
 
     internal Task<ImageSource> RequestRenderAsync(Plan? plan, CancellationToken cancellationToken = default) =>
-        RequestRenderAsync(plan is null ? null : PendingDecomposePlanAdapter.FromPlan(plan).Group, cancellationToken);
+        RequestRenderAsync(plan is null ? null : PendingDecomposePlanAdapter.FromPlan(plan).Group, null, cancellationToken);
 
     internal Task<ImageSource> RequestRenderAsync(PendingDecomposePlan? pendingPlan, CancellationToken cancellationToken = default) =>
-        RequestRenderAsync(pendingPlan?.Group, cancellationToken);
+        RequestRenderAsync(pendingPlan?.Group, null, cancellationToken);
 
     internal Task<ImageSource> RequestRenderAsync(DecomposedTaskGroup? group, CancellationToken cancellationToken = default)
+        => RequestRenderAsync(group, nudges: null, cancellationToken);
+
+    internal Task<ImageSource> RequestRenderAsync(
+        DecomposedTaskGroup? group,
+        Dictionary<string, double>? nudges,
+        CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -89,11 +95,15 @@ internal sealed class PlanThumbnailRenderer : IDisposable
             requestVersion = ++_latestRequestVersion;
         }
 
-        return RenderCoalescedAsync(group, requestVersion, token);
+        var requestedNudges = nudges is null
+            ? null
+            : new Dictionary<string, double>(nudges, StringComparer.Ordinal);
+        return RenderCoalescedAsync(group, requestedNudges, requestVersion, token);
     }
 
     private async Task<ImageSource> RenderCoalescedAsync(
         DecomposedTaskGroup group,
+        IReadOnlyDictionary<string, double>? nudges,
         long requestVersion,
         CancellationToken cancellationToken)
     {
@@ -110,7 +120,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
         try
         {
             bitmap = await _dispatcher.InvokeAsync(
-                () => RenderOnUiThread(group, cancellationToken),
+                () => RenderOnUiThread(group, nudges, cancellationToken),
                 DispatcherPriority.Render,
                 cancellationToken);
         }
@@ -135,10 +145,13 @@ internal sealed class PlanThumbnailRenderer : IDisposable
         return bitmap;
     }
 
-    private BitmapSource RenderOnUiThread(DecomposedTaskGroup group, CancellationToken cancellationToken)
+    private BitmapSource RenderOnUiThread(
+        DecomposedTaskGroup group,
+        IReadOnlyDictionary<string, double>? nudges,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var (graphWidth, graphHeight) = BuildGraphVisualTree(group);
+        var (graphWidth, graphHeight) = BuildGraphVisualTree(group, nudges);
         if (graphWidth <= 0 || graphHeight <= 0)
             return CreatePlaceholderBitmap();
 
@@ -162,7 +175,9 @@ internal sealed class PlanThumbnailRenderer : IDisposable
         return transformed;
     }
 
-    private (double Width, double Height) BuildGraphVisualTree(DecomposedTaskGroup group)
+    private (double Width, double Height) BuildGraphVisualTree(
+        DecomposedTaskGroup group,
+        IReadOnlyDictionary<string, double>? nudges)
     {
         _graphCanvas.Children.Clear();
 
@@ -189,6 +204,16 @@ internal sealed class PlanThumbnailRenderer : IDisposable
             .GroupBy(task => levels[task.Id])
             .OrderBy(column => column.Key)
             .ToArray();
+        var attachedValidationCountByTaskId = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var validation in group.Validations ?? [])
+        {
+            var taskAnchor = ValidationShieldPresenter.InferTaskAnchor(validation, tasks);
+            if (taskAnchor?.TaskId is not { Length: > 0 } taskId ||
+                !originalIndexByTaskId.ContainsKey(taskId))
+                continue;
+            attachedValidationCountByTaskId[taskId] =
+                attachedValidationCountByTaskId.GetValueOrDefault(taskId) + 1;
+        }
 
         var positions = new Dictionary<string, Point>(StringComparer.Ordinal);
 
@@ -210,13 +235,30 @@ internal sealed class PlanThumbnailRenderer : IDisposable
             Canvas.SetTop(stageHeader, 8 * scaleFactor);
             _graphCanvas.Children.Add(stageHeader);
 
-            foreach (var task in column.OrderBy(task => originalIndexByTaskId[task.Id]))
+            var orderedTasks = column.OrderBy(task => originalIndexByTaskId[task.Id]).ToArray();
+            for (var row = 0; row < orderedTasks.Length; row++)
             {
+                var task = orderedTasks[row];
                 var hasAvatars = avatarChipSize > 0 && task.AgentAssignments is { Count: > 0 };
                 if (hasAvatars)
                     y += avatarChipSize;
-                positions[task.Id] = new Point(x, y);
-                y += nodeHeight + rowSpacing;
+
+                var nudgedY = y;
+                if (nudges?.TryGetValue(task.Id, out var nudgeLineHeights) == true &&
+                    nudgeLineHeights != 0.0)
+                {
+                    var fontSizeBody = scaleFactor * BaseBodyFontSize;
+                    nudgedY = y + nudgeLineHeights * fontSizeBody;
+                    var minY = row == 0
+                        ? graphTop
+                        : positions[orderedTasks[row - 1].Id].Y + nodeHeight + nodeHeight * 0.1 * scaleFactor;
+                    nudgedY = Math.Max(nudgedY, minY);
+                }
+
+                positions[task.Id] = new Point(x, nudgedY);
+                var attachedCount = attachedValidationCountByTaskId.GetValueOrDefault(task.Id);
+                y += ValidationShieldPresenter.ComputeAttachedTaskSpacing(
+                    attachedCount, nodeHeight, rowSpacing, scaleFactor);
             }
         }
 

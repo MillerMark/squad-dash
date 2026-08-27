@@ -21140,6 +21140,14 @@ public partial class MainWindow : Window
         return pendingPlan?.Group;
     }
 
+    private Dictionary<string, double>? ResolveLayoutNudgesForThumbnail(string groupId)
+    {
+        if (_currentWorkspace is null || string.IsNullOrWhiteSpace(groupId))
+            return null;
+
+        return new PlanVisualizerLayoutStore(_currentWorkspace.SquadFolderPath).Load(groupId);
+    }
+
     private void OpenInboxPlanViewerByGroupId(string groupId)
     {
         if (_currentWorkspace is null || string.IsNullOrWhiteSpace(groupId))
@@ -51609,6 +51617,7 @@ public partial class MainWindow : Window
                                 openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
                                 openPlanByGroupId: OpenInboxPlanViewerByGroupId,
                                 resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
+                                resolveLayoutNudgesForThumbnail: ResolveLayoutNudgesForThumbnail,
                                 resolveAgentAvatar: ResolveAgentAvatarForPlanViewer);
                             win.Owner = this;
                             _openInboxWindows.Add(win);
@@ -53338,6 +53347,7 @@ public partial class MainWindow : Window
             openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
             openPlanByGroupId: OpenInboxPlanViewerByGroupId,
             resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
+            resolveLayoutNudgesForThumbnail: ResolveLayoutNudgesForThumbnail,
             resolveAgentAvatar: ResolveAgentAvatarForPlanViewer);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
@@ -53435,6 +53445,7 @@ public partial class MainWindow : Window
             openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
             openPlanByGroupId: OpenInboxPlanViewerByGroupId,
             resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
+            resolveLayoutNudgesForThumbnail: ResolveLayoutNudgesForThumbnail,
             resolveAgentAvatar: ResolveAgentAvatarForPlanViewer);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -41,6 +42,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action<InboxAttachment>? _openDecomposePlan;
     private readonly Action<string>? _openPlanByGroupId;
     private readonly Func<string, DecomposedTaskGroup?>? _resolvePlanGroupForThumbnail;
+    private readonly Func<string, Dictionary<string, double>?>? _resolveLayoutNudgesForThumbnail;
     private double _bodyFontSize;
     private bool _markedRead;
     private readonly string? _planGroupId;
@@ -66,6 +68,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Action<string>? openCommit = null,
         Action<string>? openPlanByGroupId = null,
         Func<string, DecomposedTaskGroup?>? resolvePlanGroupForThumbnail = null,
+        Func<string, Dictionary<string, double>?>? resolveLayoutNudgesForThumbnail = null,
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
@@ -80,6 +83,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _openDecomposePlan      = openDecomposePlan;
         _openPlanByGroupId      = openPlanByGroupId;
         _resolvePlanGroupForThumbnail = resolvePlanGroupForThumbnail;
+        _resolveLayoutNudgesForThumbnail = resolveLayoutNudgesForThumbnail;
         _resolveAgentAvatar     = resolveAgentAvatar;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
         MessageId               = message.Id;
@@ -449,7 +453,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         _planThumbnailImage.Visibility = Visibility.Visible;
         _planNotFoundLabel.Visibility = Visibility.Collapsed;
-        _ = _planThumbnailRenderer.RequestRenderAsync(group, CancellationToken.None);
+        var nudges = _resolveLayoutNudgesForThumbnail?.Invoke(_planGroupId);
+        _ = _planThumbnailRenderer.RequestRenderAsync(group, nudges, CancellationToken.None);
     }
 
     private void DisposePlanThumbnailRenderer()
