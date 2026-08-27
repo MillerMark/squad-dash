@@ -5481,7 +5481,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 stopSignResource.HorizontalAlignment = HorizontalAlignment.Center;
                 stopSignResource.VerticalAlignment = VerticalAlignment.Center;
                 if (!engaged)
-                    stopSignResource.Opacity = 0.75;
+                    stopSignResource.Opacity = 0.55;
                 stop = stopSignResource;
                 indicator = stopSignResource;
             }
