@@ -7339,77 +7339,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.Margin = new Thickness(0, 0, 0, 8);
         _detailDocument.Blocks.Add(statusPara);
 
-        // 3. Description
-        if (!string.IsNullOrWhiteSpace(task.Description))
-        {
-            var descPara = new Paragraph(new Run(task.Description));
-            descPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            descPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(descPara);
-        }
-
-        if (plan is not null)
-        {
-            AppendApprovalGuidance(plan.ApprovalGates.Where(gate =>
-                gate.AfterTaskIds.Contains(task.TaskId, StringComparer.Ordinal) ||
-                gate.BeforeTaskIds.Contains(task.TaskId, StringComparer.Ordinal)));
-        }
-
-        // 4. Dependencies
-        if (task.DependsOn is { Count: > 0 })
-        {
-            AddSectionHeader("Dependencies");
-            var depList = new List();
-            depList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            depList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            depList.MarkerStyle = TextMarkerStyle.Disc;
-            depList.Margin = new Thickness(0, 0, 0, 12);
-            foreach (var depId in task.DependsOn)
-            {
-                var depPara = new Paragraph();
-                var depTask = plan?.Tasks?.FirstOrDefault(t => t.TaskId == depId);
-                var depTitle = depTask?.Title ?? depTask?.Description ?? depId;
-                if (depTask is not null)
-                {
-                    depPara.Inlines.Add(CreateTaskLink(depTitle, depId));
-                    var depStatusText = $" ({FormatTaskStatus(depTask.Status)?.ToLowerInvariant()})";
-                    var depIsActive = string.Equals(depTask.Status, PlanTaskStatus.Executing, StringComparison.Ordinal)
-                        || PlanTaskStatus.IsVerifying(depTask.Status);
-                    var depStatusRun = new Run(depStatusText);
-                    depStatusRun.SetResourceReference(TextElement.ForegroundProperty, depIsActive ? "ImportantText" : "SubtleText");
-                    depPara.Inlines.Add(depStatusRun);
-                }
-                else
-                {
-                    depPara.Inlines.Add(new Run(depTitle));
-                }
-                var item = new ListItem(depPara);
-                depList.ListItems.Add(item);
-            }
-            _detailDocument.Blocks.Add(depList);
-        }
-
-        // 5. Agent Assignments
-        if (task.AgentAssignments is { Count: > 0 })
-        {
-            AddSectionHeader("Agent Assignments");
-            var agentList = new List();
-            agentList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            agentList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            agentList.MarkerStyle = TextMarkerStyle.None;
-            agentList.Margin = new Thickness(0, 0, 0, 12);
-            foreach (var assignment in task.AgentAssignments)
-            {
-                var agentPara = new Paragraph();
-                agentPara.Inlines.Add(CreateAgentLink(assignment.AgentHandle));
-                agentPara.Inlines.Add(new Run($" — {assignment.Role}"));
-                agentList.ListItems.Add(new ListItem(agentPara));
-            }
-            _detailDocument.Blocks.Add(agentList);
-        }
-
-        // 6. Completion Summary
+        // 3. Completion Summary (shown first when present)
         if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
         {
             AddSectionHeader("Completion Summary");
@@ -7420,7 +7350,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(summaryPara);
         }
 
-        // 7. Commit evidence
+        // 4. Commit evidence
         var detailEvidence = _durablePlan is null
             ? Array.Empty<PlanEvidenceCommit>()
             : PlanRecoveryPresentationBuilder.ResolveTaskEvidence(_durablePlan, task).ToArray();
@@ -7447,7 +7377,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(commitPara);
         }
 
-        // 8. Handoff
+        // 5. Handoff
         if (task.Handoff is { } handoff)
         {
             AddSectionHeader("Handoff");
@@ -7519,7 +7449,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(handoffSpacer);
         }
 
-        // 9. Verification History
+        // 6. Verification History
         if (task.VerificationHistory is { Count: > 0 })
         {
             AddSectionHeader("Verification History");
@@ -7567,7 +7497,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
         }
 
-        // 10. Proof Evidence
+        // 7. Proof Evidence
         if (task.ProofEvidence is { Count: > 0 })
         {
             AddSectionHeader("Proof Evidence");
@@ -7584,6 +7514,78 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 proofList.ListItems.Add(new ListItem(proofPara));
             }
             _detailDocument.Blocks.Add(proofList);
+        }
+
+        // 8. Approval gate guidance
+        if (plan is not null)
+        {
+            AppendApprovalGuidance(plan.ApprovalGates.Where(gate =>
+                gate.AfterTaskIds.Contains(task.TaskId, StringComparer.Ordinal) ||
+                gate.BeforeTaskIds.Contains(task.TaskId, StringComparer.Ordinal)));
+        }
+
+        // 9. Description
+        if (!string.IsNullOrWhiteSpace(task.Description))
+        {
+            AddSectionHeader("Description");
+            var descPara = new Paragraph(new Run(task.Description));
+            descPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            descPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(descPara);
+        }
+
+        // 10. Dependencies
+        if (task.DependsOn is { Count: > 0 })
+        {
+            AddSectionHeader("Dependencies");
+            var depList = new List();
+            depList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            depList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            depList.MarkerStyle = TextMarkerStyle.Disc;
+            depList.Margin = new Thickness(0, 0, 0, 12);
+            foreach (var depId in task.DependsOn)
+            {
+                var depPara = new Paragraph();
+                var depTask = plan?.Tasks?.FirstOrDefault(t => t.TaskId == depId);
+                var depTitle = depTask?.Title ?? depTask?.Description ?? depId;
+                if (depTask is not null)
+                {
+                    depPara.Inlines.Add(CreateTaskLink(depTitle, depId));
+                    var depStatusText = $" ({FormatTaskStatus(depTask.Status)?.ToLowerInvariant()})";
+                    var depIsActive = string.Equals(depTask.Status, PlanTaskStatus.Executing, StringComparison.Ordinal)
+                        || PlanTaskStatus.IsVerifying(depTask.Status);
+                    var depStatusRun = new Run(depStatusText);
+                    depStatusRun.SetResourceReference(TextElement.ForegroundProperty, depIsActive ? "ImportantText" : "SubtleText");
+                    depPara.Inlines.Add(depStatusRun);
+                }
+                else
+                {
+                    depPara.Inlines.Add(new Run(depTitle));
+                }
+                var item = new ListItem(depPara);
+                depList.ListItems.Add(item);
+            }
+            _detailDocument.Blocks.Add(depList);
+        }
+
+        // 11. Agent Assignments
+        if (task.AgentAssignments is { Count: > 0 })
+        {
+            AddSectionHeader("Agent Assignments");
+            var agentList = new List();
+            agentList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            agentList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            agentList.MarkerStyle = TextMarkerStyle.None;
+            agentList.Margin = new Thickness(0, 0, 0, 12);
+            foreach (var assignment in task.AgentAssignments)
+            {
+                var agentPara = new Paragraph();
+                agentPara.Inlines.Add(CreateAgentLink(assignment.AgentHandle));
+                agentPara.Inlines.Add(new Run($" — {assignment.Role}"));
+                agentList.ListItems.Add(new ListItem(agentPara));
+            }
+            _detailDocument.Blocks.Add(agentList);
         }
     }
 

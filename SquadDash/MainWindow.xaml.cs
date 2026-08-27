@@ -3182,6 +3182,35 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (string.Equals(item.SourceTag, QueuedPlanStartTag, StringComparison.Ordinal))
+        {
+            _promptQueue.Remove(item.Id);
+            SyncQueuePanel();
+            if (!QueuedPlanStart.TryDecode(item.Text, out var request) || request is null)
+            {
+                AppendLine("⚠ A queued plan start was invalid and was discarded.",
+                    (Brush)FindResource("SubtleText"));
+                if (_promptQueue.Count > 0)
+                    _ = DrainQueueAsync();
+                return;
+            }
+
+            var plan = _planStore?.Load(request.PlanId);
+            if (plan is null || PlanLifecycleStatus.IsTerminal(plan.LifecycleStatus))
+            {
+                AppendLine(
+                    $"⚠ Queued start for plan “{request.DisplayName}” was discarded because the plan is no longer pending.",
+                    (Brush)FindResource("SubtleText"));
+                if (_promptQueue.Count > 0)
+                    _ = DrainQueueAsync();
+                return;
+            }
+
+            SquadDashTrace.Write("Queue", $"Dispatching queued plan start plan={request.PlanId}.");
+            await StartOrResumeDurablePlanAsync(plan);
+            return;
+        }
+
         HandleOpenEditorsBeforeSend(item.Id);
         SquadDashTrace.Write("Queue", $"DrainQueueAsync: dispatching {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
         _promptQueue.Remove(item.Id);
@@ -3324,6 +3353,31 @@ public partial class MainWindow : Window
                 break;
             }
 
+            if (string.Equals(item.SourceTag, QueuedPlanStartTag, StringComparison.Ordinal))
+            {
+                _promptQueue.Remove(item.Id);
+                SyncQueuePanel();
+                if (!QueuedPlanStart.TryDecode(item.Text, out var request) || request is null)
+                {
+                    AppendLine("⚠ A queued plan start was invalid and was discarded.",
+                        (Brush)FindResource("SubtleText"));
+                    continue;
+                }
+
+                var plan = _planStore?.Load(request.PlanId);
+                if (plan is null || PlanLifecycleStatus.IsTerminal(plan.LifecycleStatus))
+                {
+                    AppendLine(
+                        $"⚠ Queued start for plan “{request.DisplayName}” was discarded because the plan is no longer pending.",
+                        (Brush)FindResource("SubtleText"));
+                    continue;
+                }
+
+                SquadDashTrace.Write("Queue", $"Dispatching queued plan start plan={request.PlanId}.");
+                await StartOrResumeDurablePlanAsync(plan);
+                break;
+            }
+
             // Silently discard items that have no text and no attachments.
             if (IsEmptyQueueItem(item))
             {
@@ -3436,6 +3490,11 @@ public partial class MainWindow : Window
             // A loop job is serialized behind the currently-running loop. It is a host
             // operation, never an AI prompt, so leave it in place until this loop stops.
             if (string.Equals(item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal))
+                break;
+
+            // A plan start waits for the currently-running loop to release coordinator
+            // ownership. It must never be submitted to AI as if its encoded payload were a prompt.
+            if (string.Equals(item.SourceTag, QueuedPlanStartTag, StringComparison.Ordinal))
                 break;
 
             // Silently discard items that have no text and no attachments.
@@ -3877,8 +3936,14 @@ public partial class MainWindow : Window
                     item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal);
                 var isQueuedLoop = string.Equals(
                     item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal);
+                var isQueuedPlanStart = string.Equals(
+                    item.SourceTag, QueuedPlanStartTag, StringComparison.Ordinal);
                 var queuedLoop = isQueuedLoop && QueuedLoopJob.TryDecode(item.Text, out var decodedJob)
                     ? decodedJob
+                    : null;
+                var queuedPlanStart = isQueuedPlanStart &&
+                                      QueuedPlanStart.TryDecode(item.Text, out var decodedPlanStart)
+                    ? decodedPlanStart
                     : null;
                 var label = !string.IsNullOrWhiteSpace(item.DisplayLabel)
                     ? item.DisplayLabel!
@@ -3890,6 +3955,8 @@ public partial class MainWindow : Window
                     ? "The plan advances one step when this item reaches the front. Drag it to place queued prompts before or after the next plan step."
                     : queuedLoop is not null
                         ? $"This filtered loop is queued behind the active loop ({queuedLoop.TaskCount} tasks)."
+                    : queuedPlanStart is not null
+                        ? $"Start “{queuedPlanStart.DisplayName}” after active and earlier queued work finishes. Delete this item to cancel the start."
                     : isNext ? "This prompt is next in the Squad queue."
                              : "This item is in the Squad queue.";
                 QueueTabStrip.Children.Add(CreateQueueTab(item.Id, label, tooltip));
@@ -4605,6 +4672,8 @@ public partial class MainWindow : Window
                 queueItem?.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal);
             var isQueuedLoop = string.Equals(
                 queueItem?.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal);
+            var isQueuedPlanStart = string.Equals(
+                queueItem?.SourceTag, QueuedPlanStartTag, StringComparison.Ordinal);
             if (isQueuedLoop)
                 tab.Cursor = Cursors.Arrow;
             var cm = MakeMenu();
@@ -4614,7 +4683,7 @@ public partial class MainWindow : Window
 
             // Only show Prioritize when this item is not already next-to-dispatch (index 0).
             bool isAlreadyFirst = _promptQueue.Items.Count > 0 && _promptQueue.Items[0].Id == capturedId;
-            if (!isAlreadyFirst && !isQueuedLoop && !isPlanContinuation)
+            if (!isAlreadyFirst && !isQueuedLoop && !isQueuedPlanStart && !isPlanContinuation)
             {
                 var prioritizeItem = MakeItem("Prioritize — send this next");
                 prioritizeItem.Click += (_, _) => OnQueueTabPrioritize(capturedId);
@@ -4629,7 +4698,7 @@ public partial class MainWindow : Window
             }
             tab.ContextMenu = cm;
 
-            if (!isQueuedLoop && !isPlanContinuation)
+            if (!isQueuedLoop && !isQueuedPlanStart && !isPlanContinuation)
             {
                 // Drag-to-reorder: tag the tab so UpdateDropIndicator can identify it,
                 // then wire up the four mouse events needed for the drag lifecycle.
@@ -8952,7 +9021,7 @@ public partial class MainWindow : Window
         _activeLoopMode = mode;
         var queuedExecution = requestedExecution ?? BuildGeneralLoopExecutionState();
         _conversationManager.UpdateActiveLoopExecutionState(queuedExecution);
-        if (mode == LoopMode.NativeAgents && (_isPromptRunning || HasReadyPromptQueueItems()))
+        if (mode == LoopMode.NativeAgents && (_isPromptRunning || HasQueuedWorkAheadOfNewLoop()))
         {
             QueueLoopResumeAfterQueueDrain(_loopCurrentIteration, "manual-start", updateUi: false);
             AppendLoopOutputLine($"⏳ Loop queued — {LoopTimestamp()} — will start after queue drains.", LoopLifecycleBrush);
@@ -8967,7 +9036,7 @@ public partial class MainWindow : Window
         ActiveLoopExecutionState? resumeExecution = null)
     {
         if (_currentWorkspace is null) return;
-        if (_activeLoopMode == LoopMode.NativeAgents && (_isPromptRunning || HasReadyPromptQueueItems()))
+        if (_activeLoopMode == LoopMode.NativeAgents && (_isPromptRunning || HasQueuedWorkAheadOfNewLoop()))
         {
             QueueLoopResumeAfterQueueDrain(resumeFromIteration, "start-loop-immediate-guard");
             return;
@@ -11382,6 +11451,7 @@ public partial class MainWindow : Window
     private const string PlanContinuationQueueTag = "plan-continuation";
     private const string PlanRecoveryAssessmentQueueTag = "plan-recovery-assessment";
     private const string QueuedLoopJobTag = "queued-loop-job";
+    private const string QueuedPlanStartTag = "queued-plan-start";
 
     private int DiscardObsoletePlanQueueItems(
         string reason,
@@ -11405,10 +11475,18 @@ public partial class MainWindow : Window
 
     private static bool IsHostQueueItem(PromptQueueItem item) =>
         string.Equals(item.SourceTag, PlanContinuationQueueTag, StringComparison.Ordinal) ||
-        string.Equals(item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal);
+        string.Equals(item.SourceTag, QueuedLoopJobTag, StringComparison.Ordinal) ||
+        string.Equals(item.SourceTag, QueuedPlanStartTag, StringComparison.Ordinal);
 
     private bool HasReadyPromptQueueItems() => _promptQueue.Items.Any(item =>
         !item.IsEditing && !IsHostQueueItem(item));
+
+    private bool HasQueuedWorkAheadOfNewLoop() =>
+        HasReadyPromptQueueItems() ||
+        _promptQueue.Items.Any(item => string.Equals(
+            item.SourceTag,
+            QueuedPlanStartTag,
+            StringComparison.Ordinal));
 
     private void PlaceNewQueueItemBeforePlanContinuation(PromptQueueItem item)
     {
@@ -11479,6 +11557,49 @@ public partial class MainWindow : Window
             LoopLifecycleBrush);
     }
 
+    private async Task QueueOrStartDurablePlanAsync(Plan plan)
+    {
+        var shouldQueue = PlanStartQueuePolicy.ShouldQueue(
+            coordinatorTurnActive: _isPromptRunning,
+            loopActive: IsLoopRunning,
+            queueDrainActive: _queueDrainActive,
+            backgroundWorkActive: _backgroundTaskPresenter.HasBackgroundTasks(),
+            directFollowUpPending: HasPendingDirectQuickReplyAgentFollowUp(),
+            queueDispatchHeld: IsQueueDispatchHeld,
+            queuedItemCount: _promptQueue.Count);
+        if (!shouldQueue)
+        {
+            await StartOrResumeDurablePlanAsync(plan);
+            return;
+        }
+
+        var alreadyQueued = _promptQueue.Items.Any(item =>
+            string.Equals(item.SourceTag, QueuedPlanStartTag, StringComparison.Ordinal) &&
+            QueuedPlanStart.TryDecode(item.Text, out var queued) &&
+            string.Equals(queued?.PlanId, plan.PlanId, StringComparison.Ordinal));
+        if (alreadyQueued)
+            return;
+
+        var request = new QueuedPlanStart(plan.PlanId, plan.DisplayName);
+        _promptQueue.EnqueueItem(new PromptQueueItem
+        {
+            Text = request.Encode(),
+            SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
+            QueueNumber = NextQueueNumber(),
+            IsSystemInjected = true,
+            SourceTag = QueuedPlanStartTag,
+            IsLocked = true,
+            DisplayLabel = $"Start plan: {plan.DisplayName}",
+            ReadOnlyDisplayText =
+                $"Start plan “{plan.DisplayName}” when the coordinator and all earlier queued work are idle.\n\n" +
+                "This start request is saved across restarts. Delete this queued item to cancel it; the approved plan will remain pending.",
+        });
+        SyncQueuePanel();
+        SquadDashTrace.Write(
+            "Queue",
+            $"Queued plan start plan={plan.PlanId} title='{plan.DisplayName}' queueCount={_promptQueue.Count}.");
+    }
+
     private void ShowTranscriptPlanPreflightRecovery(
         PendingDecomposePlan plan,
         string action,
@@ -11522,6 +11643,14 @@ public partial class MainWindow : Window
         title.SetResourceReference(TextBlock.ForegroundProperty, "PlanPreflightWarningText");
         header.Children.Add(title);
 
+        var headerButtons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(headerButtons, 1);
+
         var copyButton = new CopyButton
         {
             CopyTooltip = "Copy details",
@@ -11533,8 +11662,23 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
         };
         System.Windows.Automation.AutomationProperties.SetName(copyButton, "Copy details");
-        Grid.SetColumn(copyButton, 1);
-        header.Children.Add(copyButton);
+        headerButtons.Children.Add(copyButton);
+        var dismissButton = new Button
+        {
+            Content = "×",
+            Width = 22,
+            Height = 22,
+            Padding = new Thickness(0),
+            Margin = new Thickness(0, 2, 0, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = ToolTipHelper.MakeThemedToolTip(
+                "Dismiss this recovery card. The plan will remain in its current state."),
+        };
+        dismissButton.SetResourceReference(Button.StyleProperty, "PanelCloseButtonStyle");
+        dismissButton.SetResourceReference(Button.FontSizeProperty, "FontSizeNormal");
+        System.Windows.Automation.AutomationProperties.SetName(dismissButton, "Dismiss plan recovery card");
+        headerButtons.Children.Add(dismissButton);
+        header.Children.Add(headerButtons);
         stack.Children.Add(header);
 
         var summary = new TextBlock
@@ -11637,6 +11781,14 @@ public partial class MainWindow : Window
         blocks.Add(container);
         sourceActionsPanel?.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
 
+        DispatcherTimer? timer = null;
+        dismissButton.Click += (_, _) =>
+        {
+            timer?.Stop();
+            if (blocks.Contains(container))
+                blocks.Remove(container);
+            sourceActionsPanel?.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Visible);
+        };
         viewChangesLink.Click += (_, _) => _ = ShowPlanPreflightChangesAsync(exception);
         copyButton.Click += (_, _) =>
         {
@@ -11644,7 +11796,6 @@ public partial class MainWindow : Window
             readiness.Text = "Details copied to the clipboard.";
         };
         var retryInFlight = false;
-        DispatcherTimer? timer = null;
         retryButton.Click += async (_, _) => await RetryPlanAsync("Checking the workspace and retrying…");
 
         async Task RetryPlanAsync(string progressText)
@@ -12331,7 +12482,7 @@ public partial class MainWindow : Window
                   }
             : null;
         Action<Plan>? onStartPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Approved
-            ? p => _ = StartOrResumeDurablePlanAsync(p)
+            ? p => _ = QueueOrStartDurablePlanAsync(p)
             : null;
         var isSafelyResumable = durablePlan is not null &&
                                 PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan);
@@ -54195,7 +54346,7 @@ public partial class MainWindow : Window
                 },
                 setMenuChecked:  isChecked => { if (ViewPlansMenuItem is not null) ViewPlansMenuItem.IsChecked = isChecked; },
                 persistVisibility: PersistPlansPanelVisible,
-                startPlan:  plan => _ = StartOrResumeDurablePlanAsync(plan),
+                startPlan:  plan => _ = QueueOrStartDurablePlanAsync(plan),
                 resumePlan: plan => _ = ContinueInterruptedPlanFromDurableAsync(plan),
                 endPlan:    EndInterruptedPlan,
                 approveGate: plan =>
