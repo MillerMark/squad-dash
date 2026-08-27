@@ -7749,7 +7749,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var modePara = new Paragraph();
                 modePara.Inlines.Add(new Run("Mode: ") { FontWeight = FontWeights.SemiBold });
-                modePara.Inlines.Add(new Run(validation.Mode));
+                var modeValueRun = new Run(validation.Mode);
+                modeValueRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                modePara.Inlines.Add(modeValueRun);
                 modePara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
                 modePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 modePara.Margin = new Thickness(0, 0, 0, 8);
@@ -7760,7 +7762,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (!string.IsNullOrWhiteSpace(validation.Description))
             {
                 var descPara = new Paragraph(new Run(validation.Description));
-                descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                descPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 descPara.Margin = new Thickness(0, 0, 0, 12);
                 _detailDocument.Blocks.Add(descPara);
@@ -7771,7 +7773,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 AddSectionHeader("Assertions");
                 var assertList = new List();
-                assertList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                assertList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 assertList.MarkerStyle = TextMarkerStyle.None;
                 assertList.Margin = new Thickness(0, 0, 0, 12);
@@ -7787,7 +7789,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var indicatorRun = new Run(indicator);
                     indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
                     para.Inlines.Add(indicatorRun);
-                    para.Inlines.Add(new Run(assertion));
+                    var assertionRun = new Run(assertion);
+                    assertionRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                    para.Inlines.Add(assertionRun);
                     assertList.ListItems.Add(new ListItem(para));
                 }
                 _detailDocument.Blocks.Add(assertList);
@@ -8781,7 +8785,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         AddSectionHeader(header);
         var list = new List();
-        list.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
         list.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
         list.MarkerStyle = TextMarkerStyle.Disc;
         list.Margin = new Thickness(0, 0, 0, 12);
@@ -8789,7 +8792,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             var task = plan?.Tasks?.FirstOrDefault(t => t.TaskId == taskId);
             var title = task?.Title ?? taskId;
-            list.ListItems.Add(new ListItem(new Paragraph(new Run(title))));
+            var para = new Paragraph(CreateTaskLink(title, taskId));
+            list.ListItems.Add(new ListItem(para));
         }
         _detailDocument.Blocks.Add(list);
     }
