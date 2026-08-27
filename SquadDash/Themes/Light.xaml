@@ -132,8 +132,7 @@
     <SolidColorBrush x:Key="ToolTipForeground" Color="#1A1A1A"/><!-- near-black for high contrast on light tooltip background -->
     <SolidColorBrush x:Key="CodeText" Color="#2A1E12"/>
     <SolidColorBrush x:Key="SubtleText" Color="#7D6853"/>
-    <SolidColorBrush x:Key="TitleText" Color="#92816E"/>
-    <SolidColorBrush x:Key="TitleText" Color="#BEB4A9"/>
+    <SolidColorBrush x:Key="TitleText" Color="#A89B8C"/>
     <SolidColorBrush x:Key="AgentRoleText" Color="#6E5035"/>
     <SolidColorBrush x:Key="AgentStatusText" Color="#6B4A28"/>
     <SolidColorBrush x:Key="AgentDetailText" Color="#876C53"/>
@@ -195,7 +194,7 @@
     <!-- Chip State Tokens -->
     <SolidColorBrush x:Key="ChipSelectedSurface" Color="#E5F0FF"/>
     <SolidColorBrush x:Key="ChipSelectedBorder" Color="#5B88D8"/>
-    <SolidColorBrush x:Key="TaskLinkText" Color="#2D446C"/>
+    <SolidColorBrush x:Key="TaskLinkText" Color="#234276"/>
     <SolidColorBrush x:Key="ChipSelectedText" Color="#191970"/>
     <SolidColorBrush x:Key="ChipCompletedSurface" Color="#EBF8EE"/>
     <SolidColorBrush x:Key="ChipCompletedBorder" Color="#7CB98A"/>
