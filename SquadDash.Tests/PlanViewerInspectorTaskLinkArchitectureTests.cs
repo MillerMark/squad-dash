@@ -13,8 +13,8 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
         var light = File.ReadAllText(FindRepoFile("SquadDash", "Themes", "Light.xaml"));
         var dark = File.ReadAllText(FindRepoFile("SquadDash", "Themes", "Dark.xaml"));
 
-        AssertThemeBrushColors(light, expectedColor: "#5B88D8");
-        AssertThemeBrushColors(dark, expectedColor: "#4A70B8");
+        AssertThemeBrushColors(light, expectedTaskLinkText: "#1A52B1", expectedChipSelectedBorder: "#5B88D8");
+        AssertThemeBrushColors(dark, expectedTaskLinkText: "#8FB1F0", expectedChipSelectedBorder: "#4A70B8");
     }
 
     [Test]
@@ -72,11 +72,13 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
             Assert.That(method, Does.Contain("if (task.DependsOn is { Count: > 0 })"));
             Assert.That(method, Does.Contain("depPara.Inlines.Add(CreateTaskLink(depTitle, depId));"));
             Assert.That(method, Does.Contain("if (depTask is not null)"));
-            Assert.That(method, Does.Contain("depPara.Inlines.Add(new Run(depStatus));"));
-            Assert.That(method, Does.Contain("depPara.Inlines.Add(new Run($\"{depTitle}{depStatus}\"));"));
+            Assert.That(method, Does.Contain("var depStatusRun = new Run(depStatusText);"));
+            Assert.That(method, Does.Contain("depStatusRun.SetResourceReference(TextElement.ForegroundProperty, depIsActive ? \"ImportantText\" : \"SubtleText\");"));
+            Assert.That(method, Does.Contain("depPara.Inlines.Add(depStatusRun);"));
+            Assert.That(method, Does.Contain("depPara.Inlines.Add(new Run(depTitle));"));
             Assert.That(method.IndexOf("depPara.Inlines.Add(CreateTaskLink(depTitle, depId));", StringComparison.Ordinal),
                 Is.GreaterThan(method.IndexOf("if (depTask is not null)", StringComparison.Ordinal)));
-            Assert.That(method.IndexOf("depPara.Inlines.Add(new Run($\"{depTitle}{depStatus}\"));", StringComparison.Ordinal),
+            Assert.That(method.IndexOf("depPara.Inlines.Add(new Run(depTitle));", StringComparison.Ordinal),
                 Is.GreaterThan(method.IndexOf("depPara.Inlines.Add(CreateTaskLink(depTitle, depId));", StringComparison.Ordinal)));
         });
     }
@@ -95,16 +97,18 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
         });
     }
 
-    private static void AssertThemeBrushColors(string themeXaml, string expectedColor)
+    private static void AssertThemeBrushColors(
+        string themeXaml,
+        string expectedTaskLinkText,
+        string expectedChipSelectedBorder)
     {
         var taskLinkTextColor = ExtractBrushColor(themeXaml, "TaskLinkText");
         var chipSelectedBorderColor = ExtractBrushColor(themeXaml, "ChipSelectedBorder");
 
         Assert.Multiple(() =>
         {
-            Assert.That(taskLinkTextColor, Is.EqualTo(expectedColor));
-            Assert.That(chipSelectedBorderColor, Is.EqualTo(expectedColor));
-            Assert.That(taskLinkTextColor, Is.EqualTo(chipSelectedBorderColor));
+            Assert.That(taskLinkTextColor, Is.EqualTo(expectedTaskLinkText));
+            Assert.That(chipSelectedBorderColor, Is.EqualTo(expectedChipSelectedBorder));
         });
     }
 

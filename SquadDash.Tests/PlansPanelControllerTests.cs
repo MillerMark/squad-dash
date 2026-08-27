@@ -194,6 +194,7 @@ internal sealed class PlansPanelControllerTests
             var (ctrl, activePanel, _, _) = BuildController();
             var current = MakePlan(revision: "rev2") with
             {
+                LifecycleStatus = PlanLifecycleStatus.Interrupted,
                 RevisionNumber = 2,
                 Progress = new PlanProgress(6, 8),
             };
@@ -203,6 +204,7 @@ internal sealed class PlansPanelControllerTests
             {
                 Revision = "rev1",
                 RevisionNumber = 1,
+                LifecycleStatus = PlanLifecycleStatus.Interrupted,
                 Progress = new PlanProgress(7, 8),
             });
 
@@ -409,10 +411,11 @@ internal sealed class PlansPanelControllerTests
 
             var row = activePanel.Children.OfType<Border>().Single();
             var rowStack = (StackPanel)row.Child;
-            var titleRow = (Grid)rowStack.Children[0];
-            var statusIcon = (TextBlock)titleRow.Children[0];
+            var progressRow = (StackPanel)rowStack.Children[1];
+            var statusIcon = progressRow.Children.OfType<TextBlock>()
+                .FirstOrDefault(block => UiTimingConstants.ToolSpinnerFrames.Contains(block.Text));
 
-            Assert.That(statusIcon.Text, Is.EqualTo("⟳"));
+            Assert.That(statusIcon, Is.Null);
         });
 
     [Test]
