@@ -7278,8 +7278,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // 1. Title
         var titlePara = new Paragraph(new Run(task.Title ?? task.TaskId) { FontWeight = FontWeights.Bold });
-        titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
+        titlePara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeTitle");
         titlePara.Margin = new Thickness(0, 0, 0, 4);
         _detailDocument.Blocks.Add(titlePara);
 
@@ -7296,7 +7296,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (!string.IsNullOrWhiteSpace(task.Description))
         {
             var descPara = new Paragraph(new Run(task.Description));
-            descPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            descPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             descPara.Margin = new Thickness(0, 0, 0, 12);
             _detailDocument.Blocks.Add(descPara);
@@ -7314,7 +7314,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             AddSectionHeader("Dependencies");
             var depList = new List();
-            depList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            depList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             depList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             depList.MarkerStyle = TextMarkerStyle.Disc;
             depList.Margin = new Thickness(0, 0, 0, 12);
@@ -7334,7 +7334,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             AddSectionHeader("Agent Assignments");
             var agentList = new List();
-            agentList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            agentList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             agentList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             agentList.MarkerStyle = TextMarkerStyle.None;
             agentList.Margin = new Thickness(0, 0, 0, 12);
@@ -7355,7 +7355,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             AddSectionHeader("Completion Summary");
             var summaryPara = new Paragraph(new Run(task.CompletionSummary));
-            summaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            summaryPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             summaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             summaryPara.Margin = new Thickness(0, 0, 0, 12);
             _detailDocument.Blocks.Add(summaryPara);
@@ -7396,14 +7396,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var handoffCommitPara = new Paragraph();
             handoffCommitPara.Inlines.Add(new Run("Commit: ") { FontWeight = FontWeights.SemiBold });
             handoffCommitPara.Inlines.Add(new Run(handoff.Commit) { FontFamily = new FontFamily("Consolas") });
-            handoffCommitPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            handoffCommitPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             handoffCommitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             _detailDocument.Blocks.Add(handoffCommitPara);
 
             if (!string.IsNullOrWhiteSpace(handoff.Summary))
             {
                 var hSummaryPara = new Paragraph(new Run(handoff.Summary));
-                hSummaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                hSummaryPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 hSummaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 _detailDocument.Blocks.Add(hSummaryPara);
             }
@@ -7416,7 +7416,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 _detailDocument.Blocks.Add(filesPara);
 
                 var fileList = new List();
-                fileList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                fileList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 fileList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
                 fileList.MarkerStyle = TextMarkerStyle.None;
                 foreach (var file in handoff.ChangedFiles)
@@ -7429,7 +7429,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var verPara = new Paragraph();
                 verPara.Inlines.Add(new Run("Verification: ") { FontWeight = FontWeights.SemiBold });
                 verPara.Inlines.Add(new Run(ver.Status ?? "unknown"));
-                verPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                verPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 verPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 _detailDocument.Blocks.Add(verPara);
             }
@@ -7442,7 +7442,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 _detailDocument.Blocks.Add(deferHeader);
 
                 var deferList = new List();
-                deferList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                deferList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 deferList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
                 deferList.MarkerStyle = TextMarkerStyle.Disc;
                 foreach (var dw in handoff.DeferredWork)
@@ -7479,7 +7479,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (!string.IsNullOrWhiteSpace(report.Summary))
                 {
                     var rSummaryPara = new Paragraph(new Run(report.Summary));
-                    rSummaryPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    rSummaryPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                     rSummaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
                     rSummaryPara.Margin = new Thickness(8, 0, 0, 4);
                     _detailDocument.Blocks.Add(rSummaryPara);
@@ -7488,7 +7488,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (report.ClaimFindings is { Count: > 0 })
                 {
                     var findingList = new List();
-                    findingList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                    findingList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                     findingList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
                     findingList.MarkerStyle = TextMarkerStyle.None;
                     findingList.Margin = new Thickness(8, 0, 0, 8);
@@ -7513,7 +7513,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             AddSectionHeader("Proof Evidence");
             var proofList = new List();
-            proofList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            proofList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             proofList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
             proofList.MarkerStyle = TextMarkerStyle.None;
             proofList.Margin = new Thickness(0, 0, 0, 12);
@@ -8913,8 +8913,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     {
         if (_detailDocument is null) return;
         var header = new Paragraph(new Run(text) { FontWeight = FontWeights.SemiBold });
-        header.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
-        header.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        header.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        header.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLargePlus");
         header.Margin = new Thickness(0, 4, 0, 2);
         _detailDocument.Blocks.Add(header);
     }
