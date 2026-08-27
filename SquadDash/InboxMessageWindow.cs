@@ -49,6 +49,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
     private PlanThumbnailRenderer? _planThumbnailRenderer;
     private Action<ImageSource>? _planThumbnailImageUpdatedHandler;
+    private bool _isClosed;
 
     public InboxMessageWindow(
         InboxMessage message,
@@ -418,6 +419,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         Closed += (_, _) =>
         {
+            _isClosed = true;
             _preflightPollTimer?.Stop();
             _preflightPollTimer = null;
             DisposePlanThumbnailRenderer();
@@ -426,7 +428,15 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     private void RequestInitialPlanThumbnailRender()
     {
+        RefreshPlanThumbnailForCurrentState();
+    }
+
+    private void RefreshPlanThumbnailForCurrentState()
+    {
         if (string.IsNullOrWhiteSpace(_planGroupId))
+            return;
+
+        if (_isClosed || _planThumbnailRenderer is null)
             return;
 
         var group = _resolvePlanGroupForThumbnail?.Invoke(_planGroupId);
@@ -436,9 +446,6 @@ internal sealed class InboxMessageWindow : ChromedWindow
             _planNotFoundLabel.Visibility = Visibility.Visible;
             return;
         }
-
-        if (_planThumbnailRenderer is null)
-            return;
 
         _planThumbnailImage.Visibility = Visibility.Visible;
         _planNotFoundLabel.Visibility = Visibility.Collapsed;
@@ -1048,7 +1055,24 @@ internal sealed class InboxMessageWindow : ChromedWindow
     /// </summary>
     public void NotifyThemeChanged()
     {
+        NotifyAppearanceChanged();
+    }
+
+    public void NotifyAppearanceChanged()
+    {
         RebuildDocument();
+        RefreshPlanThumbnailForCurrentState();
+    }
+
+    public void NotifyPlanProgressChanged(string planGroupId)
+    {
+        if (_isClosed || string.IsNullOrWhiteSpace(_planGroupId))
+            return;
+
+        if (!string.Equals(_planGroupId, planGroupId, StringComparison.Ordinal))
+            return;
+
+        RefreshPlanThumbnailForCurrentState();
     }
 
     public bool SelectAndScrollToText(string excerptText)

@@ -1437,6 +1437,9 @@ public partial class MainWindow : Window
                 _plansPanelController?.OnPlanChanged(evt.UpdatedPlan);
                 if (_openPlanApprovalReviewWindows.ContainsKey(evt.PlanId))
                     _ = RefreshOpenPlanApprovalReviewWindowAsync(evt.UpdatedPlan);
+
+                foreach (var inboxWin in _openInboxWindows.ToList())
+                    inboxWin.NotifyPlanProgressChanged(evt.PlanId);
             }
 
             if (Dispatcher.CheckAccess())
@@ -50125,6 +50128,8 @@ public partial class MainWindow : Window
         // color values read from Application.Current.Resources, so a re-render
         // is required whenever those resources change due to tinting.
         MarkdownDocumentWindow.RefreshAllOpenWindows();
+        foreach (var inboxWin in _openInboxWindows.ToList())
+            inboxWin.NotifyAppearanceChanged();
         RefreshDocumentationViewer();
         RefreshDocMarkdownViewerFromSource();
         FrmUltimateCallout.NotifyTintChanged();
