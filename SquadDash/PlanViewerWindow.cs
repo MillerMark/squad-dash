@@ -28,7 +28,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private PendingDecomposePlan? _plan;
     private Plan? _durablePlan;
     private IReadOnlyList<(Point Center, DecomposedSubTask[] Targets, string[] Dependencies, int MinTargetLevel, int MaxDepLevel)>? _visualizationGates;
-    private IReadOnlyList<IReadOnlyList<ConnectorGroup>>? _visualizationGateConnectorGroups;
+    private IReadOnlyList<IReadOnlyList<PlanGraphConnectorGroup>>? _visualizationGateConnectorGroups;
     private FrameworkElement?[]? _allGateBadgeElements;
 
     private readonly string? _activeBranch;
@@ -113,6 +113,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private DecomposedTaskGroup? _deferredDefinitionEdit;
     private (Dictionary<string, Point> OldPositions, IReadOnlyList<string> AffectedTaskIds)? _pendingAnimation;
     private int _buildSeq;
+    private readonly PlanGraphEdgeRenderingContract _graphEdgeRenderingContract;
 
     private enum AutomaticScrollTarget
     {
@@ -133,8 +134,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
     private sealed class DragConnectorState
     {
-        public ConnectorGroup Group { get; set; } = null!;
-        public ConnectorEndpointRole Role { get; init; }
+        public PlanGraphConnectorGroup Group { get; set; } = null!;
+        public PlanGraphConnectorEndpointRole Role { get; init; }
         public double? StartOffsetWithinCard { get; init; }
         public double? EndOffsetWithinCard { get; init; }
         public string? SourceTaskId { get; init; }
@@ -174,7 +175,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private List<Border> _selectedAgentChipBorders = [];
     private TaskCardDragState? _taskCardDragState;
     private CommittedColumnReorder? _lastCommittedColumnOrder;
-    private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, List<PlanGraphConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
     private Dictionary<string, Border> _borderByTask = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
     private Dictionary<string, double> _taskNudges = new(StringComparer.Ordinal);
@@ -229,7 +230,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Dictionary<string, double>>? saveLayoutNudges = null,
         Action<Plan, string>? onRetryValidation = null,
         Func<ApplicationSettingsSnapshot>? getSettings = null,
-        Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null)
+        Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
+        double lineThicknessMultiplier = 1.0)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -281,6 +283,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onRetryValidation = onRetryValidation;
         _getSettings = getSettings;
         _getAssignableAgents = getAssignableAgents;
+        _graphEdgeRenderingContract = new PlanGraphEdgeRenderingContract(lineThicknessMultiplier);
         if (_getSettings is not null)
             _pttAttachment = new PttTextBoxAttachment(_getSettings, this, Dispatcher);
         if (saveDefinitionEdit is not null)
@@ -2299,8 +2302,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var connectorsByTask = _connectorsByTask;
         connectorsByTask.Clear();
         // Deferred badge hover wiring — populated during badge draw, executed after borderByTask is ready.
-        var _deferredBadgeHovers = new List<(Border Badge, List<ConnectorGroup> Cgs)>();
-        void RegisterConnector(string taskId, ConnectorGroup cg, ConnectorEndpointRole role)
+        var _deferredBadgeHovers = new List<(Border Badge, List<PlanGraphConnectorGroup> Cgs)>();
+        void RegisterConnector(string taskId, PlanGraphConnectorGroup cg, PlanGraphConnectorEndpointRole role)
         {
             if (!connectorsByTask.TryGetValue(taskId, out var list))
                 connectorsByTask[taskId] = list = [];
@@ -2315,10 +2318,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 .OrderBy(bx => bx).Cast<double?>().FirstOrDefault() ?? double.NaN;
 
         // Draw ALL-gate connectors; collect per-gate groups so the badge can reference them later.
-        var gateConnectorGroups = new List<List<ConnectorGroup>>(gates.Count);
+        var gateConnectorGroups = new List<List<PlanGraphConnectorGroup>>(gates.Count);
         foreach (var (gateCenter, targets, dependencies, minTargetLevel, maxDepLevel) in gates)
         {
-            var cgsForGate = new List<ConnectorGroup>();
+            var cgsForGate = new List<PlanGraphConnectorGroup>();
             var joinBeforeIds = targets.Select(task => task.Id).ToArray();
             var joinIsLocked = FindDurableGate(dependencies, joinBeforeIds) is not null ||
                                FindDisplayedGate(dependencies, joinBeforeIds) is not null;
@@ -2330,13 +2333,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var depSkip = minTargetLevel - levels[dependency] - 1;
                 var fromPt  = new Point(source.X + NodeWidth, SpreadExitY(dependency, gateCenter.Y));
                 var toPt    = new Point(gateCenter.X - 29, gateCenter.Y);
-                var cg = AddConnector(canvas,
+                var cg = _graphEdgeRenderingContract.AddConnector(canvas,
                     fromPt, toPt,
                     arrowHead: false,
                     skipCount: Math.Max(0, depSkip),
                     dashed: targets.Any(target => dashedTaskEdges.Contains((dependency, target.Id))),
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
-                RegisterConnector(dependency, cg, ConnectorEndpointRole.Start);
+                RegisterConnector(dependency, cg, PlanGraphConnectorEndpointRole.Start);
                 cgsForGate.Add(cg);
             }
             foreach (var target in targets)
@@ -2349,13 +2352,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     .Select(dependency => dashedTaskEdges.Contains((dependency, target.Id)))
                     .ToArray();
                 var combinedDashed = incomingStates.All(value => value);
-                var cg = AddConnector(canvas,
+                var cg = _graphEdgeRenderingContract.AddConnector(canvas,
                     fromPt, toPt,
                     arrowHead: true,
                     skipCount: Math.Max(0, targetSkip),
                     dashed: joinIsLocked || combinedDashed,
                     splitAtX: FindSplitX(fromPt.X, toPt.X));
-                RegisterConnector(target.Id, cg, ConnectorEndpointRole.End);
+                RegisterConnector(target.Id, cg, PlanGraphConnectorEndpointRole.End);
                 cgsForGate.Add(cg);
             }
             gateConnectorGroups.Add(cgsForGate);
@@ -2379,8 +2382,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     toPt,
                     skipCount,
                     isDashed);
-                RegisterConnector(dependency, directConnector, ConnectorEndpointRole.Start);
-                RegisterConnector(task.Id, directConnector, ConnectorEndpointRole.End);
+                RegisterConnector(dependency, directConnector, PlanGraphConnectorEndpointRole.Start);
+                RegisterConnector(task.Id, directConnector, PlanGraphConnectorEndpointRole.End);
             }
         }
 
@@ -2588,7 +2591,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         _visualizationGateConnectorGroups = gateConnectorGroups
-            .Select(list => (IReadOnlyList<ConnectorGroup>)list.AsReadOnly())
+            .Select(list => (IReadOnlyList<PlanGraphConnectorGroup>)list.AsReadOnly())
             .ToList();
         if (_visualizationGates is { Count: > 0 })
         {
@@ -9556,13 +9559,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var group in groups.Distinct())
         {
             var role = group.GetEndpointRole(taskId);
-            if (role == ConnectorEndpointRole.None)
+            if (role == PlanGraphConnectorEndpointRole.None)
                 continue;
 
             var sourceTaskId = group.TaskIds.FirstOrDefault(id =>
-                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.Start));
+                group.GetEndpointRole(id).HasFlag(PlanGraphConnectorEndpointRole.Start));
             var targetTaskId = group.TaskIds.FirstOrDefault(id =>
-                group.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.End));
+                group.GetEndpointRole(id).HasFlag(PlanGraphConnectorEndpointRole.End));
             var hasDirectTaskPair =
                 !string.IsNullOrWhiteSpace(sourceTaskId) &&
                 !string.IsNullOrWhiteSpace(targetTaskId) &&
@@ -9576,10 +9579,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 Group = group,
                 Role = role,
-                StartOffsetWithinCard = role.HasFlag(ConnectorEndpointRole.Start)
+                StartOffsetWithinCard = role.HasFlag(PlanGraphConnectorEndpointRole.Start)
                     ? group.CurrentFrom.Y - originalTop
                     : null,
-                EndOffsetWithinCard = role.HasFlag(ConnectorEndpointRole.End)
+                EndOffsetWithinCard = role.HasFlag(PlanGraphConnectorEndpointRole.End)
                     ? group.CurrentTo.Y - originalTop
                     : null,
                 SourceTaskId = sourceTaskId,
@@ -9619,7 +9622,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     /// </summary>
     private double ComputeSourceExitY(
         string sourceTaskId,
-        ConnectorGroup thisConnectorGroup,
+        PlanGraphConnectorGroup thisConnectorGroup,
         double thisDraggedTargetMidY,
         double sourceCardTop)
     {
@@ -9629,7 +9632,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var targetYs = new List<double>();
         foreach (var g in groups.Distinct())
         {
-            if (!g.GetEndpointRole(sourceTaskId).HasFlag(ConnectorEndpointRole.Start))
+            if (!g.GetEndpointRole(sourceTaskId).HasFlag(PlanGraphConnectorEndpointRole.Start))
                 continue;
 
             if (ReferenceEquals(g, thisConnectorGroup))
@@ -9639,7 +9642,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             else
             {
                 var targetId = g.TaskIds.FirstOrDefault(id =>
-                    g.GetEndpointRole(id).HasFlag(ConnectorEndpointRole.End));
+                    g.GetEndpointRole(id).HasFlag(PlanGraphConnectorEndpointRole.End));
                 if (targetId is not null && _taskCardPositions.TryGetValue(targetId, out var targetPos))
                     targetYs.Add(targetPos.Y + NodeHeight / 2.0);
                 else
@@ -9670,12 +9673,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var group = connectorState.Group;
             var updatedFrom = group.CurrentFrom;
             var updatedTo = group.CurrentTo;
-            if (connectorState.Role.HasFlag(ConnectorEndpointRole.Start) &&
+            if (connectorState.Role.HasFlag(PlanGraphConnectorEndpointRole.Start) &&
                 connectorState.StartOffsetWithinCard.HasValue)
             {
                 updatedFrom = new Point(left + NodeWidth, top + connectorState.StartOffsetWithinCard.Value);
             }
-            if (connectorState.Role.HasFlag(ConnectorEndpointRole.End) &&
+            if (connectorState.Role.HasFlag(PlanGraphConnectorEndpointRole.End) &&
                 connectorState.EndOffsetWithinCard.HasValue)
             {
                 updatedTo = new Point(left, top + connectorState.EndOffsetWithinCard.Value);
@@ -9683,7 +9686,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             // When the dragged task is the target (End) but NOT the source of this connector,
             // recalculate the upstream exit Y so arrows adjust during drag to minimize crossings.
-            if (connectorState.Role == ConnectorEndpointRole.End &&
+            if (connectorState.Role == PlanGraphConnectorEndpointRole.End &&
                 !string.IsNullOrWhiteSpace(connectorState.SourceTaskId) &&
                 _taskCardPositions.TryGetValue(connectorState.SourceTaskId, out var sourcePos))
             {
@@ -9828,7 +9831,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             .Cast<double?>()
             .FirstOrDefault() ?? double.NaN;
 
-    private ConnectorGroup AddDirectTaskConnector(
+    private PlanGraphConnectorGroup AddDirectTaskConnector(
         Canvas canvas,
         Point fromPoint,
         Point toPoint,
@@ -9845,7 +9848,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (detour is { Count: 0 })
         {
-            return AddConnector(
+            return _graphEdgeRenderingContract.AddConnector(
                 canvas,
                 fromPoint,
                 toPoint,
@@ -9858,7 +9861,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (detour is null || detour.Count <= 2)
         {
-            return AddConnector(
+            return _graphEdgeRenderingContract.AddConnector(
                 canvas,
                 fromPoint,
                 toPoint,
@@ -9871,7 +9874,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // Render the complete collision-safe route as one rounded path. Each corner
         // cuts back by half its shorter adjacent segment, producing proportional
         // curves without allowing a long segment to overwhelm a nearby short turn.
-        return AddRoundedConnectorRoute(
+        return _graphEdgeRenderingContract.AddRoundedConnectorRoute(
             canvas,
             detour,
             arrowHead: true,
@@ -9879,13 +9882,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             dashed: dashed);
     }
 
-    private static void RemoveConnectorGroupElements(Canvas canvas, ConnectorGroup group)
+    private void RemoveConnectorGroupElements(Canvas canvas, PlanGraphConnectorGroup group)
     {
-        foreach (var element in group.GlowElements.Concat(group.MainElements).Distinct())
-            canvas.Children.Remove(element);
+        _graphEdgeRenderingContract.RemoveConnectorGroupElements(canvas, group);
     }
 
-    private void ReplaceConnectorGroupForDrag(DragConnectorState state, ConnectorGroup replacementGroup)
+    private void ReplaceConnectorGroupForDrag(DragConnectorState state, PlanGraphConnectorGroup replacementGroup)
     {
         var priorGroup = state.Group;
         foreach (var taskId in priorGroup.TaskIds.Distinct(StringComparer.Ordinal))
@@ -9893,7 +9895,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (!replacementGroup.TaskIds.Contains(taskId, StringComparer.Ordinal))
                 replacementGroup.TaskIds.Add(taskId);
             var role = priorGroup.GetEndpointRole(taskId);
-            if (role != ConnectorEndpointRole.None)
+            if (role != PlanGraphConnectorEndpointRole.None)
                 replacementGroup.RegisterEndpointRole(taskId, role);
 
             if (!_connectorsByTask.TryGetValue(taskId, out var groups))
