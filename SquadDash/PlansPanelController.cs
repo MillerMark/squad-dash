@@ -537,21 +537,7 @@ internal sealed class PlansPanelController
                     rowStack.Children.Add(activityBlock);
                 }
 
-                // ── Validation summary row ────────────────────────────────────
-                if (ValidationShieldPresenter.BuildSummaryLabel(
-                        ValidationShieldPresenter.Summarize(plan)) is { } validationLabel)
-                {
-                    var summary = ValidationShieldPresenter.Summarize(plan)!;
-                    var validationBlock = new TextBlock
-                    {
-                        Text = validationLabel,
-                        Margin = new Thickness(0, 1, 0, 0),
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                    };
-                    validationBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                    validationBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-                    rowStack.Children.Add(validationBlock);
-                }
+
             }
         }
 
