@@ -175,6 +175,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private TaskCardDragState? _taskCardDragState;
     private CommittedColumnReorder? _lastCommittedColumnOrder;
     private readonly Dictionary<string, List<ConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
+    private Dictionary<string, Border> _borderByTask = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
     private Dictionary<string, double> _taskNudges = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _naturalTaskSlotTops = new(StringComparer.Ordinal);
@@ -182,6 +183,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly List<ValidationShieldPresenter.LayoutRect> _allClusterFootprints = [];
     private readonly List<double> _lockedMilestoneBoundaryXs = [];
     private bool _suppressTaskCardCancelOnLostCapture;
+    private readonly List<SelectedElementIdentity> _inspectorHistory = [];
+    private int _inspectorHistoryIndex = -1;
+    private bool _suppressHistoryPush;
 
     internal string? CurrentRevision => _plan?.Revision;
 
@@ -471,6 +475,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _preflightPollTimer = null;
         _plan = plan;
         _durablePlan = durablePlan;
+        _borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
+        _inspectorHistory.Clear();
+        _inspectorHistoryIndex = -1;
         var activeBranch       = _activeBranch;
         var quickReplyFontSize = _quickReplyFontSize;
         var applyAction        = _applyAction;
@@ -1428,6 +1435,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Document = detailDocument,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             IsToolBarVisible = false,
+        };
+        detailViewer.MouseDown += (_, e) =>
+        {
+            if (e.ChangedButton != MouseButton.XButton1)
+                return;
+
+            NavigateBack();
+            e.Handled = true;
         };
         detailViewer.SetResourceReference(FlowDocumentScrollViewer.BackgroundProperty, "CardSurface");
         detailViewer.SetResourceReference(FlowDocumentScrollViewer.ForegroundProperty, "BodyText");
@@ -2587,7 +2602,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _allGateBadgeElements = badgeElements;
         }
 
-        var borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
         var avatarChipsByAgent = new Dictionary<string, List<Border>>(StringComparer.OrdinalIgnoreCase);
         var taskActivityById = durablePlan is null
             ? new Dictionary<string, PlanTaskActivityState>(StringComparer.Ordinal)
@@ -3508,7 +3522,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
             }
 
-            borderByTask[task.Id] = border;
+            _borderByTask[task.Id] = border;
 
             // Task entry/exit approval stops. Root tasks have no meaningful entry boundary.
             // A leaf exit is omitted unless executable final validation work follows it.
@@ -3911,7 +3925,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var g in capturedCg.GlowElements) { g.Visibility = Visibility.Visible; Panel.SetZIndex(g, 3); }
                     foreach (var m in capturedCg.MainElements) Panel.SetZIndex(m, 4);
                     foreach (var tid in capturedCg.TaskIds)
-                        if (borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
+                        if (_borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
                     foreach (var gb in capturedCg.GateBadges) gb.Effect = TaskNodeGlowEffect();
                 };
                 el.MouseLeave += (_, _) =>
@@ -3919,7 +3933,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var g in capturedCg.GlowElements) { g.Visibility = Visibility.Hidden; Panel.SetZIndex(g, 0); }
                     foreach (var m in capturedCg.MainElements) Panel.SetZIndex(m, 0);
                     foreach (var tid in capturedCg.TaskIds)
-                        if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
+                        if (_borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
                     foreach (var gb in capturedCg.GateBadges) gb.Effect = null;
                 };
             }
@@ -3940,7 +3954,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var g in cg.GlowElements) { g.Visibility = Visibility.Visible; Panel.SetZIndex(g, 3); }
                     foreach (var m in cg.MainElements) Panel.SetZIndex(m, 4);
                     foreach (var tid in cg.TaskIds)
-                        if (borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
+                        if (_borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
                 }
             };
             capturedBadge.MouseLeave += (_, _) =>
@@ -3951,7 +3965,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var g in cg.GlowElements) { g.Visibility = Visibility.Hidden; Panel.SetZIndex(g, 0); }
                     foreach (var m in cg.MainElements) Panel.SetZIndex(m, 0);
                     foreach (var tid in cg.TaskIds)
-                        if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
+                        if (_borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
                 }
             };
         }
@@ -3965,23 +3979,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
             capturedRow.MouseEnter += (_, _) =>
             {
                 foreach (var tid in capturedAfter)
-                    if (borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
+                    if (_borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
                 foreach (var tid in capturedBefore)
-                    if (borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
+                    if (_borderByTask.TryGetValue(tid, out var b)) b.Effect = TaskNodeGlowEffect();
             };
             capturedRow.MouseLeave += (_, _) =>
             {
                 foreach (var tid in capturedAfter)
-                    if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
+                    if (_borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
                 foreach (var tid in capturedBefore)
-                    if (borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
+                    if (_borderByTask.TryGetValue(tid, out var b)) b.Effect = null;
             };
         }
 
         // Kick off any pending dependency-edit animation after the new layout is applied.
         if (_pendingAnimation is { } animData)
         {
-            var capturedBorderByTask = borderByTask;
+            var capturedBorderByTask = _borderByTask;
             var capturedSeq          = currentBuildSeq;
             Dispatcher.BeginInvoke(() =>
             {
@@ -6284,10 +6298,34 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         else
         {
+            if (!_suppressHistoryPush && _selectedElement is not null)
+            {
+                if (_inspectorHistoryIndex >= 0 && _inspectorHistoryIndex < _inspectorHistory.Count)
+                    _inspectorHistory.RemoveRange(
+                        _inspectorHistoryIndex,
+                        _inspectorHistory.Count - _inspectorHistoryIndex);
+                _inspectorHistory.Add(_selectedElement);
+                _inspectorHistoryIndex = _inspectorHistory.Count;
+            }
             _selectedElement = identity;
             ApplySelectionVisual();
         }
         RefreshDetailPanel();
+    }
+
+    private void NavigateToTask(string taskId)
+    {
+        SelectElement("task", taskId);
+    }
+
+    private void NavigateBack()
+    {
+        if (_inspectorHistoryIndex <= 0) return;
+        _inspectorHistoryIndex--;
+        var target = _inspectorHistory[_inspectorHistoryIndex];
+        _suppressHistoryPush = true;
+        SelectElement(target.Kind, target.Id);
+        _suppressHistoryPush = false;
     }
 
     // Applies selection indicator: border overlays or chip border accents by selected kind.
@@ -6610,6 +6648,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             button.Click += (_, _) => click();
             _inspectorToolbarPanel.Children.Add(button);
             return button;
+        }
+
+        if (_inspectorHistoryIndex > 0)
+        {
+            var backBtn = AddButton("← Back", NavigateBack, "Go back to the previously inspected element");
+            backBtn.Margin = new Thickness(0, 0, 6, 4);
         }
 
         if (CanEditSelectedElement())
@@ -7320,10 +7364,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
             depList.Margin = new Thickness(0, 0, 0, 12);
             foreach (var depId in task.DependsOn)
             {
+                var depPara = new Paragraph();
                 var depTask = plan?.Tasks?.FirstOrDefault(t => t.TaskId == depId);
                 var depTitle = depTask?.Title ?? depTask?.Description ?? depId;
                 var depStatus = depTask is not null ? $" ({FormatTaskStatus(depTask.Status)})" : "";
-                var item = new ListItem(new Paragraph(new Run($"{depTitle}{depStatus}")));
+                if (depTask is not null)
+                {
+                    depPara.Inlines.Add(CreateTaskLink(depTitle, depId));
+                    if (!string.IsNullOrEmpty(depStatus))
+                        depPara.Inlines.Add(new Run(depStatus));
+                }
+                else
+                {
+                    depPara.Inlines.Add(new Run($"{depTitle}{depStatus}"));
+                }
+                var item = new ListItem(depPara);
                 depList.ListItems.Add(item);
             }
             _detailDocument.Blocks.Add(depList);
@@ -7526,6 +7581,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             _detailDocument.Blocks.Add(proofList);
         }
+    }
+
+    private Hyperlink CreateTaskLink(string taskTitle, string taskId)
+    {
+        var link = new Hyperlink(new Run(taskTitle))
+        {
+            Cursor = Cursors.Hand,
+            TextDecorations = new TextDecorationCollection(),
+        };
+        link.SetResourceReference(TextElement.ForegroundProperty, "TaskLinkText");
+        link.MouseEnter += (_, _) =>
+        {
+            link.TextDecorations = new TextDecorationCollection();
+            if (_borderByTask.TryGetValue(taskId, out var nodeBorder))
+                nodeBorder.Effect = TaskNodeGlowEffect();
+        };
+        link.MouseLeave += (_, _) =>
+        {
+            if (_borderByTask.TryGetValue(taskId, out var nodeBorder))
+                nodeBorder.Effect = null;
+        };
+        link.Click += (_, _) => NavigateToTask(taskId);
+        return link;
     }
 
     private void PopulateValidationDetail(PlanValidationNode validation, Plan? plan)
