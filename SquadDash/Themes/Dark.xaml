@@ -193,7 +193,7 @@
     <!-- Chip State Tokens -->
     <SolidColorBrush x:Key="ChipSelectedSurface" Color="#1A2F4F"/>
     <SolidColorBrush x:Key="ChipSelectedBorder" Color="#4A70B8"/>
-    <SolidColorBrush x:Key="TaskLinkText" Color="#4A70B8"/>
+    <SolidColorBrush x:Key="TaskLinkText" Color="#A4B7DB"/>
     <SolidColorBrush x:Key="ChipSelectedText" Color="#9AB8E8"/>
     <SolidColorBrush x:Key="ChipCompletedSurface" Color="#1A3020"/>
     <SolidColorBrush x:Key="ChipCompletedBorder" Color="#3A7848"/>
