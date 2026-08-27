@@ -5387,7 +5387,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     {
         var s = _scaleFactor;
         FrameworkElement indicator;
-        Polygon? stop = null;
+        FrameworkElement? stop = null;
+        Polygon? fallbackStopPolygon = null;
         var showsQuestion = awaitingApproval || approvalChangeActive;
         if (approved || showsQuestion)
         {
@@ -5465,20 +5466,36 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         else
         {
-            stop = new Polygon
+            var stopSignResourceKey = engaged
+                ? "HumanApprovalGateStopSign"
+                : "HumanApprovalGateDisabled";
+            if (Application.Current?.TryFindResource(stopSignResourceKey) is Viewbox stopSignResource)
             {
-                Points =
-                [
-                    new Point(5 * s, 1 * s), new Point(11 * s, 1 * s), new Point(15 * s, 5 * s), new Point(15 * s, 11 * s),
-                    new Point(11 * s, 15 * s), new Point(5 * s, 15 * s), new Point(1 * s, 11 * s), new Point(1 * s, 5 * s),
-                ],
-                StrokeThickness = 1.6,
-                Fill = engaged ? new SolidColorBrush(Color.FromRgb(0xC9, 0x4B, 0x4B)) : Brushes.Transparent,
-                StrokeLineJoin = PenLineJoin.Round,
-                Stretch = Stretch.None,
-            };
-            stop.SetResourceReference(Shape.StrokeProperty, "LineColor");
-            indicator = stop;
+                stopSignResource.Width = 16 * s;
+                stopSignResource.Height = 16 * s;
+                stopSignResource.HorizontalAlignment = HorizontalAlignment.Center;
+                stopSignResource.VerticalAlignment = VerticalAlignment.Center;
+                stop = stopSignResource;
+                indicator = stopSignResource;
+            }
+            else
+            {
+                fallbackStopPolygon = new Polygon
+                {
+                    Points =
+                    [
+                        new Point(5 * s, 1 * s), new Point(11 * s, 1 * s), new Point(15 * s, 5 * s), new Point(15 * s, 11 * s),
+                        new Point(11 * s, 15 * s), new Point(5 * s, 15 * s), new Point(1 * s, 11 * s), new Point(1 * s, 5 * s),
+                    ],
+                    StrokeThickness = 1.6,
+                    Fill = engaged ? new SolidColorBrush(Color.FromRgb(0xC9, 0x4B, 0x4B)) : Brushes.Transparent,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Stretch = Stretch.None,
+                };
+                fallbackStopPolygon.SetResourceReference(Shape.StrokeProperty, "LineColor");
+                stop = fallbackStopPolygon;
+                indicator = fallbackStopPolygon;
+            }
         }
 
         var hitTarget = new Grid
@@ -5495,8 +5512,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         hitTarget.Children.Add(indicator);
         if (toggle is not null && stop is not null && selectionAnchor is null)
         {
-            hitTarget.MouseEnter += (_, _) => stop.StrokeThickness = 2.2;
-            hitTarget.MouseLeave += (_, _) => stop.StrokeThickness = 1.6;
+            if (fallbackStopPolygon is not null)
+            {
+                hitTarget.MouseEnter += (_, _) => fallbackStopPolygon.StrokeThickness = 2.2;
+                hitTarget.MouseLeave += (_, _) => fallbackStopPolygon.StrokeThickness = 1.6;
+            }
             hitTarget.MouseLeftButtonDown += (_, e) =>
             {
                 e.Handled = true;

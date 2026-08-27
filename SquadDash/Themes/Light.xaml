@@ -32,6 +32,8 @@
     <!-- Unified priority colors -->
     <SolidColorBrush x:Key="PriorityLow"      Color="#50BA55"/>
     <SolidColorBrush x:Key="PriorityMid"      Color="#2586E5"/>
+    <SolidColorBrush x:Key="AntiPolarity" Color="#000000"/>
+    <SolidColorBrush x:Key="StopSignFill" Color="#FF2525"/>
     <SolidColorBrush x:Key="PlanApprovalResolved" Color="#1359A0"/>
     <SolidColorBrush x:Key="PlanApprovalResolvedBg" Color="#D0E8FF"/>
     <SolidColorBrush x:Key="ValidationTitleBackdrop" Color="#66FFFFFF"/>
