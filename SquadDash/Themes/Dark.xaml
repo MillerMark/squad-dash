@@ -131,6 +131,7 @@
     <SolidColorBrush x:Key="ToolTipForeground" Color="#F0F0F0"/><!-- near-white for high contrast on dark tooltip background -->
     <SolidColorBrush x:Key="CodeText" Color="#D8CCBA"/>
     <SolidColorBrush x:Key="SubtleText" Color="#A9A096"/>
+    <SolidColorBrush x:Key="SectionHeader" Color="#A1988E"/><!-- SubtleText stepped ~17% toward TitleText for lower-contrast section labels -->
     <SolidColorBrush x:Key="TitleText" Color="#797166"/>
     <SolidColorBrush x:Key="AgentRoleText" Color="#D4B880"/>
     <SolidColorBrush x:Key="AgentStatusText" Color="#CCA070"/>

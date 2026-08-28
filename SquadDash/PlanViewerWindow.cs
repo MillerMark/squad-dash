@@ -8486,7 +8486,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     {
         if (_detailDocument is null) return;
         var header = new Paragraph(new Run(text) { FontWeight = FontWeights.SemiBold });
-        header.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        header.SetResourceReference(TextElement.ForegroundProperty, "SectionHeader");
         header.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLargePlus");
         header.Margin = new Thickness(0, 4, 0, 2);
         _detailDocument.Blocks.Add(header);
