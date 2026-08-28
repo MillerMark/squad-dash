@@ -129,7 +129,7 @@ internal sealed class WorkspaceUpgradeServiceTests
     }
 
     [TestCase("0.10.0", false)]
-    [TestCase("0.11.0", true)]
+    [TestCase("0.11.0", false)]
     [TestCase("0.12.0", true)]
     [TestCase("v0.12.0", true)]
     [TestCase("0.13.0-insider.1", true)]

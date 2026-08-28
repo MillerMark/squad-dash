@@ -8,6 +8,24 @@ using System.Collections.Generic;
 namespace SquadDash;
 
 internal static class SquadRuntimeCompatibility {
+    public const string BaselineCliVersion = "0.12.0";
+    public static readonly Version MinimumUpdateCheckJsonVersion = new(0, 12, 0);
+    public static readonly Version MinimumModelsRefreshVersion = new(0, 12, 0);
+    public static readonly Version MinimumWorkspaceDryRunPreviewVersion = new(0, 12, 0);
+    public static readonly Version MinimumReasoningEffortPassThroughVersion = new(0, 12, 0);
+
+    public static bool SupportsUpdateCheckJson(string? installedVersion) =>
+        IsVersionAtLeast(installedVersion, MinimumUpdateCheckJsonVersion);
+
+    public static bool SupportsModelsRefresh(string? installedVersion) =>
+        IsVersionAtLeast(installedVersion, MinimumModelsRefreshVersion);
+
+    public static bool SupportsWorkspaceUpgradeDryRunPreview(string? installedVersion) =>
+        IsVersionAtLeast(installedVersion, MinimumWorkspaceDryRunPreviewVersion);
+
+    public static bool SupportsReasoningEffortPassThrough(string? installedVersion) =>
+        IsVersionAtLeast(installedVersion, MinimumReasoningEffortPassThroughVersion);
+
     public static SquadCommandResult Repair(string rootDirectory, string displayName) {
         var normalizedDirectory = Path.GetFullPath(rootDirectory)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -116,5 +134,18 @@ internal static class SquadRuntimeCompatibility {
             Encoding.UTF8);
         output.AppendLine("Patched @github/copilot-sdk session.js import.");
         return true;
+    }
+
+    private static bool IsVersionAtLeast(string? installedVersion, Version minimumVersion) {
+        if (string.IsNullOrWhiteSpace(installedVersion))
+            return false;
+
+        var normalized = installedVersion.Trim().TrimStart('v', 'V');
+        var suffixIndex = normalized.IndexOfAny(['-', '+']);
+        if (suffixIndex >= 0)
+            normalized = normalized[..suffixIndex];
+
+        return Version.TryParse(normalized, out var parsedVersion) &&
+               parsedVersion.CompareTo(minimumVersion) >= 0;
     }
 }

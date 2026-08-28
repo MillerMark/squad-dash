@@ -7,7 +7,6 @@ namespace SquadDash;
 
 internal static class SquadCliCommands {
     public const string LocalCliEntryPath = "node_modules\\@bradygaster\\squad-cli\\dist\\cli-entry.js";
-    private static readonly Version MinimumWorkspaceUpgradeDryRunVersion = new(0, 11, 0);
 
     public static SquadCliCommandDefinition InstallLocalCli { get; } =
         new("cmd.exe", "/c npm install --save-dev @bradygaster/squad-cli", "Install local Squad CLI");
@@ -46,10 +45,10 @@ internal static class SquadCliCommands {
         new("node", $"\"{LocalCliEntryPath}\" discover", "Discover Squads");
 
     // v0.10.0 dispatches `upgrade` without honoring --dry-run and can modify the workspace.
-    // v0.11.0 and later explicitly route --dry-run into the non-writing preview path.
+    // v0.12.0 is the minimum supported baseline for upgrade dry-run preview policy.
     public const bool WorkspaceUpgradeDryRunSupported = true;
     public const string WorkspaceUpgradeDryRunUnsupportedMessage =
-        "Workspace upgrade dry-run requires Squad CLI v0.11.0 or later. Use Apply Workspace Update to proceed directly.";
+        "Workspace upgrade dry-run requires Squad CLI v0.12.0 or later. Use Apply Workspace Update to proceed directly.";
 
     public static IReadOnlyList<string> WorkspaceUpgradeDryRunArguments { get; } =
         ["upgrade", "--dry-run"];
@@ -58,16 +57,7 @@ internal static class SquadCliCommands {
         ["upgrade"];
 
     internal static bool SupportsWorkspaceUpgradeDryRun(string? installedVersion) {
-        if (string.IsNullOrWhiteSpace(installedVersion))
-            return false;
-
-        var normalized = installedVersion.Trim().TrimStart('v', 'V');
-        var suffixIndex = normalized.IndexOfAny(['-', '+']);
-        if (suffixIndex >= 0)
-            normalized = normalized[..suffixIndex];
-
-        return Version.TryParse(normalized, out var parsed) &&
-               parsed.CompareTo(MinimumWorkspaceUpgradeDryRunVersion) >= 0;
+        return SquadRuntimeCompatibility.SupportsWorkspaceUpgradeDryRunPreview(installedVersion);
     }
 
     internal static ProcessStartInfo BuildCommandStartInfo(

@@ -83,4 +83,19 @@ internal sealed class SquadRuntimeCompatibilityTests {
             Assert.That(result.StandardOutput, Does.Contain("already patched"));
         });
     }
+
+    [TestCase("0.11.9", false)]
+    [TestCase("0.12.0", true)]
+    [TestCase("v0.12.0", true)]
+    [TestCase("0.12.5-insider.1", true)]
+    [TestCase(null, false)]
+    [TestCase("unknown", false)]
+    public void Supports012Capabilities_UsesSharedVersionBoundary(string? version, bool expected) {
+        Assert.Multiple(() => {
+            Assert.That(SquadRuntimeCompatibility.SupportsUpdateCheckJson(version), Is.EqualTo(expected));
+            Assert.That(SquadRuntimeCompatibility.SupportsModelsRefresh(version), Is.EqualTo(expected));
+            Assert.That(SquadRuntimeCompatibility.SupportsWorkspaceUpgradeDryRunPreview(version), Is.EqualTo(expected));
+            Assert.That(SquadRuntimeCompatibility.SupportsReasoningEffortPassThrough(version), Is.EqualTo(expected));
+        });
+    }
 }
