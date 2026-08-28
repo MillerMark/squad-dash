@@ -425,7 +425,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
         _graphHost.Width = contentWidth + _graphHost.Padding.Left + _graphHost.Padding.Right;
         _graphHost.Height = contentHeight + _graphHost.Padding.Top + _graphHost.Padding.Bottom;
         _graphHost.Background = ResolveBrush("PlanStageCanvasBackground", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x1D, 0x1A, 0x18) : Color.FromRgb(0xFA, 0xF7, 0xF2));
-        _graphHost.BorderBrush = ResolveBrush("SubtleBorder", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x47, 0x3D, 0x35) : Color.FromRgb(0xD7, 0xC7, 0xB5));
+        _graphHost.BorderBrush = ResolveBrush("SubtleBorder", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x6C, 0x64, 0x5D) : Color.FromRgb(0xAC, 0x9F, 0x91));
         _graphHost.BorderThickness = new Thickness(_lineThicknessMultiplier);
         return (_graphHost.Width, _graphHost.Height);
     }
@@ -475,7 +475,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
             Height = height,
             CornerRadius = new CornerRadius(8 * scaleFactor),
             BorderThickness = new Thickness(_lineThicknessMultiplier),
-            BorderBrush = ResolveBrush("SubtleBorder", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x47, 0x3D, 0x35) : Color.FromRgb(0xD7, 0xC7, 0xB5)),
+            BorderBrush = ResolveBrush("SubtleBorder", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x6C, 0x64, 0x5D) : Color.FromRgb(0xAC, 0x9F, 0x91)),
             Background = ResolveBrush("CardSurface", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x24, 0x20, 0x1D) : Color.FromRgb(0xFF, 0xFB, 0xF5)),
             Child = stack,
         };
@@ -552,7 +552,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
         var height = Math.Max(1, (int)Math.Round(_targetHeightPixels));
         var width = Math.Max(1, (int)Math.Round(height * 1.6));
         var background = ResolveColor("CardSurface", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x24, 0x20, 0x1D) : Color.FromRgb(0xF4, 0xEE, 0xE5));
-        var border = ResolveColor("SubtleBorder", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x47, 0x3D, 0x35) : Color.FromRgb(0xD7, 0xC7, 0xB5));
+        var border = ResolveColor("SubtleBorder", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x6C, 0x64, 0x5D) : Color.FromRgb(0xAC, 0x9F, 0x91));
         var text = ResolveColor("SubtleText", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0xB2, 0xA7, 0x99) : Color.FromRgb(0x6F, 0x60, 0x51));
 
         var visual = new DrawingVisual();
