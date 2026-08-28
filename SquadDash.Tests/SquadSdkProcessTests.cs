@@ -195,6 +195,33 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public async Task RunPromptAsync_ActiveProfileWithMaxReasoningEffort_PreservesMaxInOutboundPromptRequest() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            $line = [Console]::In.ReadLine()
+            Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+            $request = $line | ConvertFrom-Json
+            Write-Output ('{"type":"session_ready","sessionId":"reasoning-max-session","sessionResumed":false,"requestId":"' + $request.requestId + '"}')
+            Write-Output ('{"type":"done","requestId":"' + $request.requestId + '"}')
+            """));
+
+        sut.ActiveProfile = new ModelProfile(
+            Id: "copilot-max",
+            Alias: "Copilot Max",
+            ProviderType: "copilot",
+            ProviderUrl: null,
+            Model: "claude-sonnet-4",
+            ApiKey: null,
+            ReasoningEffort: "max");
+
+        await sut.RunPromptAsync("Use max reasoning effort", _workspace.RootPath);
+
+        using var request = JsonDocument.Parse(FindLoggedRequestLine(requestLogPath, "prompt"));
+        Assert.That(request.RootElement.GetProperty("reasoningEffort").GetString(), Is.EqualTo("max"));
+    }
+
+    [Test]
     public async Task RunPromptAsync_LocalByokProvider_DoesNotResumeSavedSession() {
         var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
 

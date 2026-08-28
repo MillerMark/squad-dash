@@ -807,6 +807,15 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             string.Equals(normalized, "Auto", StringComparison.OrdinalIgnoreCase))
             return null;
 
+        if (string.Equals(normalized, "low", StringComparison.OrdinalIgnoreCase))
+            return "low";
+        if (string.Equals(normalized, "medium", StringComparison.OrdinalIgnoreCase))
+            return "medium";
+        if (string.Equals(normalized, "high", StringComparison.OrdinalIgnoreCase))
+            return "high";
+        if (string.Equals(normalized, "max", StringComparison.OrdinalIgnoreCase))
+            return "max";
+
         return normalized;
     }
 

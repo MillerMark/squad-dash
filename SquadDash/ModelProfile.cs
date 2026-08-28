@@ -3,6 +3,7 @@ namespace SquadDash;
 /// <summary>
 /// A named model configuration that maps to a specific LLM provider and model.
 /// Multiple profiles can coexist so different agent categories use different models.
+/// ReasoningEffort supports "auto" (treated as unset), "low", "medium", "high", and "max".
 /// </summary>
 internal sealed record ModelProfile(
     string Id,
