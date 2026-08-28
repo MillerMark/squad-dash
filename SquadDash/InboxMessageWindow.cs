@@ -185,17 +185,23 @@ internal sealed class InboxMessageWindow : ChromedWindow
         var visibleAttachments = message.Attachments
             .Where(DurableApprovalRequestManager.IsPresentationAttachment)
             .ToArray();
+        var filteredAttachmentCount = visibleAttachments.Count(att =>
+            !(att.Type == "decompose-plan" && !string.IsNullOrWhiteSpace(_planGroupId)));
         _attachmentsPanel = new WrapPanel
         {
             Margin      = new Thickness(12, 4, 12, 0),
             Orientation = Orientation.Horizontal,
-            Visibility  = visibleAttachments.Length > 0 ? Visibility.Visible : Visibility.Collapsed,
+            Visibility  = filteredAttachmentCount > 0 ? Visibility.Visible : Visibility.Collapsed,
         };
         Grid.SetRow(_attachmentsPanel, 1);
         root.Children.Add(_attachmentsPanel);
 
         foreach (var att in visibleAttachments)
+        {
+            if (att.Type == "decompose-plan" && !string.IsNullOrWhiteSpace(_planGroupId))
+                continue;
             _attachmentsPanel.Children.Add(BuildAttachmentChip(att, this, _bodyFontSize, _lookupTask, openDecomposePlan));
+        }
 
         // ── Actions ───────────────────────────────────────────────────────────
         var actionRegion = new StackPanel();
@@ -252,35 +258,47 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _planNotFoundLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         _planNotFoundLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
 
+        var imageBorder = new Border
+        {
+            BorderThickness = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+        imageBorder.Child = _planThumbnailImage;
+
         var thumbnailContent = new Grid();
-        thumbnailContent.Children.Add(_planThumbnailImage);
+        thumbnailContent.Children.Add(imageBorder);
         thumbnailContent.Children.Add(_planNotFoundLabel);
 
         var thumbnailBorder = new Border
         {
             Margin = new Thickness(8, 2, 8, 2),
             Padding = new Thickness(8),
-            BorderThickness = new Thickness(1),
+            BorderThickness = new Thickness(0),
             Child = thumbnailContent,
             Visibility = string.IsNullOrWhiteSpace(_planGroupId) ? Visibility.Collapsed : Visibility.Visible,
-            Cursor = string.IsNullOrWhiteSpace(_planGroupId) ? Cursors.Arrow : Cursors.Hand,
+            Cursor = Cursors.Arrow,
         };
-        thumbnailBorder.SetResourceReference(Border.BackgroundProperty, "InboxBodySurface");
-        thumbnailBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
-        if (!string.IsNullOrWhiteSpace(_planGroupId))
-        {
-            thumbnailBorder.MouseEnter += (_, _) =>
-                thumbnailBorder.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
-            thumbnailBorder.MouseLeave += (_, _) =>
-                thumbnailBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
-        }
+        thumbnailBorder.SetResourceReference(Border.BackgroundProperty, "WindowBackground");
         Grid.SetRow(thumbnailBorder, 3);
         root.Children.Add(thumbnailBorder);
 
         if (!string.IsNullOrWhiteSpace(_planGroupId))
         {
-            thumbnailBorder.ToolTip = ToolTipHelper.MakeThemedToolTip("Open plan viewer");
-            thumbnailBorder.MouseLeftButtonUp += (_, _) =>
+            _planThumbnailRenderer = new PlanThumbnailRenderer(Dispatcher, resolveAgentAvatar: _resolveAgentAvatar);
+            _planThumbnailImage.Source = _planThumbnailRenderer.CurrentImage;
+            _planThumbnailImageUpdatedHandler = image =>
+            {
+                if (Dispatcher.CheckAccess())
+                    _planThumbnailImage.Source = image;
+                else
+                    Dispatcher.BeginInvoke(DispatcherPriority.Render, () => _planThumbnailImage.Source = image);
+            };
+            _planThumbnailRenderer.ImageUpdated += _planThumbnailImageUpdatedHandler;
+
+            imageBorder.Cursor = Cursors.Hand;
+            imageBorder.ToolTip = ToolTipHelper.MakeThemedToolTip("Open plan viewer");
+            imageBorder.MouseLeftButtonUp += (_, _) =>
             {
                 if (!string.IsNullOrWhiteSpace(_planGroupId))
                 {
@@ -292,17 +310,13 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 if (attachment is not null)
                     _openDecomposePlan?.Invoke(attachment);
             };
-
-            _planThumbnailRenderer = new PlanThumbnailRenderer(Dispatcher, resolveAgentAvatar: _resolveAgentAvatar);
-            _planThumbnailImage.Source = _planThumbnailRenderer.CurrentImage;
-            _planThumbnailImageUpdatedHandler = image =>
+            imageBorder.MouseEnter += (_, _) =>
             {
-                if (Dispatcher.CheckAccess())
-                    _planThumbnailImage.Source = image;
-                else
-                    Dispatcher.BeginInvoke(DispatcherPriority.Render, () => _planThumbnailImage.Source = image);
+                imageBorder.BorderThickness = new Thickness(2);
+                imageBorder.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
             };
-            _planThumbnailRenderer.ImageUpdated += _planThumbnailImageUpdatedHandler;
+            imageBorder.MouseLeave += (_, _) =>
+                imageBorder.BorderThickness = new Thickness(0);
         }
 
         // ── Body ──────────────────────────────────────────────────────────────
