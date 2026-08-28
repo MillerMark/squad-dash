@@ -901,13 +901,23 @@ function resolveSessionModel(optionsModel: string | undefined, allowEnvironmentF
 
 function resolveSessionReasoningEffort(
     requestedReasoningEffort: string | undefined
-): NonNullable<SquadSessionConfig["reasoningEffort"]> | undefined {
+): string | undefined {
     const normalized = normalizeOptionalString(requestedReasoningEffort)?.toLowerCase();
     if (!normalized || normalized === "auto")
         return undefined;
-    if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "xhigh")
+    if (normalized === "low" || normalized === "medium" || normalized === "high" || normalized === "max" || normalized === "xhigh")
         return normalized;
     return undefined;
+}
+
+function setSessionReasoningEffort(
+    sessionConfig: SquadSessionConfig,
+    reasoningEffort: string | undefined
+): void {
+    if (!reasoningEffort)
+        return;
+    const mutableConfig = sessionConfig as Record<string, unknown>;
+    mutableConfig.reasoningEffort = reasoningEffort;
 }
 
 function isReasoningEffortUnsupportedError(error: unknown): boolean {
@@ -3309,13 +3319,13 @@ export class SquadBridgeService {
             ? options.providerOverride ?? undefined
             : buildCustomProviderFromEnv();
         const namedAgentRoutes = options.namedAgentRoutes ?? [];
+        const resolvedReasoningEffort = resolveSessionReasoningEffort(options.reasoningEffort);
         const sessionConfig: SquadSessionConfig = {
             onPermissionRequest: async () => approvePermissionRequest(),
             streaming: true,
             workingDirectory: options.cwd,
             configDir: options.configDir,
             model: resolveSessionModel(options.model, !options.providerOverrideSpecified),
-            reasoningEffort: resolveSessionReasoningEffort(options.reasoningEffort),
             provider: customProvider,
             tools: options.exposeNamedAgentTool === false
                 ? undefined
@@ -3387,6 +3397,7 @@ export class SquadBridgeService {
                 }
             }
         };
+        setSessionReasoningEffort(sessionConfig, resolvedReasoningEffort);
 
         let resumed = false;
         let session: SquadSession;

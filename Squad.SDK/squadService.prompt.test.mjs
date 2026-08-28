@@ -288,6 +288,34 @@ test("runPrompt passes explicit reasoning effort to session config", async () =>
     assert.equal(capturedConfig.reasoningEffort, "high");
 });
 
+test("runPrompt passes max reasoning effort to session config", async () => {
+    let capturedConfig;
+    const session = {
+        sessionId: "session-max-reasoning",
+        on() {},
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => ({ content: "done" })
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            capturedConfig = config;
+            return session;
+        }
+    };
+
+    await service.runPrompt(
+        "status?",
+        {},
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public",
+            reasoningEffort: "MAX"
+        });
+
+    assert.equal(capturedConfig.reasoningEffort, "max");
+});
+
 test("runPrompt omits auto reasoning effort from session config", async () => {
     let capturedConfig;
     const session = {
@@ -346,6 +374,53 @@ test("runPrompt retries without reasoning effort on downlevel CLI", async () => 
     assert.equal(configs.length, 2);
     assert.equal(configs[0].reasoningEffort, "xhigh");
     assert.equal(configs[1].reasoningEffort, undefined);
+});
+
+test("named roster tool preserves max reasoning effort in delegated session config", async () => {
+    const configs = [];
+    let sessionNumber = 0;
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            sessionNumber++;
+            return {
+                sessionId: `session-max-route-${sessionNumber}`,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => ({ content: sessionNumber === 1 ? "Coordinator done" : "Rune report" })
+            };
+        }
+    };
+
+    await service.runPrompt("Delegate the profile work", {}, {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        namedAgentRoutes: [{
+            handle: "talia-rune",
+            displayName: "Talia Rune",
+            role: "SDK bridge",
+            charterContent: "# Talia Rune\nOwn SDK bridge work.",
+            model: "gpt-5",
+            reasoningEffort: "MAX"
+        }]
+    });
+
+    const rosterTool = configs[0].tools.find(tool => tool.name === "delegate_roster_agent");
+    assert.ok(rosterTool);
+    const report = await rosterTool.handler({
+        agent_handle: "talia-rune",
+        prompt: "Inspect reasoning effort handling.",
+        description: "Review reasoning effort handling"
+    }, {
+        sessionId: "session-max-route-1",
+        toolCallId: "tool-talia",
+        toolName: "delegate_roster_agent",
+        arguments: {}
+    });
+
+    assert.equal(report, "Rune report");
+    assert.equal(configs[1].reasoningEffort, "max");
 });
 
 test("named roster tool launches exact agent with its own provider profile", async () => {
