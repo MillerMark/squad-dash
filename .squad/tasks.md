@@ -1,4 +1,65 @@
-﻿<!-- decompose-group: INSPNAV-20260827 | branch: feature/inspector-task-link-history | revision: 5b5f47bb2e6511bf -->
+﻿<!-- decompose-group: INBOXTHUMB-20260827 | branch: feature/inbox-durable-plan-thumbnail | revision: 8e5ba72f84ceffef -->
+**[INBOXTHUMB-20260827] Live Durable Plan Thumbnail in Inbox Window**
+> Add a live, clickable durable-plan graph thumbnail at the top of inbox message popups so users can preview plan status without leaving the message. Reuse the same graph visual contract as the full plan viewer while keeping rendering responsive, theme-aware, and synchronized with plan updates. Preserve current behavior for messages without durable plan linkage.
+
+- [ ] **[INBOXTHUMB-20260827-001]** Extract reusable plan graph rendering contract
+  Group: INBOXTHUMB-20260827 | Branch: feature/inbox-durable-plan-thumbnail | Priority: critical
+  description: Refactor the existing plan graph rendering logic so the same graph visuals used by the full plan viewer can be instantiated in a non-interactive host surface outside the window shell. Observable outcome: graph composition/styling is available through a reusable contract that preserves current PlanViewer graph appearance and resource-driven theming. Production consumer: thumbnail rendering in task 002 and inbox integration in task 004.
+
+The logic we extract out should be able to accept a parameter to magnify smaller elements such as lines. So there might be a factor that we pass in there because when we shrink something down, small lines can disappear and so we might want to render them with this logic with a a kind of a line amplifier. Parameter. So we multiply that like say by two and all the lines will be drawn in double the thickness if there are any lines drawn.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"orion-vale","role":"Define and implement the shared graph rendering boundary so viewer parity is preserved.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [ ] **[INBOXTHUMB-20260827-002]** Implement live thumbnail render pipeline
+  Group: INBOXTHUMB-20260827 | Branch: feature/inbox-durable-plan-thumbnail | Priority: critical
+  description: Introduce a UI-thread-safe thumbnail rendering capability that hosts graph visuals in a live visual tree, captures a bitmap at approximately 400px target height with proportional width, and returns a read-only image surface for inbox use. Include cancellation/coalescing and placeholder behavior so repeated updates do not stall the UI for more than a few frames. Production consumer: inbox thumbnail zone in task 004.
+  dependsOn: INBOXTHUMB-20260827-001
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Implement WPF thumbnail rendering behavior and responsiveness safeguards.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [ ] **[INBOXTHUMB-20260827-003]** Harden durable plan linkage contract for inbox messages
+  Group: INBOXTHUMB-20260827 | Branch: feature/inbox-durable-plan-thumbnail | Priority: high
+  description: Verify and codify how inbox messages expose durable plan identity so thumbnail rendering can resolve a canonical plan ID. Reuse the existing attachment pathway when it already guarantees durable-plan resolution; otherwise add the minimal backward-compatible message/attachment parsing contract needed to always resolve a durable plan ID for relevant messages. Observable outcome: inbox message processing deterministically identifies whether a durable plan thumbnail should appear. Production consumer: tasks 004 and 005.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own inbox durable-plan linkage and compatibility semantics.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[INBOXTHUMB-20260827-004]** Add conditional thumbnail zone to inbox message window
+  Group: INBOXTHUMB-20260827 | Branch: feature/inbox-durable-plan-thumbnail | Priority: critical
+  description: Integrate a thumbnail region above the message body that is shown only when the opened inbox message resolves to a durable plan. The zone must display the rendered read-only graph image, maintain the target visual scale (~400px tall with proportional width), and support click-to-open for the linked durable plan in the full plan viewer. Observable outcome: durable-plan messages show a live preview entry point; non-linked messages keep current layout behavior.
+  dependsOn: INBOXTHUMB-20260827-002, INBOXTHUMB-20260827-003
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Integrate thumbnail UI behavior in InboxMessageWindow and click interaction.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [ ] **[INBOXTHUMB-20260827-005]** Wire live plan and appearance-driven thumbnail refresh
+  Group: INBOXTHUMB-20260827 | Branch: feature/inbox-durable-plan-thumbnail | Priority: critical
+  description: Connect inbox thumbnail updates to durable plan progress events while the inbox window is open, including coalesced refresh and stale-event protection. Also ensure thumbnail invalidation is triggered for theme, tint, and accent changes so snapshots re-render with current resources. Observable outcome: open inbox thumbnails stay in sync with plan changes and appearance changes without leaking subscriptions after window close.
+  dependsOn: INBOXTHUMB-20260827-004
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement event wiring, lifecycle safety, and main-window fan-out contracts.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [ ] **[INBOXTHUMB-20260827-006]** Verify integrated thumbnail feature behavior and regressions
+  Group: INBOXTHUMB-20260827 | Branch: feature/inbox-durable-plan-thumbnail | Priority: high
+  description: Run non-mutating verification over the integrated implementation to confirm compilation, automated coverage, and evidence-backed behavior expectations across inbox display, plan linkage, and viewer interoperability. This step produces objective readiness evidence for final human UI review.
+  dependsOn: INBOXTHUMB-20260827-005
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Own independent verification evidence for readiness.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: verification
+
+
+<!-- decompose-group: INSPNAV-20260827 | branch: feature/inspector-task-link-history | revision: 5b5f47bb2e6511bf -->
 **[INSPNAV-20260827] Inspector task-link navigation and history**
 > Add clickable task references inside the Plan Visualizer inspector so referenced tasks can be hovered and selected directly from detail text, with consistent task-link theming and inspector-local back/forward navigation. The implementation must keep graph selection and inspector detail in sync while reusing existing task glow/selection behavior.
 
