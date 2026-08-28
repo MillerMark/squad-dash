@@ -275,6 +275,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         {
             BorderThickness = new Thickness(1),
             Margin = new Thickness(1),
+            Opacity = 0.75,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top,
         };
@@ -329,11 +330,13 @@ internal sealed class InboxMessageWindow : ChromedWindow
             {
                 imageBorder.BorderThickness = new Thickness(2);
                 imageBorder.Margin = new Thickness(0);
+                imageBorder.Opacity = 1.0;
             };
             imageBorder.MouseLeave += (_, _) =>
             {
                 imageBorder.BorderThickness = new Thickness(1);
                 imageBorder.Margin = new Thickness(1);
+                imageBorder.Opacity = 0.75;
             };
         }
 
