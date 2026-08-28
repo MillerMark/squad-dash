@@ -66,11 +66,12 @@ namespace SquadDash {
             services.AddSingleton<IProcessRunner, SystemProcessRunner>();
             services.AddSingleton<IEnvironmentProvider, SystemEnvironmentProvider>();
             services.AddSingleton<ISquadCliResolutionService, SquadCliResolutionService>();
+            services.AddSingleton<ISquadCommandRunner, SquadInstallerServiceProcessRunner>();
             services.AddSingleton<ISquadCliSelectionStore, SquadCliSelectionStore>();
             services.AddSingleton<ICliModelCatalogService>(provider => new CliModelCatalogService(
                 workspacePaths,
                 provider.GetRequiredService<ISquadCliResolutionService>(),
-                new SquadInstallerServiceProcessRunner()));
+                provider.GetRequiredService<ISquadCommandRunner>()));
             services.AddSingleton(provider => new SquadCliAdapter(
                 workspacePaths,
                 provider.GetRequiredService<ISquadCliResolutionService>()));
