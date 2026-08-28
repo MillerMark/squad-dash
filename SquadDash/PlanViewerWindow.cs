@@ -4708,7 +4708,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var headerText = new TextBlock
         {
-            Text = "Assigned To:",
+            Text = "Assign to",
             FontStyle = FontStyles.Italic,
         };
         headerText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
@@ -4728,11 +4728,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var agent in agents)
         {
             var capturedAgent = agent;
-            var item = CreateThemedMenuItem(capturedAgent.Handle);
+            var item = CreateThemedMenuItem(capturedAgent.Name);
             item.IsCheckable = true;
             item.IsChecked = assignedHandles.Contains(capturedAgent.Handle);
             item.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                $"Click to assign only {capturedAgent.Handle}. Shift+click to add/remove while preserving other assignees.");
+                $"Click to assign only {capturedAgent.Name}. Shift+click to add/remove while preserving other assignees.");
             item.Click += (_, _) =>
             {
                 if (_plan is null || !IsTaskDefinitionEditable(taskId))
