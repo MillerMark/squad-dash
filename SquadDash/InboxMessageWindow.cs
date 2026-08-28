@@ -236,10 +236,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
         // ── Plan thumbnail ─────────────────────────────────────────────────────
         _planThumbnailImage = new Image
         {
-            Height = 400,
-            Stretch = Stretch.Uniform,
+            Stretch = Stretch.None,
             HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
         };
 
         _planNotFoundLabel = new TextBlock
@@ -268,6 +267,13 @@ internal sealed class InboxMessageWindow : ChromedWindow
         };
         thumbnailBorder.SetResourceReference(Border.BackgroundProperty, "InboxBodySurface");
         thumbnailBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+        if (!string.IsNullOrWhiteSpace(_planGroupId))
+        {
+            thumbnailBorder.MouseEnter += (_, _) =>
+                thumbnailBorder.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+            thumbnailBorder.MouseLeave += (_, _) =>
+                thumbnailBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+        }
         Grid.SetRow(thumbnailBorder, 3);
         root.Children.Add(thumbnailBorder);
 

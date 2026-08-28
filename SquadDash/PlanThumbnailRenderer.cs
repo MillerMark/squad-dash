@@ -165,7 +165,8 @@ internal sealed class PlanThumbnailRenderer : IDisposable
         sourceBitmap.Render(_graphHost);
         sourceBitmap.Freeze();
 
-        var targetHeight = Math.Max(1, (int)Math.Round(_targetHeightPixels));
+        var twentyPctHeight = (int)Math.Round(pixelHeight * 0.20);
+        var targetHeight = Math.Max(1, Math.Min(twentyPctHeight, (int)_targetHeightPixels));
         if (pixelHeight == targetHeight)
             return sourceBitmap;
 
