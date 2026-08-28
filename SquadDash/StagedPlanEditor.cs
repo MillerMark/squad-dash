@@ -194,6 +194,52 @@ internal static class StagedPlanEditor
         }
     }
 
+    internal static DecomposedTaskGroup ToggleTaskAgent(
+        DecomposedTaskGroup group,
+        string taskId,
+        string agentHandle)
+    {
+        if (string.IsNullOrWhiteSpace(agentHandle)) return group;
+
+        var normalizedHandle = agentHandle.Trim();
+        var tasks = group.Tasks.Select(task => task.Id == taskId
+            ? Toggle(task, normalizedHandle)
+            : task).ToArray();
+        return group with { Tasks = tasks };
+
+        static DecomposedSubTask Toggle(DecomposedSubTask task, string handle)
+        {
+            var assignments = (task.AgentAssignments ?? []).ToList();
+            var existingIndex = assignments.FindIndex(assignment =>
+                string.Equals(assignment.AgentHandle, handle, StringComparison.OrdinalIgnoreCase));
+
+            if (existingIndex >= 0)
+            {
+                // Keep at least one assignee on every task.
+                if (assignments.Count <= 1) return task;
+                assignments.RemoveAt(existingIndex);
+            }
+            else
+            {
+                var current = assignments.FirstOrDefault();
+                var role = !string.IsNullOrWhiteSpace(current?.Role)
+                    ? current.Role
+                    : "Primary implementation owner for this plan step.";
+                assignments.Add(new DecomposedAgentAssignment(
+                    handle,
+                    role,
+                    current?.AllowGenericChildren ?? true));
+            }
+
+            return task with
+            {
+                AgentAssignments = assignments.ToArray(),
+                AgentRoutingMode = "assigned",
+                GenericAgentReason = null,
+            };
+        }
+    }
+
     internal static DecomposedTaskGroup UpdateTaskVerificationLevel(
         DecomposedTaskGroup group,
         string taskId,

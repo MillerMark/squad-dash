@@ -3387,6 +3387,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var info = _resolveAgentAvatar!(assignment.AgentHandle);
                     var chip = CreateAgentAvatarChip(info, avatarChipSize, assignment.AgentHandle);
                     chip.Tag = $"agent:{assignment.AgentHandle}";
+                    var capturedTaskId = task.Id;
+                    var capturedChipAgentHandle = assignment.AgentHandle;
                     if (!_agentChipElements.TryGetValue(assignment.AgentHandle, out var chipList))
                     {
                         chipList = [];
@@ -3394,6 +3396,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     }
                     chipList.Add((Border)chip);
                     WireSelectionClick(chip);
+                    if (_saveDefinitionEdit is not null &&
+                        _plan is not null &&
+                        _getAssignableAgents is not null &&
+                        IsTaskDefinitionEditable(capturedTaskId))
+                    {
+                        chip.ContextMenu = CreateAgentChipAssignContextMenu(
+                            capturedTaskId,
+                            capturedChipAgentHandle);
+                    }
                     chip.ToolTip = ToolTipHelper.MakeThemedToolTip(
                         $"{HumanizeAgentHandle(assignment.AgentHandle)} — {assignment.Role}");
 
@@ -4675,6 +4686,70 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return submenu;
     }
 
+    private ContextMenu? CreateAgentChipAssignContextMenu(string taskId, string clickedAgentHandle)
+    {
+        if (_saveDefinitionEdit is null || _plan is null || _getAssignableAgents is null)
+            return null;
+        if (!IsTaskDefinitionEditable(taskId))
+            return null;
+
+        var task = _plan.Group.Tasks.FirstOrDefault(candidate => candidate.Id == taskId);
+        if (task is null) return null;
+
+        var agents = _getAssignableAgents()
+            .Where(agent => agent.IsActive)
+            .OrderBy(agent => agent.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (agents.Length == 0)
+            return null;
+
+        var menu = CreateThemedMenu();
+
+        var headerText = new TextBlock
+        {
+            Text = "Assigned To:",
+            FontStyle = FontStyles.Italic,
+        };
+        headerText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        var header = new MenuItem
+        {
+            Header = headerText,
+            IsEnabled = false,
+        };
+        header.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        menu.Items.Add(header);
+        menu.Items.Add(CreateThemedMenuSeparator());
+
+        var assignedHandles = (task.AgentAssignments ?? [])
+            .Select(assignment => assignment.AgentHandle)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var agent in agents)
+        {
+            var capturedAgent = agent;
+            var item = CreateThemedMenuItem(capturedAgent.Handle);
+            item.IsCheckable = true;
+            item.IsChecked = assignedHandles.Contains(capturedAgent.Handle);
+            item.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                $"Click to assign only {capturedAgent.Handle}. Shift+click to add/remove while preserving other assignees.");
+            item.Click += (_, _) =>
+            {
+                if (_plan is null || !IsTaskDefinitionEditable(taskId))
+                    return;
+
+                var shiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+                var mutation = shiftHeld
+                    ? StagedPlanEditor.ToggleTaskAgent(_plan.Group, taskId, capturedAgent.Handle)
+                    : StagedPlanEditor.AssignTaskToAgent(_plan.Group, taskId, capturedAgent.Handle);
+                ApplyStagedMutation(mutation, selectKind: "task", selectId: taskId);
+            };
+            menu.Items.Add(item);
+        }
+
+        menu.Tag = clickedAgentHandle;
+        return menu;
+    }
+
     private MenuItem? CreateAssignToSubmenu(string taskId)
     {
         if (_saveDefinitionEdit is null || _plan is null || _getAssignableAgents is null)
@@ -4709,16 +4784,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             item.Click += (_, _) =>
             {
                 if (_plan is null || !IsTaskDefinitionEditable(taskId)) return;
-                if (wasAssigned)
-                {
-                    item.IsChecked = true;
-                    return;
-                }
-
-                ApplyStagedMutation(
-                    StagedPlanEditor.AssignTaskToAgent(_plan.Group, taskId, capturedAgent.Handle),
-                    selectKind: "task",
-                    selectId: taskId);
+                var shiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+                var mutation = shiftHeld
+                    ? StagedPlanEditor.ToggleTaskAgent(_plan.Group, taskId, capturedAgent.Handle)
+                    : StagedPlanEditor.AssignTaskToAgent(_plan.Group, taskId, capturedAgent.Handle);
+                ApplyStagedMutation(mutation, selectKind: "task", selectId: taskId);
             };
             submenu.Items.Add(item);
         }
