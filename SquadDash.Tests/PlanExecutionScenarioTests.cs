@@ -407,7 +407,7 @@ internal sealed class PlanExecutionScenarioTests
 
         Assert.That(message.Actions.Select(action => action.Label), Is.EqualTo(new[]
         {
-            "Review repository changes for PLAN-20260728-003",
+            "Review repository changes not attributed to PLAN-20260728-003",
             "PLAN-20260728-003 Is Complete & Continue",
             "Continue Working on PLAN-20260728-003",
             "✎ Revise Remaining Plan…",

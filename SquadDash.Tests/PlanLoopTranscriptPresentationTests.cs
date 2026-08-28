@@ -190,6 +190,11 @@ internal sealed class PlanLoopTranscriptPresentationTests
             Assert.That(
                 PlanLoopTranscriptPresentation.BuildQueueDrainResumeMessage(plan, task.TaskId, task.Title),
                 Is.EqualTo("Queued prompts complete. Resuming plan · Step 3 of 8 · Recompute dependency stages."));
+            Assert.That(PlanLoopTranscriptPresentation.ShouldAnnounceQueueDrainResume(plan), Is.True);
+            Assert.That(
+                PlanLoopTranscriptPresentation.ShouldAnnounceQueueDrainResume(
+                    plan with { LifecycleStatus = PlanLifecycleStatus.Interrupted }),
+                Is.False);
         });
     }
 }

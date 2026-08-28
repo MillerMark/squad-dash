@@ -137,6 +137,14 @@ internal static class DecomposeStepResultParser
         if (result.Status == "complete" && string.IsNullOrWhiteSpace(result.CompletionKind))
             result = result with { CompletionKind = DecomposeStepCompletionKind.Changed };
 
+        // Some models mechanically copy the inspected baseline into both fields even after
+        // explicitly selecting verified-no-op. The commit field has no authority for this
+        // completion kind: host validation below binds evaluatedCommit to an unchanged HEAD and
+        // task baseline. Ignore the redundant field instead of spending the one repair attempt
+        // on a schema-only correction or interrupting an otherwise valid plan.
+        if (result.IsVerifiedNoOp && !string.IsNullOrWhiteSpace(result.Commit))
+            result = result with { Commit = null };
+
         if (result is null || string.IsNullOrWhiteSpace(result.GroupId) ||
             string.IsNullOrWhiteSpace(result.TaskId) || string.IsNullOrWhiteSpace(result.Revision) ||
             string.IsNullOrWhiteSpace(result.Summary))
@@ -173,12 +181,6 @@ internal static class DecomposeStepResultParser
         if (result.Status == "complete" && !result.IsVerifiedNoOp && string.IsNullOrWhiteSpace(result.Commit))
         {
             error = "A changed complete result requires a commit.";
-            return false;
-        }
-
-        if (result.IsVerifiedNoOp && !string.IsNullOrWhiteSpace(result.Commit))
-        {
-            error = "A verified-no-op result must set commit to null; evaluatedCommit identifies the inspected snapshot.";
             return false;
         }
 

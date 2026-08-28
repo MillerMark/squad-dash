@@ -126,7 +126,7 @@ internal sealed class DecomposeStepResultParserTests
     }
 
     [Test]
-    public void VerifiedNoOp_WithTaskCommit_IsRejected()
+    public void VerifiedNoOp_WithRedundantTaskCommit_IsNormalizedBeforeHostValidation()
     {
         var text = """
             DECOMPOSE_STEP_RESULT_JSON:
@@ -137,8 +137,13 @@ internal sealed class DecomposeStepResultParserTests
              "verification":{"status":"passed","command":"dotnet test","summary":"Passed"}}
             """;
 
-        Assert.That(DecomposeStepResultParser.TryParse(text, out _, out var error), Is.False);
-        Assert.That(error, Does.Contain("commit to null"));
+        Assert.That(DecomposeStepResultParser.TryParse(text, out var result, out var error), Is.True, error);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result!.IsVerifiedNoOp, Is.True);
+            Assert.That(result.Commit, Is.Null);
+            Assert.That(result.EvaluatedCommit, Is.EqualTo("abcdef1"));
+        });
     }
 
     [Test]

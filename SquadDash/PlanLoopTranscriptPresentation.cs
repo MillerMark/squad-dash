@@ -47,6 +47,9 @@ internal static class PlanLoopTranscriptPresentation
         return $"Queued prompts complete. Resuming plan · {BuildProgressIdentity(plan, task)} · {title}.";
     }
 
+    internal static bool ShouldAnnounceQueueDrainResume(Plan plan) =>
+        plan.LifecycleStatus == PlanLifecycleStatus.Executing;
+
     internal static string BuildPhasePrompt(
         Plan plan,
         string? taskId,

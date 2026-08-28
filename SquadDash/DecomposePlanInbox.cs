@@ -165,12 +165,12 @@ internal static class DecomposePlanInbox
             taskTitle);
         InboxAction BuildEvidenceLink() => new()
         {
-            Label = $"Review repository changes for {stepLabel}",
+            Label = PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(stepLabel),
             RouteMode = RecoveryEvidenceRouteMode,
             Prompt = DecomposeRecoveryDecisionParser.Marker + "\n" + JsonSerializer.Serialize(
                 new DecomposeRecoveryDecision(plan.Group.GroupId, plan.Revision, "review-completed-work"),
                 DecisionOptions),
-            Hint = "Open the multi-commit differences viewer. Reviewing does not change plan state.",
+            Hint = PlanRecoveryPresentationBuilder.UnattributedReviewHint(stepLabel),
         };
         var primary = durablePlan is not null
             ? PlanRecoveryActionPresentationBuilder.Build(durablePlan, taskId)

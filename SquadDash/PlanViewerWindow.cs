@@ -1024,13 +1024,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         FontSize = quickReplyFontSize,
                     };
                     var reviewLink = new Hyperlink(new Run(
-                        $"Review repository changes for {PlanRecoveryPresentationBuilder.FormatStepLabel(
-                            interruptedTask.DisplayStepLabel,
-                            interruptedTask.Title ?? interruptedTask.Description)}"))
+                        evidence.Count > 0
+                            ? $"Review repository changes for {PlanRecoveryPresentationBuilder.FormatStepLabel(
+                                interruptedTask.DisplayStepLabel,
+                                interruptedTask.Title ?? interruptedTask.Description)}"
+                            : PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(
+                                PlanRecoveryPresentationBuilder.FormatStepLabel(
+                                    interruptedTask.DisplayStepLabel,
+                                    interruptedTask.Title ?? interruptedTask.Description))))
                     {
                         Cursor = Cursors.Hand,
                         ToolTip = ToolTipHelper.MakeThemedToolTip(
-                            "Open the multi-commit differences viewer. Reviewing does not change plan state."),
+                            evidence.Count > 0
+                                ? "Open the multi-commit differences viewer. Reviewing does not change plan state."
+                                : PlanRecoveryPresentationBuilder.UnattributedReviewHint(
+                                    PlanRecoveryPresentationBuilder.FormatStepLabel(
+                                        interruptedTask.DisplayStepLabel,
+                                        interruptedTask.Title ?? interruptedTask.Description))),
                     };
                     reviewLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
                     reviewLink.Click += (_, _) => _onOpenCommits(evidence);

@@ -229,6 +229,12 @@ internal static class PlanRecoveryPresentationBuilder
 {
     internal const string AssessmentStoppedMessage = "Assessment finished — plan still stopped.";
 
+    internal static string BuildUnattributedReviewLabel(string stepLabel) =>
+        $"Review repository changes not attributed to {stepLabel}";
+
+    internal static string UnattributedReviewHint(string stepLabel) =>
+        $"Open commits since the last accepted step. SquadDash could not attribute them to {stepLabel}; they may include unrelated work. Reviewing does not change plan state.";
+
     internal static bool ShouldShowGenericReason(PlanRecoveryDecisionEvidence? assessment) =>
         assessment is null;
 

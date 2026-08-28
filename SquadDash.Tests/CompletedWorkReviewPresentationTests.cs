@@ -254,9 +254,10 @@ internal sealed class CompletedWorkReviewPresentationTests
         {
             Assert.That(message.Actions.Select(a => a.Label),
                 Has.No.Member("Review Completed Work"));
-            Assert.That(message.Actions[0].Label, Is.EqualTo("Review repository changes for Step 1"));
+            Assert.That(message.Actions[0].Label, Is.EqualTo("Review repository changes not attributed to Step 1"));
             Assert.That(message.Actions[0].RouteMode,
                 Is.EqualTo(DecomposePlanInbox.RecoveryEvidenceRouteMode));
+            Assert.That(message.Actions[0].Hint, Does.Contain("may include unrelated work"));
         });
     }
 
@@ -271,7 +272,7 @@ internal sealed class CompletedWorkReviewPresentationTests
         Assert.That(message.Actions.Select(a => a.Label),
             Is.EqualTo(new[]
             {
-                "Review repository changes for Step 1",
+                "Review repository changes not attributed to Step 1",
                 "Step 1 Is Complete & Continue",
                 "Continue Working on Step 1",
                 "✎ Revise Remaining Plan…",

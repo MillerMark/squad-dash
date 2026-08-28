@@ -3754,6 +3754,10 @@ public partial class MainWindow : Window
         }
         bool wasQueueResume = _loopQueued || _loopInterruptedByQueue;
         bool wasQrResume    = _loopPausedForQuickReply;
+        var queuedPlanId = wasQueueResume
+            ? _activeDecomposeGroupId ??
+              _conversationManager.ConversationState.ActiveLoopExecution?.DecomposeGroupId
+            : null;
         int resumeFromIteration = Math.Max(_loopCurrentIteration, _loopQueuedResumeFromIteration);
         _loopQueued = false;
         _loopQueuedResumeFromIteration = 0;
@@ -3777,7 +3781,7 @@ public partial class MainWindow : Window
             if (!claimed)
                 throw new InvalidOperationException("The saved loop execution could not be reclaimed safely.");
             if (wasQueueResume)
-                AnnouncePlanQueueDrainResume();
+                AnnouncePlanQueueDrainResume(queuedPlanId);
         }
         catch (Exception ex)
         {
@@ -3806,12 +3810,27 @@ public partial class MainWindow : Window
         ShowSystemTranscriptEntry(PlanLoopTranscriptPresentation.BuildQueueDrainPauseMessage(plan));
     }
 
-    private void AnnouncePlanQueueDrainResume()
+    private void AnnouncePlanQueueDrainResume(string? queuedPlanId)
     {
-        var planId = _activeDecomposeGroupId ??
+        var planId = queuedPlanId ??
+                     _activeDecomposeGroupId ??
                      _conversationManager.ConversationState.ActiveLoopExecution?.DecomposeGroupId;
         var plan = string.IsNullOrWhiteSpace(planId) ? null : _planStore?.Load(planId);
         _planQueueDrainPauseAnnounced = false;
+        if (!string.IsNullOrWhiteSpace(planId) && plan is null)
+        {
+            SquadDashTrace.Write(
+                "Loop",
+                $"Suppressed queued-plan resume announcement because durable plan {planId} could not be loaded.");
+            return;
+        }
+        if (plan is not null && !PlanLoopTranscriptPresentation.ShouldAnnounceQueueDrainResume(plan))
+        {
+            SquadDashTrace.Write(
+                "Loop",
+                $"Suppressed queued-plan resume announcement because durable plan {plan.PlanId} is {plan.LifecycleStatus}.");
+            return;
+        }
         ShowSystemTranscriptEntry(plan is null
             ? "Queued prompts complete. Resuming the plan."
             : PlanLoopTranscriptPresentation.BuildQueueDrainResumeMessage(
@@ -18735,8 +18754,8 @@ public partial class MainWindow : Window
             if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
             {
                 AddNavigationLink(
-                    $"Review repository changes for {stepLabel}",
-                    "Open the multi-commit differences viewer. Reviewing does not change plan state.",
+                    PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(stepLabel),
+                    PlanRecoveryPresentationBuilder.UnattributedReviewHint(stepLabel),
                     () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
             }
             AddAsyncResultAction(
