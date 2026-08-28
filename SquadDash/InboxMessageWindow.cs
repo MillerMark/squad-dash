@@ -43,6 +43,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action<string>? _openPlanByGroupId;
     private readonly Func<string, DecomposedTaskGroup?>? _resolvePlanGroupForThumbnail;
     private readonly Func<string, Dictionary<string, double>?>? _resolveLayoutNudgesForThumbnail;
+    private readonly Func<string, bool>? _isPlanExecuted;
     private double _bodyFontSize;
     private bool _markedRead;
     private readonly string? _planGroupId;
@@ -69,6 +70,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Action<string>? openPlanByGroupId = null,
         Func<string, DecomposedTaskGroup?>? resolvePlanGroupForThumbnail = null,
         Func<string, Dictionary<string, double>?>? resolveLayoutNudgesForThumbnail = null,
+        Func<string, bool>? isPlanExecuted = null,
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
@@ -84,6 +86,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _openPlanByGroupId      = openPlanByGroupId;
         _resolvePlanGroupForThumbnail = resolvePlanGroupForThumbnail;
         _resolveLayoutNudgesForThumbnail = resolveLayoutNudgesForThumbnail;
+        _isPlanExecuted         = isPlanExecuted;
         _resolveAgentAvatar     = resolveAgentAvatar;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
         MessageId               = message.Id;
@@ -207,6 +210,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         var actionRegion = new StackPanel();
         Grid.SetRow(actionRegion, 2);
         root.Children.Add(actionRegion);
+        var planAlreadyExecuted = !string.IsNullOrWhiteSpace(_planGroupId) &&
+            (_isPlanExecuted?.Invoke(_planGroupId) ?? false);
 
         _navigationActionsPanel = new WrapPanel
         {
@@ -222,15 +227,23 @@ internal sealed class InboxMessageWindow : ChromedWindow
         {
             Margin      = new Thickness(12, 4, 12, 0),
             Orientation = Orientation.Horizontal,
-            Visibility  = message.Actions.Any(action => !IsNavigationAction(action))
+            Visibility  = message.Actions.Any(action =>
+                !IsNavigationAction(action) &&
+                !(planAlreadyExecuted &&
+                  string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase)))
                 ? Visibility.Visible
                 : Visibility.Collapsed,
         };
         actionRegion.Children.Add(_actionsPanel);
 
         foreach (var action in message.Actions)
+        {
+            if (planAlreadyExecuted &&
+                string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
+                continue;
             (IsNavigationAction(action) ? _navigationActionsPanel : _actionsPanel)
                 .Children.Add(BuildActionButton(action, message, _bodyFontSize, onActionClicked));
+        }
 
         _preflightRecoveryHost = new ContentControl
         {
@@ -1339,13 +1352,23 @@ internal sealed class InboxMessageWindow : ChromedWindow
         // Keep navigation links on their own row above the decision buttons.
         _navigationActionsPanel.Children.Clear();
         _actionsPanel.Children.Clear();
+        var planAlreadyExecuted = !string.IsNullOrWhiteSpace(_planGroupId) &&
+            (_isPlanExecuted?.Invoke(_planGroupId) ?? false);
         foreach (var action in updatedMessage.Actions)
+        {
+            if (planAlreadyExecuted &&
+                string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
+                continue;
             (IsNavigationAction(action) ? _navigationActionsPanel : _actionsPanel)
                 .Children.Add(BuildActionButton(action, updatedMessage, _bodyFontSize, onActionClicked));
+        }
         _navigationActionsPanel.Visibility = updatedMessage.Actions.Any(IsNavigationAction)
             ? Visibility.Visible
             : Visibility.Collapsed;
-        _actionsPanel.Visibility = updatedMessage.Actions.Any(action => !IsNavigationAction(action))
+        _actionsPanel.Visibility = updatedMessage.Actions.Any(action =>
+            !IsNavigationAction(action) &&
+            !(planAlreadyExecuted &&
+              string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase)))
             ? Visibility.Visible
             : Visibility.Collapsed;
 
