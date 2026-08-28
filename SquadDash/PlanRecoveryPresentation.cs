@@ -415,6 +415,13 @@ internal static class PlanRecoveryPresentationBuilder
 
     internal static PlanRecoveryPresentation Build(Plan plan, string taskId, bool hasPreservedWork)
     {
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var taskIndex = plan.Tasks.ToList().FindIndex(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var stepLabel = FormatStepLabel(
+            task?.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
+            task?.Title ?? task?.Description ?? taskId);
         var evidence = plan.InterruptionData?.TaskCommitEvidence;
         if (evidence is not null &&
             string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal))
@@ -457,7 +464,7 @@ internal static class PlanRecoveryPresentationBuilder
             "SquadDash Could Not Confirm Whether This Task Finished",
             "The application stopped before the task result was recorded. The repository has changed since the task began, but those changes may include unrelated work.",
             CommitEvidence: null,
-            "Recommended: assess the current work before continuing.",
+            $"Recommended: review the current work, then decide whether to mark {stepLabel} complete or continue working on it.",
             "Retry Task Anyway…",
             RetryIsWarning: true);
     }

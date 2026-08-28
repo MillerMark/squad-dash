@@ -559,6 +559,8 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(presentation.CommitEvidence, Is.Null);
             Assert.That(presentation.Heading, Is.EqualTo("SquadDash Could Not Confirm Whether This Task Finished"));
             Assert.That(presentation.Explanation, Does.Contain("may include unrelated work"));
+            Assert.That(presentation.Recommendation, Is.EqualTo(
+                "Recommended: review the current work, then decide whether to mark PLAN-001 complete or continue working on it."));
         });
     }
 

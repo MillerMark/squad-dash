@@ -18302,7 +18302,10 @@ public partial class MainWindow : Window
         var stepRun = new Run(stepLabel + ": ");
         stepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
         taskParagraph.Inlines.Add(stepRun);
-        MarkdownFlowDocumentBuilder.AddInboxInlineText(taskParagraph.Inlines, taskTitle);
+        var taskTitleText = new Span();
+        taskTitleText.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        MarkdownFlowDocumentBuilder.AddInboxInlineText(taskTitleText.Inlines, taskTitle);
+        taskParagraph.Inlines.Add(taskTitleText);
         blocks.Add(taskParagraph);
         copyParts.Add($"Plan: {plan.Group.GroupTitle}");
         copyParts.Add($"{stepLabel}: {taskTitle}");
@@ -18496,6 +18499,7 @@ public partial class MainWindow : Window
                 durablePlan?.InterruptionData?.Reason);
             var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 6);
             var reasonLabel = new Run("Why it stopped: ") { FontWeight = FontWeights.SemiBold };
+            reasonLabel.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
             reasonParagraph.Inlines.Add(reasonLabel);
             AddImportantRecoveryText(reasonParagraph.Inlines, compactReason);
             blocks.Add(reasonParagraph);
@@ -18852,7 +18856,9 @@ public partial class MainWindow : Window
                 return;
             }
 
-            inlines.Add(new Run(label));
+            var labelRun = new Run(label);
+            labelRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            inlines.Add(labelRun);
             AddImportantRecoveryText(inlines, text[label.Length..]);
         }
 
