@@ -18416,7 +18416,7 @@ public partial class MainWindow : Window
             var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 6);
             var reasonLabel = new Run("Why it stopped: ") { FontWeight = FontWeights.SemiBold };
             reasonParagraph.Inlines.Add(reasonLabel);
-            MarkdownFlowDocumentBuilder.AddInboxInlineText(reasonParagraph.Inlines, compactReason);
+            AddImportantRecoveryText(reasonParagraph.Inlines, compactReason);
             blocks.Add(reasonParagraph);
             copyParts.Add("Why it stopped: " + compactReason);
         }
@@ -18496,7 +18496,7 @@ public partial class MainWindow : Window
             }
 
             var assessmentRecommendation = CreateTranscriptParagraph(bottomMargin: 6);
-            MarkdownFlowDocumentBuilder.AddInboxInlineText(
+            AddRecoveryRecommendationText(
                 assessmentRecommendation.Inlines,
                 assessmentPresentation.Recommendation);
             blocks.Add(assessmentRecommendation);
@@ -18588,9 +18588,7 @@ public partial class MainWindow : Window
             var recommendationText = combinedHumanReviewGate is null
                 ? presentation.Recommendation
                 : $"Use the commit link above to investigate. Confirming {stepLabel} also approves the human checkpoint above.";
-            MarkdownFlowDocumentBuilder.AddInboxInlineText(
-                recommendation.Inlines,
-                recommendationText);
+            AddRecoveryRecommendationText(recommendation.Inlines, recommendationText);
             blocks.Add(recommendation);
 
             if (assessmentEvidence is null &&
@@ -18734,6 +18732,33 @@ public partial class MainWindow : Window
             link.Click += (_, _) => action();
             paragraph.Inlines.Add(link);
             blocks.Add(paragraph);
+        }
+
+        static void AddRecoveryRecommendationText(InlineCollection inlines, string text)
+        {
+            const string recommendedLabel = "Recommended:";
+            const string recommendationLabel = "Recommendation:";
+            var label = text.StartsWith(recommendedLabel, StringComparison.Ordinal)
+                ? recommendedLabel
+                : text.StartsWith(recommendationLabel, StringComparison.Ordinal)
+                    ? recommendationLabel
+                    : null;
+            if (label is null)
+            {
+                MarkdownFlowDocumentBuilder.AddInboxInlineText(inlines, text);
+                return;
+            }
+
+            inlines.Add(new Run(label));
+            AddImportantRecoveryText(inlines, text[label.Length..]);
+        }
+
+        static void AddImportantRecoveryText(InlineCollection inlines, string text)
+        {
+            var importantText = new Span();
+            importantText.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            MarkdownFlowDocumentBuilder.AddInboxInlineText(importantText.Inlines, text);
+            inlines.Add(importantText);
         }
 
         void AddAssessmentAction(PlanRecoveryDecisionEvidence? previousAssessment)
