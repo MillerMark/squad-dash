@@ -8268,8 +8268,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var durableTasks = _durablePlan?.Tasks;
         if (durableTasks is not null)
         {
+            var stepNumber = 0;
             foreach (var task in durableTasks)
             {
+                stepNumber++;
                 var assignment = task.AgentAssignments?.FirstOrDefault(a =>
                     string.Equals(a.AgentHandle, agentHandle, StringComparison.OrdinalIgnoreCase));
                 if (assignment is null) continue;
@@ -8283,6 +8285,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     hasActiveVerifyingTask = isVerifying;
                 }
 
+                var stepRun = new Run($"Step {stepNumber}. ");
+                stepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
                 var titleLink = CreateTaskLink(task.Title ?? task.TaskId, task.TaskId);
                 var isActiveTask = string.Equals(task.Status, PlanTaskStatus.Executing, StringComparison.Ordinal)
                     || PlanTaskStatus.IsVerifying(task.Status);
@@ -8292,6 +8296,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
 
                 var para = new Paragraph();
+                para.Inlines.Add(stepRun);
                 para.Inlines.Add(titleLink);
                 if (!string.IsNullOrWhiteSpace(statusText))
                 {
@@ -8310,17 +8315,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var decomposedTasks = _plan?.Group.Tasks;
             if (decomposedTasks is not null)
             {
+                var stepNumber = 0;
                 foreach (var task in decomposedTasks)
                 {
+                    stepNumber++;
                     var assignment = task.AgentAssignments?.FirstOrDefault(a =>
                         string.Equals(a.AgentHandle, agentHandle, StringComparison.OrdinalIgnoreCase));
                     if (assignment is null) continue;
 
+                    var stepRun = new Run($"Step {stepNumber}. ");
+                    stepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
                     var titleLink = CreateTaskLink(task.Title ?? task.Id, task.Id);
                     var roleRun = new Run($"\n{assignment.Role}");
                     roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
 
                     var para = new Paragraph();
+                    para.Inlines.Add(stepRun);
                     para.Inlines.Add(titleLink);
                     para.Inlines.Add(roleRun);
                     para.Margin = new Thickness(0, 0, 0, 4);
@@ -8467,7 +8477,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (taskList.ListItems.Count > 0)
         {
-            AddSectionHeader("Steps in this plan");
+            AddSectionHeader("Responsibilities");
             _detailDocument.Blocks.Add(taskList);
         }
     }
