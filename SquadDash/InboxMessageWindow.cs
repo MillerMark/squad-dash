@@ -300,7 +300,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         if (!string.IsNullOrWhiteSpace(_planGroupId))
         {
-            _planThumbnailRenderer = new PlanThumbnailRenderer(Dispatcher, resolveAgentAvatar: _resolveAgentAvatar);
+            _planThumbnailRenderer = new PlanThumbnailRenderer(Dispatcher, lineThicknessMultiplier: 2.0, resolveAgentAvatar: _resolveAgentAvatar);
             _planThumbnailImage.Source = _planThumbnailRenderer.CurrentImage;
             _planThumbnailImageUpdatedHandler = image =>
             {

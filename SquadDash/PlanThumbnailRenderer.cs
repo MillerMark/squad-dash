@@ -23,6 +23,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
 
     private readonly Dispatcher _dispatcher;
     private readonly double _targetHeightPixels;
+    private readonly double _lineThicknessMultiplier;
     private readonly Border _graphHost;
     private readonly Canvas _graphCanvas;
     private readonly PlanGraphEdgeRenderingContract _edgeRenderingContract;
@@ -41,6 +42,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
     {
         _dispatcher = dispatcher ?? Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
         _targetHeightPixels = targetHeightPixels > 0 ? targetHeightPixels : DefaultTargetHeightPixels;
+        _lineThicknessMultiplier = lineThicknessMultiplier > 0 ? lineThicknessMultiplier : 1.0;
         _edgeRenderingContract = new PlanGraphEdgeRenderingContract(lineThicknessMultiplier);
         _resolveAgentAvatar = resolveAgentAvatar;
         _graphCanvas = new Canvas
@@ -350,7 +352,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
                 Width = 46 * scaleFactor,
                 Height = 34 * scaleFactor,
                 CornerRadius = new CornerRadius(17 * scaleFactor),
-                BorderThickness = new Thickness(1.5),
+                BorderThickness = new Thickness(1.5 * _lineThicknessMultiplier),
                 Child = badgeText,
             };
             badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
@@ -424,7 +426,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
         _graphHost.Height = contentHeight + _graphHost.Padding.Top + _graphHost.Padding.Bottom;
         _graphHost.Background = ResolveBrush("PlanStageCanvasBackground", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x1D, 0x1A, 0x18) : Color.FromRgb(0xFA, 0xF7, 0xF2));
         _graphHost.BorderBrush = ResolveBrush("SubtleBorder", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x47, 0x3D, 0x35) : Color.FromRgb(0xD7, 0xC7, 0xB5));
-        _graphHost.BorderThickness = new Thickness(1);
+        _graphHost.BorderThickness = new Thickness(_lineThicknessMultiplier);
         return (_graphHost.Width, _graphHost.Height);
     }
 
@@ -472,7 +474,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
             Width = width,
             Height = height,
             CornerRadius = new CornerRadius(8 * scaleFactor),
-            BorderThickness = new Thickness(1),
+            BorderThickness = new Thickness(_lineThicknessMultiplier),
             BorderBrush = ResolveBrush("SubtleBorder", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x47, 0x3D, 0x35) : Color.FromRgb(0xD7, 0xC7, 0xB5)),
             Background = ResolveBrush("CardSurface", AgentStatusCard.IsDarkTheme ? Color.FromRgb(0x24, 0x20, 0x1D) : Color.FromRgb(0xFF, 0xFB, 0xF5)),
             Child = stack,
