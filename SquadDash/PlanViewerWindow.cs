@@ -1464,6 +1464,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Grid.SetRow(detailViewer, 1);
         inspectorGrid.Children.Add(detailViewer);
 
+        inspectorGrid.Margin = new Thickness(0, 0, 4, 0);
         Grid.SetColumn(inspectorGrid, 2);
         splitGrid.Children.Add(inspectorGrid);
 
