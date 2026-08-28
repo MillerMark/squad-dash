@@ -69,7 +69,7 @@ internal sealed class PreferencesWindow : Window {
     private readonly RadioButton _githubCopilotProviderRadio;
     private readonly RadioButton _customModelProviderRadio;
     private readonly ComboBox _copilotModelComboBox;
-    private readonly Button _copilotModelRefreshButton;
+    private readonly Button _copilotModelRetryButton;
     private readonly TextBlock _copilotModelStatusText;
     private readonly StackPanel _githubCopilotModelPanel;
     private readonly StackPanel _customModelProviderPanel;
@@ -684,16 +684,17 @@ internal sealed class PreferencesWindow : Window {
         };
         _copilotModelStatusText.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
         _copilotModelStatusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        _copilotModelRefreshButton = new Button {
-            Content = "Refresh",
+        _copilotModelRetryButton = new Button {
+            Content = "Retry",
             Height = 30,
-            Margin = new Thickness(8, 0, 0, 0),
+            Margin = new Thickness(0, 0, 0, 12),
             Padding = new Thickness(10, 4, 10, 4),
-            ToolTip = "Refresh model catalog now."
+            ToolTip = "Retry model discovery.",
+            Visibility = Visibility.Collapsed
         };
-        _copilotModelRefreshButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        _copilotModelRefreshButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
-        _copilotModelRefreshButton.Click += CopilotModelRefreshButton_Click;
+        _copilotModelRetryButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        _copilotModelRetryButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+        _copilotModelRetryButton.Click += CopilotModelRetryButton_Click;
 
         _githubCopilotModelPanel = new StackPanel {
             Visibility = useCustomModelProvider ? Visibility.Collapsed : Visibility.Visible
@@ -1724,15 +1725,11 @@ internal sealed class PreferencesWindow : Window {
         form.Children.Add(_customModelProviderRadio);
 
         AddLabel(_githubCopilotModelPanel, "Default Model:", topMargin: 8);
-        var copilotModelRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-        copilotModelRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        copilotModelRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        copilotModelRow.Children.Add(_copilotModelComboBox);
-        Grid.SetColumn(_copilotModelRefreshButton, 1);
-        copilotModelRow.Children.Add(_copilotModelRefreshButton);
-        _githubCopilotModelPanel.Children.Add(copilotModelRow);
+        _copilotModelComboBox.Margin = new Thickness(0, 0, 0, 4);
+        _githubCopilotModelPanel.Children.Add(_copilotModelComboBox);
         _copilotModelStatusText.Text = "Use 'auto' to let GitHub Copilot choose. Loading available models...";
         _githubCopilotModelPanel.Children.Add(_copilotModelStatusText);
+        _githubCopilotModelPanel.Children.Add(_copilotModelRetryButton);
         form.Children.Add(_githubCopilotModelPanel);
 
         // ── Custom model provider panel content ──
@@ -1857,11 +1854,12 @@ internal sealed class PreferencesWindow : Window {
 
     private async Task LoadCopilotModelsIntoComboBoxAsync(bool manualRefresh = false) {
         var currentModel = ReadCopilotDefaultModelInput();
-        _copilotModelRefreshButton.IsEnabled = false;
-        _copilotModelRefreshButton.Content = manualRefresh ? "Refreshing..." : "Refresh";
-        if (manualRefresh) {
-            _copilotModelStatusText.Text = "Use 'auto' to let GitHub Copilot choose. Refreshing model catalog...";
-        }
+        var discoverySucceeded = false;
+        _copilotModelRetryButton.Visibility = manualRefresh ? Visibility.Visible : Visibility.Collapsed;
+        _copilotModelRetryButton.IsEnabled = !manualRefresh;
+        _copilotModelStatusText.Text = manualRefresh
+            ? "Retrying model discovery..."
+            : "Use 'auto' to let GitHub Copilot choose. Loading available models...";
         try {
             await _cliModelCatalogService.RefreshAsync();
             var modelIds = _cliModelCatalogService.GetAllModelIds();
@@ -1869,20 +1867,26 @@ internal sealed class PreferencesWindow : Window {
                 throw new InvalidOperationException("The Copilot API returned no models.");
 
             PopulateCopilotModelOptions(modelIds, currentModel);
-            _copilotModelStatusText.Text = "Use 'auto' to let GitHub Copilot choose. Model list loaded from GitHub Copilot.";
+            _copilotModelStatusText.Text = "Use 'auto' to let GitHub Copilot choose.";
+            discoverySucceeded = true;
         }
         catch (Exception ex) {
             PopulateCopilotModelOptions(KnownCopilotModelOptions, currentModel);
-            _copilotModelStatusText.Text = $"Use 'auto' to let GitHub Copilot choose. Using the built-in list because live model discovery failed: {ex.Message}";
+            _copilotModelStatusText.Text = $"Model discovery failed. {ex.Message}";
+            _copilotModelRetryButton.Visibility = Visibility.Visible;
             SquadDashTrace.Write("Preferences", $"Copilot model discovery failed: {ex.Message}");
         }
         finally {
-            _copilotModelRefreshButton.Content = "Refresh";
-            _copilotModelRefreshButton.IsEnabled = true;
+            if (discoverySucceeded) {
+                _copilotModelRetryButton.Visibility = Visibility.Collapsed;
+                _copilotModelRetryButton.IsEnabled = true;
+            } else {
+                _copilotModelRetryButton.IsEnabled = true;
+            }
         }
     }
 
-    private async void CopilotModelRefreshButton_Click(object sender, RoutedEventArgs e) {
+    private async void CopilotModelRetryButton_Click(object sender, RoutedEventArgs e) {
         await LoadCopilotModelsIntoComboBoxAsync(manualRefresh: true);
         QueueSelectedModelMetadataRefresh();
     }
