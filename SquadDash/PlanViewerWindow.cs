@@ -1988,7 +1988,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : null,
                     unapproveAction: milestoneApproved && existingGate is not null && onUnapproveGate is not null
                         ? () => { onUnapproveGate(durablePlan!, existingGate.GateId); }
-                        : null);
+                        : null,
+                    isDependent: isLocked && !milestoneIsPrimary);
                 Canvas.SetLeft(milestoneStop, boundaryX - (milestoneApproved || milestoneHasQuestion ? 10 : 8) * _scaleFactor);
                 Canvas.SetTop(milestoneStop, globalBandTop - octagonSize - 4 * _scaleFactor);
                 Panel.SetZIndex(milestoneStop, 25);
@@ -2514,7 +2515,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         : null,
                     unapproveAction: joinApproved && existingJoinGate is not null && onUnapproveGate is not null
                         ? () => { onUnapproveGate(durablePlan!, existingJoinGate.GateId); }
-                        : null);
+                        : null,
+                    isDependent: PlanGateVisualizationPolicy.IsDependent(joinIsLocked, joinIsPrimary, collectivelyCoveredJoin));
                 joinStop.HorizontalAlignment = HorizontalAlignment.Right;
                 joinStop.VerticalAlignment = VerticalAlignment.Center;
                 joinStop.Margin = new Thickness(0, 0, 4, 0);
@@ -3657,7 +3659,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 : null,
                             unapproveAction: beforeApproved && existingBeforeGate is not null && onUnapproveGate is not null
                                 ? () => { onUnapproveGate(durablePlan, existingBeforeGate.GateId); }
-                                : null);
+                                : null,
+                            isDependent: PlanGateVisualizationPolicy.IsDependent(beforeEngaged, beforeIsPrimary, collectivelyCoveredEntry));
                         Canvas.SetLeft(beforeStop, position.X + (beforeApproved || beforeHasQuestion ? 4 : 6) * _scaleFactor);
                         Canvas.SetTop(beforeStop, position.Y + NodeHeight - (beforeApproved || beforeHasQuestion ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(beforeStop, 25);
@@ -3829,7 +3832,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                                 : null,
                             unapproveAction: afterApproved && existingAfterGate is not null && onUnapproveGate is not null
                                 ? () => { onUnapproveGate(durablePlan, existingAfterGate.GateId); }
-                                : null);
+                                : null,
+                            isDependent: PlanGateVisualizationPolicy.IsDependent(afterEngaged, afterIsPrimary, collectivelyCoveredByAllJoins));
                         Canvas.SetLeft(afterStop, position.X + NodeWidth - (afterApproved || afterHasQuestion ? 24 : 22) * _scaleFactor);
                         Canvas.SetTop(afterStop, position.Y + NodeHeight - (afterApproved || afterHasQuestion ? 22 : 20) * _scaleFactor);
                         Panel.SetZIndex(afterStop, 25);
@@ -5425,7 +5429,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         string? selectionAnchor = null,
         string? toggleActionLabel = null,
         Action? approveAction = null,
-        Action? unapproveAction = null)
+        Action? unapproveAction = null,
+        bool isDependent = false)
     {
         var s = _scaleFactor;
         FrameworkElement indicator;
@@ -5554,6 +5559,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Opacity = engaged ? engagedOpacity : 1.0,
         };
         hitTarget.Children.Add(indicator);
+        if (isDependent && stop is not null)
+        {
+            indicator.RenderTransformOrigin = new Point(0.5, 0.5);
+            indicator.RenderTransform = new ScaleTransform(0.75, 0.75);
+        }
         if (toggle is not null && stop is not null && selectionAnchor is null)
         {
             if (fallbackStopPolygon is not null)

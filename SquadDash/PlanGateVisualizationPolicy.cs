@@ -12,6 +12,12 @@ internal static class PlanGateVisualizationPolicy
         bool collectivelyCovered = false) =>
         engaged && (!isPrimary || collectivelyCovered) ? 0.3 : 1.0;
 
+    internal static bool IsDependent(
+        bool engaged,
+        bool isPrimary,
+        bool collectivelyCovered = false) =>
+        engaged && (!isPrimary || collectivelyCovered);
+
     internal static bool ShouldRenderTaskExitApprovalControl(
         bool isLeaf,
         bool hasFinalValidationBoundary,
