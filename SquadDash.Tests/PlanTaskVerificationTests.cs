@@ -38,11 +38,14 @@ internal sealed class PlanTaskVerificationTests
         Assert.That(text, Does.Contain("Wire consumer"));
         Assert.That(text, Does.Contain("Canonical branch: `feature/test`"));
         Assert.That(text, Does.Contain("Current plan revision: `rev`"));
+        Assert.That(text, Does.Contain("User-facing step label: **Step 2**"));
+        Assert.That(text, Does.Contain("Current step: **Step 2 — Wire consumer** (task ID `P-2`)"));
+        Assert.That(text, Does.Contain("Never abbreviate it into prose such as `task006`"));
         Assert.That(text, Does.Contain("{\"groupId\":\"P\",\"taskId\":\"P-2\",\"revision\":\"rev\"}"));
         Assert.That(text, Does.Contain("supersedes every older value"));
         Assert.That(text, Does.Contain("Do not create, checkout, switch, rename, or delete any Git branch"));
         Assert.That(text.IndexOf("Created the production source and exposed its contract", StringComparison.Ordinal),
-            Is.LessThan(text.IndexOf("### Current task contract", StringComparison.Ordinal)));
+            Is.LessThan(text.IndexOf("### Current step contract", StringComparison.Ordinal)));
     }
 
     [Test]
@@ -76,6 +79,29 @@ internal sealed class PlanTaskVerificationTests
             Assert.That(text, Does.Not.Contain("…"));
             Assert.That(text.IndexOf("P-0", StringComparison.Ordinal),
                 Is.LessThan(text.IndexOf("P-1", StringComparison.Ordinal)));
+        });
+    }
+
+    [Test]
+    public void Context_UsesDisplayStepLabelInsteadOfNumericTaskIdSuffix()
+    {
+        var task = new PlanTask(
+            "PLAN-006", "Refresh models", "Refresh the catalog.", [], "high",
+            PlanTaskStatus.Executing, DisplayStepLabel: "5");
+        var plan = MakePlan() with
+        {
+            Tasks = [task],
+            Progress = new PlanProgress(0, 1, task.TaskId),
+        };
+
+        var text = PlanExecutionContextBuilder.Build(plan, task);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("User-facing step label: **Step 5**"));
+            Assert.That(text, Does.Contain("Current step: **Step 5 — Refresh models**"));
+            Assert.That(text, Does.Contain("task ID `PLAN-006`"));
+            Assert.That(text, Does.Not.Contain("Step 6"));
         });
     }
 
@@ -204,6 +230,8 @@ internal sealed class PlanTaskVerificationTests
             Assert.That(prompt, Does.Not.Contain("using the CLI's `general-purpose` agent type"));
             Assert.That(prompt, Does.Contain("Do not perform the verification yourself"));
             Assert.That(prompt, Does.Contain("human-review-required"));
+            Assert.That(prompt, Does.Contain("User-facing identity: `Step 1` — Build source"));
+            Assert.That(prompt, Does.Contain("never abbreviate it as `task006`"));
         });
 
         Assert.Multiple(() =>

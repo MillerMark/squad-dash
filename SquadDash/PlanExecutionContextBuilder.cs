@@ -8,10 +8,17 @@ internal static class PlanExecutionContextBuilder
     internal static string Build(Plan plan, PlanTask currentTask)
     {
         var builder = new StringBuilder();
+        var taskIndex = plan.Tasks.ToList().FindIndex(candidate =>
+            string.Equals(candidate.TaskId, currentTask.TaskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            currentTask.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
+            currentTask.Title ?? currentTask.TaskId);
         builder.AppendLine("## Plan intent and connected execution context");
         builder.AppendLine();
         builder.AppendLine($"Plan: **{plan.Title}** (`{plan.PlanId}`)");
         builder.AppendLine($"Guiding intent: {plan.Summary}");
+        builder.AppendLine($"User-facing step label: **{stepLabel}** — {currentTask.Title ?? currentTask.TaskId}");
+        builder.AppendLine($"In all narrative progress, delegation labels, verification commentary, and summaries, refer to this work as **{stepLabel}** or by its title. Reserve the exact task ID `{currentTask.TaskId}` for structured protocol fields and technical diagnostics. Never abbreviate it into prose such as `task006` or call it a differently numbered task.");
         builder.AppendLine();
         builder.AppendLine("### Authoritative result identity for this turn");
         builder.AppendLine($"Current plan revision: `{plan.Revision}`");
@@ -71,8 +78,8 @@ internal static class PlanExecutionContextBuilder
         }
 
         builder.AppendLine();
-        builder.AppendLine("### Current task contract");
-        builder.AppendLine($"Current task: **{currentTask.Title ?? currentTask.TaskId}** (`{currentTask.TaskId}`)");
+        builder.AppendLine("### Current step contract");
+        builder.AppendLine($"Current step: **{stepLabel} — {currentTask.Title ?? currentTask.TaskId}** (task ID `{currentTask.TaskId}`)");
         builder.AppendLine(currentTask.Description);
         builder.AppendLine();
         builder.AppendLine("Implement this task as part of that larger intent. Preserve accepted upstream contracts, " +

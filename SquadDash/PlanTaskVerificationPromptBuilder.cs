@@ -31,6 +31,12 @@ internal static class PlanTaskVerificationPromptBuilder
             plan.Branch));
         builder.AppendLine();
         builder.AppendLine("Independently verify the candidate task result below. Do not modify the repository.");
+        var taskIndex = plan.Tasks.ToList().FindIndex(candidate =>
+            string.Equals(candidate.TaskId, task.TaskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            task.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
+            task.Title ?? task.TaskId);
+        builder.AppendLine($"User-facing identity: `{stepLabel}` — {task.Title ?? task.TaskId}. In narrative commentary and the verification summary, call this `{stepLabel}` or use its title. Use the exact task ID `{task.TaskId}` only in structured fields and technical diagnostics; never abbreviate it as `task006` or present its numeric suffix as the Step number.");
         AppendVerificationLevelInstructions(builder, task);
         builder.AppendLine("Your job is to find missing or overstated work, unsupported claims, disconnected production wiring, " +
                            "and tests that pass without proving the behavior requested by the task.");

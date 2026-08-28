@@ -113,6 +113,8 @@ internal sealed class PlanExecutionAttemptTests
                 Assert.That(context, Does.Contain("do not manufacture edits, tests, documentation, or an empty commit"));
                 Assert.That(context, Does.Contain("return a complete `verified-no-op` result"));
                 Assert.That(context, Does.Contain("do not interrupt the plan"));
+                Assert.That(context, Does.Contain("use the authoritative user-facing Step label"));
+                Assert.That(context, Does.Contain("never shorten an ID into narrative labels such as `task006`"));
                 Assert.That(context, Does.Contain("Do not claim an `actualPrimaryAgent`"));
             });
         }
