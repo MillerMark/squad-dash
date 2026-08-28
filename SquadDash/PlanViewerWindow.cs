@@ -6861,6 +6861,38 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(summaryList);
         }
 
+        if (string.Equals(
+                task.CompletionKind ?? task.Handoff?.CompletionKind,
+                DecomposeStepCompletionKind.VerifiedNoOp,
+                StringComparison.Ordinal))
+        {
+            AddSectionHeader("Completion evidence");
+            var noOpPara = new Paragraph();
+            var noOpLabel = new Run("Already satisfied") { FontWeight = FontWeights.SemiBold };
+            noOpLabel.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            noOpPara.Inlines.Add(noOpLabel);
+            var evaluatedCommit = task.EvaluatedCommit ?? task.Handoff?.EvaluatedCommit;
+            if (!string.IsNullOrWhiteSpace(evaluatedCommit))
+                noOpPara.Inlines.Add(new Run($" at evaluated snapshot {ProofProvenancePresenter.FormatShortSha(evaluatedCommit)}"));
+            noOpPara.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+            noOpPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            noOpPara.Margin = new Thickness(0, 0, 0, 6);
+            _detailDocument.Blocks.Add(noOpPara);
+
+            var noOpEvidence = task.NoOpEvidence ?? task.Handoff?.NoOpEvidence;
+            if (noOpEvidence is { Count: > 0 })
+            {
+                var evidenceList = new List { MarkerStyle = TextMarkerStyle.Disc };
+                evidenceList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                evidenceList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                evidenceList.Margin = new Thickness(0, 0, 0, 12);
+                foreach (var evidence in noOpEvidence)
+                    evidenceList.ListItems.Add(new ListItem(new Paragraph(new Run(
+                        $"{evidence.Requirement}: {evidence.Observation} ({string.Join(", ", evidence.Locations)})"))));
+                _detailDocument.Blocks.Add(evidenceList);
+            }
+        }
+
         // 4. Commit evidence
         var detailEvidence = _durablePlan is null
             ? Array.Empty<PlanEvidenceCommit>()

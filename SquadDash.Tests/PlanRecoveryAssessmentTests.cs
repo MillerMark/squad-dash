@@ -195,6 +195,27 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void CompleteAssessment_VerifiedNoOpWithEvidence_ParsesWithoutCommits()
+    {
+        var text = Prefix + """
+            {"recoveryAssessmentId":"assessment-1","classification":"complete",
+             "completionKind":"verified-no-op","evaluatedCommit":"abcdef1",
+             "summary":"The task was already satisfied.","remainingWork":[],
+             "verification":{"status":"passed","command":"dotnet test","summary":"Passed."},
+             "commits":[],
+             "noOpEvidence":[{"requirement":"Existing behavior","observation":"Production wiring exists.","locations":["src/App.cs"]}]}
+            """;
+
+        Assert.That(PlanRecoveryAssessmentParser.TryParse(text, out var response, out var error), Is.True, error);
+        Assert.Multiple(() =>
+        {
+            Assert.That(response!.IsVerifiedNoOp, Is.True);
+            Assert.That(response.EvaluatedCommit, Is.EqualTo("abcdef1"));
+            Assert.That(response.NoOpEvidence, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
     public void InvalidAssessment_ReportsAllRepairableFindingsTogether()
     {
         var text = Prefix + """
@@ -452,6 +473,24 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void CommitCoverage_VerifiedNoOpAllowsEmptyBaselineRange()
+    {
+        var response = Response(PlanRecoveryClassification.Complete, []) with
+        {
+            CompletionKind = DecomposeStepCompletionKind.VerifiedNoOp,
+            EvaluatedCommit = "abcdef1",
+            NoOpEvidence =
+            [
+                new PlanTaskNoOpEvidence("Existing behavior", "Production wiring exists.", ["src/App.cs"]),
+            ],
+        };
+
+        Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
+            response, [], out var attributed, out var error), Is.True, error);
+        Assert.That(attributed, Is.Empty);
+    }
+
+    [Test]
     public void CommitCoverage_PreservesHistoryOrderForAttributedCommits()
     {
         var response = Response(
@@ -595,6 +634,42 @@ internal sealed class PlanRecoveryAssessmentTests
             Assert.That(candidate.Commit, Is.EqualTo("abcdef1234567890"));
             Assert.That(candidate.Verification?.Status, Is.EqualTo("passed"));
             Assert.That(candidate.ProofEvidence?.Single().RequirementId, Is.EqualTo("build"));
+        });
+    }
+
+    [Test]
+    public void VerificationRecovery_ReconstructsVerifiedNoOpWithoutInventingTaskCommit()
+    {
+        var evidence = new PlanTaskNoOpEvidence(
+            "Existing behavior", "Production wiring already satisfies the task.", ["src/App.cs"]);
+        var task = new PlanTask(
+            "TASK-1", "Task", "Task", [], "high", PlanTaskStatus.Verifying,
+            Handoff: new PlanTaskHandoff(
+                null,
+                "The task was already satisfied.",
+                [],
+                new DecomposeStepVerification("passed", "dotnet test", "Build succeeded."),
+                DateTimeOffset.UtcNow,
+                CompletionKind: DecomposeStepCompletionKind.VerifiedNoOp,
+                EvaluatedCommit: "abcdef1",
+                NoOpEvidence: [evidence]));
+        var plan = new Plan(
+            "PLAN-1", "rev-1", PlanSource.Inbox, PlanLifecycleStatus.Interrupted,
+            "Plan", "feature/plan", "Summary", [task], [], new PlanProgress(0, 1),
+            new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var created = PlanVerificationRecoveryPolicy.TryCreateCandidate(
+            plan, "TASK-1", "abcdef1234567890", out var candidate, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanVerificationRecoveryPolicy.CanResume(plan, "TASK-1"), Is.True);
+            Assert.That(PlanVerificationRecoveryPolicy.TryGetAtomicCandidateCommit(plan, "TASK-1", out _), Is.False);
+            Assert.That(created, Is.True, error);
+            Assert.That(candidate!.IsVerifiedNoOp, Is.True);
+            Assert.That(candidate.Commit, Is.Null);
+            Assert.That(candidate.EvaluatedCommit, Is.EqualTo("abcdef1234567890"));
+            Assert.That(candidate.NoOpEvidence, Is.EqualTo(new[] { evidence }));
         });
     }
 

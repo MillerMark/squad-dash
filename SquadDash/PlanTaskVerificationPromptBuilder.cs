@@ -41,14 +41,33 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine(JsonSerializer.Serialize(candidate));
         builder.AppendLine();
         builder.AppendLine($"Host-recorded baseline: `{baselineCommit}`");
-        builder.AppendLine($"Candidate commit: `{candidate.Commit}`");
+        if (candidate.IsVerifiedNoOp)
+        {
+            builder.AppendLine($"Evaluated unchanged snapshot: `{candidate.EvaluatedCommit}`");
+            builder.AppendLine("Candidate completion kind: `verified-no-op` (no task commit is claimed or expected).");
+        }
+        else
+        {
+            builder.AppendLine($"Candidate commit: `{candidate.Commit}`");
+        }
         builder.AppendLine("Host-recorded changed files:");
         foreach (var file in changedFiles) builder.AppendLine($"- `{file}`");
         builder.AppendLine("Host-recorded diff summary:");
         builder.AppendLine(diffSummary);
         builder.AppendLine();
-        builder.AppendLine("Inspect the actual commit, diff, production call sites, and tests. A helper or test is not production integration " +
-                           "unless the running path consumes it. Treat the worker summary as a claim, not evidence.");
+        if (candidate.IsVerifiedNoOp)
+        {
+            builder.AppendLine("The empty task diff is expected and is not proof of completion. Inspect the repository state at the evaluated " +
+                               "snapshot, every location named in `noOpEvidence`, relevant production call sites, and tests. Independently prove " +
+                               "that every current-task requirement was already satisfied at the baseline. Treat the worker's summary and " +
+                               "no-op evidence as claims, not proof. Reject the no-op claim when any task-owned implementation or verification " +
+                               "is still missing; provide the bounded work needed so the normal one-rework policy can correct it.");
+        }
+        else
+        {
+            builder.AppendLine("Inspect the actual commit, diff, production call sites, and tests. A helper or test is not production integration " +
+                               "unless the running path consumes it. Treat the worker summary as a claim, not evidence.");
+        }
         builder.AppendLine("Treat every explicit current-task requirement as binding. Do not waive missing work merely because a later task " +
                            "might address it. A worker-created deferral of work otherwise owned by the current task is legitimate only when the " +
                            "candidate handoff declares it in `deferredWork`, names one or more downstream owner task IDs, and the approved " +
@@ -175,7 +194,7 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine($"  \"planId\": \"{plan.PlanId}\",");
         builder.AppendLine($"  \"taskId\": \"{task.TaskId}\",");
         builder.AppendLine($"  \"revision\": \"{plan.Revision}\",");
-        builder.AppendLine($"  \"evaluatedCommit\": \"{candidate.Commit}\",");
+        builder.AppendLine($"  \"evaluatedCommit\": \"{candidate.VerificationTargetCommit}\",");
         builder.AppendLine("  \"verdict\": \"accepted|rework-required|human-review-required\",");
         builder.AppendLine("  \"summary\": \"...\",");
         builder.AppendLine("  \"claimFindings\": [{\"claim\":\"...\",\"disposition\":\"supported|missing|overstated|unclear\",\"evidence\":\"...\"}],");

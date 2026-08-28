@@ -38,7 +38,10 @@ internal static class PlanExecutionContextBuilder
                 builder.AppendLine($"- **{ancestor.Title ?? ancestor.TaskId}** (`{ancestor.TaskId}`)");
                 if (ancestor.Handoff is { } handoff)
                 {
-                    builder.AppendLine($"  - Commit: `{handoff.Commit}`");
+                    if (string.Equals(handoff.CompletionKind, DecomposeStepCompletionKind.VerifiedNoOp, StringComparison.Ordinal))
+                        builder.AppendLine($"  - Already satisfied at evaluated snapshot: `{handoff.EvaluatedCommit}`");
+                    else if (!string.IsNullOrWhiteSpace(handoff.Commit))
+                        builder.AppendLine($"  - Commit: `{handoff.Commit}`");
                     builder.AppendLine("  - I previously completed:");
                     foreach (var item in handoff.CompletedWork is { Count: > 0 }
                                  ? handoff.CompletedWork

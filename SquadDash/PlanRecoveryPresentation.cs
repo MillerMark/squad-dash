@@ -155,6 +155,12 @@ internal static class PlanRecoveryAssessmentCardPresentationBuilder
         var classification = assessment.Classification?.Trim().ToLowerInvariant();
         return classification switch
         {
+            PlanRecoveryClassification.Complete when string.Equals(
+                assessment.CompletionKind,
+                DecomposeStepCompletionKind.VerifiedNoOp,
+                StringComparison.Ordinal) => new(
+                $"AI found that {stepLabel} was already satisfied at the task baseline. {assessment.Summary}",
+                $"Recommendation: review the no-op evidence, then accept {stepLabel} as already satisfied if it matches your intent."),
             PlanRecoveryClassification.Complete => new(
                 $"AI found that {stepLabel} appears complete. {assessment.Summary}",
                 $"Recommendation: review the evidence, then mark {stepLabel} complete if it matches your intent."),

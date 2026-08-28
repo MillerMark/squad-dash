@@ -65,6 +65,7 @@ DECOMPOSE_STEP_RESULT_JSON:
   "revision": "revision from the group header",
   "executionAttemptId": "host-supplied attempt ID for assigned tasks",
   "status": "complete",
+  "completionKind": "changed",
   "commit": "exact abbreviated Git commit SHA from git rev-parse --short HEAD",
   "summary": "one-sentence outcome retained for compatibility and compact surfaces",
   "completedWork": [
@@ -86,6 +87,16 @@ DECOMPOSE_STEP_RESULT_JSON:
   ]
 }
 ```
+
+If inspection proves that every task requirement was already satisfied at the host-recorded starting
+snapshot and no source change is needed, do not create an empty commit. Return the same complete
+envelope with `completionKind: "verified-no-op"`, `commit: null`, `evaluatedCommit` set to the exact
+inspected HEAD, and a non-empty `noOpEvidence` array. Each evidence item must contain one exact
+`requirement`, a concrete `observation`, and one or more repository `locations`. A no-op is a factual
+completion claim: SquadDash accepts it only when HEAD still equals the task baseline, the worktree has
+no task changes, and an independent Fact Checker verifies the whole task against the existing repository
+state. If any task-owned work is missing, do not claim no-op; report it truthfully so the normal one-rework
+policy can correct it.
 
 After committing, run `git rev-parse --short HEAD` and copy that command's output into `commit`
 exactly. Do not retype the SHA from memory or from the `git commit` summary. SquadDash resolves the

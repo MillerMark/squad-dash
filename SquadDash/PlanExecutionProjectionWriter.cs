@@ -46,7 +46,10 @@ internal static class PlanExecutionProjectionWriter
             builder.AppendLine($"- Contract: {task.Description}");
             if (task.Handoff is { } handoff)
             {
-                builder.AppendLine($"- Handoff commit: `{handoff.Commit}`");
+                if (string.Equals(handoff.CompletionKind, DecomposeStepCompletionKind.VerifiedNoOp, StringComparison.Ordinal))
+                    builder.AppendLine($"- Handoff: already satisfied at `{handoff.EvaluatedCommit}`");
+                else if (!string.IsNullOrWhiteSpace(handoff.Commit))
+                    builder.AppendLine($"- Handoff commit: `{handoff.Commit}`");
                 builder.AppendLine($"- Handoff: {handoff.Summary}");
                 if (handoff.ChangedFiles.Count > 0)
                     builder.AppendLine($"- Changed files: {string.Join(", ", handoff.ChangedFiles.Select(file => $"`{file}`"))}");

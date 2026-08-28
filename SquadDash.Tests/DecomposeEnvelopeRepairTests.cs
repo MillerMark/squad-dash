@@ -237,6 +237,24 @@ public class DecomposeEnvelopeRepairTests
     }
 
     [Test]
+    public void RepairPrompt_NoNewCommit_OffersEvidenceBackedVerifiedNoOp()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.Build(
+            "g1", "t1", "r1", "The step reported completion without creating a new commit.",
+            envelopeWasPresent: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("\"completionKind\": \"verified-no-op\""));
+            Assert.That(prompt, Does.Contain("\"commit\": null"));
+            Assert.That(prompt, Does.Contain("\"evaluatedCommit\""));
+            Assert.That(prompt, Does.Contain("\"noOpEvidence\""));
+            Assert.That(prompt, Does.Contain("do not claim verified-no-op"));
+            Assert.That(prompt, Does.Contain("independent Fact Checker"));
+        });
+    }
+
+    [Test]
     public void RepairPrompt_SchemaInvalid_ExplainsCorrectionWithoutRepeatingWork()
     {
         var prompt = DecomposeEnvelopeRepairPrompt.Build(

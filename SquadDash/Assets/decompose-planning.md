@@ -501,6 +501,7 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   "revision": "revision from the persisted group header",
   "executionAttemptId": "host-supplied attempt ID when this task has an assigned roster agent",
   "status": "complete",
+  "completionKind": "changed",
   "commit": "exact abbreviated Git commit SHA from git rev-parse --short HEAD",
   "summary": "one-sentence outcome retained for compatibility and compact surfaces",
   "completedWork": [
@@ -541,8 +542,17 @@ For implementation results, run `git rev-parse --short HEAD` after committing an
 command's output into `commit` exactly. Do not retype the SHA from memory or from the `git commit`
 summary. SquadDash resolves the abbreviation and validates the full commit itself.
 
-`status` must be `complete`, `partial`, or `failed`. Complete requires a new commit and passed
-verification. Partial requires concrete `remainingWork` and never unlocks dependent tasks. SquadDash
+When every task requirement was already satisfied at the host-recorded baseline, the executor may
+return a verified no-op instead of manufacturing an empty commit. Use `status: "complete"`,
+`completionKind: "verified-no-op"`, `commit: null`, and `evaluatedCommit` set to the exact inspected
+HEAD. Include non-empty `noOpEvidence`; every item must name the requirement, the concrete observation
+that proves it, and one or more repository locations. SquadDash requires the evaluated HEAD to equal
+the baseline, requires no task worktree changes, and always sends the claim to an independent Fact
+Checker. A rejected no-op claim follows the ordinary one-rework policy so missing implementation can
+be corrected. Envelope repair does not consume that semantic rework opportunity.
+
+`status` must be `complete`, `partial`, or `failed`. Complete requires either a new task commit or an
+independently accepted verified no-op, plus passed verification. Partial requires concrete `remainingWork` and never unlocks dependent tasks. SquadDash
 validates the assignment, revision, Git commit, clean-worktree boundary, and verification evidence
 before changing any plan status. `executionAttemptId` and `agentExecutions` are required only when
 SquadDash supplies a verified roster assignment context for the current attempt. Report the supplied

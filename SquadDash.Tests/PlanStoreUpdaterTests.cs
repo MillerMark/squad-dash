@@ -616,6 +616,37 @@ internal sealed class PlanStoreUpdaterTests
         });
     }
 
+    [Test]
+    public void ApplyStepAccepted_VerifiedNoOp_PersistsEvidenceWithoutTaskCommit()
+    {
+        var group = MakeGroup(1);
+        var started = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, "rev1", [MakeItem("GROUP-001-001")], "GROUP-001-001");
+        var result = new DecomposeStepResult(
+            "GROUP-001", "GROUP-001-001", "rev1", "complete", null,
+            "The requirement was already satisfied.", [],
+            new DecomposeStepVerification("passed", "dotnet test", "Passed."),
+            CompletionKind: DecomposeStepCompletionKind.VerifiedNoOp,
+            EvaluatedCommit: "abcdef1",
+            NoOpEvidence:
+            [
+                new PlanTaskNoOpEvidence("Existing behavior", "Production wiring already exists.", ["src/App.cs"]),
+            ]);
+
+        var accepted = PlanStoreUpdater.ApplyStepAccepted(started, null, result);
+        var task = accepted.Tasks[0];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(task.Status, Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(task.Commit, Is.Null);
+            Assert.That(task.Commits, Is.Empty);
+            Assert.That(task.CompletionKind, Is.EqualTo(DecomposeStepCompletionKind.VerifiedNoOp));
+            Assert.That(task.EvaluatedCommit, Is.EqualTo("abcdef1"));
+            Assert.That(task.NoOpEvidence, Has.Count.EqualTo(1));
+        });
+    }
+
     // ── ApplyBlocked ──────────────────────────────────────────────────────────
 
     [Test]

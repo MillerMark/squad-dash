@@ -204,9 +204,14 @@ internal sealed class DecomposedTasksWriter
     internal bool MarkTaskComplete(
         string tasksFilePath,
         string taskId,
-        string commit,
-        string summary) =>
-        SetTaskStatus(tasksFilePath, taskId, 'x', $"Completed by SquadDash — commit {commit}: {summary}");
+        string? commit,
+        string summary)
+    {
+        var provenance = string.IsNullOrWhiteSpace(commit)
+            ? "already satisfied"
+            : $"commit {commit}";
+        return SetTaskStatus(tasksFilePath, taskId, 'x', $"Completed by SquadDash — {provenance}: {summary}");
+    }
 
     internal bool MarkTaskPartial(
         string tasksFilePath,

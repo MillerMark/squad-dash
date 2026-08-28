@@ -50,6 +50,8 @@ internal static class PlanCompletionSummaryBuilder
             builder.AppendLine($"### {task.Title ?? task.TaskId}");
             builder.AppendLine($"- Status: **{task.Status}**");
             if (!string.IsNullOrWhiteSpace(task.Commit)) builder.AppendLine($"- Commit: `{task.Commit}`");
+            if (string.Equals(task.CompletionKind, DecomposeStepCompletionKind.VerifiedNoOp, StringComparison.Ordinal))
+                builder.AppendLine($"- Completion: **Already satisfied** at `{task.EvaluatedCommit}` (independently verified)");
             if (task.CompletedAt is { } completedAt) AddTime(builder, "Completed", completedAt);
             if (task.Handoff is { } handoff)
             {

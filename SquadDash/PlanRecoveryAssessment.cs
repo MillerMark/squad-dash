@@ -54,7 +54,21 @@ internal sealed record PlanRecoveryAssessmentResponse(
     [property: JsonPropertyName("commits")] IReadOnlyList<PlanRecoveryCommitAssessment> Commits,
     [property: JsonPropertyName("supportingCommits")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    IReadOnlyList<PlanRecoverySupportingCommitAssessment>? SupportingCommits = null);
+    IReadOnlyList<PlanRecoverySupportingCommitAssessment>? SupportingCommits = null,
+    [property: JsonPropertyName("completionKind")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? CompletionKind = null,
+    [property: JsonPropertyName("evaluatedCommit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? EvaluatedCommit = null,
+    [property: JsonPropertyName("noOpEvidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null)
+{
+    [JsonIgnore]
+    internal bool IsVerifiedNoOp =>
+        string.Equals(CompletionKind, DecomposeStepCompletionKind.VerifiedNoOp, StringComparison.Ordinal);
+}
 
 internal static class PlanRecoveryAssessmentParser
 {
@@ -78,6 +92,10 @@ internal static class PlanRecoveryAssessmentParser
         response = response with
         {
             Classification = response.Classification?.Trim().ToLowerInvariant() ?? string.Empty,
+            CompletionKind = string.IsNullOrWhiteSpace(response.CompletionKind)
+                ? null
+                : response.CompletionKind.Trim().ToLowerInvariant(),
+            EvaluatedCommit = response.EvaluatedCommit?.Trim(),
             RemainingWork = (response.RemainingWork ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item))
                 .Select(item => item.Trim())
@@ -102,7 +120,22 @@ internal static class PlanRecoveryAssessmentParser
                     Relation = commit.Relation?.Trim().ToLowerInvariant() ?? string.Empty,
                 })
                 .ToArray(),
+            NoOpEvidence = (response.NoOpEvidence ?? [])
+                .Where(item => item is not null)
+                .Select(item => item with
+                {
+                    Requirement = item.Requirement?.Trim() ?? string.Empty,
+                    Observation = item.Observation?.Trim() ?? string.Empty,
+                    Locations = (item.Locations ?? [])
+                        .Where(location => !string.IsNullOrWhiteSpace(location))
+                        .Select(location => location.Trim())
+                        .ToArray(),
+                })
+                .ToArray(),
         };
+        if (response.Classification == PlanRecoveryClassification.Complete &&
+            string.IsNullOrWhiteSpace(response.CompletionKind))
+            response = response with { CompletionKind = DecomposeStepCompletionKind.Changed };
         if (response is null)
         {
             error = "The recovery assessment payload was empty.";
@@ -136,6 +169,30 @@ internal static class PlanRecoveryAssessmentParser
             !string.Equals(response.Verification?.Status, "passed", StringComparison.OrdinalIgnoreCase))
             validationErrors.Add("A complete recovery assessment requires passed verification evidence.");
 
+        if (response.Classification == PlanRecoveryClassification.Complete &&
+            response.CompletionKind is not (DecomposeStepCompletionKind.Changed or DecomposeStepCompletionKind.VerifiedNoOp))
+            validationErrors.Add("A complete recovery assessment must use completionKind changed or verified-no-op.");
+
+        if (response.Classification != PlanRecoveryClassification.Complete &&
+            !string.IsNullOrWhiteSpace(response.CompletionKind))
+            validationErrors.Add("completionKind is only valid for a complete recovery assessment.");
+
+        if (response.IsVerifiedNoOp && string.IsNullOrWhiteSpace(response.EvaluatedCommit))
+            validationErrors.Add("A verified-no-op recovery assessment requires evaluatedCommit.");
+
+        if (response.IsVerifiedNoOp && response.NoOpEvidence is not { Count: > 0 })
+            validationErrors.Add("A verified-no-op recovery assessment requires requirement-scoped noOpEvidence.");
+
+        if (response.IsVerifiedNoOp && response.NoOpEvidence!.Any(item =>
+                string.IsNullOrWhiteSpace(item.Requirement) ||
+                string.IsNullOrWhiteSpace(item.Observation) ||
+                item.Locations is not { Count: > 0 }))
+            validationErrors.Add("Each verified-no-op recovery evidence item requires requirement, observation, and at least one repository location.");
+
+        if (!response.IsVerifiedNoOp &&
+            (!string.IsNullOrWhiteSpace(response.EvaluatedCommit) || response.NoOpEvidence is { Count: > 0 }))
+            validationErrors.Add("evaluatedCommit and noOpEvidence are only valid for a verified-no-op recovery assessment.");
+
         if (response.Classification == PlanRecoveryClassification.Partial &&
             response.RemainingWork is not { Count: > 0 })
             validationErrors.Add("A partial recovery assessment must describe the remaining work.");
@@ -167,7 +224,10 @@ internal static class PlanVerificationRecoveryPolicy
         return task is not null &&
                task.Status is PlanTaskStatus.VerificationPending or PlanTaskStatus.Verifying &&
                task.Handoff is { } handoff &&
-               IsSafeGitCommitIdentifier(handoff.Commit) &&
+               IsSafeGitCommitIdentifier(
+                   string.Equals(handoff.CompletionKind, DecomposeStepCompletionKind.VerifiedNoOp, StringComparison.Ordinal)
+                       ? handoff.EvaluatedCommit
+                       : handoff.Commit) &&
                string.Equals(handoff.Verification?.Status, "passed", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -194,6 +254,10 @@ internal static class PlanVerificationRecoveryPolicy
         var task = plan.Tasks.Single(item =>
             string.Equals(item.TaskId, taskId, StringComparison.Ordinal));
         var handoff = task.Handoff!;
+        var isVerifiedNoOp = string.Equals(
+            handoff.CompletionKind,
+            DecomposeStepCompletionKind.VerifiedNoOp,
+            StringComparison.Ordinal);
         var proofEvidence = (task.ProofEvidence ?? [])
             .Select(item => new DecomposeStepProofEvidence(
                 item.RequirementId,
@@ -206,12 +270,18 @@ internal static class PlanVerificationRecoveryPolicy
             taskId,
             plan.Revision,
             "complete",
-            resolvedCommit,
+            isVerifiedNoOp ? null : resolvedCommit,
             handoff.Summary,
             [],
             handoff.Verification,
             ProofEvidence: proofEvidence,
-            DeferredWork: handoff.DeferredWork);
+            DeferredWork: handoff.DeferredWork,
+            CompletedWork: handoff.CompletedWork,
+            CompletionKind: isVerifiedNoOp
+                ? DecomposeStepCompletionKind.VerifiedNoOp
+                : DecomposeStepCompletionKind.Changed,
+            EvaluatedCommit: isVerifiedNoOp ? resolvedCommit : null,
+            NoOpEvidence: isVerifiedNoOp ? handoff.NoOpEvidence : null);
         return true;
     }
 
@@ -229,8 +299,15 @@ internal static class PlanVerificationRecoveryPolicy
         if (!CanResume(plan, taskId))
             return false;
 
-        candidateCommit = plan.Tasks.Single(task =>
-            string.Equals(task.TaskId, taskId, StringComparison.Ordinal)).Handoff!.Commit;
+        var handoff = plan.Tasks.Single(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal)).Handoff!;
+        if (string.Equals(
+                handoff.CompletionKind,
+                DecomposeStepCompletionKind.VerifiedNoOp,
+                StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(handoff.Commit))
+            return false;
+        candidateCommit = handoff.Commit;
         return true;
     }
 
@@ -264,6 +341,9 @@ internal static class PlanRecoveryAssessmentFallbackPolicy
             Summary = "Implementation evidence was found, but independent verification was not passed. " +
                       response.Summary.Trim(),
             RemainingWork = [],
+            CompletionKind = null,
+            EvaluatedCommit = null,
+            NoOpEvidence = null,
         };
         return true;
     }
@@ -362,7 +442,8 @@ internal static class PlanRecoveryAssessmentValidator
                 assessment.Relation is PlanRecoveryCommitRelation.Task or PlanRecoveryCommitRelation.Mixed)
             .Select(reference => reference.Commit)
             .ToArray();
-        if (response.Classification == PlanRecoveryClassification.Complete && attributed.Length == 0)
+        if (response.Classification == PlanRecoveryClassification.Complete &&
+            !response.IsVerifiedNoOp && attributed.Length == 0)
         {
             validationErrors.Add(
                 "AI classified the task as complete without identifying any commit that contains its current work.");

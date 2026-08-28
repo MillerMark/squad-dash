@@ -76,6 +76,72 @@ internal sealed class DecomposeStepResultParserTests
     }
 
     [Test]
+    public void VerifiedNoOp_WithSnapshotAndRequirementEvidence_Parses()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId":"PLAN-20260725",
+              "taskId":"PLAN-20260725-001",
+              "revision":"abc123",
+              "status":"complete",
+              "completionKind":"verified-no-op",
+              "commit":null,
+              "evaluatedCommit":"abcdef1",
+              "summary":"The requested behavior already exists.",
+              "remainingWork":[],
+              "noOpEvidence":[{
+                "requirement":"Pass max reasoning through model profiles",
+                "observation":"The profile stores an unconstrained string and the request pipeline forwards it unchanged.",
+                "locations":["SquadDash/ModelProfile.cs:ReasoningEffort","SquadDash/SquadSdkProcess.cs:NormalizeReasoningEffort"]
+              }],
+              "verification":{"status":"passed","command":"dotnet test","summary":"Existing behavior and tests passed."}
+            }
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out var result, out var error), Is.True, error);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result!.IsVerifiedNoOp, Is.True);
+            Assert.That(result.Commit, Is.Null);
+            Assert.That(result.VerificationTargetCommit, Is.EqualTo("abcdef1"));
+            Assert.That(result.NoOpEvidence, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void VerifiedNoOp_WithoutRequirementEvidence_IsRejected()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {"groupId":"PLAN-20260725","taskId":"PLAN-20260725-001","revision":"abc123",
+             "status":"complete","completionKind":"verified-no-op","commit":null,
+             "evaluatedCommit":"abcdef1","summary":"Already done","remainingWork":[],
+             "noOpEvidence":[],
+             "verification":{"status":"passed","command":"dotnet test","summary":"Passed"}}
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("requirement-scoped noOpEvidence"));
+    }
+
+    [Test]
+    public void VerifiedNoOp_WithTaskCommit_IsRejected()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {"groupId":"PLAN-20260725","taskId":"PLAN-20260725-001","revision":"abc123",
+             "status":"complete","completionKind":"verified-no-op","commit":"abcdef1",
+             "evaluatedCommit":"abcdef1","summary":"Already done","remainingWork":[],
+             "noOpEvidence":[{"requirement":"R","observation":"O","locations":["src/A.cs"]}],
+             "verification":{"status":"passed","command":"dotnet test","summary":"Passed"}}
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("commit to null"));
+    }
+
+    [Test]
     public void CompleteResult_WithoutPassedVerification_IsRejected()
     {
         var text = """

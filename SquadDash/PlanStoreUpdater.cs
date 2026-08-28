@@ -150,14 +150,17 @@ internal static class PlanStoreUpdater
                     {
                         Status = PlanTaskStatus.VerificationPending,
                         Handoff = new PlanTaskHandoff(
-                            candidate.Commit ?? string.Empty,
+                            candidate.Commit,
                             candidate.Summary,
                             changedFiles,
                             candidate.Verification,
                             now,
                             candidate.DeferredWork,
                             candidate.CompletedWork,
-                            baselineCommit),
+                            baselineCommit,
+                            candidate.CompletionKind,
+                            candidate.EvaluatedCommit,
+                            candidate.NoOpEvidence),
                     }
                     : task).ToArray(),
             Progress = existing.Progress with { ExecutingTaskId = taskId },
@@ -273,12 +276,17 @@ internal static class PlanStoreUpdater
             return task with
             {
                 Status = status,
-                Commit = string.IsNullOrWhiteSpace(acceptedResult.Commit) ? task.Commit : acceptedResult.Commit,
-                Commits = acceptedResult.Commits ?? task.Commits,
+                Commit = acceptedResult.IsVerifiedNoOp
+                    ? null
+                    : string.IsNullOrWhiteSpace(acceptedResult.Commit) ? task.Commit : acceptedResult.Commit,
+                Commits = acceptedResult.IsVerifiedNoOp ? [] : acceptedResult.Commits ?? task.Commits,
                 ExecutionAnomalies = MergeExecutionAnomalies(task.ExecutionAnomalies, acceptedResult.ExecutionAnomalies),
                 CompletedAt = acceptedResult.Status == "complete" ? task.CompletedAt ?? now : task.CompletedAt,
                 CompletionSummary = acceptedResult.Summary,
                 CompletionSummaryItems = acceptedResult.CompletedWork,
+                CompletionKind = acceptedResult.Status == "complete" ? acceptedResult.CompletionKind : null,
+                EvaluatedCommit = acceptedResult.IsVerifiedNoOp ? acceptedResult.EvaluatedCommit : null,
+                NoOpEvidence = acceptedResult.IsVerifiedNoOp ? acceptedResult.NoOpEvidence : null,
                 ProofEvidence = acceptedResult.ProofEvidence?.Select(evidence => new PlanTaskProofEvidence(
                     evidence.RequirementId,
                     evidence.ProofType,
@@ -509,6 +517,9 @@ internal static class PlanStoreUpdater
             CompletedAt = null,
             CompletionSummary = null,
             CompletionSummaryItems = null,
+            CompletionKind = null,
+            EvaluatedCommit = null,
+            NoOpEvidence = null,
             ProvenanceChain = updatedChain,
         };
 
@@ -941,6 +952,9 @@ internal static class PlanStoreUpdater
                 CompletedAt = null,
                 CompletionSummary = null,
                 CompletionSummaryItems = null,
+                CompletionKind = null,
+                EvaluatedCommit = null,
+                NoOpEvidence = null,
                 AttemptHistory = (task.AttemptHistory ?? []).Append(priorAttempt).ToArray(),
             };
         }).ToArray();
@@ -1212,6 +1226,9 @@ internal static class PlanStoreUpdater
             CompletionSummary = task.CompletionSummary ?? task.Handoff?.Summary ??
                 "Implementation completed before its human-review gate moved to an amendment.",
             CompletionSummaryItems = task.CompletionSummaryItems ?? task.Handoff?.CompletedWork,
+            CompletionKind = task.CompletionKind ?? task.Handoff?.CompletionKind,
+            EvaluatedCommit = task.EvaluatedCommit ?? task.Handoff?.EvaluatedCommit,
+            NoOpEvidence = task.NoOpEvidence ?? task.Handoff?.NoOpEvidence,
         };
 
     /// <summary>
@@ -2005,6 +2022,9 @@ internal static class PlanStoreUpdater
                 CompletedAt = null,
                 CompletionSummary = null,
                 CompletionSummaryItems = null,
+                CompletionKind = null,
+                EvaluatedCommit = null,
+                NoOpEvidence = null,
             }
             : task).ToArray();
         var targetIndex = Array.FindIndex(tasks, task =>
@@ -2286,14 +2306,19 @@ internal static class PlanStoreUpdater
 
             return task with
             {
-                Commit = string.IsNullOrWhiteSpace(result.Commit) ? task.Commit : result.Commit,
-                Commits = result.Commits ?? task.Commits,
+                Commit = result.IsVerifiedNoOp
+                    ? null
+                    : string.IsNullOrWhiteSpace(result.Commit) ? task.Commit : result.Commit,
+                Commits = result.IsVerifiedNoOp ? [] : result.Commits ?? task.Commits,
                 ExecutionAnomalies = MergeExecutionAnomalies(task.ExecutionAnomalies, result.ExecutionAnomalies),
                 CompletedAt = result.Status == "complete"
                     ? task.CompletedAt ?? completedAt
                     : task.CompletedAt,
                 CompletionSummary = result.Summary,
                 CompletionSummaryItems = result.CompletedWork,
+                CompletionKind = result.Status == "complete" ? result.CompletionKind : null,
+                EvaluatedCommit = result.IsVerifiedNoOp ? result.EvaluatedCommit : null,
+                NoOpEvidence = result.IsVerifiedNoOp ? result.NoOpEvidence : null,
                 ProofEvidence = result.ProofEvidence?.Select(evidence => new PlanTaskProofEvidence(
                     evidence.RequirementId,
                     evidence.ProofType,

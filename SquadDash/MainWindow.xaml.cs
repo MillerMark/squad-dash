@@ -13048,7 +13048,7 @@ public partial class MainWindow : Window
             {
                 var diffSummary = await RunGitAsync(
                     _currentWorkspace.FolderPath,
-                    $"diff --stat \"{pending.BaselineCommit}\"..\"{candidate.Commit}\"");
+                    $"diff --stat \"{pending.BaselineCommit}\"..\"{candidate.VerificationTargetCommit}\"");
                 verificationPrompt = PlanTaskVerificationPromptBuilder.Build(
                     plan,
                     task,
@@ -13679,8 +13679,8 @@ public partial class MainWindow : Window
                     DateTimeOffset.UtcNow);
                 var branchEnforcement = await EnforcePlanBranchLeaseAsync(
                     branchLease,
-                    result?.Commit,
-                    mutationAllowed: !verificationOnly,
+                    result?.VerificationTargetCommit,
+                    mutationAllowed: !verificationOnly && result?.IsVerifiedNoOp != true,
                     transcriptCommit: _capturedDecomposeTranscriptCommit);
                 if (!branchEnforcement.CanContinue)
                 {
@@ -13696,7 +13696,29 @@ public partial class MainWindow : Window
         }
 
         PlanTaskCommitEvidence? taskCommitEvidence = null;
+        if (result?.IsVerifiedNoOp == true &&
+            string.Equals(result.GroupId, groupId, StringComparison.Ordinal) &&
+            string.Equals(result.TaskId, taskId, StringComparison.Ordinal) &&
+            string.Equals(result.Revision, revision, StringComparison.Ordinal) &&
+            (executionAttempt is null ||
+             string.Equals(result.ExecutionAttemptId, executionAttempt.AttemptId, StringComparison.Ordinal)))
+        {
+            var noOpValidation = await ValidateDecomposeStepNoOpAsync(
+                result,
+                activeExecution.TaskBaselineCommit ?? _decomposeIterationBaselineCommit);
+            if (noOpValidation.Error is null &&
+                !string.IsNullOrWhiteSpace(noOpValidation.EffectiveCommit))
+            {
+                result = result with { EvaluatedCommit = noOpValidation.EffectiveCommit };
+            }
+            else
+            {
+                error = DecomposeStepResultContractDiagnostics.Combine([error, noOpValidation.Error]);
+            }
+        }
+
         if (result is not null &&
+            !result.IsVerifiedNoOp &&
             !string.IsNullOrWhiteSpace(result.Commit) &&
             string.Equals(result.GroupId, groupId, StringComparison.Ordinal) &&
             string.Equals(result.TaskId, taskId, StringComparison.Ordinal) &&
@@ -13993,12 +14015,13 @@ public partial class MainWindow : Window
 
             var changedOutput = await RunGitAsync(
                 _currentWorkspace.FolderPath,
-                $"diff --name-only \"{baseline}\"..\"{result.Commit}\"");
+                $"diff --name-only \"{baseline}\"..\"{result.VerificationTargetCommit}\"");
             var changedFiles = changedOutput
                 .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
-            if (!PlanTaskExecutionPolicy.RequiresIndependentVerification(persistedTask, changedFiles))
+            if (!result.IsVerifiedNoOp &&
+                !PlanTaskExecutionPolicy.RequiresIndependentVerification(persistedTask, changedFiles))
             {
                 AppendPlanExecutionJournal(
                     groupId,
@@ -14053,7 +14076,7 @@ public partial class MainWindow : Window
                 {
                     StopAndOfferDecomposeRecovery(
                         groupId, taskId, revision,
-                        "The candidate work was committed, but SquadDash could not persist its verification state: " +
+                        "The candidate result was ready, but SquadDash could not persist its verification state: " +
                         verificationProgressError,
                         taskCommitEvidence);
                     return;
@@ -14104,7 +14127,7 @@ public partial class MainWindow : Window
                 groupId,
                 taskId,
                 revision,
-                "SquadDash accepted the task commit but could not durably record plan progress: " +
+                "SquadDash accepted the task result but could not durably record plan progress: " +
                 (persistenceError ?? "unknown persistence failure"),
                 taskCommitEvidence);
             return;
@@ -14187,9 +14210,9 @@ public partial class MainWindow : Window
              !string.Equals(verification.Revision, pending.Revision, StringComparison.Ordinal) ||
              !RecoveryCommitValidator.CommitIdentifiersMatch(
                  verification.EvaluatedCommit,
-                 candidate.Commit)))
+                 candidate.VerificationTargetCommit)))
         {
-            verificationError = "The verification response did not match the active plan, task, revision, and candidate commit.";
+            verificationError = "The verification response did not match the active plan, task, revision, and evaluated snapshot.";
             verification = null;
         }
 
@@ -14219,7 +14242,7 @@ public partial class MainWindow : Window
                 groupId,
                 taskId,
                 pending.Revision,
-                candidate.Commit ?? string.Empty,
+                candidate.VerificationTargetCommit ?? string.Empty,
                 PlanTaskVerificationVerdict.HumanReviewRequired,
                 "Independent verification could not produce a trustworthy structured verdict after one envelope repair.",
                 [],
@@ -14325,13 +14348,15 @@ public partial class MainWindow : Window
               "Test adequacy could not be independently classified."
             : $"Independent verification requires human review: {verification.Summary} " +
               $"Missing or overstated work: {discrepancies} Test assessment: {verification.TestAssessment}";
-        var commitEvidence = new PlanTaskCommitEvidence(
-            taskId,
-            candidate.ExecutionAttemptId,
-            pending.BaselineCommit,
-            candidate.Commit ?? string.Empty,
-            candidate.Summary,
-            candidate.Verification);
+        var commitEvidence = candidate.IsVerifiedNoOp
+            ? null
+            : new PlanTaskCommitEvidence(
+                taskId,
+                candidate.ExecutionAttemptId,
+                pending.BaselineCommit,
+                candidate.Commit ?? string.Empty,
+                candidate.Summary,
+                candidate.Verification);
         StopAndOfferDecomposeRecovery(
             groupId,
             taskId,
@@ -14371,7 +14396,7 @@ public partial class MainWindow : Window
         {
             StopAndOfferDecomposeRecovery(
                 groupId, taskId, revision,
-                "SquadDash accepted the verified commit but could not durably record plan progress: " +
+                "SquadDash accepted the verified result but could not durably record plan progress: " +
                 (persistenceError ?? "unknown persistence failure"));
             return;
         }
@@ -14826,6 +14851,44 @@ public partial class MainWindow : Window
             });
         if (activeExecution.DecomposeGroupId is { Length: > 0 } planId)
             PromotePendingPlanRevisionAtBoundary(planId);
+    }
+
+    private async Task<(string? Error, string? EffectiveCommit)> ValidateDecomposeStepNoOpAsync(
+        DecomposeStepResult result,
+        string? baselineCommit)
+    {
+        if (_currentWorkspace is null) return ("No workspace is active.", null);
+        if (!result.IsVerifiedNoOp)
+            return ("The result is not a verified-no-op candidate.", null);
+        if (string.IsNullOrWhiteSpace(baselineCommit))
+            return ("SquadDash cannot verify a no-op result because the task baseline commit is missing.", null);
+        if (string.IsNullOrWhiteSpace(result.EvaluatedCommit) ||
+            !Regex.IsMatch(result.EvaluatedCommit, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
+            return ("The verified-no-op evaluatedCommit was missing or malformed.", null);
+
+        try
+        {
+            var workspace = _currentWorkspace.FolderPath;
+            var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+            var baseline = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{baselineCommit}^{{commit}}\"")).Trim();
+            var evaluated = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{result.EvaluatedCommit}^{{commit}}\"")).Trim();
+
+            if (!string.Equals(head, baseline, StringComparison.OrdinalIgnoreCase))
+                return ($"A verified-no-op result requires an unchanged branch, but HEAD {head} differs from the task baseline {baseline}.", null);
+            if (!string.Equals(evaluated, baseline, StringComparison.OrdinalIgnoreCase))
+                return ($"The verified-no-op result evaluated {evaluated}, but the host-recorded task baseline is {baseline}.", null);
+
+            await EnsurePlanWorktreeReadyAsync(workspace);
+            return (null, baseline);
+        }
+        catch (Exception ex)
+        {
+            return ($"Verified-no-op Git validation failed: {ex.Message}", null);
+        }
     }
 
 
@@ -18479,6 +18542,22 @@ public partial class MainWindow : Window
                 blocks.Add(verificationParagraph);
             }
 
+            if (assessmentEvidence.NoOpEvidence is { Count: > 0 })
+            {
+                var evidenceHeader = CreateTranscriptParagraph(bottomMargin: 2);
+                evidenceHeader.Inlines.Add(new Run("Already-satisfied evidence:") { FontWeight = FontWeights.SemiBold });
+                blocks.Add(evidenceHeader);
+                foreach (var evidenceItem in assessmentEvidence.NoOpEvidence)
+                {
+                    var evidenceParagraph = CreateTranscriptParagraph(bottomMargin: 2);
+                    evidenceParagraph.Margin = new Thickness(12, 0, 0, 2);
+                    MarkdownFlowDocumentBuilder.AddInboxInlineText(
+                        evidenceParagraph.Inlines,
+                        $"• {evidenceItem.Requirement}: {evidenceItem.Observation} ({string.Join(", ", evidenceItem.Locations)})");
+                    blocks.Add(evidenceParagraph);
+                }
+            }
+
             if (assessmentEvidence.RemainingWork is { Count: > 0 })
             {
                 var remainingHeader = CreateTranscriptParagraph(bottomMargin: 2);
@@ -18502,10 +18581,16 @@ public partial class MainWindow : Window
             blocks.Add(assessmentRecommendation);
 
             AddAssessmentAction(assessmentEvidence);
-            AddNavigationLink(
-                $"Review repository changes for {assessmentStepLabel}",
-                "Open the multi-commit differences viewer. Reviewing does not change plan state.",
-                () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
+            if (!string.Equals(
+                    assessmentEvidence.CompletionKind,
+                    DecomposeStepCompletionKind.VerifiedNoOp,
+                    StringComparison.Ordinal))
+            {
+                AddNavigationLink(
+                    $"Review repository changes for {assessmentStepLabel}",
+                    "Open the multi-commit differences viewer. Reviewing does not change plan state.",
+                    () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
+            }
 
             AddAsyncResultAction(
                 $"Accept {assessmentStepLabel} as Complete",
@@ -19185,9 +19270,25 @@ public partial class MainWindow : Window
             ?? throw new InvalidOperationException(
                 $"Task {taskId} no longer has the candidate handoff required for verification.");
         var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, durable, taskId);
+        var handoffTarget = string.Equals(
+            handoff.CompletionKind,
+            DecomposeStepCompletionKind.VerifiedNoOp,
+            StringComparison.Ordinal)
+            ? handoff.EvaluatedCommit
+            : handoff.Commit;
+        if (string.IsNullOrWhiteSpace(handoffTarget))
+            throw new InvalidOperationException($"Task {taskId} has no saved evaluated snapshot for verification.");
         var candidateCommit = (await RunGitAsync(
-            workspace, $"rev-parse --verify \"{handoff.Commit}^{{commit}}\"")).Trim();
+            workspace, $"rev-parse --verify \"{handoffTarget}^{{commit}}\"")).Trim();
         var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+        if (string.Equals(
+                handoff.CompletionKind,
+                DecomposeStepCompletionKind.VerifiedNoOp,
+                StringComparison.Ordinal) &&
+            (!string.Equals(candidateCommit, baseline, StringComparison.OrdinalIgnoreCase) ||
+             !string.Equals(head, baseline, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException(
+                "The saved verified-no-op candidate no longer matches the unchanged task baseline.");
         await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{candidateCommit}\"");
         await RunGitAsync(workspace, $"merge-base --is-ancestor \"{candidateCommit}\" \"{head}\"");
         if (!PlanVerificationRecoveryPolicy.TryCreateCandidate(
@@ -19426,8 +19527,13 @@ public partial class MainWindow : Window
             {
               "recoveryAssessmentId": "{{assessmentId}}",
               "classification": "complete|partial|not_started|inconclusive",
+              "completionKind": "changed|verified-no-op (complete only)",
+              "evaluatedCommit": "exact assessed HEAD (verified-no-op only)",
               "summary": "brief evidence-based explanation",
               "remainingWork": ["required only for partial"],
+              "noOpEvidence": [
+                { "requirement": "exact task requirement", "observation": "existing behavior that satisfies it", "locations": ["repository/path:member-or-line"] }
+              ],
               "verification": { "status": "passed|failed|not_run", "command": "...", "summary": "..." },
               "commits": [
                 { "commitId": "c001", "relation": "task|mixed|unrelated|unknown|superseded", "reason": "required unless unrelated" }
@@ -19437,7 +19543,12 @@ public partial class MainWindow : Window
               ]
             }
 
-            Complete requires passed verification and at least one task or mixed commit. Use inconclusive whenever the
+            A changed completion requires passed verification and at least one task or mixed commit. If the baseline-to-HEAD
+            range is empty because every task requirement was already satisfied before this task began, use
+            `classification: "complete"`, `completionKind: "verified-no-op"`, set `evaluatedCommit` to the exact assessed
+            HEAD, and provide non-empty requirement-scoped `noOpEvidence`. Do not manufacture an empty commit or use no-op
+            to excuse missing work. SquadDash will independently validate the unchanged snapshot before any acceptance.
+            Use inconclusive whenever the
             evidence cannot safely distinguish task work from unrelated work. Not_started requires no task or mixed
             commits against the current revision; use superseded for replaced older-spec work. Do not include recovery choices or execute
             a recovery action; SquadDash owns that decision.
@@ -19623,7 +19734,10 @@ public partial class MainWindow : Window
             an older implementation was replaced by the current plan revision. Output strict JSON with double-quoted
             property names and no prose after the object. Do not return planId, taskId, revision, baselineCommit,
             assessedHead, or a SHA for any captured commit. Omit reason for unrelated commits; include it for every
-            other relation. Complete requires verification.status passed. If the available evidence does not support
+            other relation. Complete requires verification.status passed. A complete result with no task or mixed commit
+            is valid only as `completionKind: "verified-no-op"`; it must preserve the exact assessed HEAD in
+            `evaluatedCommit` and include non-empty requirement-scoped `noOpEvidence` from the completed inspection.
+            If the available evidence does not support
             passed verification, use inconclusive instead of complete and preserve the implementation findings in summary.
             {{expectedCommitInstructions}}
 
@@ -19728,6 +19842,35 @@ public partial class MainWindow : Window
                 "The captured commit-ID mapping no longer matches the repository range. Reopen the current recovery card to choose how to continue.");
             return;
         }
+        if (response.IsVerifiedNoOp)
+        {
+            if (!RecoveryCommitValidator.CommitIdentifiersMatch(
+                    response.EvaluatedCommit,
+                    context.AssessedHead) ||
+                !string.Equals(
+                    context.BaselineCommit,
+                    context.AssessedHead,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                RepairOrStopInvalidPlanRecoveryAssessment(
+                    context,
+                    response,
+                    "A verified-no-op assessment must evaluate the unchanged host-recorded task baseline.",
+                    context.CommitReferences);
+                return;
+            }
+
+            var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
+            var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
+            DecomposeWorktreePolicy.HasOnlyAllowedChanges(currentStatus, allowed, out var nonHostPaths);
+            if (nonHostPaths.Count > 0)
+            {
+                KeepPlanStoppedAfterAssessment(
+                    context,
+                    "The no-op assessment cannot be accepted because the task has uncommitted repository changes.");
+                return;
+            }
+        }
         if (!PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
                 response, context.CommitReferences, out var attributed, out var coverageError))
         {
@@ -19802,7 +19945,11 @@ public partial class MainWindow : Window
                         return;
                     }
 
-                    await AcceptAssessedPlanRecoveryAsync(durable, context, response, attributed[^1]);
+                    await AcceptAssessedPlanRecoveryAsync(
+                        durable,
+                        context,
+                        response,
+                        response.IsVerifiedNoOp ? context.AssessedHead : attributed[^1]);
                     return;
                 }
                 case PlanRecoveryClassification.Partial:
@@ -19836,7 +19983,10 @@ public partial class MainWindow : Window
             response.Verification,
             response.RemainingWork,
             context.AssessedHead,
-            context.RepositoryFingerprint);
+            context.RepositoryFingerprint,
+            response.CompletionKind,
+            response.EvaluatedCommit,
+            response.NoOpEvidence);
         var interruption = durable.InterruptionData ?? new PlanInterruptionData(
             "Plan execution stopped before the task result was recorded.",
             "pending-recovery",
@@ -19894,10 +20044,15 @@ public partial class MainWindow : Window
                 context.TaskId,
                 durable.Revision,
                 "complete",
-                shortCommit,
+                response.IsVerifiedNoOp ? null : shortCommit,
                 summary,
                 [],
-                response.Verification);
+                response.Verification,
+                CompletionKind: response.IsVerifiedNoOp
+                    ? DecomposeStepCompletionKind.VerifiedNoOp
+                    : DecomposeStepCompletionKind.Changed,
+                EvaluatedCommit: response.IsVerifiedNoOp ? terminalCommit : null,
+                NoOpEvidence: response.IsVerifiedNoOp ? response.NoOpEvidence : null);
             var nextTaskId = durable.Tasks.FirstOrDefault(task =>
                 !string.Equals(task.TaskId, context.TaskId, StringComparison.Ordinal) &&
                 task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
@@ -19968,7 +20123,9 @@ public partial class MainWindow : Window
             _ => " Continuing with the next plan task.",
         };
         ResolveRecoveryTranscript(
-            $"✓ Recovery completed. Reused committed work from {shortCommit}.{boundaryMessage}");
+            response.IsVerifiedNoOp
+                ? $"✓ Recovery completed. Confirmed the step was already satisfied at {shortCommit}.{boundaryMessage}"
+                : $"✓ Recovery completed. Reused committed work from {shortCommit}.{boundaryMessage}");
     }
 
     private void KeepPlanStoppedAfterAssessment(
@@ -20369,6 +20526,62 @@ public partial class MainWindow : Window
             return false;
         }
 
+        var recoveryAssessment = storedPlan.InterruptionData?.RecoveryAssessment;
+        if (recoveryAssessment is { } noOpAssessment && string.Equals(
+                noOpAssessment.CompletionKind,
+                DecomposeStepCompletionKind.VerifiedNoOp,
+                StringComparison.Ordinal))
+        {
+            var currentSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
+            var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, storedPlan, taskId);
+            if (!PlanRecoveryAssessmentSnapshotPolicy.IsCurrent(noOpAssessment, currentSnapshot) ||
+                !string.Equals(baseline, currentSnapshot.HeadCommit, StringComparison.OrdinalIgnoreCase) ||
+                noOpAssessment.NoOpEvidence is not { Count: > 0 } ||
+                !string.Equals(
+                    noOpAssessment.Verification?.Status,
+                    "passed",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(this,
+                    "The already-satisfied assessment no longer matches the unchanged task baseline. Reassess before accepting it.",
+                    "Assessment Changed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
+            await EnsurePlanWorktreeReadyAsync(workspace, storedPlan.PlanId);
+            var status = NormalizeGitSnapshot(await RunGitAsync(
+                workspace, "status --porcelain --untracked-files=all"));
+            var response = new PlanRecoveryAssessmentResponse(
+                Guid.NewGuid().ToString("N"),
+                PlanRecoveryClassification.Complete,
+                noOpAssessment.Summary,
+                [],
+                noOpAssessment.Verification,
+                [],
+                CompletionKind: DecomposeStepCompletionKind.VerifiedNoOp,
+                EvaluatedCommit: currentSnapshot.HeadCommit,
+                NoOpEvidence: noOpAssessment.NoOpEvidence);
+            var context = new PendingPlanRecoveryAssessment(
+                PendingDecomposePlanAdapter.FromPlan(storedPlan),
+                taskId,
+                response.RecoveryAssessmentId,
+                baseline,
+                currentSnapshot.HeadCommit,
+                status,
+                currentSnapshot.Fingerprint,
+                [],
+                AdvisoryOnly: false);
+            PrepareForHostRecoveryAction();
+            await AcceptAssessedPlanRecoveryAsync(
+                storedPlan,
+                context,
+                response,
+                currentSnapshot.HeadCommit);
+            return _planStore.Load(storedPlan.PlanId)?.Tasks.Any(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
+                task.Status == PlanTaskStatus.Complete) == true;
+        }
+
         InterruptedTaskReviewRange reviewRange;
         try
         {
@@ -20660,9 +20873,14 @@ public partial class MainWindow : Window
             return false;
         }
         var handoff = reviewAttention.Task.Handoff;
-        if (handoff is null || string.IsNullOrWhiteSpace(handoff.Commit))
+        var isVerifiedNoOp = string.Equals(
+            handoff?.CompletionKind,
+            DecomposeStepCompletionKind.VerifiedNoOp,
+            StringComparison.Ordinal);
+        var reviewTarget = isVerifiedNoOp ? handoff?.EvaluatedCommit : handoff?.Commit;
+        if (handoff is null || string.IsNullOrWhiteSpace(reviewTarget))
         {
-            UIErrorHelper.ShowWarning("Review Evidence Missing", "The reviewed task has no durable implementation handoff.");
+            UIErrorHelper.ShowWarning("Review Evidence Missing", "The reviewed task has no durable completion handoff.");
             return false;
         }
 
@@ -20677,7 +20895,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            await RunGitAsync(workspace, $"merge-base --is-ancestor \"{handoff.Commit}\" HEAD");
+            await RunGitAsync(workspace, $"merge-base --is-ancestor \"{reviewTarget}\" HEAD");
             if (PlanRecoveryAcceptancePolicy.RequiresCleanWorktreeBeforeAcceptance(plan))
                 await EnsurePlanWorktreeReadyAsync(workspace, plan.PlanId);
             return true;

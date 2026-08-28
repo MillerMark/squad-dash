@@ -252,7 +252,7 @@ internal sealed class CodeHealthGroupRunner
         var applied = result.Status switch
         {
             "complete" => _writer.MarkTaskComplete(
-                _tasksFilePath, result.TaskId, result.Commit!, result.Summary),
+                _tasksFilePath, result.TaskId, result.Commit, result.Summary),
             "partial" => _writer.MarkTaskPartial(
                 _tasksFilePath,
                 result.TaskId,

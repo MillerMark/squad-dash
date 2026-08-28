@@ -198,11 +198,23 @@ internal sealed record PlanTaskDeferredWork(
     [property: JsonPropertyName("ownerTaskIds")] IReadOnlyList<string> OwnerTaskIds);
 
 /// <summary>
+/// Requirement-scoped repository evidence supplied when a worker determines that an implementation
+/// task is already satisfied at the host-recorded baseline and therefore needs no new commit.
+/// This remains a claim until the independent fact-checker accepts it.
+/// </summary>
+internal sealed record PlanTaskNoOpEvidence(
+    [property: JsonPropertyName("requirement")] string Requirement,
+    [property: JsonPropertyName("observation")] string Observation,
+    [property: JsonPropertyName("locations")] IReadOnlyList<string> Locations);
+
+/// <summary>
 /// The worker's durable account of what it changed.  This is candidate evidence until an
 /// independent verification pass accepts it; it is not itself proof that the task is complete.
 /// </summary>
 internal sealed record PlanTaskHandoff(
-    [property: JsonPropertyName("commit")] string Commit,
+    [property: JsonPropertyName("commit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? Commit,
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("changedFiles")] IReadOnlyList<string> ChangedFiles,
     [property: JsonPropertyName("verification")]
@@ -217,7 +229,16 @@ internal sealed record PlanTaskHandoff(
                                                 IReadOnlyList<string>? CompletedWork = null,
     [property: JsonPropertyName("baselineCommit")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? BaselineCommit = null);
+                                                string? BaselineCommit = null,
+    [property: JsonPropertyName("completionKind")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? CompletionKind = null,
+    [property: JsonPropertyName("evaluatedCommit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? EvaluatedCommit = null,
+    [property: JsonPropertyName("noOpEvidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null);
 
 internal sealed record PlanTaskVerificationFinding(
     [property: JsonPropertyName("claim")] string Claim,
@@ -317,7 +338,16 @@ internal sealed record PlanTask(
                                                 IReadOnlyList<PlanExecutionAnomaly>? ExecutionAnomalies = null,
     [property: JsonPropertyName("completionSummaryItems")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<string>? CompletionSummaryItems = null);
+                                                IReadOnlyList<string>? CompletionSummaryItems = null,
+    [property: JsonPropertyName("completionKind")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? CompletionKind = null,
+    [property: JsonPropertyName("evaluatedCommit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? EvaluatedCommit = null,
+    [property: JsonPropertyName("noOpEvidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.
@@ -505,7 +535,16 @@ internal sealed record PlanRecoveryDecisionEvidence(
     string? HeadCommit = null,
     [property: JsonPropertyName("repositoryFingerprint")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? RepositoryFingerprint = null);
+    string? RepositoryFingerprint = null,
+    [property: JsonPropertyName("completionKind")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? CompletionKind = null,
+    [property: JsonPropertyName("evaluatedCommit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? EvaluatedCommit = null,
+    [property: JsonPropertyName("noOpEvidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null);
 
 /// <summary>
 /// Host-validated provenance for a commit produced by the interrupted task. This is deliberately

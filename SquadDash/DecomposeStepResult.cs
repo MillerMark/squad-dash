@@ -51,7 +51,30 @@ internal sealed record DecomposeStepResult(
         IReadOnlyList<PlanExecutionAnomaly>? ExecutionAnomalies = null,
     [property: JsonPropertyName("completedWork")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        IReadOnlyList<string>? CompletedWork = null);
+        IReadOnlyList<string>? CompletedWork = null,
+    [property: JsonPropertyName("completionKind")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? CompletionKind = null,
+    [property: JsonPropertyName("evaluatedCommit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? EvaluatedCommit = null,
+    [property: JsonPropertyName("noOpEvidence")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null)
+{
+    [JsonIgnore]
+    internal bool IsVerifiedNoOp =>
+        string.Equals(CompletionKind, DecomposeStepCompletionKind.VerifiedNoOp, StringComparison.Ordinal);
+
+    [JsonIgnore]
+    internal string? VerificationTargetCommit => IsVerifiedNoOp ? EvaluatedCommit : Commit;
+}
+
+internal static class DecomposeStepCompletionKind
+{
+    internal const string Changed = "changed";
+    internal const string VerifiedNoOp = "verified-no-op";
+}
 
 internal static class DecomposeStepResultParser
 {
@@ -73,6 +96,10 @@ internal static class DecomposeStepResultParser
         {
             Status = result.Status?.Trim().ToLowerInvariant() ?? string.Empty,
             Commit = result.Commit?.Trim(),
+            CompletionKind = string.IsNullOrWhiteSpace(result.CompletionKind)
+                ? null
+                : result.CompletionKind.Trim().ToLowerInvariant(),
+            EvaluatedCommit = result.EvaluatedCommit?.Trim(),
             RemainingWork = (result.RemainingWork ?? [])
                 .Where(item => !string.IsNullOrWhiteSpace(item))
                 .Select(item => item.Trim())
@@ -93,7 +120,22 @@ internal static class DecomposeStepResultParser
                 .Where(item => !string.IsNullOrWhiteSpace(item))
                 .Select(item => item.Trim())
                 .ToArray(),
+            NoOpEvidence = (result.NoOpEvidence ?? [])
+                .Where(item => item is not null)
+                .Select(item => item with
+                {
+                    Requirement = item.Requirement?.Trim() ?? string.Empty,
+                    Observation = item.Observation?.Trim() ?? string.Empty,
+                    Locations = (item.Locations ?? [])
+                        .Where(location => !string.IsNullOrWhiteSpace(location))
+                        .Select(location => location.Trim())
+                        .ToArray(),
+                })
+                .ToArray(),
         };
+
+        if (result.Status == "complete" && string.IsNullOrWhiteSpace(result.CompletionKind))
+            result = result with { CompletionKind = DecomposeStepCompletionKind.Changed };
 
         if (result is null || string.IsNullOrWhiteSpace(result.GroupId) ||
             string.IsNullOrWhiteSpace(result.TaskId) || string.IsNullOrWhiteSpace(result.Revision) ||
@@ -110,9 +152,61 @@ internal static class DecomposeStepResultParser
         }
 
         if (result.Status == "complete" &&
-            (string.IsNullOrWhiteSpace(result.Commit) || result.Verification?.Status != "passed"))
+            result.CompletionKind is not (DecomposeStepCompletionKind.Changed or DecomposeStepCompletionKind.VerifiedNoOp))
         {
-            error = "A complete result requires a commit and passed verification evidence.";
+            error = "A complete result must use completionKind changed or verified-no-op.";
+            return false;
+        }
+
+        if (result.Status != "complete" && !string.IsNullOrWhiteSpace(result.CompletionKind))
+        {
+            error = "completionKind is only valid for a complete result.";
+            return false;
+        }
+
+        if (result.Status == "complete" && result.Verification?.Status != "passed")
+        {
+            error = "A complete result requires passed verification evidence.";
+            return false;
+        }
+
+        if (result.Status == "complete" && !result.IsVerifiedNoOp && string.IsNullOrWhiteSpace(result.Commit))
+        {
+            error = "A changed complete result requires a commit.";
+            return false;
+        }
+
+        if (result.IsVerifiedNoOp && !string.IsNullOrWhiteSpace(result.Commit))
+        {
+            error = "A verified-no-op result must set commit to null; evaluatedCommit identifies the inspected snapshot.";
+            return false;
+        }
+
+        if (result.IsVerifiedNoOp && string.IsNullOrWhiteSpace(result.EvaluatedCommit))
+        {
+            error = "A verified-no-op result requires evaluatedCommit.";
+            return false;
+        }
+
+        if (result.IsVerifiedNoOp && result.NoOpEvidence is not { Count: > 0 })
+        {
+            error = "A verified-no-op result requires requirement-scoped noOpEvidence.";
+            return false;
+        }
+
+        if (result.IsVerifiedNoOp && result.NoOpEvidence!.Any(item =>
+                string.IsNullOrWhiteSpace(item.Requirement) ||
+                string.IsNullOrWhiteSpace(item.Observation) ||
+                item.Locations is not { Count: > 0 }))
+        {
+            error = "Each verified-no-op evidence item requires requirement, observation, and at least one repository location.";
+            return false;
+        }
+
+        if (!result.IsVerifiedNoOp &&
+            (!string.IsNullOrWhiteSpace(result.EvaluatedCommit) || result.NoOpEvidence is { Count: > 0 }))
+        {
+            error = "evaluatedCommit and noOpEvidence are only valid for a verified-no-op result.";
             return false;
         }
 

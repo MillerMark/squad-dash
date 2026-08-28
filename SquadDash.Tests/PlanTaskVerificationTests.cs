@@ -219,6 +219,37 @@ internal sealed class PlanTaskVerificationTests
     }
 
     [Test]
+    public void VerificationPrompt_VerifiedNoOp_RequiresWholeSnapshotReview()
+    {
+        var plan = MakePlan();
+        var task = plan.Tasks[1];
+        var candidate = new DecomposeStepResult(
+            "P", "P-2", "rev", "complete", null, "Consumer was already wired", [],
+            new DecomposeStepVerification("passed", "dotnet test", "green"),
+            CompletionKind: DecomposeStepCompletionKind.VerifiedNoOp,
+            EvaluatedCommit: "1111111",
+            NoOpEvidence:
+            [
+                new PlanTaskNoOpEvidence(
+                    "Use the source from the running application",
+                    "The production composition already invokes the source.",
+                    ["src/App.cs:Configure"]),
+            ]);
+
+        var prompt = PlanTaskVerificationPromptBuilder.Build(
+            plan, task, candidate, "1111111", [], string.Empty);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("Candidate completion kind: `verified-no-op`"));
+            Assert.That(prompt, Does.Contain("empty task diff is expected and is not proof"));
+            Assert.That(prompt, Does.Contain("every current-task requirement was already satisfied"));
+            Assert.That(prompt, Does.Contain("\"evaluatedCommit\": \"1111111\""));
+            Assert.That(prompt, Does.Not.Contain("Candidate commit: ``"));
+        });
+    }
+
+    [Test]
     public void Parser_AcceptsSingleBareObjectWhenMarkerIsOmitted()
     {
         var json = """

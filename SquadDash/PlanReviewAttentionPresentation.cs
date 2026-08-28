@@ -97,11 +97,17 @@ internal static class PlanHumanReviewStepAcceptance
         {
             var handoff = reviewAttention.Task.Handoff ??
                 throw new InvalidOperationException("The reviewed task has no durable implementation handoff.");
-            if (string.IsNullOrWhiteSpace(handoff.Commit))
+            var isVerifiedNoOp = string.Equals(
+                handoff.CompletionKind,
+                DecomposeStepCompletionKind.VerifiedNoOp,
+                StringComparison.Ordinal);
+            if (!isVerifiedNoOp && string.IsNullOrWhiteSpace(handoff.Commit))
                 throw new InvalidOperationException("The reviewed task handoff has no commit.");
-            var commits = reviewAttention.Task.Commits ??
+            var commits = isVerifiedNoOp
+                ? Array.Empty<PlanEvidenceCommit>()
+                : reviewAttention.Task.Commits ??
                 [new PlanEvidenceCommit(
-                    handoff.Commit,
+                    handoff.Commit!,
                     PlanRecoveryCommitRelation.Task,
                     "Host-validated implementation handoff reviewed at the human checkpoint.")];
             var result = new DecomposeStepResult(
@@ -109,11 +115,16 @@ internal static class PlanHumanReviewStepAcceptance
                 reviewAttention.Task.TaskId,
                 updated.Revision,
                 "complete",
-                handoff.Commit,
+                isVerifiedNoOp ? null : handoff.Commit,
                 handoff.Summary,
                 [],
                 handoff.Verification,
-                CompletedWork: handoff.CompletedWork)
+                CompletedWork: handoff.CompletedWork,
+                CompletionKind: isVerifiedNoOp
+                    ? DecomposeStepCompletionKind.VerifiedNoOp
+                    : DecomposeStepCompletionKind.Changed,
+                EvaluatedCommit: isVerifiedNoOp ? handoff.EvaluatedCommit : null,
+                NoOpEvidence: isVerifiedNoOp ? handoff.NoOpEvidence : null)
             {
                 Commits = commits,
             };

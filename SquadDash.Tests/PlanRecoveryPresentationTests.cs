@@ -25,6 +25,30 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void AssessmentCard_VerifiedNoOpExplainsAlreadySatisfiedResult()
+    {
+        var assessment = new PlanRecoveryDecisionEvidence(
+            "The production route already forwards the configured value.",
+            [],
+            DateTimeOffset.UtcNow,
+            PlanRecoveryClassification.Complete,
+            CompletionKind: DecomposeStepCompletionKind.VerifiedNoOp,
+            EvaluatedCommit: "abcdef1",
+            NoOpEvidence:
+            [
+                new PlanTaskNoOpEvidence("Forward max reasoning", "The existing route forwards it.", ["src/App.cs"]),
+            ]);
+
+        var presentation = PlanRecoveryAssessmentCardPresentationBuilder.Build(assessment, "Step 3");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Finding, Does.Contain("already satisfied at the task baseline"));
+            Assert.That(presentation.Recommendation, Does.Contain("review the no-op evidence"));
+        });
+    }
+
+    [Test]
     public void AssessedHumanReview_SuppressesDuplicatedGenericReason()
     {
         var assessment = new PlanRecoveryDecisionEvidence(
