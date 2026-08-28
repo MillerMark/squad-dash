@@ -262,7 +262,107 @@ internal sealed class PlanThumbnailRenderer : IDisposable
             }
         }
 
-        foreach (var target in tasks.OrderBy(task => originalIndexByTaskId[task.Id]))
+        var gatedGroups = tasks
+            .Where(task => task.DependsOn.Count > 1)
+            .GroupBy(task => string.Join("\u001f", task.DependsOn.OrderBy(id => id, StringComparer.Ordinal)))
+            .ToArray();
+        var gatedTaskIds = gatedGroups
+            .SelectMany(grouping => grouping)
+            .Select(task => task.Id)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var gateGroup in gatedGroups)
+        {
+            var targets = gateGroup
+                .OrderBy(task => originalIndexByTaskId[task.Id])
+                .ToArray();
+            if (targets.Length == 0)
+                continue;
+
+            var dependencies = targets[0].DependsOn
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray();
+            var sourceDependencyIds = dependencies
+                .Where(positions.ContainsKey)
+                .ToArray();
+            var targetPositions = targets
+                .Where(task => positions.ContainsKey(task.Id))
+                .Select(task => positions[task.Id])
+                .ToArray();
+            if (sourceDependencyIds.Length == 0 || targetPositions.Length == 0)
+                continue;
+
+            var sourceRight = sourceDependencyIds.Max(id => positions[id].X + nodeWidth);
+            var targetLeft = targetPositions.Min(position => position.X);
+            var centers = sourceDependencyIds
+                .Select(id => positions[id].Y + nodeHeight / 2.0)
+                .Concat(targetPositions.Select(position => position.Y + nodeHeight / 2.0))
+                .ToArray();
+            if (centers.Length == 0)
+                continue;
+
+            var gateCenter = new Point((sourceRight + targetLeft) / 2.0, centers.Average());
+            var gateConnectorOffset = 29 * scaleFactor;
+
+            foreach (var dependencyId in sourceDependencyIds)
+            {
+                var sourcePosition = positions[dependencyId];
+                var from = new Point(sourcePosition.X + nodeWidth, sourcePosition.Y + nodeHeight / 2.0);
+                var to = new Point(gateCenter.X - gateConnectorOffset, gateCenter.Y);
+                _edgeRenderingContract.AddConnector(
+                    _graphCanvas,
+                    from,
+                    to,
+                    arrowHead: false,
+                    skipCount: 0,
+                    dashed: false);
+            }
+
+            foreach (var target in targets)
+            {
+                if (!positions.TryGetValue(target.Id, out var targetPosition))
+                    continue;
+
+                var from = new Point(gateCenter.X + gateConnectorOffset, gateCenter.Y);
+                var to = new Point(targetPosition.X, targetPosition.Y + nodeHeight / 2.0);
+                _edgeRenderingContract.AddConnector(
+                    _graphCanvas,
+                    from,
+                    to,
+                    arrowHead: true,
+                    skipCount: 0,
+                    dashed: false);
+            }
+
+            var badgeText = new TextBlock
+            {
+                Text = "ALL",
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            badgeText.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelTitle");
+            badgeText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+
+            var badge = new Border
+            {
+                Width = 46 * scaleFactor,
+                Height = 34 * scaleFactor,
+                CornerRadius = new CornerRadius(17 * scaleFactor),
+                BorderThickness = new Thickness(1.5),
+                Child = badgeText,
+            };
+            badge.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+            badge.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+            Canvas.SetLeft(badge, gateCenter.X - 23 * scaleFactor);
+            Canvas.SetTop(badge, gateCenter.Y - 17 * scaleFactor);
+            Panel.SetZIndex(badge, 10);
+            _graphCanvas.Children.Add(badge);
+        }
+
+        foreach (var target in tasks
+                     .Where(task => !gatedTaskIds.Contains(task.Id))
+                     .OrderBy(task => originalIndexByTaskId[task.Id]))
         {
             if (!positions.TryGetValue(target.Id, out var targetPosition))
                 continue;
