@@ -210,6 +210,127 @@ internal sealed class SquadCliResolutionServiceTests
     }
 
     [Test]
+    public async Task ResolveWithModeAsync_Auto_PrefersNativeExeBeforeWorkspaceAndGlobalNpm()
+    {
+        using var workspace = new TestWorkspace();
+        var nativeDir = workspace.GetPath("native");
+        var npmPrefix = workspace.GetPath("npm-prefix");
+        var nodeDir = workspace.GetPath("node");
+        var localPackage = workspace.GetPath("node_modules", "@bradygaster", "squad-cli");
+        var localEntry = Path.Combine(localPackage, "dist", "cli-entry.js");
+        Directory.CreateDirectory(Path.GetDirectoryName(localEntry)!);
+        Directory.CreateDirectory(nativeDir);
+        Directory.CreateDirectory(npmPrefix);
+        Directory.CreateDirectory(nodeDir);
+        File.WriteAllText(localEntry, "console.log('local');");
+        File.WriteAllText(Path.Combine(nativeDir, "squad.exe"), "native");
+        File.WriteAllText(Path.Combine(npmPrefix, "squad.cmd"), "@echo off");
+        File.WriteAllText(Path.Combine(nodeDir, "node.exe"), "node");
+
+        var environment = new FakeEnvironmentProvider(
+            processPath: string.Join(";", nativeDir, npmPrefix, nodeDir),
+            userPath: null,
+            machinePath: null);
+
+        var runner = new FakeProcessRunner((fileName, args, _) =>
+        {
+            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["config", "get", "prefix"]))
+            {
+                return new CliInvocationResult(0, npmPrefix, string.Empty, false);
+            }
+
+            if (fileName.Equals(Path.Combine(nativeDir, "squad.exe"), StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["--version"]))
+            {
+                return new CliInvocationResult(0, "0.12.1", string.Empty, false);
+            }
+
+            if (fileName.Equals(Path.Combine(nativeDir, "squad.exe"), StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["update-check", "--json"]))
+            {
+                return new CliInvocationResult(0, "{}", string.Empty, false);
+            }
+
+            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["view", "@bradygaster/squad-cli", "version"]))
+            {
+                return new CliInvocationResult(0, "0.12.2", string.Empty, false);
+            }
+
+            throw new AssertionException($"Unexpected invocation: {fileName} {string.Join(" ", args)}");
+        });
+
+        var service = new SquadCliResolutionService(runner, environment);
+        var resolved = await service.ResolveWithModeAsync(CliSelectionMode.Auto, workspace.RootPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved.IsAvailable, Is.True);
+            Assert.That(resolved.DetectedSource, Is.EqualTo(CliInstallSource.NativeOther));
+            Assert.That(resolved.RuntimeType, Is.EqualTo(CliRuntimeType.NativeExecutable));
+            Assert.That(resolved.ExecutablePath, Is.EqualTo(Path.Combine(nativeDir, "squad.exe")));
+        });
+    }
+
+    [Test]
+    public async Task ResolveWithModeAsync_Auto_FallsBackToWorkspaceNpmWhenNativeMissing()
+    {
+        using var workspace = new TestWorkspace();
+        var nodeDir = workspace.GetPath("node");
+        var nodePath = Path.Combine(nodeDir, "node.exe");
+        var packageRoot = workspace.GetPath("node_modules", "@bradygaster", "squad-cli");
+        Directory.CreateDirectory(Path.Combine(packageRoot, "dist"));
+        Directory.CreateDirectory(nodeDir);
+        File.WriteAllText(nodePath, "node");
+        File.WriteAllText(Path.Combine(packageRoot, "dist", "cli-entry.js"), "console.log('workspace');");
+
+        var environment = new FakeEnvironmentProvider(
+            processPath: nodeDir,
+            userPath: null,
+            machinePath: null);
+        var runner = new FakeProcessRunner((fileName, args, _) =>
+        {
+            if (fileName.Equals(nodePath, StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual([Path.Combine(packageRoot, "dist", "cli-entry.js"), "--version"]))
+            {
+                return new CliInvocationResult(0, "0.12.1", string.Empty, false);
+            }
+
+            if (fileName.Equals(nodePath, StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual([Path.Combine(packageRoot, "dist", "cli-entry.js"), "update-check", "--json"]))
+            {
+                return new CliInvocationResult(0, "{}", string.Empty, false);
+            }
+
+            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["config", "get", "prefix"]))
+            {
+                return new CliInvocationResult(1, string.Empty, "npm prefix unavailable", false);
+            }
+
+            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual(["view", "@bradygaster/squad-cli", "version"]))
+            {
+                return new CliInvocationResult(0, "0.12.2", string.Empty, false);
+            }
+
+            throw new AssertionException($"Unexpected invocation: {fileName} {string.Join(" ", args)}");
+        });
+
+        var service = new SquadCliResolutionService(runner, environment);
+        var resolved = await service.ResolveWithModeAsync(CliSelectionMode.Auto, workspace.RootPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved.IsAvailable, Is.True);
+            Assert.That(resolved.DetectedSource, Is.EqualTo(CliInstallSource.WorkspaceNpm));
+            Assert.That(resolved.RuntimeType, Is.EqualTo(CliRuntimeType.NodeScript));
+            Assert.That(resolved.EntryScriptPath, Is.EqualTo(Path.Combine(packageRoot, "dist", "cli-entry.js")));
+        });
+    }
+
+    [Test]
     public async Task ResolveWithModeAsync_GlobalNpm_UsesProvenanceAndBuildsGlobalUpdateInstruction()
     {
         using var workspace = new TestWorkspace();

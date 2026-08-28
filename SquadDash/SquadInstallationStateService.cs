@@ -35,7 +35,9 @@ internal sealed class SquadInstallationStateService {
             layout?.StateBackend,
             layout?.StateLocation,
             layout?.ProjectKey,
-            layout?.ResolutionReason);
+            layout?.ResolutionReason,
+            resolvedCandidate.DetectedSource,
+            resolvedCandidate.UpdateInstruction.DisplayMessage);
     }
 
 }
@@ -56,7 +58,9 @@ internal sealed record SquadInstallationState(
     string? StateBackend = null,
     string? StateLocation = null,
     string? ProjectKey = null,
-    string? SquadResolutionReason = null);
+    string? SquadResolutionReason = null,
+    CliInstallSource DetectedCliSource = CliInstallSource.Unknown,
+    string? CliUpdateGuidance = null);
 
 internal static class SquadInstallDiagnosticsFormatter {
     public static string Build(SquadInstallationState state) {
@@ -87,9 +91,12 @@ internal static class SquadInstallDiagnosticsFormatter {
         builder.AppendLine($"workspace initialized: {YesOrNo(state.IsWorkspaceInitialized)}");
         builder.AppendLine($"local CLI available: {YesOrNo(state.HasLocalCliCommand)}");
         builder.AppendLine($"SquadDash considers this folder installed: {YesOrNo(state.IsSquadInstalledForActiveDirectory)}");
+        builder.AppendLine($"CLI source: {DescribeCliSource(state.DetectedCliSource)}");
 
         if (!string.IsNullOrWhiteSpace(state.SquadResolutionReason))
             builder.AppendLine($"resolution: {state.SquadResolutionReason}");
+        if (!string.IsNullOrWhiteSpace(state.CliUpdateGuidance))
+            builder.AppendLine($"update guidance: {state.CliUpdateGuidance}");
         if (state.ProjectSquadFolderPath is { Length: > 0 } &&
             !string.Equals(state.ProjectSquadFolderPath, state.SquadFolderPath, StringComparison.OrdinalIgnoreCase))
             builder.AppendLine($"project .squad path: {state.ProjectSquadFolderPath}");
@@ -111,4 +118,14 @@ internal static class SquadInstallDiagnosticsFormatter {
     private static string FoundOrMissing(bool exists) => exists ? "found" : "missing";
 
     private static string YesOrNo(bool value) => value ? "yes" : "no";
+
+    private static string DescribeCliSource(CliInstallSource source) =>
+        source switch {
+            CliInstallSource.WorkspaceNpm => "workspace npm",
+            CliInstallSource.GlobalNpm => "global npm",
+            CliInstallSource.NativeWinget => "native (winget)",
+            CliInstallSource.NativeOther => "native",
+            CliInstallSource.Custom => "custom",
+            _ => "unknown"
+        };
 }

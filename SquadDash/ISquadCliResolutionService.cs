@@ -22,6 +22,7 @@ public enum CliInstallSource
 {
     WorkspaceNpm,
     GlobalNpm,
+    NativeWinget,
     NativeOther,
     Custom,
     Unknown

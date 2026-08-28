@@ -7,9 +7,17 @@ namespace SquadDash;
 
 internal static class SquadCliCommands {
     public const string LocalCliEntryPath = "node_modules\\@bradygaster\\squad-cli\\dist\\cli-entry.js";
+    public const string WingetPackageId = "BradyGaster.SquadCLI";
+    public const string WingetUpgradeCommand = "winget upgrade --id BradyGaster.SquadCLI";
 
     public static SquadCliCommandDefinition InstallLocalCli { get; } =
         new("cmd.exe", "/c npm install --save-dev @bradygaster/squad-cli", "Install local Squad CLI");
+
+    public static SquadCliCommandDefinition InstallNativeCliWithWinget { get; } =
+        new(
+            "winget.exe",
+            $"install --id {WingetPackageId} --accept-package-agreements --accept-source-agreements",
+            "Install native Squad CLI (winget)");
 
     // Use node + local path (same pattern as StartWatch) to avoid npx prompting
     // "Need to install? (y)" which blocks forever when stdin is not a real terminal.

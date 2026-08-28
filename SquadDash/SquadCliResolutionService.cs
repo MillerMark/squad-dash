@@ -107,6 +107,12 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
         string workspaceDir,
         IReadOnlyList<string> mergedPathEntries)
     {
+        var native = await ResolveNativeSystemAsync(CliSelectionMode.Auto, mergedPathEntries).ConfigureAwait(false);
+        if (native.IsAvailable)
+        {
+            return native;
+        }
+
         var workspace = ResolveWorkspaceLocal(workspaceDir, mergedPathEntries);
         if (workspace.IsAvailable)
         {
@@ -117,12 +123,6 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
         if (global.IsAvailable)
         {
             return global;
-        }
-
-        var native = await ResolveNativeSystemAsync(CliSelectionMode.Auto, mergedPathEntries).ConfigureAwait(false);
-        if (native.IsAvailable)
-        {
-            return native;
         }
 
         return CreateUnavailableCandidate(CliSelectionMode.Auto, CliInstallSource.Unknown);
@@ -233,9 +233,17 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
             {
                 return CreateResolvedCandidate(
                     selectionMode,
-                    CliInstallSource.NativeOther,
+                    GetNativeInstallSource(exePath),
                     CliRuntimeType.NativeExecutable,
                     exePath);
+            }
+        }
+
+        foreach (var pathEntry in mergedPathEntries)
+        {
+            if (ContainsNodeModules(pathEntry))
+            {
+                continue;
             }
 
             var cmdPath = Path.Combine(pathEntry, "squad.cmd");
@@ -468,6 +476,13 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
                     UpdateCommand: canAutoUpdate ? $"npm install -g {SquadPackageName}@{targetVersion}" : null,
                     CanAutoUpdate: canAutoUpdate,
                     DisplayMessage: null,
+                    TargetVersion: targetVersion),
+
+            CliInstallSource.NativeWinget =>
+                new CliUpdateInstruction(
+                    UpdateCommand: SquadCliCommands.WingetUpgradeCommand,
+                    CanAutoUpdate: candidate.IsAvailable,
+                    DisplayMessage: "Squad CLI is installed via winget. Run 'winget upgrade --id BradyGaster.SquadCLI' to update it.",
                     TargetVersion: targetVersion),
 
             CliInstallSource.NativeOther =>
@@ -757,5 +772,18 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
         public static bool operator <(ParsedSemVersion left, ParsedSemVersion right) => left.CompareTo(right) < 0;
         public static bool operator >=(ParsedSemVersion left, ParsedSemVersion right) => left.CompareTo(right) >= 0;
         public static bool operator <=(ParsedSemVersion left, ParsedSemVersion right) => left.CompareTo(right) <= 0;
+    }
+
+    private static CliInstallSource GetNativeInstallSource(string executablePath)
+    {
+        var normalized = NormalizePath(executablePath)
+            .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        if (normalized.IndexOf($"{Path.DirectorySeparatorChar}Microsoft{Path.DirectorySeparatorChar}WinGet{Path.DirectorySeparatorChar}Packages{Path.DirectorySeparatorChar}",
+                StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return CliInstallSource.NativeWinget;
+        }
+
+        return CliInstallSource.NativeOther;
     }
 }

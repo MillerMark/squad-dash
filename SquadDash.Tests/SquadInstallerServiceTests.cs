@@ -10,6 +10,9 @@ internal sealed class SquadInstallerServiceTests {
     [Test]
     public async Task InstallAsync_CreatesPackageManifest_InstallsCli_AndRunsInitForNewWorkspace() {
         using var workspace = new TestWorkspace();
+        var unavailable = CreateUnavailableCandidate();
+        var workspaceCandidate = CreateNodeScriptCandidate(workspace.RootPath);
+        var resolvingService = new SequenceResolutionService([unavailable, unavailable], workspaceCandidate);
         var runner = new FakeCommandRunner((command, activeDirectory) => {
             if (command.DisplayName.StartsWith("Locate "))
                 return Task.FromResult(Success(command.DisplayName));
@@ -18,9 +21,13 @@ internal sealed class SquadInstallerServiceTests {
                 Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", ".bin"));
                 Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "vscode-jsonrpc"));
                 Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "@github", "copilot-sdk", "dist"));
+                Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "@bradygaster", "squad-cli", "dist"));
                 File.WriteAllText(
                     Path.Combine(activeDirectory, "node_modules", ".bin", "squad.cmd"),
                     "@echo off");
+                File.WriteAllText(
+                    Path.Combine(activeDirectory, "node_modules", "@bradygaster", "squad-cli", "dist", "cli-entry.js"),
+                    "console.log('squad');");
                 File.WriteAllText(
                     Path.Combine(activeDirectory, "node_modules", "vscode-jsonrpc", "package.json"),
                     """
@@ -47,7 +54,7 @@ internal sealed class SquadInstallerServiceTests {
 
             return Task.FromResult(Success(command.DisplayName));
         });
-        var service = new SquadInstallerService(runner);
+        var service = new SquadInstallerService(runner, resolvingService);
 
         var result = await service.InstallAsync(workspace.RootPath);
 
@@ -55,18 +62,22 @@ internal sealed class SquadInstallerServiceTests {
             Assert.That(result.Success, Is.True);
             Assert.That(File.Exists(workspace.GetPath("package.json")), Is.True);
             Assert.That(File.Exists(workspace.GetPath(".squad", "team.md")), Is.True);
-            Assert.That(runner.Calls.Select(call => call.DisplayName), Is.EquivalentTo(new[] {
-                "Locate node",
-                "Locate npm",
-                SquadCliCommands.InstallLocalCli.DisplayName,
-                SquadCliCommands.Init.DisplayName
-            }));
+            var callNames = runner.Calls.Select(call => call.DisplayName).ToArray();
+            Assert.That(callNames, Does.Contain("Locate winget"));
+            Assert.That(callNames, Does.Contain("Locate node"));
+            Assert.That(callNames, Does.Contain("Locate npm"));
+            Assert.That(callNames, Does.Contain(SquadCliCommands.InstallNativeCliWithWinget.DisplayName));
+            Assert.That(callNames, Does.Contain(SquadCliCommands.InstallLocalCli.DisplayName));
+            Assert.That(callNames, Does.Contain(SquadCliCommands.Init.DisplayName));
         });
     }
 
     [Test]
     public async Task InstallAsync_WorkspaceIsInstalled_WhenLocalCliEntryExistsWithoutBinShim() {
         using var workspace = new TestWorkspace();
+        var unavailable = CreateUnavailableCandidate();
+        var workspaceCandidate = CreateNodeScriptCandidate(workspace.RootPath);
+        var resolvingService = new SequenceResolutionService([unavailable, unavailable], workspaceCandidate);
         var runner = new FakeCommandRunner((command, activeDirectory) => {
             if (command.DisplayName.StartsWith("Locate "))
                 return Task.FromResult(Success(command.DisplayName));
@@ -98,7 +109,7 @@ internal sealed class SquadInstallerServiceTests {
 
             return Task.FromResult(Success(command.DisplayName));
         });
-        var service = new SquadInstallerService(runner);
+        var service = new SquadInstallerService(runner, resolvingService);
 
         var result = await service.InstallAsync(workspace.RootPath);
         var state = new SquadInstallationStateService().GetState(
@@ -118,6 +129,9 @@ internal sealed class SquadInstallerServiceTests {
     public async Task InstallAsync_SkipsInitWhenWorkspaceAlreadyInitialized_ButRepairsLocalCli() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(Path.Combine(".squad", "team.md"), "# Existing team");
+        var unavailable = CreateUnavailableCandidate();
+        var workspaceCandidate = CreateNodeScriptCandidate(workspace.RootPath);
+        var resolvingService = new SequenceResolutionService([unavailable, unavailable], workspaceCandidate);
 
         var runner = new FakeCommandRunner((command, activeDirectory) => {
             if (command.DisplayName.StartsWith("Locate "))
@@ -127,7 +141,11 @@ internal sealed class SquadInstallerServiceTests {
                 Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", ".bin"));
                 Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "vscode-jsonrpc"));
                 Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "@github", "copilot-sdk", "dist"));
+                Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "@bradygaster", "squad-cli", "dist"));
                 File.WriteAllText(Path.Combine(activeDirectory, "node_modules", ".bin", "squad.cmd"), "@echo off");
+                File.WriteAllText(
+                    Path.Combine(activeDirectory, "node_modules", "@bradygaster", "squad-cli", "dist", "cli-entry.js"),
+                    "console.log('squad');");
                 File.WriteAllText(
                     Path.Combine(activeDirectory, "node_modules", "vscode-jsonrpc", "package.json"),
                     """{ "exports": { ".": { "default": "./lib/node/main.js" } } }""");
@@ -138,7 +156,7 @@ internal sealed class SquadInstallerServiceTests {
 
             return Task.FromResult(Success(command.DisplayName));
         });
-        var service = new SquadInstallerService(runner);
+        var service = new SquadInstallerService(runner, resolvingService);
 
         var result = await service.InstallAsync(workspace.RootPath);
 
@@ -167,6 +185,127 @@ internal sealed class SquadInstallerServiceTests {
             Assert.That(result.Success, Is.False);
             Assert.That(result.MissingTools, Is.EqualTo(new[] { "npm" }));
             Assert.That(result.Message, Does.Contain("Missing required tooling"));
+        });
+    }
+
+    [Test]
+    public async Task InstallAsync_WhenWingetInstallsNativeCli_SkipsNodeNpmChecks() {
+        using var workspace = new TestWorkspace();
+        var unavailable = new ResolvedCliCandidate(
+            SelectionMode: CliSelectionMode.Auto,
+            DetectedSource: CliInstallSource.Unknown,
+            RuntimeType: CliRuntimeType.NativeExecutable,
+            ExecutablePath: string.Empty,
+            EntryScriptPath: null,
+            Version: null,
+            IsAvailable: false,
+            AgentCmdSupport: CliCapabilityStatus.Unknown,
+            ProbeError: null,
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
+        var nativeCandidate = new ResolvedCliCandidate(
+            SelectionMode: CliSelectionMode.Auto,
+            DetectedSource: CliInstallSource.NativeWinget,
+            RuntimeType: CliRuntimeType.NativeExecutable,
+            ExecutablePath: workspace.GetPath("native", "squad.exe"),
+            EntryScriptPath: null,
+            Version: "0.12.1",
+            IsAvailable: true,
+            AgentCmdSupport: CliCapabilityStatus.Supported,
+            ProbeError: null,
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
+        var runner = new FakeCommandRunner((command, activeDirectory) => {
+            if (command.DisplayName == "Locate winget")
+                return Task.FromResult(Success(command.DisplayName));
+
+            if (command == SquadCliCommands.InstallNativeCliWithWinget) {
+                Directory.CreateDirectory(Path.Combine(activeDirectory, ".squad"));
+                File.WriteAllText(Path.Combine(activeDirectory, ".squad", "team.md"), "# Team");
+                return Task.FromResult(new SquadCommandResult(true, 0, string.Empty, string.Empty, command.DisplayName, null, "native (winget)"));
+            }
+
+            if (command.DisplayName is "Locate node" or "Locate npm")
+                return Task.FromResult(new SquadCommandResult(false, 1, string.Empty, string.Empty, $"{command.DisplayName} should not run"));
+
+            return Task.FromResult(Success(command.DisplayName));
+        });
+        var resolvingService = new SequenceResolutionService([unavailable, nativeCandidate], nativeCandidate);
+        var service = new SquadInstallerService(runner, resolvingService);
+
+        var result = await service.InstallAsync(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(result.Success, Is.True);
+            Assert.That(result.InstallSource, Is.EqualTo("native (winget)"));
+            var callNames = runner.Calls.Select(c => c.DisplayName).ToArray();
+            Assert.That(callNames, Does.Contain("Locate winget"));
+            Assert.That(callNames, Does.Contain(SquadCliCommands.InstallNativeCliWithWinget.DisplayName));
+            Assert.That(callNames, Does.Not.Contain("Locate node"));
+            Assert.That(callNames, Does.Not.Contain("Locate npm"));
+        });
+    }
+
+    [Test]
+    public async Task InstallAsync_WhenWingetFails_FallsBackToWorkspaceNpm() {
+        using var workspace = new TestWorkspace();
+        var unavailable = new ResolvedCliCandidate(
+            SelectionMode: CliSelectionMode.Auto,
+            DetectedSource: CliInstallSource.Unknown,
+            RuntimeType: CliRuntimeType.NativeExecutable,
+            ExecutablePath: string.Empty,
+            EntryScriptPath: null,
+            Version: null,
+            IsAvailable: false,
+            AgentCmdSupport: CliCapabilityStatus.Unknown,
+            ProbeError: null,
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
+        var workspaceCandidate = CreateNodeScriptCandidate(workspace.RootPath);
+        var resolvingService = new SequenceResolutionService([unavailable, unavailable], workspaceCandidate);
+
+        var runner = new FakeCommandRunner((command, activeDirectory) => {
+            if (command.DisplayName == "Locate winget")
+                return Task.FromResult(Success(command.DisplayName));
+            if (command == SquadCliCommands.InstallNativeCliWithWinget)
+                return Task.FromResult(new SquadCommandResult(false, 1, string.Empty, "winget failed", "native install failed", null, "native (winget)"));
+            if (command.DisplayName is "Locate node" or "Locate npm")
+                return Task.FromResult(Success(command.DisplayName));
+
+            if (command == SquadCliCommands.InstallLocalCli) {
+                Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", ".bin"));
+                Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "vscode-jsonrpc"));
+                Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "@github", "copilot-sdk", "dist"));
+                Directory.CreateDirectory(Path.Combine(activeDirectory, "node_modules", "@bradygaster", "squad-cli", "dist"));
+                File.WriteAllText(Path.Combine(activeDirectory, "node_modules", ".bin", "squad.cmd"), "@echo off");
+                File.WriteAllText(
+                    Path.Combine(activeDirectory, "node_modules", "@bradygaster", "squad-cli", "dist", "cli-entry.js"),
+                    "console.log('squad');");
+                File.WriteAllText(Path.Combine(activeDirectory, "node_modules", "vscode-jsonrpc", "package.json"),
+                    """{ "exports": { ".": { "default": "./lib/node/main.js" } } }""");
+                File.WriteAllText(Path.Combine(activeDirectory, "node_modules", "@github", "copilot-sdk", "dist", "session.js"),
+                    "import rpc from \"vscode-jsonrpc/node\";\n");
+                return Task.FromResult(Success(command.DisplayName));
+            }
+
+            if (command == SquadCliCommands.Init) {
+                Directory.CreateDirectory(Path.Combine(activeDirectory, ".squad"));
+                File.WriteAllText(Path.Combine(activeDirectory, ".squad", "team.md"), "# Team");
+                return Task.FromResult(Success(command.DisplayName));
+            }
+
+            return Task.FromResult(Success(command.DisplayName));
+        });
+        var service = new SquadInstallerService(runner, resolvingService);
+
+        var result = await service.InstallAsync(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(result.Success, Is.True);
+            var callNames = runner.Calls.Select(c => c.DisplayName).ToArray();
+            Assert.That(callNames, Does.Contain(SquadCliCommands.InstallNativeCliWithWinget.DisplayName));
+            Assert.That(callNames, Does.Contain("Locate node"));
+            Assert.That(callNames, Does.Contain("Locate npm"));
+            Assert.That(callNames, Does.Contain(SquadCliCommands.InstallLocalCli.DisplayName));
+            Assert.That(callNames, Does.Contain(SquadCliCommands.Init.DisplayName));
+            Assert.That(result.ToDisplayText(), Does.Contain("Install source: workspace npm"));
         });
     }
 
@@ -452,6 +591,43 @@ internal sealed class SquadInstallerServiceTests {
             AgentCmdSupport: CliCapabilityStatus.Supported,
             ProbeError: null,
             UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
+
+    private static ResolvedCliCandidate CreateUnavailableCandidate() =>
+        new(
+            SelectionMode: CliSelectionMode.Auto,
+            DetectedSource: CliInstallSource.Unknown,
+            RuntimeType: CliRuntimeType.NativeExecutable,
+            ExecutablePath: string.Empty,
+            EntryScriptPath: null,
+            Version: null,
+            IsAvailable: false,
+            AgentCmdSupport: CliCapabilityStatus.Unknown,
+            ProbeError: null,
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
+
+    private sealed class SequenceResolutionService(
+        IReadOnlyList<ResolvedCliCandidate> autoSequence,
+        ResolvedCliCandidate workspaceLocalCandidate) : ISquadCliResolutionService
+    {
+        private int _autoIndex;
+
+        public Task<ResolvedCliCandidate> ResolveAsync(string workspaceDir)
+        {
+            var index = Math.Min(_autoIndex, autoSequence.Count - 1);
+            var value = autoSequence[index];
+            _autoIndex++;
+            return Task.FromResult(value);
+        }
+
+        public Task<ResolvedCliCandidate> ResolveWithModeAsync(CliSelectionMode mode, string workspaceDir)
+        {
+            return mode == CliSelectionMode.WorkspaceLocal
+                ? Task.FromResult(workspaceLocalCandidate)
+                : ResolveAsync(workspaceDir);
+        }
+
+        public Task<ResolvedCliCandidate> ProbeVersionAsync(ResolvedCliCandidate candidate) => Task.FromResult(candidate);
+    }
 
     private sealed class FakeCommandRunner : ISquadCommandRunner {
         private readonly Func<SquadCliCommandDefinition, string, Task<SquadCommandResult>> _handler;

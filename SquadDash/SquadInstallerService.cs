@@ -36,80 +36,126 @@ internal sealed class SquadInstallerService {
     public async Task<SquadCommandResult> InstallAsync(
         string activeDirectory,
         IProgress<string>? progress = null) {
-        progress?.Report("Checking Node.js tooling...");
-
-        var prerequisites = await ValidatePrerequisitesAsync(activeDirectory, requireNpm: true).ConfigureAwait(false);
-        if (!prerequisites.Success) {
-            return new SquadCommandResult(
-                false,
-                null,
-                string.Empty,
-                string.Empty,
-                prerequisites.Message,
-                prerequisites.MissingTools);
+        progress?.Report("Resolving Squad CLI...");
+        var resolvedCandidate = await _cliResolutionService.ResolveAsync(activeDirectory).ConfigureAwait(false);
+        if (resolvedCandidate.IsAvailable) {
+            return await InitializeWorkspaceAsync(activeDirectory, resolvedCandidate, progress).ConfigureAwait(false);
         }
 
-        progress?.Report("Ensuring package.json exists...");
-        var packageManifestResult = EnsurePackageManifest(activeDirectory);
-        if (!packageManifestResult.Success)
-            return packageManifestResult;
+        progress?.Report("No Squad CLI detected. Checking for winget...");
+        var wingetProbe = await RunWhereAsync("winget", activeDirectory).ConfigureAwait(false);
+        if (wingetProbe.Success) {
+            progress?.Report("Installing native Squad CLI via winget...");
+            var wingetInstallResult = await _commandRunner
+                .RunAsync(SquadCliCommands.InstallNativeCliWithWinget, activeDirectory)
+                .ConfigureAwait(false);
+            if (wingetInstallResult.Success) {
+                progress?.Report("Re-resolving Squad CLI after winget install...");
+                var nativeCandidate = await _cliResolutionService.ResolveAsync(activeDirectory).ConfigureAwait(false);
+                if (nativeCandidate.IsAvailable) {
+                    return await InitializeWorkspaceAsync(
+                            activeDirectory,
+                            nativeCandidate,
+                            progress,
+                            TagSource(wingetInstallResult, GetInstallSourceLabel(nativeCandidate)))
+                        .ConfigureAwait(false);
+                }
+            }
 
-        progress?.Report("Installing local Squad CLI...");
+            progress?.Report("Native install did not yield a usable CLI. Falling back to workspace npm...");
+            return await InstallViaWorkspaceNpmAsync(
+                    activeDirectory,
+                    progress,
+                    TagSource(wingetInstallResult, "native (winget)"))
+                .ConfigureAwait(false);
+        }
+
+        progress?.Report("winget not found on PATH. Falling back to workspace npm...");
+        return await InstallViaWorkspaceNpmAsync(activeDirectory, progress).ConfigureAwait(false);
+    }
+
+    private async Task<SquadCommandResult> InstallViaWorkspaceNpmAsync(
+        string activeDirectory,
+        IProgress<string>? progress,
+        params SquadCommandResult[] priorSteps) {
+        progress?.Report("Checking Node.js/npm tooling for workspace npm install...");
+        var prerequisites = await ValidatePrerequisitesAsync(
+            activeDirectory,
+            requireNode: true,
+            requireNpm: true).ConfigureAwait(false);
+        if (!prerequisites.Success) {
+            return CombineInstallResults(
+                priorSteps.Append(new SquadCommandResult(
+                        false,
+                        null,
+                        string.Empty,
+                        string.Empty,
+                        prerequisites.Message,
+                        prerequisites.MissingTools,
+                        "workspace npm"))
+                    .ToArray());
+        }
+
+        progress?.Report("Ensuring package.json exists for workspace npm install...");
+        var packageManifestResult = EnsurePackageManifest(activeDirectory);
+        if (!packageManifestResult.Success) {
+            return CombineInstallResults(
+                priorSteps.Append(TagSource(packageManifestResult, "workspace npm")).ToArray());
+        }
+
+        progress?.Report("Installing workspace-local Squad CLI via npm...");
         var installCliResult = await _commandRunner.RunAsync(
             SquadCliCommands.InstallLocalCli,
             activeDirectory).ConfigureAwait(false);
-        if (!installCliResult.Success)
-            return CombineInstallResults(packageManifestResult, installCliResult);
+        if (!installCliResult.Success) {
+            return CombineInstallResults(priorSteps.Concat(new[] {
+                TagSource(packageManifestResult, "workspace npm"),
+                TagSource(installCliResult, "workspace npm")
+            }).ToArray());
+        }
 
         progress?.Report("Applying Windows compatibility fixes...");
         var compatibilityResult = SquadRuntimeCompatibility.Repair(
             activeDirectory,
             "Workspace Squad CLI");
-        if (!compatibilityResult.Success)
-            return CombineInstallResults(packageManifestResult, installCliResult, compatibilityResult);
-
-        if (IsWorkspaceInitialized(activeDirectory)) {
-            return CombineInstallResults(
-                packageManifestResult,
-                installCliResult,
-                compatibilityResult,
-                new SquadCommandResult(
-                    true,
-                    0,
-                    "Squad workspace already initialized.",
-                    string.Empty,
-                    "Squad is installed and ready to run locally."));
+        if (!compatibilityResult.Success) {
+            return CombineInstallResults(priorSteps.Concat(new[] {
+                TagSource(packageManifestResult, "workspace npm"),
+                TagSource(installCliResult, "workspace npm"),
+                TagSource(compatibilityResult, "workspace npm")
+            }).ToArray());
         }
 
         var resolvedWorkspaceCli = await _cliResolutionService
             .ResolveWithModeAsync(CliSelectionMode.WorkspaceLocal, activeDirectory)
             .ConfigureAwait(false);
         if (!resolvedWorkspaceCli.IsAvailable) {
-            return CombineInstallResults(
-                packageManifestResult,
-                installCliResult,
-                compatibilityResult,
+            return CombineInstallResults(priorSteps.Concat(new[] {
+                TagSource(packageManifestResult, "workspace npm"),
+                TagSource(installCliResult, "workspace npm"),
+                TagSource(compatibilityResult, "workspace npm"),
                 new SquadCommandResult(
                     false,
                     null,
                     string.Empty,
                     resolvedWorkspaceCli.ProbeError ?? string.Empty,
                     resolvedWorkspaceCli.UpdateInstruction.DisplayMessage ??
-                    "Workspace Squad CLI could not be resolved after installation."));
+                    "Workspace Squad CLI could not be resolved after installation.",
+                    null,
+                    "workspace npm")
+            }).ToArray());
         }
 
-        progress?.Report("Running Squad bootstrap...");
-        var initResult = await _commandRunner.RunAsync(
-                resolvedWorkspaceCli,
+        return await InitializeWorkspaceAsync(
                 activeDirectory,
-                "Install Squad",
-                ["init"])
+                resolvedWorkspaceCli,
+                progress,
+                priorSteps.Concat(new[] {
+                    TagSource(packageManifestResult, "workspace npm"),
+                    TagSource(installCliResult, "workspace npm"),
+                    TagSource(compatibilityResult, "workspace npm")
+                }).ToArray())
             .ConfigureAwait(false);
-
-        if (initResult.Success)
-            WriteSquadDashUniverseFiles(activeDirectory);
-
-        return CombineInstallResults(packageManifestResult, installCliResult, compatibilityResult, initResult);
     }
 
     public async Task<SquadCommandResult> RunDoctorAsync(
@@ -151,19 +197,75 @@ internal sealed class SquadInstallerService {
         return doctorResult;
     }
 
-    private async Task<SquadPrerequisiteCheckResult> ValidatePrerequisitesAsync(
+    private async Task<SquadCommandResult> InitializeWorkspaceAsync(
         string activeDirectory,
-        ResolvedCliCandidate resolvedCandidate) {
-        var requireNpm = resolvedCandidate.DetectedSource is CliInstallSource.WorkspaceNpm or CliInstallSource.GlobalNpm;
-        return await ValidatePrerequisitesAsync(activeDirectory, requireNpm).ConfigureAwait(false);
+        ResolvedCliCandidate resolvedCandidate,
+        IProgress<string>? progress,
+        params SquadCommandResult[] priorSteps) {
+        var sourceLabel = GetInstallSourceLabel(resolvedCandidate);
+        var prerequisites = await ValidatePrerequisitesAsync(activeDirectory, resolvedCandidate).ConfigureAwait(false);
+        if (!prerequisites.Success) {
+            return CombineInstallResults(
+                priorSteps.Append(new SquadCommandResult(
+                        false,
+                        null,
+                        string.Empty,
+                        string.Empty,
+                        prerequisites.Message,
+                        prerequisites.MissingTools,
+                        sourceLabel))
+                    .ToArray());
+        }
+
+        if (IsWorkspaceInitialized(activeDirectory)) {
+            return CombineInstallResults(
+                priorSteps.Append(new SquadCommandResult(
+                        true,
+                        0,
+                        "Squad workspace already initialized.",
+                        string.Empty,
+                        "Squad is installed and ready to run locally.",
+                        null,
+                        sourceLabel))
+                    .ToArray());
+        }
+
+        progress?.Report($"Running Squad bootstrap via {sourceLabel} CLI...");
+        var initResult = await _commandRunner.RunAsync(
+                resolvedCandidate,
+                activeDirectory,
+                "Install Squad",
+                ["init"])
+            .ConfigureAwait(false);
+
+        if (initResult.Success)
+            WriteSquadDashUniverseFiles(activeDirectory);
+
+        return CombineInstallResults(priorSteps.Append(TagSource(initResult, sourceLabel)).ToArray());
     }
 
     private async Task<SquadPrerequisiteCheckResult> ValidatePrerequisitesAsync(
         string activeDirectory,
-        bool requireNpm) {
-        var missingTools = new List<string>();
+        ResolvedCliCandidate resolvedCandidate) {
+        var requireNpm = resolvedCandidate.DetectedSource is CliInstallSource.WorkspaceNpm or CliInstallSource.GlobalNpm;
+        var requireNode = requireNpm || resolvedCandidate.RuntimeType == CliRuntimeType.NodeScript;
+        return await ValidatePrerequisitesAsync(activeDirectory, requireNode, requireNpm).ConfigureAwait(false);
+    }
 
-        var requiredTools = requireNpm ? new[] { "node", "npm" } : new[] { "node" };
+    private async Task<SquadPrerequisiteCheckResult> ValidatePrerequisitesAsync(
+        string activeDirectory,
+        bool requireNode,
+        bool requireNpm) {
+        if (!requireNode && !requireNpm)
+            return SquadPrerequisiteCheckResult.SuccessResult;
+
+        var missingTools = new List<string>();
+        var requiredTools = new List<string>();
+        if (requireNode)
+            requiredTools.Add("node");
+        if (requireNpm)
+            requiredTools.Add("npm");
+
         foreach (var toolName in requiredTools) {
             var result = await RunWhereAsync(toolName, activeDirectory).ConfigureAwait(false);
             if (!result.Success)
@@ -173,11 +275,28 @@ internal sealed class SquadInstallerService {
         if (missingTools.Count == 0)
             return SquadPrerequisiteCheckResult.SuccessResult;
 
+        var prerequisiteHint = requireNpm
+            ? "Install Node.js and npm so npm-based Squad CLI tooling is available on PATH."
+            : "Install Node.js so required tooling is available on PATH.";
         return new SquadPrerequisiteCheckResult(
             false,
-            $"Missing required tooling: {string.Join(", ", missingTools)}. Install Node.js so required tools are available on PATH.",
+            $"Missing required tooling: {string.Join(", ", missingTools)}. {prerequisiteHint}",
             missingTools);
     }
+
+    private static string GetInstallSourceLabel(ResolvedCliCandidate candidate) {
+        return candidate.DetectedSource switch {
+            CliInstallSource.WorkspaceNpm => "workspace npm",
+            CliInstallSource.GlobalNpm => "global npm",
+            CliInstallSource.NativeWinget => "native (winget)",
+            CliInstallSource.NativeOther => "native",
+            CliInstallSource.Custom => "custom",
+            _ => "unknown"
+        };
+    }
+
+    private static SquadCommandResult TagSource(SquadCommandResult result, string source) =>
+        result with { InstallSource = source };
 
     private Task<SquadCommandResult> RunWhereAsync(string toolName, string activeDirectory) {
         var command = new SquadCliCommandDefinition("where.exe", toolName, $"Locate {toolName}");
@@ -533,29 +652,33 @@ internal sealed class SquadInstallerService {
     private static SquadCommandResult CombineInstallResults(params SquadCommandResult[] steps) {
         var combinedOutput = new StringBuilder();
         var combinedError = new StringBuilder();
+        var source = steps.LastOrDefault(step => !string.IsNullOrWhiteSpace(step.InstallSource))?.InstallSource;
+        var terminalStep = steps.LastOrDefault();
 
         foreach (var step in steps) {
             AppendSection(combinedOutput, step.Message, step.StandardOutput);
             AppendSection(combinedError, step.Message, step.StandardError);
         }
 
-        var failure = steps.LastOrDefault(step => !step.Success);
-        if (failure is not null) {
+        if (terminalStep is not null && !terminalStep.Success) {
             return new SquadCommandResult(
                 false,
-                failure.ExitCode,
+                terminalStep.ExitCode,
                 combinedOutput.ToString().TrimEnd(),
                 combinedError.ToString().TrimEnd(),
-                failure.Message,
-                failure.MissingTools);
+                terminalStep.Message,
+                terminalStep.MissingTools,
+                source);
         }
 
         return new SquadCommandResult(
             true,
-            steps.LastOrDefault()?.ExitCode ?? 0,
+            terminalStep?.ExitCode ?? 0,
             combinedOutput.ToString().TrimEnd(),
             combinedError.ToString().TrimEnd(),
-            "Squad is installed and ready to run locally.");
+            "Squad is installed and ready to run locally.",
+            null,
+            source);
     }
 
     private static void AppendSection(StringBuilder builder, string title, string content) {
@@ -749,11 +872,17 @@ internal sealed record SquadCommandResult(
     string StandardOutput,
     string StandardError,
     string Message,
-    IReadOnlyList<string>? MissingTools = null) {
+    IReadOnlyList<string>? MissingTools = null,
+    string? InstallSource = null) {
 
     public string ToDisplayText() {
         var builder = new StringBuilder();
         builder.AppendLine(Message);
+
+        if (!string.IsNullOrWhiteSpace(InstallSource)) {
+            builder.AppendLine();
+            builder.AppendLine($"Install source: {InstallSource}");
+        }
 
         if (MissingTools is { Count: > 0 }) {
             builder.AppendLine();
