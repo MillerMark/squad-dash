@@ -66,7 +66,11 @@ DECOMPOSE_STEP_RESULT_JSON:
   "executionAttemptId": "host-supplied attempt ID for assigned tasks",
   "status": "complete",
   "commit": "exact abbreviated Git commit SHA from git rev-parse --short HEAD",
-  "summary": "concise first-person handoff explaining what was changed and how it connects to the supplied upstream work and plan intent",
+  "summary": "one-sentence outcome retained for compatibility and compact surfaces",
+  "completedWork": [
+    "one concrete completed outcome; an item may contain more than one sentence",
+    "another concrete completed outcome"
+  ],
   "remainingWork": [],
   "deferredWork": [],
   "verification": {
@@ -103,6 +107,10 @@ assigns it to a named downstream task. If work is deliberately deferred, include
 entry per requirement with `requirement`, `reason`, and `ownerTaskIds`. The named owners must be
 downstream task IDs whose approved contracts actually own that work. Otherwise use `deferredWork: []`.
 Never silently omit a requirement or assume that an unspecified later task will absorb it.
+
+`completedWork` is the authoritative completion summary shown to users. Return it as a JSON array
+with one independently readable item per completed outcome. An item may contain multiple sentences.
+Do not combine the items into Markdown, and do not place bullet characters inside the strings.
 
 Use `status: "partial"` when useful work was committed but the whole assigned task was not completed.
 List the concrete unfinished work in `remainingWork`; never claim complete. Use `status: "failed"`

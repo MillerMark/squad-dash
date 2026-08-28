@@ -502,7 +502,11 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   "executionAttemptId": "host-supplied attempt ID when this task has an assigned roster agent",
   "status": "complete",
   "commit": "exact abbreviated Git commit SHA from git rev-parse --short HEAD",
-  "summary": "concise outcome",
+  "summary": "one-sentence outcome retained for compatibility and compact surfaces",
+  "completedWork": [
+    "one concrete completed outcome; an item may contain more than one sentence",
+    "another concrete completed outcome"
+  ],
   "remainingWork": [],
   "deferredWork": [
     {
@@ -548,6 +552,10 @@ Every explicit current-task requirement is owned by the current task unless the 
 clearly assigns it to a named downstream task. Report every deliberate deferral in `deferredWork`;
 use an empty array when there are none. A complete result may not silently omit a requirement or
 invent downstream ownership that is absent from the approved task contracts.
+
+`completedWork` is the authoritative completion summary for a complete result. Return a JSON array
+with one independently readable item per completed outcome. Each item may contain multiple sentences.
+Do not return Markdown bullets or combine separate outcomes into one prose paragraph.
 
 ## PLAN_GATE_APPROVAL_JSON schema
 

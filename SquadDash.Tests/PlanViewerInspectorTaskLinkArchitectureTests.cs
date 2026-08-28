@@ -97,6 +97,70 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
         });
     }
 
+    [Test]
+    public void CompletedTaskInspector_UsesStructuredBulletsAndRemovesDuplicateHandoffNoise()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var method = ExtractMethod(source, "private void PopulateTaskDetail(PlanTask task, Plan? plan)");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("task.CompletionSummaryItems is { Count: > 0 }")
+                .And.Contain("? [task.CompletionSummary]")
+                .And.Contain("MarkerStyle = TextMarkerStyle.Disc"));
+            Assert.That(method, Does.Contain("ProofProvenancePresenter.FormatShortSha(commits[0].Commit)"));
+            Assert.That(method, Does.Not.Contain("AddSectionHeader(\"Handoff\")")
+                .And.Not.Contain("new Run(\"Commit: \")")
+                .And.Not.Contain("new Run(\"Verification: \")"));
+            Assert.That(method, Does.Contain("AddSectionHeader(\"Changed Files\")"));
+            Assert.That(method, Does.Contain("AddSectionHeader(\"Verification\")")
+                .And.Not.Contain("AddSectionHeader(\"Verification History\")"));
+            Assert.That(method, Does.Contain("AddSectionHeader(\"Original Task Description\")"));
+        });
+    }
+
+    [Test]
+    public void ChangedFiles_AreNonWrappingScrollableLinksWithStatusColors()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var panel = ExtractMethod(source,
+            "private ScrollViewer BuildChangedFilesPanel(");
+        var rows = ExtractMethod(source,
+            "private StackPanel BuildChangedFileRows(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(panel, Does.Contain("HorizontalScrollBarVisibility = ScrollBarVisibility.Auto"));
+            Assert.That(rows, Does.Contain("TextWrapping = TextWrapping.NoWrap")
+                .And.Contain("FileChangeStatus.Added => \"+\"")
+                .And.Contain("FileChangeStatus.Deleted => \"−\"")
+                .And.Contain("_ => \"Δ\"")
+                .And.Contain("DiffAddedSummary")
+                .And.Contain("DiffRemovedSummary")
+                .And.Contain("DiffModifiedSummary")
+                .And.Contain("_onOpenTaskFileDiff(task, path)"));
+        });
+    }
+
+    [Test]
+    public void VerificationFindings_UseSharedStatusIconsAndKeepEvidenceExpanded()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var method = ExtractMethod(source, "private void PopulateTaskDetail(PlanTask task, Plan? plan)");
+        var icon = ExtractMethod(source,
+            "private static FrameworkElement CreateVerificationIcon(VerificationIconKind kind)");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("\"supported\" => VerificationIconKind.Supported")
+                .And.Contain("\"missing\" or \"overstated\" => VerificationIconKind.Failed")
+                .And.Contain("new Paragraph(new Run(finding.Evidence))"));
+            Assert.That(icon, Does.Contain("\"TaskSucceeded\"")
+                .And.Contain("\"TaskFailed\"")
+                .And.Contain("\"PlanApprovalResolvedCheck\""));
+        });
+    }
+
     private static void AssertThemeBrushColors(
         string themeXaml,
         string expectedTaskLinkText,

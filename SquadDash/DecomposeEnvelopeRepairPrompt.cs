@@ -32,7 +32,8 @@ internal static class DecomposeEnvelopeRepairPrompt
               "revision": "{{revision}}",
               "status": "complete",
               "commit": "<exact abbreviated SHA previously returned by git rev-parse --short HEAD>",
-              "summary": "concise description of what was done",
+              "summary": "one-sentence outcome retained for compatibility",
+              "completedWork": ["one concrete completed outcome per array item"],
               "remainingWork": [],
               "deferredWork": [],
               "verification": {

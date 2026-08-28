@@ -48,7 +48,10 @@ internal sealed record DecomposeStepResult(
     [property: JsonIgnore]
         IReadOnlyList<PlanEvidenceCommit>? Commits = null,
     [property: JsonIgnore]
-        IReadOnlyList<PlanExecutionAnomaly>? ExecutionAnomalies = null);
+        IReadOnlyList<PlanExecutionAnomaly>? ExecutionAnomalies = null,
+    [property: JsonPropertyName("completedWork")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        IReadOnlyList<string>? CompletedWork = null);
 
 internal static class DecomposeStepResultParser
 {
@@ -82,6 +85,13 @@ internal static class DecomposeStepResultParser
                 },
             DeferredWork = (result.DeferredWork ?? [])
                 .Where(item => item is not null)
+                .ToArray(),
+            // Older result envelopes supplied only the prose summary. Preserve that response as
+            // one complete item rather than guessing at sentence boundaries.
+            CompletedWork = (result.CompletedWork ??
+                    (string.IsNullOrWhiteSpace(result.Summary) ? [] : [result.Summary]))
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .Select(item => item.Trim())
                 .ToArray(),
         };
 

@@ -137,7 +137,8 @@ internal static class PlanStoreUpdater
         Plan existing,
         string taskId,
         DecomposeStepResult candidate,
-        IReadOnlyList<string> changedFiles)
+        IReadOnlyList<string> changedFiles,
+        string? baselineCommit = null)
     {
         var now = DateTimeOffset.UtcNow;
         return existing with
@@ -154,7 +155,9 @@ internal static class PlanStoreUpdater
                             changedFiles,
                             candidate.Verification,
                             now,
-                            candidate.DeferredWork),
+                            candidate.DeferredWork,
+                            candidate.CompletedWork,
+                            baselineCommit),
                     }
                     : task).ToArray(),
             Progress = existing.Progress with { ExecutingTaskId = taskId },
@@ -275,6 +278,7 @@ internal static class PlanStoreUpdater
                 ExecutionAnomalies = MergeExecutionAnomalies(task.ExecutionAnomalies, acceptedResult.ExecutionAnomalies),
                 CompletedAt = acceptedResult.Status == "complete" ? task.CompletedAt ?? now : task.CompletedAt,
                 CompletionSummary = acceptedResult.Summary,
+                CompletionSummaryItems = acceptedResult.CompletedWork,
                 ProofEvidence = acceptedResult.ProofEvidence?.Select(evidence => new PlanTaskProofEvidence(
                     evidence.RequirementId,
                     evidence.ProofType,
@@ -504,6 +508,7 @@ internal static class PlanStoreUpdater
             Commit = null,
             CompletedAt = null,
             CompletionSummary = null,
+            CompletionSummaryItems = null,
             ProvenanceChain = updatedChain,
         };
 
@@ -927,13 +932,15 @@ internal static class PlanStoreUpdater
                 task.CompletedAt,
                 task.CompletionSummary,
                 "changes-requested",
-                instructions.Trim());
+                instructions.Trim(),
+                task.CompletionSummaryItems);
             return task with
             {
                 Status = PlanTaskStatus.Pending,
                 Commit = null,
                 CompletedAt = null,
                 CompletionSummary = null,
+                CompletionSummaryItems = null,
                 AttemptHistory = (task.AttemptHistory ?? []).Append(priorAttempt).ToArray(),
             };
         }).ToArray();
@@ -1204,6 +1211,7 @@ internal static class PlanStoreUpdater
             CompletedAt = task.CompletedAt ?? task.Handoff?.SubmittedAt ?? completedAt,
             CompletionSummary = task.CompletionSummary ?? task.Handoff?.Summary ??
                 "Implementation completed before its human-review gate moved to an amendment.",
+            CompletionSummaryItems = task.CompletionSummaryItems ?? task.Handoff?.CompletedWork,
         };
 
     /// <summary>
@@ -1456,6 +1464,7 @@ internal static class PlanStoreUpdater
                 Commit = accepted.Commit,
                 CompletedAt = accepted.CompletedAt,
                 CompletionSummary = accepted.Summary,
+                CompletionSummaryItems = accepted.CompletedWork,
                 AttemptHistory = history.Count == 1 ? null : history.Take(history.Count - 1).ToArray(),
             };
         }).ToArray();
@@ -1995,6 +2004,7 @@ internal static class PlanStoreUpdater
                 Commit = null,
                 CompletedAt = null,
                 CompletionSummary = null,
+                CompletionSummaryItems = null,
             }
             : task).ToArray();
         var targetIndex = Array.FindIndex(tasks, task =>
@@ -2283,6 +2293,7 @@ internal static class PlanStoreUpdater
                     ? task.CompletedAt ?? completedAt
                     : task.CompletedAt,
                 CompletionSummary = result.Summary,
+                CompletionSummaryItems = result.CompletedWork,
                 ProofEvidence = result.ProofEvidence?.Select(evidence => new PlanTaskProofEvidence(
                     evidence.RequirementId,
                     evidence.ProofType,

@@ -53,7 +53,11 @@ internal static class PlanCompletionSummaryBuilder
             if (task.CompletedAt is { } completedAt) AddTime(builder, "Completed", completedAt);
             if (task.Handoff is { } handoff)
             {
-                builder.AppendLine($"- Handoff: {handoff.Summary}");
+                builder.AppendLine("- Completed work:");
+                foreach (var item in handoff.CompletedWork is { Count: > 0 }
+                             ? handoff.CompletedWork
+                             : [handoff.Summary])
+                    builder.AppendLine($"  - {item}");
                 if (handoff.ChangedFiles.Count > 0)
                 {
                     builder.AppendLine("- Files changed:");
@@ -70,7 +74,13 @@ internal static class PlanCompletionSummaryBuilder
                 }
             }
             else if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
-                builder.AppendLine($"- Handoff: {task.CompletionSummary}");
+            {
+                builder.AppendLine("- Completed work:");
+                foreach (var item in task.CompletionSummaryItems is { Count: > 0 }
+                             ? task.CompletionSummaryItems
+                             : [task.CompletionSummary])
+                    builder.AppendLine($"  - {item}");
+            }
 
             if (task.ExecutionAnomalies is { Count: > 0 })
             {

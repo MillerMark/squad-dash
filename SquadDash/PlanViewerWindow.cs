@@ -50,6 +50,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<Task<bool>>? _initializeRepository;
     private readonly Action<string>? _onOpenCommit;
     private readonly Action<IReadOnlyList<PlanEvidenceCommit>>? _onOpenCommits;
+    private readonly Func<PlanTask, Task<IReadOnlyList<PlanTaskFileChange>>>? _resolveTaskFileChanges;
+    private readonly Action<PlanTask, string>? _onOpenTaskFileDiff;
     private readonly Action<Plan>? _onContinueInterruptedTask;
     private readonly Action<Plan>? _onReplanRemainingWork;
     private readonly Action<Plan, string>? _onOpenReviewCard;
@@ -212,6 +214,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<string, bool>? isApprovalChangeActivityActive = null,
         Func<Task<bool>>? initializeRepository = null,
         Action<IReadOnlyList<PlanEvidenceCommit>>? onOpenCommits = null,
+        Func<PlanTask, Task<IReadOnlyList<PlanTaskFileChange>>>? resolveTaskFileChanges = null,
+        Action<PlanTask, string>? onOpenTaskFileDiff = null,
         Action<Plan>? onContinueInterruptedTask = null,
         Action<Plan>? onReplanRemainingWork = null,
         Action<Plan, string>? onOpenReviewCard = null,
@@ -258,6 +262,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _initializeRepository = initializeRepository;
         _onOpenCommit = onOpenCommit;
         _onOpenCommits = onOpenCommits;
+        _resolveTaskFileChanges = resolveTaskFileChanges;
+        _onOpenTaskFileDiff = onOpenTaskFileDiff;
         _onContinueInterruptedTask = onContinueInterruptedTask;
         _onReplanRemainingWork = onReplanRemainingWork;
         _onOpenReviewCard = onOpenReviewCard;
@@ -6763,15 +6769,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.Margin = new Thickness(0, 0, 0, 8);
         _detailDocument.Blocks.Add(statusPara);
 
-        // 3. Completion Summary (shown first when present)
-        if (!string.IsNullOrWhiteSpace(task.CompletionSummary))
+        // 3. Completion Summary (shown first when present). Legacy prose is deliberately one
+        // bullet; sentence boundaries are not completion-item boundaries.
+        var completionItems = task.CompletionSummaryItems is { Count: > 0 }
+            ? task.CompletionSummaryItems.Where(item => !string.IsNullOrWhiteSpace(item)).ToArray()
+            : !string.IsNullOrWhiteSpace(task.CompletionSummary)
+                ? [task.CompletionSummary]
+                : task.Handoff is { Summary.Length: > 0 } legacyHandoff
+                    ? [legacyHandoff.Summary]
+                    : [];
+        if (completionItems.Length > 0)
         {
             AddSectionHeader("Completion Summary");
-            var summaryPara = new Paragraph(new Run(task.CompletionSummary));
-            summaryPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            summaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            summaryPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(summaryPara);
+            var summaryList = new List { MarkerStyle = TextMarkerStyle.Disc };
+            summaryList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            summaryList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            summaryList.Margin = new Thickness(0, 0, 0, 12);
+            foreach (var item in completionItems)
+                summaryList.ListItems.Add(new ListItem(new Paragraph(new Run(item))));
+            _detailDocument.Blocks.Add(summaryList);
         }
 
         // 4. Commit evidence
@@ -6782,7 +6798,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             var commits = detailEvidence;
             AddSectionHeader(commits.Length > 1 ? "Commits" : "Commit");
-            var label = commits.Length > 1 ? $"{commits.Length} commits" : commits[0].Commit;
+            var label = commits.Length > 1
+                ? $"{commits.Length} commits"
+                : ProofProvenancePresenter.FormatShortSha(commits[0].Commit) ?? commits[0].Commit;
             var commitPara = new Paragraph();
             var commitLink = new Hyperlink(new Run(label) { FontFamily = new FontFamily("Consolas") })
             {
@@ -6801,50 +6819,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(commitPara);
         }
 
-        // 5. Handoff
+        // 5. Unique handoff details. The handoff commit, summary, and worker-reported
+        // verification duplicate the canonical completion and independent verification above.
         if (task.Handoff is { } handoff)
         {
-            AddSectionHeader("Handoff");
-
-            var handoffCommitPara = new Paragraph();
-            handoffCommitPara.Inlines.Add(new Run("Commit: ") { FontWeight = FontWeights.SemiBold });
-            handoffCommitPara.Inlines.Add(new Run(handoff.Commit) { FontFamily = new FontFamily("Consolas") });
-            handoffCommitPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            handoffCommitPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            _detailDocument.Blocks.Add(handoffCommitPara);
-
-            if (!string.IsNullOrWhiteSpace(handoff.Summary))
-            {
-                var hSummaryPara = new Paragraph(new Run(handoff.Summary));
-                hSummaryPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-                hSummaryPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-                _detailDocument.Blocks.Add(hSummaryPara);
-            }
-
             if (handoff.ChangedFiles is { Count: > 0 })
             {
-                var filesPara = new Paragraph(new Run("Changed Files:") { FontWeight = FontWeights.SemiBold });
-                filesPara.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
-                filesPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
-                _detailDocument.Blocks.Add(filesPara);
-
-                var fileList = new List();
-                fileList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-                fileList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
-                fileList.MarkerStyle = TextMarkerStyle.None;
-                foreach (var file in handoff.ChangedFiles)
-                    fileList.ListItems.Add(new ListItem(new Paragraph(new Run(file) { FontFamily = new FontFamily("Consolas") })));
-                _detailDocument.Blocks.Add(fileList);
-            }
-
-            if (handoff.Verification is { } ver)
-            {
-                var verPara = new Paragraph();
-                verPara.Inlines.Add(new Run("Verification: ") { FontWeight = FontWeights.SemiBold });
-                verPara.Inlines.Add(new Run(ver.Status ?? "unknown"));
-                verPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-                verPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-                _detailDocument.Blocks.Add(verPara);
+                AddSectionHeader("Changed Files");
+                var filesPanel = BuildChangedFilesPanel(task,
+                    handoff.ChangedFiles.Select(path => new PlanTaskFileChange(path, FileChangeStatus.Modified)).ToArray());
+                _detailDocument.Blocks.Add(new BlockUIContainer(filesPanel) { Margin = new Thickness(0, 0, 0, 12) });
+                _ = RefreshChangedFilesAsync(task, filesPanel);
             }
 
             if (handoff.DeferredWork is { Count: > 0 })
@@ -6868,24 +6853,36 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 _detailDocument.Blocks.Add(deferList);
             }
 
-            // Spacing after handoff section
-            var handoffSpacer = new Paragraph { Margin = new Thickness(0, 0, 0, 12) };
-            _detailDocument.Blocks.Add(handoffSpacer);
         }
 
-        // 6. Verification History
-        if (task.VerificationHistory is { Count: > 0 })
+        // 6. Verification
+        var humanAcceptanceGates = ResolveHumanAcceptanceGates(task, plan);
+        if (task.VerificationHistory is { Count: > 0 } || humanAcceptanceGates.Count > 0)
         {
-            AddSectionHeader("Verification History");
-            foreach (var report in task.VerificationHistory)
+            AddSectionHeader("Verification");
+            foreach (var report in task.VerificationHistory ?? [])
             {
                 var verdictPara = new Paragraph();
-                var verdictColorKey = report.Verdict.Equals("accepted", StringComparison.OrdinalIgnoreCase)
-                    ? "PriorityLow" : "PriorityHigh";
-                var verdictRun = new Run($"● {report.Verdict}") { FontWeight = FontWeights.SemiBold };
-                verdictRun.SetResourceReference(TextElement.ForegroundProperty, verdictColorKey);
+                var accepted = report.Verdict.Equals(PlanTaskVerificationVerdict.Accepted, StringComparison.OrdinalIgnoreCase);
+                var verdictIcon = report.Verdict.Equals(PlanTaskVerificationVerdict.ReworkRequired, StringComparison.OrdinalIgnoreCase)
+                    ? VerificationIconKind.Failed
+                    : accepted ? VerificationIconKind.Supported : VerificationIconKind.Unclear;
+                verdictPara.Inlines.Add(new InlineUIContainer(CreateVerificationIcon(
+                    verdictIcon))
+                {
+                    BaselineAlignment = BaselineAlignment.Center,
+                });
+                var verdictLabel = report.Verdict switch
+                {
+                    PlanTaskVerificationVerdict.Accepted => "Verified",
+                    PlanTaskVerificationVerdict.ReworkRequired => "Rework required",
+                    PlanTaskVerificationVerdict.HumanReviewRequired => "Human review required",
+                    _ => report.Verdict,
+                };
+                var verdictRun = new Run($"  {verdictLabel}") { FontWeight = FontWeights.SemiBold };
+                verdictRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                 verdictPara.Inlines.Add(verdictRun);
-                verdictPara.Inlines.Add(new Run($"  ({report.CompletedAt:yyyy-MM-dd HH:mm})"));
+                verdictPara.Inlines.Add(new Run($"  ({report.CompletedAt.ToLocalTime():yyyy-MM-dd HH:mm})"));
                 verdictPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 _detailDocument.Blocks.Add(verdictPara);
 
@@ -6900,25 +6897,39 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
                 if (report.ClaimFindings is { Count: > 0 })
                 {
-                    var findingList = new List();
-                    findingList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-                    findingList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
-                    findingList.MarkerStyle = TextMarkerStyle.None;
-                    findingList.Margin = new Thickness(8, 0, 0, 8);
                     foreach (var finding in report.ClaimFindings)
                     {
                         var fPara = new Paragraph();
-                        var dispositionColor = finding.Disposition.Equals("confirmed", StringComparison.OrdinalIgnoreCase)
-                            ? "PriorityLow" : "PriorityMid";
-                        var dispRun = new Run($"[{finding.Disposition}] ");
-                        dispRun.SetResourceReference(TextElement.ForegroundProperty, dispositionColor);
-                        fPara.Inlines.Add(dispRun);
+                        var iconKind = finding.Disposition switch
+                        {
+                            "supported" => VerificationIconKind.Supported,
+                            "missing" or "overstated" => VerificationIconKind.Failed,
+                            _ => VerificationIconKind.Unclear,
+                        };
+                        fPara.Inlines.Add(new InlineUIContainer(CreateVerificationIcon(iconKind))
+                        {
+                            BaselineAlignment = BaselineAlignment.Center,
+                        });
+                        fPara.Inlines.Add(new Run("  "));
                         fPara.Inlines.Add(new Run(finding.Claim));
-                        findingList.ListItems.Add(new ListItem(fPara));
+                        fPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                        fPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                        fPara.Margin = new Thickness(8, 1, 0, 1);
+                        _detailDocument.Blocks.Add(fPara);
+
+                        if (!string.IsNullOrWhiteSpace(finding.Evidence))
+                        {
+                            var evidencePara = new Paragraph(new Run(finding.Evidence));
+                            evidencePara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                            evidencePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+                            evidencePara.Margin = new Thickness(31, 0, 0, 5);
+                            _detailDocument.Blocks.Add(evidencePara);
+                        }
                     }
-                    _detailDocument.Blocks.Add(findingList);
                 }
             }
+
+            AppendHumanVerificationAcceptance(humanAcceptanceGates);
         }
 
         // 7. Proof Evidence
@@ -6951,7 +6962,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // 9. Description
         if (!string.IsNullOrWhiteSpace(task.Description))
         {
-            AddSectionHeader("Description");
+            AddSectionHeader("Original Task Description");
             var descPara = new Paragraph(new Run(task.Description));
             descPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
@@ -7010,6 +7021,135 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 agentList.ListItems.Add(new ListItem(agentPara));
             }
             _detailDocument.Blocks.Add(agentList);
+        }
+    }
+
+    private ScrollViewer BuildChangedFilesPanel(
+        PlanTask task,
+        IReadOnlyList<PlanTaskFileChange> files)
+    {
+        var scroll = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            CanContentScroll = false,
+            Content = BuildChangedFileRows(task, files),
+        };
+        scroll.SetResourceReference(StyleProperty, "RosterScrollViewerStyle");
+        return scroll;
+    }
+
+    private StackPanel BuildChangedFileRows(
+        PlanTask task,
+        IReadOnlyList<PlanTaskFileChange> files)
+    {
+        var rows = new StackPanel { Orientation = Orientation.Vertical };
+        foreach (var file in files)
+        {
+            var statusText = file.Status switch
+            {
+                FileChangeStatus.Added => "+",
+                FileChangeStatus.Deleted => "−",
+                _ => "Δ",
+            };
+            var statusColor = file.Status switch
+            {
+                FileChangeStatus.Added => "DiffAddedSummary",
+                FileChangeStatus.Deleted => "DiffRemovedSummary",
+                _ => "DiffModifiedSummary",
+            };
+            var line = new TextBlock
+            {
+                TextWrapping = TextWrapping.NoWrap,
+                FontFamily = new FontFamily("Consolas"),
+                Margin = new Thickness(0, 1, 8, 1),
+            };
+            line.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            var marker = new Run(statusText + " ") { FontWeight = FontWeights.Bold };
+            marker.SetResourceReference(TextElement.ForegroundProperty, statusColor);
+            line.Inlines.Add(marker);
+            var link = new Hyperlink(new Run(file.Path))
+            {
+                Cursor = Cursors.Hand,
+                TextDecorations = new TextDecorationCollection(),
+                ToolTip = ToolTipHelper.MakeThemedToolTip("Open this file's task diff"),
+            };
+            link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            if (_onOpenTaskFileDiff is not null)
+            {
+                var path = file.Path;
+                link.Click += (_, _) => _onOpenTaskFileDiff(task, path);
+            }
+            line.Inlines.Add(link);
+            rows.Children.Add(line);
+        }
+        return rows;
+    }
+
+    private async Task RefreshChangedFilesAsync(PlanTask task, ScrollViewer scroll)
+    {
+        if (_resolveTaskFileChanges is null) return;
+        try
+        {
+            var files = await _resolveTaskFileChanges(task);
+            if (files.Count > 0)
+                scroll.Content = BuildChangedFileRows(task, files);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("PlanViewer", $"Could not resolve changed-file statuses for {task.TaskId}: {ex.Message}");
+        }
+    }
+
+    private enum VerificationIconKind { Supported, Failed, Unclear, HumanAccepted }
+
+    private static FrameworkElement CreateVerificationIcon(VerificationIconKind kind)
+    {
+        var resourceKey = kind switch
+        {
+            VerificationIconKind.Supported => "TaskSucceeded",
+            VerificationIconKind.Failed => "TaskFailed",
+            VerificationIconKind.HumanAccepted => "PlanApprovalResolvedCheck",
+            _ => "TaskAwaitingHumanReview",
+        };
+        if (Application.Current?.TryFindResource(resourceKey) is FrameworkElement icon)
+        {
+            icon.Width = 11;
+            icon.Height = 11;
+            icon.VerticalAlignment = VerticalAlignment.Center;
+            return icon;
+        }
+        return new TextBlock { Text = kind == VerificationIconKind.Failed ? "×" : "✓" };
+    }
+
+    private static IReadOnlyList<PlanApprovalGate> ResolveHumanAcceptanceGates(PlanTask task, Plan? plan)
+    {
+        if (plan is null || task.VerificationHistory?.Any(report =>
+                string.Equals(report.Verdict, PlanTaskVerificationVerdict.HumanReviewRequired,
+                    StringComparison.OrdinalIgnoreCase)) != true)
+            return [];
+        return plan.ApprovalGates.Where(gate =>
+            string.Equals(gate.Status, PlanGateStatus.Approved, StringComparison.OrdinalIgnoreCase) &&
+            gate.AfterTaskIds.Contains(task.TaskId, StringComparer.Ordinal)).ToArray();
+    }
+
+    private void AppendHumanVerificationAcceptance(IReadOnlyList<PlanApprovalGate> gates)
+    {
+        foreach (var gate in gates)
+        {
+            var accepted = new Paragraph();
+            accepted.Inlines.Add(new InlineUIContainer(CreateVerificationIcon(VerificationIconKind.HumanAccepted))
+            {
+                BaselineAlignment = BaselineAlignment.Center,
+            });
+            var identity = string.IsNullOrWhiteSpace(gate.ResolvedBy) ? "user" : gate.ResolvedBy;
+            accepted.Inlines.Add(new Run($"  Accepted by {identity}") { FontWeight = FontWeights.SemiBold });
+            if (gate.ResolvedAt is { } resolvedAt)
+                accepted.Inlines.Add(new Run($"  ({resolvedAt.ToLocalTime():yyyy-MM-dd HH:mm})"));
+            accepted.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            accepted.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            accepted.Margin = new Thickness(0, 4, 0, 4);
+            _detailDocument?.Blocks.Add(accepted);
         }
     }
 

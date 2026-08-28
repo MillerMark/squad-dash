@@ -112,7 +112,8 @@ internal static class PlanHumanReviewStepAcceptance
                 handoff.Commit,
                 handoff.Summary,
                 [],
-                handoff.Verification)
+                handoff.Verification,
+                CompletedWork: handoff.CompletedWork)
             {
                 Commits = commits,
             };

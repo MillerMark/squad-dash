@@ -12,19 +12,29 @@ internal sealed class CommitViewerWindow : ChromedWindow
     private readonly string _repositoryPath;
     private readonly IReadOnlyList<CommitViewerEntry> _commits;
     private string _commitSha;
+    private readonly string? _baselineSha;
+    private readonly string? _initialFilePath;
     private readonly ListBox _commitList = new();
     private readonly ListBox _fileList = new();
     private readonly StackPanel _diffPanel = new();
     private readonly TextBlock _heading = new();
     private readonly TextBlock _status = new();
 
-    private CommitViewerWindow(string repositoryPath, IReadOnlyList<CommitViewerEntry> commits)
+    private CommitViewerWindow(
+        string repositoryPath,
+        IReadOnlyList<CommitViewerEntry> commits,
+        string? baselineSha = null,
+        string? initialFilePath = null)
         : base(captionHeight: CloseButtonHeight)
     {
         _repositoryPath = repositoryPath;
         _commits = commits;
         _commitSha = commits[0].Sha;
-        Title = commits.Count == 1 ? $"Commit {ShortSha(_commitSha)}" : $"Evidence · {commits.Count} commits";
+        _baselineSha = baselineSha;
+        _initialFilePath = initialFilePath;
+        Title = baselineSha is not null
+            ? $"Changes {ShortSha(baselineSha)}..{ShortSha(_commitSha)}"
+            : commits.Count == 1 ? $"Commit {ShortSha(_commitSha)}" : $"Evidence · {commits.Count} commits";
         Width = commits.Count > 1 ? 1400 : 1120;
         Height = 760;
         MinWidth = 720;
@@ -163,6 +173,22 @@ internal sealed class CommitViewerWindow : ChromedWindow
         return window;
     }
 
+    internal static async Task<CommitViewerWindow> CreateRangeAsync(
+        string repositoryPath,
+        string baselineSha,
+        string terminalSha,
+        string initialFilePath)
+    {
+        var repositoryRoot = await CommitViewerGit.ResolveRepositoryRootAsync(repositoryPath);
+        var window = new CommitViewerWindow(
+            repositoryRoot,
+            [new CommitViewerEntry(terminalSha)],
+            baselineSha,
+            initialFilePath);
+        await window.LoadCommitAsync();
+        return window;
+    }
+
     private void SizeForActiveMonitor()
     {
         var handle = new WindowInteropHelper(Owner ?? this).Handle;
@@ -188,20 +214,40 @@ internal sealed class CommitViewerWindow : ChromedWindow
         _fileList.Items.Clear();
         _heading.Text = $"Loading commit {ShortSha(_commitSha)}…";
         var description = await RunGitAsync("show", "-s", "--format=%s%n%an · %ad", "--date=local", _commitSha);
-        var stats = await RunGitAsync("diff-tree", "--root", "--no-commit-id", "-r", "--numstat", _commitSha);
+        var stats = _baselineSha is null
+            ? await RunGitAsync("diff-tree", "--root", "--no-commit-id", "-r", "--numstat", _commitSha)
+            : await RunGitAsync("diff", "--numstat", _baselineSha, _commitSha);
         var files = ParseNumStat(stats);
 
         var descriptionLines = description.Trim().Split('\n', 2);
         _heading.Text = descriptionLines.FirstOrDefault()?.TrimEnd('\r') ?? $"Commit {ShortSha(_commitSha)}";
+        var revisionLabel = _baselineSha is null
+            ? ShortSha(_commitSha)
+            : $"{ShortSha(_baselineSha)}..{ShortSha(_commitSha)}";
         _status.Text = descriptionLines.Length > 1
-            ? $"{ShortSha(_commitSha)} · {descriptionLines[1].Trim()} · {files.Count} changed file{(files.Count == 1 ? "" : "s")}" 
-            : $"{ShortSha(_commitSha)} · {files.Count} changed file{(files.Count == 1 ? "" : "s")}";
+            ? $"{revisionLabel} · {descriptionLines[1].Trim()} · {files.Count} changed file{(files.Count == 1 ? "" : "s")}"
+            : $"{revisionLabel} · {files.Count} changed file{(files.Count == 1 ? "" : "s")}";
 
         foreach (var file in files)
             _fileList.Items.Add(CreateFileItem(file));
 
         if (_fileList.Items.Count > 0)
-            _fileList.SelectedIndex = 0;
+        {
+            var selectedIndex = 0;
+            if (!string.IsNullOrWhiteSpace(_initialFilePath))
+            {
+                for (var index = 0; index < _fileList.Items.Count; index++)
+                {
+                    if (_fileList.Items[index] is ListBoxItem { Tag: CommitFile candidate } &&
+                        string.Equals(candidate.Path, _initialFilePath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedIndex = index;
+                        break;
+                    }
+                }
+            }
+            _fileList.SelectedIndex = selectedIndex;
+        }
         else
             ShowMessage("This commit does not contain any file changes.");
     }
@@ -249,7 +295,9 @@ internal sealed class CommitViewerWindow : ChromedWindow
         ShowMessage("Loading diff…");
         try
         {
-            var text = await RunGitAsync("show", "--format=", "--no-ext-diff", "--no-color", "--unified=3", _commitSha, "--", file.Path);
+            var text = _baselineSha is null
+                ? await RunGitAsync("show", "--format=", "--no-ext-diff", "--no-color", "--unified=3", _commitSha, "--", file.Path)
+                : await RunGitAsync("diff", "--no-ext-diff", "--no-color", "--unified=3", _baselineSha, _commitSha, "--", file.Path);
             RenderDiff(text);
         }
         catch (Exception ex)

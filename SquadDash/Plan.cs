@@ -107,7 +107,10 @@ internal sealed record PlanTaskAttempt(
     [property: JsonPropertyName("disposition")] string Disposition,
     [property: JsonPropertyName("note")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? Note = null);
+    string? Note = null,
+    [property: JsonPropertyName("completedWork")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<string>? CompletedWork = null);
 
 /// <summary>
 /// Durable evidence that the user chose to work conversationally on a task while its plan
@@ -208,7 +211,13 @@ internal sealed record PlanTaskHandoff(
     [property: JsonPropertyName("submittedAt")] DateTimeOffset SubmittedAt,
     [property: JsonPropertyName("deferredWork")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<PlanTaskDeferredWork>? DeferredWork = null);
+                                                IReadOnlyList<PlanTaskDeferredWork>? DeferredWork = null,
+    [property: JsonPropertyName("completedWork")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? CompletedWork = null,
+    [property: JsonPropertyName("baselineCommit")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? BaselineCommit = null);
 
 internal sealed record PlanTaskVerificationFinding(
     [property: JsonPropertyName("claim")] string Claim,
@@ -305,7 +314,10 @@ internal sealed record PlanTask(
                                                 string? VerificationLevel = null,
     [property: JsonPropertyName("executionAnomalies")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<PlanExecutionAnomaly>? ExecutionAnomalies = null);
+                                                IReadOnlyList<PlanExecutionAnomaly>? ExecutionAnomalies = null,
+    [property: JsonPropertyName("completionSummaryItems")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<string>? CompletionSummaryItems = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.

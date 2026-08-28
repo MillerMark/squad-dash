@@ -112,7 +112,8 @@ internal static class PlanRevisionApplier
                         existing.CompletedAt,
                         existing.CompletionSummary,
                         "plan-revision",
-                        "Task specification changed in an approved plan revision.")).ToArray();
+                        "Task specification changed in an approved plan revision.",
+                        existing.CompletionSummaryItems)).ToArray();
                 }
                 return task with
                 {

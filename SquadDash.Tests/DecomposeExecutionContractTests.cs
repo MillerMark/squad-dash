@@ -24,6 +24,34 @@ internal sealed class DecomposeStepResultParserTests
 
         Assert.That(DecomposeStepResultParser.TryParse(text, out var result, out var error), Is.True, error);
         Assert.That(result!.TaskId, Is.EqualTo("PLAN-20260725-001"));
+        Assert.That(result.CompletedWork, Is.EqualTo(new[] { "Implemented the step." }),
+            "Legacy paragraph-only envelopes must become one item without sentence parsing.");
+    }
+
+    [Test]
+    public void CompleteResult_WithStructuredCompletedWork_PreservesItemBoundariesAndSentences()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId":"PLAN-20260725",
+              "taskId":"PLAN-20260725-001",
+              "revision":"abc123",
+              "status":"complete",
+              "commit":"abcdef1",
+              "summary":"Implemented the step.",
+              "completedWork":[" Added the production path. It handles retries. ","Added focused tests."],
+              "remainingWork":[],
+              "verification":{"status":"passed","command":"dotnet test","summary":"All tests passed."}
+            }
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out var result, out var error), Is.True, error);
+        Assert.That(result!.CompletedWork, Is.EqualTo(new[]
+        {
+            "Added the production path. It handles retries.",
+            "Added focused tests.",
+        }));
     }
 
     [Test]

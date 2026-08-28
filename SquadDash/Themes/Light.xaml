@@ -191,6 +191,7 @@
     <SolidColorBrush x:Key="DiffRemovedMarker" Color="#902727" Opacity="0.5"/>
     <SolidColorBrush x:Key="DiffAddedSummary" Color="#4682B4"/>
     <SolidColorBrush x:Key="DiffRemovedSummary" Color="#CD5C5C"/>
+    <SolidColorBrush x:Key="DiffModifiedSummary" Color="#8A6F88"/>
     <SolidColorBrush x:Key="DiffDeletedFileText" Color="#A77575"/>
     <!-- Chip State Tokens -->
     <SolidColorBrush x:Key="ChipSelectedSurface" Color="#E5F0FF"/>

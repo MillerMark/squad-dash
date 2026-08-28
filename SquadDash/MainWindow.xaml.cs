@@ -12777,6 +12777,10 @@ public partial class MainWindow : Window
                 else
                     _ = OpenInterruptedTaskReviewAsync(groupId, durablePlan?.Revision ?? displayedPlan.Revision);
             },
+            resolveTaskFileChanges: task => _currentWorkspace is null
+                ? Task.FromResult<IReadOnlyList<PlanTaskFileChange>>([])
+                : PlanTaskFileDiffResolver.ResolveAsync(_currentWorkspace.FolderPath, task),
+            onOpenTaskFileDiff: (task, path) => _ = OpenTaskFileDiffAsync(task, path),
             onContinueInterruptedTask: onContinueInterruptedTask,
             onReplanRemainingWork: onReplanRemainingWork,
             onOpenReviewCard: (current, taskId) => OpenReviewCard(current, taskId),
@@ -14044,7 +14048,7 @@ public partial class MainWindow : Window
             if (verificationPlan is not null)
             {
                 var updated = PlanStoreUpdater.ApplyTaskVerificationPending(
-                    verificationPlan, taskId, result, changedFiles);
+                    verificationPlan, taskId, result, changedFiles, baseline);
                 if (!TryPublishPlanProgress(updated, out var verificationProgressError))
                 {
                     StopAndOfferDecomposeRecovery(
@@ -58793,6 +58797,29 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             UIErrorHelper.ShowWarning("Open Evidence", $"SquadDash could not load this evidence.\n\n{ex.Message}");
+        }
+    }
+
+    private async Task OpenTaskFileDiffAsync(PlanTask task, string path)
+    {
+        var folderPath = _currentWorkspace?.FolderPath;
+        var range = PlanTaskFileDiffResolver.ResolveRange(task);
+        if (string.IsNullOrWhiteSpace(folderPath) || range is null) return;
+        try
+        {
+            var viewer = await CommitViewerWindow.CreateRangeAsync(
+                folderPath,
+                range.BaselineCommit,
+                range.TerminalCommit,
+                path);
+            viewer.Owner = this;
+            viewer.Show();
+        }
+        catch (Exception ex)
+        {
+            UIErrorHelper.ShowWarning(
+                "Open File Changes",
+                $"SquadDash could not load this file diff.\n\n{ex.Message}");
         }
     }
 

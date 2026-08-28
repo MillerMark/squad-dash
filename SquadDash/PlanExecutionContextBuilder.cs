@@ -39,7 +39,11 @@ internal static class PlanExecutionContextBuilder
                 if (ancestor.Handoff is { } handoff)
                 {
                     builder.AppendLine($"  - Commit: `{handoff.Commit}`");
-                    builder.AppendLine($"  - I previously completed this by: {handoff.Summary}");
+                    builder.AppendLine("  - I previously completed:");
+                    foreach (var item in handoff.CompletedWork is { Count: > 0 }
+                                 ? handoff.CompletedWork
+                                 : [handoff.Summary])
+                        builder.AppendLine($"    - {item}");
                     if (handoff.ChangedFiles.Count > 0)
                         builder.AppendLine($"  - Changed files: {string.Join(", ", handoff.ChangedFiles.Select(path => $"`{path}`"))}");
                     if (!string.IsNullOrWhiteSpace(handoff.Verification?.Summary))
@@ -53,7 +57,13 @@ internal static class PlanExecutionContextBuilder
                     }
                 }
                 else if (!string.IsNullOrWhiteSpace(ancestor.CompletionSummary))
-                    builder.AppendLine($"  - Earlier accepted summary: {ancestor.CompletionSummary}");
+                {
+                    builder.AppendLine("  - Earlier accepted completion summary:");
+                    foreach (var item in ancestor.CompletionSummaryItems is { Count: > 0 }
+                                 ? ancestor.CompletionSummaryItems
+                                 : [ancestor.CompletionSummary])
+                        builder.AppendLine($"    - {item}");
+                }
             }
         }
 
