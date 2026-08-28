@@ -273,10 +273,12 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         var imageBorder = new Border
         {
-            BorderThickness = new Thickness(0),
+            BorderThickness = new Thickness(1),
+            Margin = new Thickness(1),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top,
         };
+        imageBorder.SetResourceReference(Border.BorderBrushProperty, "DocumentLinkText");
         imageBorder.Child = _planThumbnailImage;
 
         var thumbnailContent = new Grid();
@@ -326,10 +328,13 @@ internal sealed class InboxMessageWindow : ChromedWindow
             imageBorder.MouseEnter += (_, _) =>
             {
                 imageBorder.BorderThickness = new Thickness(2);
-                imageBorder.SetResourceReference(Border.BorderBrushProperty, "ActivePanelBorder");
+                imageBorder.Margin = new Thickness(0);
             };
             imageBorder.MouseLeave += (_, _) =>
-                imageBorder.BorderThickness = new Thickness(0);
+            {
+                imageBorder.BorderThickness = new Thickness(1);
+                imageBorder.Margin = new Thickness(1);
+            };
         }
 
         // ── Body ──────────────────────────────────────────────────────────────
