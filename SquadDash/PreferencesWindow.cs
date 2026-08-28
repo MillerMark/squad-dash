@@ -165,6 +165,7 @@ internal sealed class PreferencesWindow : Window {
         "gpt-4.1",
         "gemini-3-pro-preview"
     };
+    private static readonly string[] DefaultReasoningEffortOptions = { "low", "medium", "high", "max" };
     private const string NotReportedMetadataText = "Not reported";
 
     /// <summary>
@@ -1971,14 +1972,19 @@ internal sealed class PreferencesWindow : Window {
                 Tag = null
             });
 
-            var efforts = supportedReasoningEfforts is null
-                ? Array.Empty<string>()
-                : supportedReasoningEfforts
-                    .Where(effort => !string.IsNullOrWhiteSpace(effort))
-                    .Select(effort => effort.Trim())
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(effort => effort, StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
+            var normalizedSelected = string.IsNullOrWhiteSpace(selectedReasoningEffort)
+                ? null
+                : selectedReasoningEffort.Trim();
+            var effortSource = supportedReasoningEfforts ?? DefaultReasoningEffortOptions;
+            var efforts = effortSource
+                .Where(effort => !string.IsNullOrWhiteSpace(effort))
+                .Select(effort => effort.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (!string.IsNullOrWhiteSpace(normalizedSelected) &&
+                !efforts.Contains(normalizedSelected, StringComparer.OrdinalIgnoreCase)) {
+                efforts.Add(normalizedSelected);
+            }
             foreach (var effort in efforts) {
                 _reasoningEffortComboBox.Items.Add(new ComboBoxItem {
                     Content = effort,
@@ -1986,9 +1992,6 @@ internal sealed class PreferencesWindow : Window {
                 });
             }
 
-            var normalizedSelected = string.IsNullOrWhiteSpace(selectedReasoningEffort)
-                ? null
-                : selectedReasoningEffort.Trim();
             var selectedItem = _reasoningEffortComboBox.Items
                 .OfType<ComboBoxItem>()
                 .FirstOrDefault(item => string.Equals(item.Tag as string, normalizedSelected, StringComparison.OrdinalIgnoreCase))
