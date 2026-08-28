@@ -55,10 +55,23 @@ internal sealed class SquadCliResolutionServiceTests
                 return new CliInvocationResult(0, "0.13.0", string.Empty, false);
             }
 
-            if (fileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
-                args.SequenceEqual(["view", "@bradygaster/squad-cli", "version"]))
+            if (fileName.Equals(Path.Combine(nodeDir, "node.exe"), StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual([globalEntry, "update-check", "--json"]))
             {
-                return new CliInvocationResult(0, "0.13.0", string.Empty, false);
+                return new CliInvocationResult(
+                    1,
+                    """
+                    {
+                      "current": "0.13.0",
+                      "channel": "stable",
+                      "latest": "0.14.1",
+                      "updateAvailable": true,
+                      "cacheAge": "PT20S",
+                      "checkedAt": "2026-08-26T10:00:00.000Z"
+                    }
+                    """,
+                    string.Empty,
+                    false);
             }
 
             throw new AssertionException($"Unexpected invocation: {fileName} {string.Join(" ", args)}");
@@ -76,6 +89,71 @@ internal sealed class SquadCliResolutionServiceTests
             Assert.That(resolved.DetectedSource, Is.EqualTo(CliInstallSource.GlobalNpm));
             Assert.That(resolved.EntryScriptPath, Is.EqualTo(globalEntry));
             Assert.That(resolved.Version, Is.EqualTo("0.13.0"));
+            Assert.That(resolved.UpdateInstruction.TargetVersion, Is.EqualTo("0.14.1"));
+            Assert.That(resolved.UpdateInstruction.CanAutoUpdate, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task ProbeVersionAsync_NodeScript_UsesUpdateCheckJson_WhenSupported()
+    {
+        var nodePath = @"C:\tools\node.exe";
+        var entryPath = @"C:\tools\squad\dist\cli-entry.js";
+        var runner = new FakeProcessRunner((fileName, args, _) =>
+        {
+            if (fileName.Equals(nodePath, StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual([entryPath, "--version"]))
+            {
+                return new CliInvocationResult(0, "0.12.1", string.Empty, false);
+            }
+
+            if (fileName.Equals(nodePath, StringComparison.OrdinalIgnoreCase) &&
+                args.SequenceEqual([entryPath, "update-check", "--json"]))
+            {
+                return new CliInvocationResult(
+                    1,
+                    """
+                    {
+                      "current": "0.12.1",
+                      "channel": "stable",
+                      "latest": "0.12.3",
+                      "updateAvailable": true,
+                      "cacheAge": "PT5M",
+                      "checkedAt": "2026-08-26T10:00:00.000Z"
+                    }
+                    """,
+                    string.Empty,
+                    false);
+            }
+
+            throw new AssertionException($"Unexpected invocation: {fileName} {string.Join(" ", args)}");
+        });
+        var service = new SquadCliResolutionService(
+            runner,
+            new FakeEnvironmentProvider(processPath: null, userPath: null, machinePath: null));
+        var candidate = new ResolvedCliCandidate(
+            SelectionMode: CliSelectionMode.GlobalNpm,
+            DetectedSource: CliInstallSource.GlobalNpm,
+            RuntimeType: CliRuntimeType.NodeScript,
+            ExecutablePath: nodePath,
+            EntryScriptPath: entryPath,
+            Version: null,
+            IsAvailable: true,
+            AgentCmdSupport: CliCapabilityStatus.Unknown,
+            ProbeError: null,
+            UpdateInstruction: new CliUpdateInstruction(null, false, null, null));
+
+        var resolved = await service.ProbeVersionAsync(candidate);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved.Version, Is.EqualTo("0.12.1"));
+            Assert.That(resolved.UpdateInstruction.TargetVersion, Is.EqualTo("0.12.3"));
+            Assert.That(resolved.UpdateInstruction.CanAutoUpdate, Is.True);
+            Assert.That(resolved.UpdateInstruction.UpdateCommand, Is.EqualTo("npm install -g @bradygaster/squad-cli@0.12.3"));
+            Assert.That(runner.Calls.Any(call =>
+                call.FileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                call.Args.SequenceEqual(["view", "@bradygaster/squad-cli", "version"])), Is.False);
         });
     }
 
@@ -500,6 +578,13 @@ internal sealed class SquadCliResolutionServiceTests
             Assert.That(resolved.UpdateInstruction.TargetVersion, Is.EqualTo("0.9.5"));
             Assert.That(resolved.UpdateInstruction.UpdateCommand, Is.EqualTo("npm install --save-dev @bradygaster/squad-cli@0.9.5"));
             Assert.That(resolved.UpdateInstruction.CanAutoUpdate, Is.True);
+            Assert.That(runner.Calls.Any(call =>
+                call.FileName.Equals("npm", StringComparison.OrdinalIgnoreCase) &&
+                call.Args.SequenceEqual(["view", "@bradygaster/squad-cli", "version"])), Is.True);
+            Assert.That(runner.Calls.Any(call =>
+                call.FileName.Equals(nodePath, StringComparison.OrdinalIgnoreCase) &&
+                call.Args.SequenceEqual([Path.Combine(packageRoot, "dist", "cli-entry.js"), "update-check", "--json"])),
+                Is.False);
         });
     }
 

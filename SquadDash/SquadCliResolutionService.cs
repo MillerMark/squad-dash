@@ -92,7 +92,7 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
             }
         }
 
-        var targetVersion = await ProbeTargetVersionAsync().ConfigureAwait(false);
+        var targetVersion = await ProbeTargetVersionAsync(candidate, version).ConfigureAwait(false);
         var updateInstruction = CreateUpdateInstruction(candidate, version, targetVersion);
         return candidate with
         {
@@ -299,13 +299,94 @@ internal sealed class SquadCliResolutionService : ISquadCliResolutionService
             .ConfigureAwait(false);
     }
 
-    private async Task<string?> ProbeTargetVersionAsync()
+    private async Task<string?> ProbeTargetVersionAsync(ResolvedCliCandidate candidate, string? installedVersion)
     {
+        if (candidate.IsAvailable && SquadRuntimeCompatibility.SupportsUpdateCheckJson(installedVersion))
+        {
+            var updateCheckResult = await RunUpdateCheckJsonAsync(candidate).ConfigureAwait(false);
+            if (!updateCheckResult.TimedOut &&
+                (updateCheckResult.ExitCode == 0 || updateCheckResult.ExitCode == 1 || updateCheckResult.ExitCode == 2) &&
+                TryParseUpdateCheckTargetVersion(updateCheckResult.Stdout, out var targetVersion))
+            {
+                return targetVersion;
+            }
+
+            SquadDashTrace.Write(
+                "CliResolution",
+                "Falling back to npm target-version probe after update-check --json returned an unparseable result.");
+        }
+
         var target = await RunNpmAsync(["view", SquadPackageName, "version"]).ConfigureAwait(false);
 
         return target.ExitCode == 0 && !target.TimedOut && TryParseSemVersion(target.Stdout, out _, out var parsed)
             ? parsed
             : null;
+    }
+
+    private async Task<CliInvocationResult> RunUpdateCheckJsonAsync(ResolvedCliCandidate candidate)
+    {
+        if (candidate.RuntimeType == CliRuntimeType.NpmShim)
+        {
+            var cmdInvocation =
+                $"{CliCmdEscaping.CmdQuoteToken(candidate.ExecutablePath)} update-check --json";
+            return await _processRunner
+                .RunAsync("cmd.exe", ["/d", "/s", "/c", cmdInvocation], ProbeTimeout)
+                .ConfigureAwait(false);
+        }
+
+        if (candidate.RuntimeType == CliRuntimeType.NodeScript && !string.IsNullOrWhiteSpace(candidate.EntryScriptPath))
+        {
+            return await _processRunner
+                .RunAsync(candidate.ExecutablePath, [candidate.EntryScriptPath, "update-check", "--json"], ProbeTimeout)
+                .ConfigureAwait(false);
+        }
+
+        return await _processRunner
+            .RunAsync(candidate.ExecutablePath, ["update-check", "--json"], ProbeTimeout)
+            .ConfigureAwait(false);
+    }
+
+    private static bool TryParseUpdateCheckTargetVersion(string? json, out string? targetVersion)
+    {
+        targetVersion = null;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!document.RootElement.TryGetProperty("latest", out var latestElement))
+            {
+                // Structured output with no latest version (for example '{}'
+                // when SQUAD_NO_UPDATE_CHECK=1) is still a successful probe.
+                return true;
+            }
+
+            if (latestElement.ValueKind == JsonValueKind.Null)
+            {
+                return true;
+            }
+
+            if (latestElement.ValueKind == JsonValueKind.String &&
+                TryParseSemVersion(latestElement.GetString(), out _, out var parsed))
+            {
+                targetVersion = parsed;
+                return true;
+            }
+        }
+        catch (JsonException ex)
+        {
+            SquadDashTrace.Write("CliResolution", $"Failed to parse update-check JSON output: {ex.Message}");
+        }
+
+        return false;
     }
 
     private async Task<(string? Prefix, bool TimedOut)> ProbeNpmPrefixAsync()
