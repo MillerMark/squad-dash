@@ -13,10 +13,12 @@ namespace SquadDash;
 internal sealed class CliModelCatalogService : ICliModelCatalogService {
     private static readonly TimeSpan DefaultCacheTtl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan DefaultFetchTimeout = TimeSpan.FromSeconds(12);
+    private const string ModelsRefreshDisplayName = "Refresh model catalog";
 
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private readonly Dictionary<string, CliModelMetadata> _cacheByModelId = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<CancellationToken, Task<IReadOnlyList<CliModelMetadata>>> _fetchCatalogAsync;
+    private readonly Func<CancellationToken, Task> _refreshCatalogAsync;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly TimeSpan _cacheTtl;
 
@@ -27,16 +29,35 @@ internal sealed class CliModelCatalogService : ICliModelCatalogService {
 
     public CliModelCatalogService(IWorkspacePaths workspacePaths, TimeSpan? cacheTtl = null)
         : this(
+            workspacePaths,
+            new SquadCliResolutionService(new SystemProcessRunner(), new SystemEnvironmentProvider()),
+            new SquadInstallerServiceProcessRunner(),
+            cacheTtl) {
+    }
+
+    public CliModelCatalogService(
+        IWorkspacePaths workspacePaths,
+        ISquadCliResolutionService cliResolutionService,
+        ISquadCommandRunner commandRunner,
+        TimeSpan? cacheTtl = null)
+        : this(
             cancellationToken => FetchCatalogViaSdkBridgeAsync(workspacePaths, cancellationToken),
             cacheTtl,
-            utcNow: null) {
+            utcNow: null,
+            refreshCatalogAsync: cancellationToken => RefreshCatalogViaCliAsync(
+                workspacePaths,
+                cliResolutionService,
+                commandRunner,
+                cancellationToken)) {
     }
 
     internal CliModelCatalogService(
         Func<CancellationToken, Task<IReadOnlyList<CliModelMetadata>>> fetchCatalogAsync,
         TimeSpan? cacheTtl = null,
-        Func<DateTimeOffset>? utcNow = null) {
+        Func<DateTimeOffset>? utcNow = null,
+        Func<CancellationToken, Task>? refreshCatalogAsync = null) {
         _fetchCatalogAsync = fetchCatalogAsync ?? throw new ArgumentNullException(nameof(fetchCatalogAsync));
+        _refreshCatalogAsync = refreshCatalogAsync ?? (_ => Task.CompletedTask);
         _cacheTtl = cacheTtl is { } ttl && ttl > TimeSpan.Zero
             ? ttl
             : DefaultCacheTtl;
@@ -61,7 +82,7 @@ internal sealed class CliModelCatalogService : ICliModelCatalogService {
     }
 
     public Task RefreshAsync(CancellationToken cancellationToken = default) =>
-        RefreshCoreAsync(force: true, cancellationToken);
+        RefreshCoreAsync(force: true, invalidateExistingCache: true, cancellationToken);
 
     public IReadOnlyList<string> GetAllModelIds() =>
         _hasCache ? _cacheByModelId.Keys.ToArray() : [];
@@ -70,16 +91,33 @@ internal sealed class CliModelCatalogService : ICliModelCatalogService {
         var now = _utcNow();
         var shouldRefresh = !_hasCache || now >= _nextRefreshAtUtc;
         return shouldRefresh
-            ? RefreshCoreAsync(force: false, cancellationToken)
+            ? RefreshCoreAsync(force: false, invalidateExistingCache: false, cancellationToken)
             : Task.CompletedTask;
     }
 
-    private async Task RefreshCoreAsync(bool force, CancellationToken cancellationToken) {
+    private async Task RefreshCoreAsync(
+        bool force,
+        bool invalidateExistingCache,
+        CancellationToken cancellationToken) {
         await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try {
             var now = _utcNow();
             if (!force && _hasCache && now < _nextRefreshAtUtc)
                 return;
+
+            if (force) {
+                try {
+                    await _refreshCatalogAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex) {
+                    SquadDashTrace.Write("CliModelCatalog", $"CLI models refresh command failed: {ex.Message}");
+                }
+            }
+
+            if (invalidateExistingCache) {
+                _cacheByModelId.Clear();
+                _hasCache = false;
+            }
 
             try {
                 var entries = await _fetchCatalogAsync(cancellationToken).ConfigureAwait(false);
@@ -109,6 +147,35 @@ internal sealed class CliModelCatalogService : ICliModelCatalogService {
         finally {
             _refreshLock.Release();
         }
+    }
+
+    private static async Task RefreshCatalogViaCliAsync(
+        IWorkspacePaths workspacePaths,
+        ISquadCliResolutionService cliResolutionService,
+        ISquadCommandRunner commandRunner,
+        CancellationToken cancellationToken) {
+        ArgumentNullException.ThrowIfNull(workspacePaths);
+        ArgumentNullException.ThrowIfNull(cliResolutionService);
+        ArgumentNullException.ThrowIfNull(commandRunner);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var workspaceRoot = workspacePaths.ApplicationRoot;
+        var candidate = await cliResolutionService.ResolveAsync(workspaceRoot).ConfigureAwait(false);
+        if (!candidate.IsAvailable || !SquadCliCommands.SupportsModelsRefresh(candidate.Version))
+            return;
+
+        var refreshResult = await commandRunner
+            .RunAsync(candidate, workspaceRoot, ModelsRefreshDisplayName, SquadCliCommands.ModelsRefreshArguments)
+            .ConfigureAwait(false);
+        if (refreshResult.Success)
+            return;
+
+        var detail = !string.IsNullOrWhiteSpace(refreshResult.StandardError)
+            ? refreshResult.StandardError.Trim()
+            : !string.IsNullOrWhiteSpace(refreshResult.StandardOutput)
+                ? refreshResult.StandardOutput.Trim()
+                : refreshResult.Message;
+        throw new InvalidOperationException($"squad models refresh failed: {detail}");
     }
 
     private static IReadOnlyList<string> NormalizeReasoningEfforts(IReadOnlyList<string>? efforts) {

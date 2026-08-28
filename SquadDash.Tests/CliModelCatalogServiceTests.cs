@@ -121,6 +121,49 @@ internal sealed class CliModelCatalogServiceTests {
     }
 
     [Test]
+    public async Task RefreshAsync_InvokesCliModelsRefreshAndReplacesCachedMetadata() {
+        var fetchCount = 0;
+        var cliRefreshCount = 0;
+
+        var service = new CliModelCatalogService(
+            _ => {
+                fetchCount++;
+                return Task.FromResult<IReadOnlyList<CliModelMetadata>>([
+                    new CliModelMetadata(
+                        "gpt-5",
+                        "chat",
+                        1.0m,
+                        2.0m,
+                        fetchCount == 1 ? "preview" : "ga",
+                        ["low", "high"])
+                ]);
+            },
+            cacheTtl: TimeSpan.FromHours(1),
+            refreshCatalogAsync: _ => {
+                cliRefreshCount++;
+                return Task.CompletedTask;
+            });
+
+        var beforeRefresh = await service.GetModelMetadataAsync("gpt-5", AiProviderType.Copilot);
+        var beforeExplicitRefresh = await service.GetModelMetadataAsync("gpt-5", AiProviderType.Copilot);
+
+        await service.RefreshAsync();
+
+        var afterRefresh = await service.GetModelMetadataAsync("gpt-5", AiProviderType.Copilot);
+
+        Assert.Multiple(() => {
+            Assert.That(cliRefreshCount, Is.EqualTo(1));
+            Assert.That(fetchCount, Is.EqualTo(2));
+            Assert.That(beforeRefresh, Is.Not.Null);
+            Assert.That(beforeExplicitRefresh, Is.Not.Null);
+            Assert.That(afterRefresh, Is.Not.Null);
+            Assert.That(beforeRefresh!.ReleaseStatus, Is.EqualTo("preview"));
+            Assert.That(beforeExplicitRefresh!.ReleaseStatus, Is.EqualTo("preview"));
+            Assert.That(afterRefresh!.ReleaseStatus, Is.EqualTo("ga"));
+        });
+    }
+
+    [Test]
     public void ParseCatalog_EnrichedFieldsPresent_HydratesMetadata() {
         var parsed = CliModelCatalogService.ParseCatalog("""
             [

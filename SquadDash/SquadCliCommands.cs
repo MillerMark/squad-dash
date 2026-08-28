@@ -56,8 +56,15 @@ internal static class SquadCliCommands {
     public static IReadOnlyList<string> WorkspaceUpgradeApplyArguments { get; } =
         ["upgrade"];
 
+    public static IReadOnlyList<string> ModelsRefreshArguments { get; } =
+        ["models", "refresh"];
+
     internal static bool SupportsWorkspaceUpgradeDryRun(string? installedVersion) {
         return SquadRuntimeCompatibility.SupportsWorkspaceUpgradeDryRunPreview(installedVersion);
+    }
+
+    internal static bool SupportsModelsRefresh(string? installedVersion) {
+        return SquadRuntimeCompatibility.SupportsModelsRefresh(installedVersion);
     }
 
     internal static ProcessStartInfo BuildCommandStartInfo(
