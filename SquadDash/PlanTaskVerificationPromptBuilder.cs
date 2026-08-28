@@ -66,7 +66,14 @@ internal static class PlanTaskVerificationPromptBuilder
         else
         {
             builder.AppendLine("Inspect the actual commit, diff, production call sites, and tests. A helper or test is not production integration " +
-                               "unless the running path consumes it. Treat the worker summary as a claim, not evidence.");
+                               "unless the running path consumes it. Treat the worker summary as a claim, not evidence. Compare the task contract " +
+                               "with the host-recorded baseline sufficiently to identify when the same behavior and proof already existed before " +
+                               "the candidate commit. This is an efficiency review, not a new acceptance gate: record a clearly redundant but " +
+                               "safe, compatible addition in the verification summary or test assessment, and accept it when the resulting code " +
+                               "still satisfies every task requirement and every material candidate claim is supported. Do not request rework, " +
+                               "return human-review-required, or consume the task's one automatic rework solely because verified-no-op would have " +
+                               "been a cleaner result. Require intervention only for a concrete defect, unsupported material claim, or missing " +
+                               "task-owned requirement under the existing verdict rules.");
         }
         builder.AppendLine("Treat every explicit current-task requirement as binding. Do not waive missing work merely because a later task " +
                            "might address it. A worker-created deferral of work otherwise owned by the current task is legitimate only when the " +

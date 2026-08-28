@@ -215,6 +215,10 @@ internal sealed class PlanTaskVerificationTests
             Assert.That(prompt, Does.Contain("report `human-review-required` as a warning instead of rejecting the task"));
             Assert.That(prompt, Does.Contain("`P-2` — Wire consumer"));
             Assert.That(prompt, Does.Contain("Use the source from the running application"));
+            Assert.That(prompt, Does.Contain("This is an efficiency review, not a new acceptance gate"));
+            Assert.That(prompt, Does.Contain("clearly redundant but safe, compatible addition"));
+            Assert.That(prompt, Does.Contain("Do not request rework"));
+            Assert.That(prompt, Does.Contain("solely because verified-no-op would have been a cleaner result"));
         });
     }
 

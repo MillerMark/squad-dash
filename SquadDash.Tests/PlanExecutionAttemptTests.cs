@@ -8,6 +8,25 @@ namespace SquadDash.Tests;
 internal sealed class PlanExecutionAttemptTests
 {
     [Test]
+    public void FreshAttemptPrompt_PrefersVerifiedNoOpWithoutTurningTheAuditIntoAPlanStop()
+    {
+        var prompt = PlanFreshAttemptPrompt.Build(
+            "PLAN-20260728",
+            "PLAN-20260728-002",
+            "rev-2",
+            "closed attempt",
+            "current routing context");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("unchanged host-recorded baseline"));
+            Assert.That(prompt, Does.Contain("make no edits and return a `verified-no-op` result"));
+            Assert.That(prompt, Does.Contain("Otherwise create or adopt the one clean changed result"));
+            Assert.That(prompt, Does.Contain("Do not interrupt the plan merely because this audit is needed"));
+        });
+    }
+
+    [Test]
     public void FindAuthorization_IsBoundToAttemptTaskRevisionHandleAndCapability()
     {
         var authorization = new PlanExecutionAssignmentAttempt(
@@ -90,6 +109,10 @@ internal sealed class PlanExecutionAttemptTests
                 Assert.That(context, Does.Contain("ask that same worker"));
                 Assert.That(context, Does.Contain("starts with no launch failures"));
                 Assert.That(context, Does.Contain("do not waive the assignment"));
+                Assert.That(context, Does.Contain("Before modifying files"));
+                Assert.That(context, Does.Contain("do not manufacture edits, tests, documentation, or an empty commit"));
+                Assert.That(context, Does.Contain("return a complete `verified-no-op` result"));
+                Assert.That(context, Does.Contain("do not interrupt the plan"));
                 Assert.That(context, Does.Contain("Do not claim an `actualPrimaryAgent`"));
             });
         }

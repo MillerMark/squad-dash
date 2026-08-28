@@ -13281,8 +13281,7 @@ public partial class MainWindow : Window
                 ? $"assigned agent {assignments[0].AgentHandle}"
                 : "one generic primary worker";
             ScheduleDecomposeSystemEntry(
-                $"Plan execution attempt {attempt.AttemptId} started for {currentTaskId} with {assignmentLabel}. " +
-                "Failures from earlier attempt IDs are historical and do not apply to this attempt.");
+                $"Plan execution attempt {attempt.AttemptId} started for {currentTaskId} with {assignmentLabel}.");
         }
         var routingContext = policy == PlanAgentRoutingPolicy.Off
             ? "## Serialized Plan Execution Safety\n\nAgent routing is disabled. " +
@@ -13368,7 +13367,7 @@ public partial class MainWindow : Window
                 planExecutionContext = PlanExecutionContextBuilder.Build(durablePlan, durableTask) +
                     $"\n\nGenerated plan projection: `{projectionPath}`. The context above is authoritative for this turn; " +
                     "the projection is an inspectable plan-only reference and tasks.md is not an execution source. " +
-                    "Inspect the current implementation and tests before changing anything. Treat requirements already satisfied by earlier or concurrent work as complete, avoid duplicating equivalent work, and report the terminal commit; SquadDash records the full commit range. " +
+                    "Inspect the current implementation and tests before changing anything. Treat requirements already satisfied by earlier or concurrent work as complete, avoid duplicating equivalent work, and report either the terminal changed commit or a `verified-no-op` result with requirement-scoped repository evidence from the unchanged task baseline; SquadDash records the full commit range. " +
                     "Capability discovery must be non-mutating: never run a mutating subcommand followed by `--help` in the active workspace. Inspect top-level help, installed source, or official documentation, or use an isolated disposable copy. Specifically, never run `squad upgrade --help`; Squad CLI 0.10 executes the upgrade instead of showing subcommand help.";
             }
         }
