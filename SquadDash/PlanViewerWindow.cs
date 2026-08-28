@@ -8293,7 +8293,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var statusColorKey = isActiveTask ? "ImportantText" : "SubtleText";
                 var statusText = FormatTaskStatus(task.Status)?.ToLowerInvariant();
                 var roleRun = new Run($"\n{assignment.Role}");
-                roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                roleRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
 
                 var para = new Paragraph();
                 para.Inlines.Add(stepRun);
@@ -8305,7 +8305,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     para.Inlines.Add(statusRun);
                 }
                 para.Inlines.Add(roleRun);
-                para.Margin = new Thickness(0, 0, 0, 4);
+                para.Margin = new Thickness(0, 2, 0, 6);
                 taskList.ListItems.Add(new ListItem(para));
             }
         }
@@ -8327,13 +8327,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     stepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
                     var titleLink = CreateTaskLink(task.Title ?? task.Id, task.Id);
                     var roleRun = new Run($"\n{assignment.Role}");
-                    roleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                    roleRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
 
                     var para = new Paragraph();
                     para.Inlines.Add(stepRun);
                     para.Inlines.Add(titleLink);
                     para.Inlines.Add(roleRun);
-                    para.Margin = new Thickness(0, 0, 0, 4);
+                    para.Margin = new Thickness(0, 2, 0, 6);
                     taskList.ListItems.Add(new ListItem(para));
                 }
             }
