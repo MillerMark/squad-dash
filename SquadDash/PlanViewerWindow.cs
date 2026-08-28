@@ -8315,7 +8315,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     para.Inlines.Add(statusRun);
                 }
                 para.Inlines.Add(roleRun);
-                para.Margin = new Thickness(0, 4, 0, 8);
+                para.Margin = new Thickness(0, 6, 0, 10);
                 taskList.ListItems.Add(new ListItem(para));
             }
         }
@@ -8343,7 +8343,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     para.Inlines.Add(stepRun);
                     para.Inlines.Add(titleLink);
                     para.Inlines.Add(roleRun);
-                    para.Margin = new Thickness(0, 4, 0, 8);
+                    para.Margin = new Thickness(0, 6, 0, 10);
                     taskList.ListItems.Add(new ListItem(para));
                 }
             }
@@ -8498,7 +8498,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var header = new Paragraph(new Run(text) { FontWeight = FontWeights.SemiBold });
         header.SetResourceReference(TextElement.ForegroundProperty, "SectionHeader");
         header.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLargePlus");
-        header.Margin = new Thickness(0, 10, 0, 2);
+        header.Margin = new Thickness(0, 13, 0, 2);
         _detailDocument.Blocks.Add(header);
     }
 
