@@ -26,7 +26,7 @@ internal sealed class DecomposeRecoveryInboxReconcilerTests
             Assert.That(result.Message.Actions.Select(action => action.Label),
                 Is.EqualTo(new[]
                 {
-                    "Review repository changes for Step 1",
+                    "Review repository changes not attributed to Step 1",
                     "Step 1 Is Complete & Continue",
                     "Continue Working on Step 1",
                     "✎ Revise Remaining Plan…",
