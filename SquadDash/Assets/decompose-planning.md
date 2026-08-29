@@ -194,6 +194,12 @@ not required. Use the exact property names below; do not substitute familiar sho
   at most seven human checks in one checkpoint. Do not convert every implementation detail into a
   checkbox. The initial proposal must make the number and placement of all generated human
   checkpoints obvious to the reviewer.
+- Before submission, inspect every promised user-visible, interactive, live-UI, restart, focus,
+  window-state, notification, timing, and other human-observable outcome. If code inspection or an
+  automated test cannot truthfully establish that exact outcome, the plan must include a matching
+  human-only proof requirement at a checkpoint after the producing work and before any final audit.
+  AI assessment, source inspection, and headless tests are not substitutes for direct observation.
+  A missing checkpoint is a plan validation error and must be repaired before the plan is staged.
 - `tasks[].proofRequirements[].requirementId`: required unique lowercase kebab-case identifier.
 - `tasks[].proofRequirements[].proofType`: required supported proof type listed above.
 - `tasks[].proofRequirements[].description`: required non-empty evidence contract.

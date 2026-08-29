@@ -429,6 +429,7 @@ public partial class MainWindow : Window
     private string?                 _planProviderWaitInterruptionReason;
     private bool                    _planBranchLeasePausePending;
     private bool                    _decomposeRepairPending;
+    private PendingPlanHumanProofCoverageReview? _pendingPlanHumanProofCoverageReview;
     private string?                 _activePlanAwaitingGateApproval;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
     private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
@@ -5972,6 +5973,14 @@ public partial class MainWindow : Window
                     }
 
                     TrySaveInboxMessageFromResponse(rawResponse);
+                    var handledHumanProofCoverageReview =
+                        TryHandlePlanHumanProofCoverageReviewFromResponse(rawResponse);
+                    if (!handledHumanProofCoverageReview &&
+                        string.Equals(_pec.CurrentDispatchedItem?.SourceTag,
+                            "plan-human-proof-coverage", StringComparison.Ordinal))
+                    {
+                        handledHumanProofCoverageReview = HandleMissingPlanHumanProofCoverageReview();
+                    }
                     var handledVisualizerReview = TryHandlePlanVisualizerReviewFromResponse(rawResponse);
                     if (doneCurrentTurn?.SuppressTranscript == true && !handledVisualizerReview)
                     {
@@ -6037,7 +6046,7 @@ public partial class MainWindow : Window
                             }
                         }
 
-                        if (_decomposeRepairPending && !hasTasksPayload)
+                        if (_decomposeRepairPending && !hasTasksPayload && !handledHumanProofCoverageReview)
                         {
                             _decomposeRepairPending = false;
                             AppendLine("⚠ The automatic task-plan repair response did not contain TASKS_JSON. " +
@@ -9575,7 +9584,6 @@ public partial class MainWindow : Window
                 parserInput);
             return;
         }
-        _decomposeRepairPending = false;
         if (IsDurablePlanArchived(group.GroupId))
         {
             new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath).Archive(group.GroupId);
@@ -9586,6 +9594,149 @@ public partial class MainWindow : Window
         }
         StageValidatedDecomposeGroup(group, ownerView, parserInput);
     }
+
+    private bool BeginPlanHumanProofCoverageReview(
+        DecomposedTaskGroup group,
+        string? rejectedCandidate)
+    {
+        if (_currentWorkspace is null) return false;
+        rejectedCandidate = string.IsNullOrWhiteSpace(rejectedCandidate)
+            ? JsonSerializer.Serialize(group)
+            : rejectedCandidate;
+        PendingDecomposePlan plan;
+        try
+        {
+            plan = new PendingDecomposePlan(
+                PendingDecomposePlanStore.ComputeRevision(group),
+                group,
+                DateTimeOffset.UtcNow);
+            new PlanHumanProofCoverageCandidateStore(_currentWorkspace.SquadFolderPath).Save(plan);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
+                                      or InvalidOperationException)
+        {
+            AppendPlanStagingFailure(
+                $"Plan {group.GroupId} passed structural validation but could not be prepared for semantic preflight: {ex.Message}",
+                rejectedCandidate,
+                ownerView: null);
+            return false;
+        }
+
+        _pendingPlanHumanProofCoverageReview = new PendingPlanHumanProofCoverageReview(
+            plan, rejectedCandidate, Attempt: 0);
+        EnqueuePlanHumanProofCoverageReview(plan, correction: null);
+        return true;
+    }
+
+    private void EnqueuePlanHumanProofCoverageReview(PendingDecomposePlan plan, string? correction)
+    {
+        var prompt = PlanHumanProofCoverageReview.BuildPrompt(plan);
+        if (!string.IsNullOrWhiteSpace(correction))
+            prompt += $"\n\nYour previous response violated the required review envelope: {correction} " +
+                      "Return the complete corrected envelope now.";
+        var queued = EnqueuePrompt(
+            prompt,
+            isSystemInjected: true,
+            sourceTag: "plan-human-proof-coverage");
+        if (queued is null)
+        {
+            FailPlanHumanProofCoverageReview(
+                "SquadDash could not queue the human-proof coverage preflight.");
+            return;
+        }
+        queued.IsLocked = true;
+        queued.DisplayLabel = "Validate plan proof coverage";
+        queued.ReadOnlyDisplayText =
+            "AI is checking that every human-observable plan outcome has an approval checkpoint.";
+        SyncQueuePanel();
+    }
+
+    private bool TryHandlePlanHumanProofCoverageReviewFromResponse(string? rawResponse)
+    {
+        if (rawResponse?.Contains(PlanHumanProofCoverageReview.Marker, StringComparison.Ordinal) != true)
+            return false;
+        var pending = _pendingPlanHumanProofCoverageReview;
+        if (pending is null)
+        {
+            SquadDashTrace.Write("PlanPreflight",
+                "Ignored a human-proof coverage result because no plan preflight is pending.");
+            return true;
+        }
+        if (!PlanHumanProofCoverageReview.TryParse(rawResponse, out var review, out var error) || review is null)
+            return RetryOrFailPlanHumanProofCoverageReview(error ?? "The semantic preflight result was invalid.");
+        if (!string.Equals(review.GroupId, pending.Plan.Group.GroupId, StringComparison.Ordinal) ||
+            !string.Equals(review.BaseRevision, pending.Plan.Revision, StringComparison.Ordinal))
+            return RetryOrFailPlanHumanProofCoverageReview(
+                "The semantic preflight result identified a different plan revision.");
+
+        var knownTargets = pending.Plan.Group.Tasks.Select(task => task.Id)
+            .Concat((pending.Plan.Group.Validations ?? []).Select(validation => validation.ValidationId))
+            .Append(pending.Plan.Group.GroupId)
+            .ToHashSet(StringComparer.Ordinal);
+        var unknown = review.Issues.FirstOrDefault(issue => !knownTargets.Contains(issue.TargetId));
+        if (unknown is not null)
+            return RetryOrFailPlanHumanProofCoverageReview(
+                $"The semantic preflight referenced unknown target '{unknown.TargetId}'.");
+
+        _pendingPlanHumanProofCoverageReview = null;
+        if (review.Status == "revision-required")
+        {
+            new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
+                .Delete(pending.Plan.Group.GroupId);
+            QueueDecomposeRepair(
+                PlanHumanProofCoverageReview.BuildRepairDiagnostic(review),
+                pending.RejectedCandidate);
+            return true;
+        }
+
+        _decomposeRepairPending = false;
+        new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
+            .Delete(pending.Plan.Group.GroupId);
+        SquadDashTrace.Write("PlanPreflight",
+            $"Human-proof coverage passed plan={pending.Plan.Group.GroupId} revision={pending.Plan.Revision}.");
+        StageValidatedDecomposeGroup(
+            pending.Plan.Group,
+            ownerView: null,
+            retryResponse: pending.RejectedCandidate,
+            humanProofCoverageChecked: true);
+        return true;
+    }
+
+    private bool HandleMissingPlanHumanProofCoverageReview() =>
+        RetryOrFailPlanHumanProofCoverageReview(
+            $"The response did not contain {PlanHumanProofCoverageReview.Marker}.");
+
+    private bool RetryOrFailPlanHumanProofCoverageReview(string reason)
+    {
+        var pending = _pendingPlanHumanProofCoverageReview;
+        if (pending is null) return true;
+        if (pending.Attempt < 1)
+        {
+            _pendingPlanHumanProofCoverageReview = pending with { Attempt = pending.Attempt + 1 };
+            EnqueuePlanHumanProofCoverageReview(pending.Plan, reason);
+            return true;
+        }
+        FailPlanHumanProofCoverageReview(
+            "The human-proof coverage preflight was still invalid after one correction. " + reason);
+        return true;
+    }
+
+    private void FailPlanHumanProofCoverageReview(string reason)
+    {
+        var pending = _pendingPlanHumanProofCoverageReview;
+        _pendingPlanHumanProofCoverageReview = null;
+        _decomposeRepairPending = false;
+        if (pending is null) return;
+        new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
+            .Delete(pending.Plan.Group.GroupId);
+        AppendPlanStagingFailure(reason, pending.RejectedCandidate, ownerView: null);
+        SquadDashTrace.Write("PlanPreflight", reason);
+    }
+
+    private sealed record PendingPlanHumanProofCoverageReview(
+        PendingDecomposePlan Plan,
+        string RejectedCandidate,
+        int Attempt);
 
     private void TryCollectStagedPlanRevisionFromVerifiedAgent(SquadSdkEvent evt)
     {
@@ -10266,8 +10417,12 @@ public partial class MainWindow : Window
     private bool StageValidatedDecomposeGroup(
         DecomposedTaskGroup group,
         TranscriptTurnView? ownerView,
-        string? retryResponse = null)
+        string? retryResponse = null,
+        bool humanProofCoverageChecked = false)
     {
+        if (!humanProofCoverageChecked)
+            return BeginPlanHumanProofCoverageReview(group, retryResponse);
+
         var store = new PendingDecomposePlanStore(_currentWorkspace!.SquadFolderPath);
         PendingDecomposePlan? previousPlan;
         PendingDecomposePlan plan;
@@ -14673,6 +14828,36 @@ public partial class MainWindow : Window
             var evidence = valResult.AssertionEvidence
                 .Select(e => $"[{(e.Passed ? "PASS" : "FAIL")}] {e.Assertion}: {e.Evidence}")
                 .ToArray();
+            if (valResult.NeedsHumanProof)
+            {
+                var reviewPlan = ApplyAndPublishValidationHumanReviewRequired(
+                    groupId,
+                    validationId,
+                    valResult.Summary,
+                    evidence,
+                    valResult.ValidatedCommit,
+                    valResult.HumanProofRequirements ?? []);
+                ClearActiveValidation(activeExecution);
+                if (reviewPlan is null)
+                {
+                    FailValidationWithRecovery(groupId, validationId, activeExecution,
+                        "SquadDash could not save the required human review checkpoint.",
+                        valResult.ValidatedCommit);
+                    return;
+                }
+
+                ScheduleDecomposeSystemEntry(
+                    $"Review required · {contractValidation!.Title}. " +
+                    "Confirm the remaining observable evidence below; implementation work is preserved.");
+                var evidenceTaskId = contractValidation.AfterTaskIds.LastOrDefault() ?? validationId;
+                await ProcessPlanApprovalsAfterStepAsync(
+                    groupId,
+                    reviewPlan.Revision,
+                    evidenceTaskId,
+                    DecomposeGroupExecutionState.AwaitingApproval,
+                    reviewPlan);
+                return;
+            }
             var resultingPlan = ApplyAndPublishValidationResult(groupId, validationId, valResult.Passed,
                 valResult.Summary, evidence, valResult.ValidatedCommit);
             ClearActiveValidation(activeExecution);
@@ -14768,8 +14953,17 @@ public partial class MainWindow : Window
     {
         void Publish()
         {
+            var validation = _planStore?.Load(planId)?.Validations?.FirstOrDefault(candidate =>
+                string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal));
+            var preparesHumanReview =
+                PlanValidationHumanProofRecoveryPolicy.IsLegacyHumanProofOnlyFailure(validation);
             if (addMessage)
-                ShowSystemTranscriptEntry(message);
+                ShowSystemTranscriptEntry(preparesHumanReview && validation is not null
+                    ? $"Review required · {validation.Title}.\n" +
+                      "Why it paused: the remaining proof requires human observation. " +
+                      "Prepare the review checklist to continue.\n" +
+                      "Completed implementation work is preserved and will not be repeated."
+                    : message);
             var tag = $"plan-validation-recovery:{planId}:{validationId}";
             foreach (var existing in CoordinatorThread.Document.Blocks
                          .OfType<Section>()
@@ -14780,10 +14974,12 @@ public partial class MainWindow : Window
             var section = new Section { Tag = tag };
             var panel = new WrapPanel { Orientation = Orientation.Horizontal };
             var retry = TranscriptQuickReplyFactory.CreateButton(
-                "Retry Validation",
+                preparesHumanReview ? "Prepare Review Checklist" : "Retry Validation",
                 _transcriptFontSize,
                 toolTip: ToolTipHelper.MakeThemedToolTip(
-                    "Retry only this non-mutating validation. Completed implementation tasks and commits remain accepted."));
+                    preparesHumanReview
+                        ? "Re-evaluate this non-mutating audit under the human-review protocol and present the specific observations as checkboxes."
+                        : "Retry only this non-mutating validation. Completed implementation tasks and commits remain accepted."));
             retry.Click += async (_, _) =>
             {
                 retry.IsEnabled = false;
@@ -18059,7 +18255,9 @@ public partial class MainWindow : Window
         if (plan is null || validation is null) return;
 
         var message = $"Validation needs attention · {validation.Title}.\n" +
-                      $"Why it stopped: {validation.Summary ?? "The validation did not return acceptable evidence."}\n" +
+                      (PlanValidationHumanProofRecoveryPolicy.IsLegacyHumanProofOnlyFailure(validation)
+                          ? "Why it paused: the remaining proof requires human observation. Prepare the review checklist to continue.\n"
+                          : $"Why it stopped: {validation.Summary ?? "The validation did not return acceptable evidence."}\n") +
                       "Completed implementation work is preserved and will not be repeated.";
         var alreadyRecorded = _conversationManager.ConversationState.Turns.Any(turn =>
             turn.ResponseText?.Contains($"Validation needs attention · {validation.Title}", StringComparison.Ordinal) == true ||
@@ -20927,6 +21125,30 @@ public partial class MainWindow : Window
         if (PlanRecoveryAcceptancePolicy.ShouldAdvanceAfterAcceptance(acceptedPlan!))
             await StartOrResumeDurablePlanAsync(acceptedPlan);
         return true;
+    }
+
+    private Plan? ApplyAndPublishValidationHumanReviewRequired(
+        string groupId,
+        string validationId,
+        string summary,
+        IReadOnlyList<string> evidence,
+        string? validatedCommit,
+        IReadOnlyList<PlanTaskProofRequirement> proofRequirements)
+    {
+        try
+        {
+            var plan = _planStore?.Load(groupId);
+            if (plan is null) return null;
+            var updated = PlanStoreUpdater.ApplyValidationHumanReviewRequired(
+                plan, validationId, summary, evidence, validatedCommit, proofRequirements);
+            return TryPublishPlanProgress(updated, out _) ? updated : null;
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("PlanValidation",
+                $"Failed to persist human review checkpoint for {validationId}: {ex.Message}");
+            return null;
+        }
     }
 
     private async Task<bool> AcceptRejectedVerifiedNoOpAsync(

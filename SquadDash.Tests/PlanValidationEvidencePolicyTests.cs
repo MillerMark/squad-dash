@@ -50,6 +50,68 @@ internal sealed class PlanValidationEvidencePolicyTests
         Assert.That(PlanValidationEvidencePolicy.Validate(Validation, result), Is.Null);
     }
 
+    [Test]
+    public void NeedsHumanProof_WithAtomicLiveObservation_IsAccepted()
+    {
+        var result = new PlanValidationResultPayload(
+            Validation.ValidationId,
+            "PROOF-20260803",
+            false,
+            "Automated proof passed; live restart confirmation remains.",
+            [
+                new PlanAssertionEvidence("The live viewer updated.", true, "Automated contract passed."),
+                new PlanAssertionEvidence("The restart preserved the result.", false,
+                    "Requires direct observation after restart."),
+            ],
+            "0123456789abcdef",
+            PlanValidationResultPayload.NeedsHumanProofOutcome,
+            [new PlanTaskProofRequirement(
+                "restart-retained",
+                "restart-observation",
+                "The selected value remains after restart.",
+                "After restarting, does the selected value remain visible?",
+                HumanVerificationAccessMode.Recipe,
+                new HumanVerificationRecipe(
+                    "Select a non-default value and save.",
+                    "Restart SquadDash and reopen Options.",
+                    "Confirm the same value remains selected.",
+                    "Restore the original value."))]);
+
+        Assert.That(PlanValidationEvidencePolicy.Validate(Validation, result), Is.Null);
+    }
+
+    [Test]
+    public void NeedsHumanProof_RejectsMissingChecklist()
+    {
+        var result = new PlanValidationResultPayload(
+            Validation.ValidationId,
+            "PROOF-20260803",
+            false,
+            "Human observation remains.",
+            [
+                new PlanAssertionEvidence("The live viewer updated.", true, "Automated contract passed."),
+                new PlanAssertionEvidence("The restart preserved the result.", false, "Not observed."),
+            ],
+            "0123456789abcdef",
+            PlanValidationResultPayload.NeedsHumanProofOutcome,
+            []);
+
+        Assert.That(PlanValidationEvidencePolicy.Validate(Validation, result),
+            Does.Contain("no review checklist"));
+    }
+
+    [Test]
+    public void LegacyHumanCheckpointFailure_IsRecognizedForChecklistRecovery()
+    {
+        var failed = Validation with
+        {
+            Status = PlanValidationStatus.Failed,
+            Summary = "The global assertion fails because live UI outcomes are not backed by approved human-proof checkpoint evidence.",
+        };
+
+        Assert.That(PlanValidationHumanProofRecoveryPolicy.IsLegacyHumanProofOnlyFailure(failed), Is.True);
+    }
+
     private static PlanValidationResultPayload Result(IReadOnlyList<PlanAssertionEvidence> evidence) =>
         new(
             Validation.ValidationId,

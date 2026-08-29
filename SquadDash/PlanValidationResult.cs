@@ -16,7 +16,25 @@ internal sealed record PlanValidationResultPayload(
     [property: JsonPropertyName("assertionEvidence")] IReadOnlyList<PlanAssertionEvidence> AssertionEvidence,
     [property: JsonPropertyName("validatedCommit")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        string? ValidatedCommit = null);
+        string? ValidatedCommit = null,
+    [property: JsonPropertyName("outcome")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? Outcome = null,
+    [property: JsonPropertyName("humanProofRequirements")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        IReadOnlyList<PlanTaskProofRequirement>? HumanProofRequirements = null)
+{
+    internal const string PassedOutcome = "passed";
+    internal const string FailedOutcome = "failed";
+    internal const string NeedsHumanProofOutcome = "needs-human-proof";
+
+    internal string NormalizedOutcome => string.IsNullOrWhiteSpace(Outcome)
+        ? Passed ? PassedOutcome : FailedOutcome
+        : Outcome.Trim().ToLowerInvariant();
+
+    internal bool NeedsHumanProof =>
+        string.Equals(NormalizedOutcome, NeedsHumanProofOutcome, StringComparison.Ordinal);
+}
 
 /// <summary>Per-assertion structured evidence.</summary>
 internal sealed record PlanAssertionEvidence(
@@ -88,12 +106,87 @@ internal static class PlanValidationEvidencePolicy
             return $"Validation {validation.ValidationId} returned empty assertion evidence.";
 
         var allAssertionsPassed = returned.All(item => item.Passed);
-        if (result.Passed != allAssertionsPassed)
+        var outcome = result.NormalizedOutcome;
+        if (outcome is not (PlanValidationResultPayload.PassedOutcome or
+                            PlanValidationResultPayload.FailedOutcome or
+                            PlanValidationResultPayload.NeedsHumanProofOutcome))
+            return $"Validation {validation.ValidationId} returned unsupported outcome '{result.Outcome}'.";
+
+        if (result.Passed != (outcome == PlanValidationResultPayload.PassedOutcome) ||
+            (outcome == PlanValidationResultPayload.PassedOutcome) != allAssertionsPassed)
             return $"Validation {validation.ValidationId} overall status does not match its assertion results.";
+
+        var humanRequirements = result.HumanProofRequirements ?? [];
+        if (outcome == PlanValidationResultPayload.NeedsHumanProofOutcome)
+        {
+            var humanProofError = ValidateHumanProofRequirements(validation, humanRequirements);
+            if (humanProofError is not null)
+                return humanProofError;
+        }
+        else if (humanRequirements.Count > 0)
+        {
+            return $"Validation {validation.ValidationId} returned human-proof requirements without the needs-human-proof outcome.";
+        }
 
         if (string.IsNullOrWhiteSpace(result.ValidatedCommit))
             return $"Validation {validation.ValidationId} did not identify the commit it evaluated.";
 
         return null;
+    }
+
+    private static string? ValidateHumanProofRequirements(
+        PlanValidationNode validation,
+        IReadOnlyList<PlanTaskProofRequirement> requirements)
+    {
+        if (requirements.Count == 0)
+            return $"Validation {validation.ValidationId} needs human proof but returned no review checklist.";
+        if (requirements.Count > 7)
+            return $"Validation {validation.ValidationId} returned more than seven human review checks.";
+        if (requirements.Any(requirement =>
+                string.IsNullOrWhiteSpace(requirement.RequirementId) ||
+                string.IsNullOrWhiteSpace(requirement.Description) ||
+                string.IsNullOrWhiteSpace(requirement.Question)))
+            return $"Validation {validation.ValidationId} returned an incomplete human review check.";
+        if (requirements.GroupBy(requirement => requirement.RequirementId, StringComparer.Ordinal)
+                .Any(group => group.Count() > 1))
+            return $"Validation {validation.ValidationId} returned duplicate human review requirement IDs.";
+        if (requirements.Any(requirement =>
+                !PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType)))
+            return $"Validation {validation.ValidationId} may request only human-observation proof at a review checkpoint.";
+        if (requirements.Any(requirement =>
+                PlanHumanReviewChecklist.SplitLegacyQuestions(requirement.Question!).Count != 1))
+            return $"Validation {validation.ValidationId} must return one atomic question per human review check.";
+
+        foreach (var requirement in requirements)
+        {
+            var mode = requirement.AccessMode?.Trim().ToLowerInvariant();
+            if (mode is not (HumanVerificationAccessMode.DirectlyReachable or
+                             HumanVerificationAccessMode.Recipe))
+                return $"Validation {validation.ValidationId} human review checks must be directly reachable or include a recipe.";
+            if (mode == HumanVerificationAccessMode.Recipe &&
+                (requirement.VerificationRecipe is null ||
+                 string.IsNullOrWhiteSpace(requirement.VerificationRecipe.Setup) ||
+                 string.IsNullOrWhiteSpace(requirement.VerificationRecipe.Open) ||
+                 string.IsNullOrWhiteSpace(requirement.VerificationRecipe.Observe) ||
+                 string.IsNullOrWhiteSpace(requirement.VerificationRecipe.Cleanup)))
+                return $"Validation {validation.ValidationId} recipe checks require Setup, Open, Observe, and Cleanup instructions.";
+        }
+
+        return null;
+    }
+}
+
+/// <summary>Recognizes pre-outcome audit results that explicitly stopped only for missing human proof.</summary>
+internal static class PlanValidationHumanProofRecoveryPolicy
+{
+    internal static bool IsLegacyHumanProofOnlyFailure(PlanValidationNode? validation)
+    {
+        if (validation?.Status != PlanValidationStatus.Failed) return false;
+        var text = string.Join(" ", new[] { validation.Summary }
+            .Concat(validation.Evidence ?? [])
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
+        return text.Contains("human-proof checkpoint", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("human approval checkpoint", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("human checkpoint evidence", StringComparison.OrdinalIgnoreCase);
     }
 }

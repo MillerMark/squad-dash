@@ -822,6 +822,67 @@ internal static class PlanStoreUpdater
             : updated;
     }
 
+    /// <summary>
+    /// Converts a validation whose only unresolved evidence is human-observable into the normal
+    /// approval-checkpoint workflow. The validation remains pending and is rerun after approval,
+    /// so human attestation supplements rather than bypasses the independent audit.
+    /// </summary>
+    internal static Plan ApplyValidationHumanReviewRequired(
+        Plan existing,
+        string validationId,
+        string summary,
+        IReadOnlyList<string> evidence,
+        string? validatedCommit,
+        IReadOnlyList<PlanTaskProofRequirement> proofRequirements)
+    {
+        var validations = existing.Validations ?? [];
+        var validation = validations.FirstOrDefault(candidate =>
+            string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal) &&
+            candidate.Status is PlanValidationStatus.Ready or PlanValidationStatus.Validating);
+        if (validation is null || proofRequirements.Count == 0)
+            return existing;
+
+        var baseGateId = $"{validationId}-HUMAN-PROOF";
+        var gateId = baseGateId;
+        for (var suffix = 2; existing.ApprovalGates.Any(gate =>
+                 string.Equals(gate.GateId, gateId, StringComparison.Ordinal)); suffix++)
+            gateId = $"{baseGateId}-{suffix}";
+
+        var now = DateTimeOffset.UtcNow;
+        var gate = new PlanApprovalGate(
+            GateId: gateId,
+            Message: $"Review the human-observable evidence needed to complete “{validation.Title}”.",
+            AfterTaskIds: validation.AfterTaskIds,
+            BeforeTaskIds: validation.BeforeTaskIds,
+            Status: PlanGateStatus.Pending,
+            PlanRevision: existing.Revision,
+            PresentationAnchor: $"validation:{validationId}",
+            ProofRequirements: proofRequirements,
+            AfterTaskIdsSpecified: true,
+            BeforeTaskIdsSpecified: true);
+
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            ApprovalGates = [..existing.ApprovalGates, gate],
+            Validations = validations.Select(candidate =>
+                string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal)
+                    ? candidate with
+                    {
+                        Status = PlanValidationStatus.Pending,
+                        StartedAt = null,
+                        CompletedAt = null,
+                        ValidatedCommit = validatedCommit,
+                        Summary = summary,
+                        Evidence = evidence,
+                    }
+                    : candidate).ToArray(),
+            Progress = existing.Progress with { ExecutingTaskId = null },
+            InterruptionData = null,
+            Timestamps = existing.Timestamps with { LastRunAt = now },
+        };
+    }
+
     internal static Plan ApplyValidationStale(Plan existing, string validationId, string reason)
     {
         var validations = existing.Validations ?? [];

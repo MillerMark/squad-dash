@@ -91,6 +91,37 @@ internal sealed class PlanValidationBarrierTests
     }
 
     [Test]
+    public void HumanProofOnlyGap_CreatesPendingCheckpointWithoutBlockingPlan()
+    {
+        var plan = MakePlanWithReadyValidation();
+        var requirement = new PlanTaskProofRequirement(
+            "live-result",
+            "live-ui-observation",
+            "The result appears in the live viewer.",
+            "Does the result appear in the live viewer?",
+            HumanVerificationAccessMode.DirectlyReachable);
+
+        plan = PlanStoreUpdater.ApplyValidationHumanReviewRequired(
+            plan,
+            "V1",
+            "Live confirmation remains.",
+            ["Automated contract passed."],
+            "abc1234",
+            [requirement]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+            Assert.That(plan.Validations![0].Status, Is.EqualTo(PlanValidationStatus.Pending));
+            Assert.That(plan.ApprovalGates, Has.Count.EqualTo(1));
+            Assert.That(plan.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(plan.ApprovalGates[0].ProofRequirements, Is.EqualTo(new[] { requirement }));
+            Assert.That(ApprovalGateReadinessEvaluator.IsValidationBlockedByApproval(
+                plan, plan.Validations[0]), Is.True);
+        });
+    }
+
+    [Test]
     public void HasFailedValidation_DetectedByBoundaryPolicy()
     {
         var plan = MakePlanWithReadyValidation();

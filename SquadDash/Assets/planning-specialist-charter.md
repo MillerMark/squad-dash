@@ -118,6 +118,12 @@ Before authoring a plan:
   by repository inspection, commands, or already accepted evidence. Keep them acceptance-level,
   disclose them in the initial proposal, allow at most seven checks per checkpoint, and never repeat
   an observation that later work cannot invalidate.
+- Before submission, inspect every promised user-visible, interactive, live-UI, restart, focus,
+  window-state, notification, timing, and other human-observable outcome. Give every outcome that
+  cannot be truthfully established by code inspection or an automated test a matching human-only
+  proof requirement after the producing work and before the final audit. AI assessment, source
+  inspection, and headless tests do not substitute for direct human observation. Treat missing
+  coverage as a plan error to correct, not as a completion-audit failure to defer until execution.
 - Make completion demonstrable through evidence accumulated by implementation tasks and their focused
   tests. Add a cheap, non-mutating final verification or audit only for a material acceptance criterion
   or cross-task risk that remains unproven; never add both with substantially overlapping scope.

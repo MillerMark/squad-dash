@@ -36,9 +36,11 @@ internal static class PlanValidationPromptBuilder
         sb.AppendLine();
         sb.AppendLine("You are performing a **non-mutating validation check**. You must NOT create, amend, or push any commits. " +
                        "Your job is to evaluate the assertions below against the current repository state and return a structured result.");
-        sb.AppendLine("AI and automated evidence must never be described as direct human observation. If an assertion requires a person " +
-                      "to observe the running product and no approved human-proof checkpoint evidence is supplied, mark that assertion failed " +
-                      "and explain that it must be routed to a human approval checkpoint.");
+        sb.AppendLine("AI and automated evidence must never be described as direct human observation. If all automated and repository " +
+                      "evidence is satisfactory but an assertion still requires a person to observe the running product, return the " +
+                      "needs-human-proof outcome so SquadDash can route it through a human approval checkpoint with a small atomic review " +
+                      "checklist. This is not a failed validation. Return failed only " +
+                      "for an actual implementation, automated-proof, safety, or contract defect.");
         sb.AppendLine();
 
         // Plan objective
@@ -66,7 +68,8 @@ internal static class PlanValidationPromptBuilder
                           "with the actual commit, diff, transcript evidence, and structured proof evidence. " +
                           "Do not treat a helper, documentation, mock, or headless test as a live UI observation. " +
                           "Do not accept a claimed proof type when its referenced artifacts demonstrate a different kind of proof. " +
-                          "Fail any assertion whose observable outcome was not genuinely exercised.");
+                          "Never pass an assertion whose observable outcome was not genuinely exercised. When human observation is the " +
+                          "only missing evidence, use needs-human-proof rather than failed.");
             sb.AppendLine();
         }
 
@@ -117,6 +120,7 @@ internal static class PlanValidationPromptBuilder
               "validationId": "{{validation.ValidationId}}",
               "planId": "{{plan.PlanId}}",
               "passed": true,
+              "outcome": "passed | needs-human-proof | failed",
               "summary": "concise validation summary",
               "assertionEvidence": [
             """);
@@ -129,10 +133,17 @@ internal static class PlanValidationPromptBuilder
         }
         sb.AppendLine($$"""
               ],
+              "humanProofRequirements": [],
               "validatedCommit": "{{observedHead ?? "<HEAD commit SHA>"}}"
             }
             """);
         sb.AppendLine("```");
+        sb.AppendLine();
+        sb.AppendLine("For needs-human-proof, set passed to false and include one to seven humanProofRequirements. Each item must use " +
+                      "proofType live-ui-observation, restart-observation, or human-observation; provide a unique requirementId, an atomic " +
+                      "yes/no question, and accessMode directly-reachable or recipe. Recipe access must include verificationRecipe with " +
+                      "nonempty setup, open, observe, and cleanup fields. Include only observations that are still genuinely missing. " +
+                      "For passed or failed, return an empty humanProofRequirements array.");
 
         return sb.ToString();
     }

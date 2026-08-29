@@ -30,12 +30,20 @@ internal static class PlanValidationRepairPrompt
               "validationId": "{{validation.ValidationId}}",
               "planId": "{{plan.PlanId}}",
               "passed": true,
+              "outcome": "passed | needs-human-proof | failed",
               "summary": "concise description of validation outcome",
               "assertionEvidence": [
             {{evidence}}
               ],
+              "humanProofRequirements": [],
               "validatedCommit": "{{observedHead ?? "<HEAD commit SHA observed during validation>"}}"
             }
+
+            If all automated and repository evidence passed but direct human observation is the only
+            missing proof, use outcome needs-human-proof, set passed to false, and return one to seven
+            atomic humanProofRequirements using the access and recipe contract from the original
+            assignment. Use failed only for a genuine implementation, automated-proof, safety, or
+            contract defect. For passed or failed, humanProofRequirements must be empty.
             """;
     }
 }

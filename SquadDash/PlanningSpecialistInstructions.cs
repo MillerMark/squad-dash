@@ -106,6 +106,14 @@ internal static class PlanningSpecialistInstructions
                use explicit fixtureTaskId and fixtureOutputId references to an upstream declared output;
                never rely on heuristic inference from prose. If ordinary product UI cannot reproduce the
                state, add the simulation, fixture, shortcut, or developer entry point before the review gate.
+               Before submitting any plan, inspect every promised user-visible, interactive, live-UI,
+               restart, timing, focus, window-state, notification, and other human-observable outcome.
+               Every outcome that cannot be truthfully established by code inspection or an automated test
+               must have a matching human-only proof requirement at an approval checkpoint after the work
+               that produces it and before the final audit. AI assessment, source inspection, screenshots
+               taken without the prescribed interaction, and headless tests do not substitute for that
+               checkpoint. Omission is a plan validation error: correct the plan rather than allowing an
+               inevitably failing completion audit.
                Do not merely summarize or paraphrase
                a payload that still requires top-level submission.
                Describe the final handoff as submitting or proposing the plan. Never claim that the plan
