@@ -9529,7 +9529,10 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General,
                 "TASKS_JSON detected in completed response but parsing or validation failed: " +
                 (parseDiagnostic?.Message ?? "unknown parser failure"));
-            QueueDecomposeRepair(parseDiagnostic?.Message, parserInput);
+            BeginPlanHumanProofCoverageReview(
+                group: null,
+                parserInput,
+                additionalDiagnostics: []);
             return;
         }
 
@@ -9540,6 +9543,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        var preflightDiagnostics = new List<string>();
         if (!PlanAgentAssignmentCatalogValidator.TryValidate(
                 group,
                 _currentWorkspace!.SquadFolderPath,
@@ -9550,27 +9554,24 @@ public partial class MainWindow : Window
                     PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy) != PlanAgentRoutingPolicy.Off))
         {
             SquadDashTrace.Write("PlanRouting", assignmentCatalogError ?? "Invalid plan agent assignment.");
-            AppendLine($"⚠ Could not stage plan {group.GroupId}: {assignmentCatalogError}");
-            QueueDecomposeRepair(assignmentCatalogError, parserInput);
-            return;
+            preflightDiagnostics.Add(assignmentCatalogError ?? "The plan has an invalid agent assignment.");
         }
 
         if (!TryValidateDecomposeRevisionAgainstWorkspace(group, out _, out var persistedRevisionError))
         {
-            AppendLine($"⚠ Could not stage revised plan {group.GroupId}: {persistedRevisionError}");
-            QueueDecomposeRepair(persistedRevisionError, parserInput);
-            return;
+            preflightDiagnostics.Add(persistedRevisionError ?? "The plan revision does not match the workspace.");
         }
 
         if (!DecomposePlanRevision.TryNormalize(group, out var normalizedGroup, out var revisionError))
         {
             SquadDashTrace.Write(TraceCategory.General,
                 $"TASKS_JSON group '{group.GroupId}' rejected as an invalid revision: {revisionError}");
-            AppendLine($"⚠ Could not stage revised plan {group.GroupId}: {revisionError}");
-            QueueDecomposeRepair(revisionError, parserInput);
-            return;
+            preflightDiagnostics.Add(revisionError ?? "The plan revision could not be normalized.");
         }
-        group = normalizedGroup;
+        else
+        {
+            group = normalizedGroup;
+        }
 
         SquadDashTrace.Write(TraceCategory.General,
             $"TASKS_JSON parsed from ordinary response for group '{group.GroupId}' — staging for approval.");
@@ -9578,11 +9579,8 @@ public partial class MainWindow : Window
         {
             SquadDashTrace.Write(TraceCategory.General,
                 $"TASKS_JSON group '{group.GroupId}' rejected before staging due to dependency cycle: {string.Join(", ", cycleIds!)}");
-            AppendLine($"⚠ Could not stage decompose group {group.GroupId}: its dependency graph contains a cycle.");
-            QueueDecomposeRepair(
-                $"The task dependency graph contains a cycle involving: {string.Join(", ", cycleIds!)}",
-                parserInput);
-            return;
+            preflightDiagnostics.Add(
+                $"The task dependency graph contains a cycle involving: {string.Join(", ", cycleIds!)}");
         }
         if (IsDurablePlanArchived(group.GroupId))
         {
@@ -9592,45 +9590,60 @@ public partial class MainWindow : Window
             ShowArchivedPlanRevisionRecovery(group, ownerView);
             return;
         }
-        StageValidatedDecomposeGroup(group, ownerView, parserInput);
+        BeginPlanHumanProofCoverageReview(group, parserInput, preflightDiagnostics);
     }
 
     private bool BeginPlanHumanProofCoverageReview(
-        DecomposedTaskGroup group,
-        string? rejectedCandidate)
+        DecomposedTaskGroup? group,
+        string? rejectedCandidate,
+        IReadOnlyList<string>? additionalDiagnostics = null)
     {
         if (_currentWorkspace is null) return false;
         rejectedCandidate = string.IsNullOrWhiteSpace(rejectedCandidate)
-            ? JsonSerializer.Serialize(group)
+            ? group is null ? string.Empty : "TASKS_JSON:\n" + JsonSerializer.Serialize(group)
             : rejectedCandidate;
-        PendingDecomposePlan plan;
+        if (string.IsNullOrWhiteSpace(rejectedCandidate))
+        {
+            AppendPlanStagingFailure(
+                "The plan candidate was unavailable for complete preflight validation.",
+                retryResponse: null,
+                ownerView: null);
+            return false;
+        }
+        var checkId = Guid.NewGuid().ToString("N");
+        var candidateHash = PlanHumanProofCoverageReview.ComputeCandidateHash(rejectedCandidate);
         try
         {
-            plan = new PendingDecomposePlan(
-                PendingDecomposePlanStore.ComputeRevision(group),
-                group,
-                DateTimeOffset.UtcNow);
-            new PlanHumanProofCoverageCandidateStore(_currentWorkspace.SquadFolderPath).Save(plan);
+            new PlanHumanProofCoverageCandidateStore(_currentWorkspace.SquadFolderPath)
+                .Save(checkId, rejectedCandidate);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
                                       or InvalidOperationException)
         {
             AppendPlanStagingFailure(
-                $"Plan {group.GroupId} passed structural validation but could not be prepared for semantic preflight: {ex.Message}",
+                $"The plan candidate could not be prepared for semantic preflight: {ex.Message}",
                 rejectedCandidate,
                 ownerView: null);
             return false;
         }
 
         _pendingPlanHumanProofCoverageReview = new PendingPlanHumanProofCoverageReview(
-            plan, rejectedCandidate, Attempt: 0);
-        EnqueuePlanHumanProofCoverageReview(plan, correction: null);
+            checkId,
+            candidateHash,
+            group,
+            rejectedCandidate,
+            additionalDiagnostics ?? [],
+            Attempt: 0);
+        EnqueuePlanHumanProofCoverageReview(checkId, candidateHash, correction: null);
         return true;
     }
 
-    private void EnqueuePlanHumanProofCoverageReview(PendingDecomposePlan plan, string? correction)
+    private void EnqueuePlanHumanProofCoverageReview(
+        string checkId,
+        string candidateHash,
+        string? correction)
     {
-        var prompt = PlanHumanProofCoverageReview.BuildPrompt(plan);
+        var prompt = PlanHumanProofCoverageReview.BuildPrompt(checkId, candidateHash);
         if (!string.IsNullOrWhiteSpace(correction))
             prompt += $"\n\nYour previous response violated the required review envelope: {correction} " +
                       "Return the complete corrected envelope now.";
@@ -9664,38 +9677,43 @@ public partial class MainWindow : Window
         }
         if (!PlanHumanProofCoverageReview.TryParse(rawResponse, out var review, out var error) || review is null)
             return RetryOrFailPlanHumanProofCoverageReview(error ?? "The semantic preflight result was invalid.");
-        if (!string.Equals(review.GroupId, pending.Plan.Group.GroupId, StringComparison.Ordinal) ||
-            !string.Equals(review.BaseRevision, pending.Plan.Revision, StringComparison.Ordinal))
+        if (!string.Equals(review.CheckId, pending.CheckId, StringComparison.Ordinal) ||
+            !string.Equals(review.CandidateHash, pending.CandidateHash, StringComparison.Ordinal))
             return RetryOrFailPlanHumanProofCoverageReview(
-                "The semantic preflight result identified a different plan revision.");
+                "The semantic preflight result identified a different candidate.");
 
-        var knownTargets = pending.Plan.Group.Tasks.Select(task => task.Id)
-            .Concat((pending.Plan.Group.Validations ?? []).Select(validation => validation.ValidationId))
-            .Append(pending.Plan.Group.GroupId)
-            .ToHashSet(StringComparer.Ordinal);
-        var unknown = review.Issues.FirstOrDefault(issue => !knownTargets.Contains(issue.TargetId));
-        if (unknown is not null)
-            return RetryOrFailPlanHumanProofCoverageReview(
-                $"The semantic preflight referenced unknown target '{unknown.TargetId}'.");
+        if (pending.Group is not null)
+        {
+            var knownTargets = pending.Group.Tasks.Select(task => task.Id)
+                .Concat((pending.Group.Validations ?? []).Select(validation => validation.ValidationId))
+                .Append(pending.Group.GroupId)
+                .ToHashSet(StringComparer.Ordinal);
+            var unknown = review.Issues.FirstOrDefault(issue => !knownTargets.Contains(issue.TargetId));
+            if (unknown is not null)
+                return RetryOrFailPlanHumanProofCoverageReview(
+                    $"The semantic preflight referenced unknown target '{unknown.TargetId}'.");
+        }
 
         _pendingPlanHumanProofCoverageReview = null;
+        new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
+            .Delete(pending.CheckId);
+        var diagnostics = pending.AdditionalDiagnostics.ToList();
         if (review.Status == "revision-required")
+            diagnostics.Add(PlanHumanProofCoverageReview.BuildRepairDiagnostic(review));
+        if (diagnostics.Count > 0 || pending.Group is null)
         {
-            new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
-                .Delete(pending.Plan.Group.GroupId);
             QueueDecomposeRepair(
-                PlanHumanProofCoverageReview.BuildRepairDiagnostic(review),
+                diagnostics.Count == 0
+                    ? null
+                    : string.Join(Environment.NewLine + "- ", diagnostics),
                 pending.RejectedCandidate);
             return true;
         }
-
         _decomposeRepairPending = false;
-        new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
-            .Delete(pending.Plan.Group.GroupId);
         SquadDashTrace.Write("PlanPreflight",
-            $"Human-proof coverage passed plan={pending.Plan.Group.GroupId} revision={pending.Plan.Revision}.");
+            $"Complete plan preflight passed plan={pending.Group.GroupId}.");
         StageValidatedDecomposeGroup(
-            pending.Plan.Group,
+            pending.Group,
             ownerView: null,
             retryResponse: pending.RejectedCandidate,
             humanProofCoverageChecked: true);
@@ -9713,7 +9731,10 @@ public partial class MainWindow : Window
         if (pending.Attempt < 1)
         {
             _pendingPlanHumanProofCoverageReview = pending with { Attempt = pending.Attempt + 1 };
-            EnqueuePlanHumanProofCoverageReview(pending.Plan, reason);
+            EnqueuePlanHumanProofCoverageReview(
+                pending.CheckId,
+                pending.CandidateHash,
+                reason);
             return true;
         }
         FailPlanHumanProofCoverageReview(
@@ -9728,14 +9749,17 @@ public partial class MainWindow : Window
         _decomposeRepairPending = false;
         if (pending is null) return;
         new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
-            .Delete(pending.Plan.Group.GroupId);
+            .Delete(pending.CheckId);
         AppendPlanStagingFailure(reason, pending.RejectedCandidate, ownerView: null);
         SquadDashTrace.Write("PlanPreflight", reason);
     }
 
     private sealed record PendingPlanHumanProofCoverageReview(
-        PendingDecomposePlan Plan,
+        string CheckId,
+        string CandidateHash,
+        DecomposedTaskGroup? Group,
         string RejectedCandidate,
+        IReadOnlyList<string> AdditionalDiagnostics,
         int Attempt);
 
     private void TryCollectStagedPlanRevisionFromVerifiedAgent(SquadSdkEvent evt)

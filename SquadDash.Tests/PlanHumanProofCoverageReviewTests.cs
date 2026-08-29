@@ -6,11 +6,10 @@ internal sealed class PlanHumanProofCoverageReviewTests
     [Test]
     public void Prompt_IsFocusedOnMissingHumanProofCoverage()
     {
-        var group = StagedPlanEditorTests.MakeGroup();
-        var plan = new PendingDecomposePlan(
-            PendingDecomposePlanStore.ComputeRevision(group), group, DateTimeOffset.UtcNow);
+        const string checkId = "check-123";
+        const string candidateHash = "abcdef0123456789";
 
-        var prompt = PlanHumanProofCoverageReview.BuildPrompt(plan);
+        var prompt = PlanHumanProofCoverageReview.BuildPrompt(checkId, candidateHash);
 
         Assert.Multiple(() =>
         {
@@ -18,7 +17,9 @@ internal sealed class PlanHumanProofCoverageReviewTests
             Assert.That(prompt, Does.Contain("human-observable promise"));
             Assert.That(prompt, Does.Contain("headless tests do not establish direct human observation"));
             Assert.That(prompt, Does.Contain("Do not report implementation-quality"));
-            Assert.That(prompt, Does.Contain(plan.Revision));
+            Assert.That(prompt, Does.Contain(checkId));
+            Assert.That(prompt, Does.Contain(candidateHash));
+            Assert.That(prompt, Does.Contain("report all uncovered human-proof"));
         });
     }
 
@@ -27,8 +28,8 @@ internal sealed class PlanHumanProofCoverageReviewTests
     {
         var response = PlanHumanProofCoverageReview.Marker + """
             {
-              "groupId":"PLAN-1",
-              "baseRevision":"rev-1",
+              "checkId":"check-1",
+              "candidateHash":"abcdef0123456789",
               "status":"revision-required",
               "summary":"One live outcome is uncovered.",
               "issues":[{
@@ -52,8 +53,8 @@ internal sealed class PlanHumanProofCoverageReviewTests
     {
         var response = PlanHumanProofCoverageReview.Marker + """
             {
-              "groupId":"PLAN-1",
-              "baseRevision":"rev-1",
+              "checkId":"check-1",
+              "candidateHash":"abcdef0123456789",
               "status":"ready",
               "summary":"Contradictory.",
               "issues":[{

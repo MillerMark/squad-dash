@@ -1,5 +1,6 @@
 using System.IO;
-using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace SquadDash;
@@ -11,8 +12,8 @@ internal sealed record PlanHumanProofCoverageIssue(
     [property: JsonPropertyName("recommendation")] string Recommendation);
 
 internal sealed record PlanHumanProofCoverageReviewPayload(
-    [property: JsonPropertyName("groupId")] string GroupId,
-    [property: JsonPropertyName("baseRevision")] string BaseRevision,
+    [property: JsonPropertyName("checkId")] string CheckId,
+    [property: JsonPropertyName("candidateHash")] string CandidateHash,
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("issues")] IReadOnlyList<PlanHumanProofCoverageIssue> Issues);
@@ -25,14 +26,22 @@ internal static class PlanHumanProofCoverageReview
 {
     internal const string Marker = "PLAN_HUMAN_PROOF_COVERAGE_JSON:";
 
-    internal static string BuildPrompt(PendingDecomposePlan plan) => $$"""
+    internal static string ComputeCandidateHash(string candidate) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(candidate)))
+            .ToLowerInvariant()[..16];
+
+    internal static string BuildPrompt(string checkId, string candidateHash) => $$"""
         Perform one focused plan-contract preflight. Do not implement, revise, or broadly critique
         the plan. Determine only whether every promised outcome that inherently requires a person
         to interact with or observe the live product has a matching human-only proof requirement
         in an approval gate at the correct boundary.
 
         Read the isolated revision-locked candidate definition from:
-        .squad/tmp/decompose/preflight/{{plan.Group.GroupId}}.json
+        .squad/tmp/decompose/preflight/{{checkId}}.txt
+
+        The candidate may also contain structural errors. Ignore those—the host checks them
+        independently. Still inspect every intelligible task and report all uncovered human-proof
+        requirements in one issues array so the planner can repair everything in one response.
 
         Inspect task descriptions, observable outcomes, validation assertions, and proof contracts.
         Live UI behavior, restart behavior, focus, window state, notification appearance, timing as
@@ -46,8 +55,8 @@ internal static class PlanHumanProofCoverageReview
 
         {{Marker}}
         {
-          "groupId": "{{plan.Group.GroupId}}",
-          "baseRevision": "{{plan.Revision}}",
+          "checkId": "{{checkId}}",
+          "candidateHash": "{{candidateHash}}",
           "status": "ready | revision-required",
           "summary": "one short focused assessment",
           "issues": [
@@ -81,8 +90,8 @@ internal static class PlanHumanProofCoverageReview
 
         payload = extraction.Payload;
         var status = payload.Status?.Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(payload.GroupId) ||
-            string.IsNullOrWhiteSpace(payload.BaseRevision) ||
+        if (string.IsNullOrWhiteSpace(payload.CheckId) ||
+            string.IsNullOrWhiteSpace(payload.CandidateHash) ||
             string.IsNullOrWhiteSpace(payload.Summary) ||
             status is not ("ready" or "revision-required") ||
             payload.Issues is null)
@@ -111,8 +120,8 @@ internal static class PlanHumanProofCoverageReview
 
         payload = payload with
         {
-            GroupId = payload.GroupId.Trim(),
-            BaseRevision = payload.BaseRevision.Trim(),
+            CheckId = payload.CheckId.Trim(),
+            CandidateHash = payload.CandidateHash.Trim(),
             Status = status,
             Summary = payload.Summary.Trim(),
             Issues = payload.Issues.Select(issue => issue with
@@ -139,18 +148,19 @@ internal static class PlanHumanProofCoverageReview
 internal sealed class PlanHumanProofCoverageCandidateStore(string squadFolderPath)
 {
     private readonly string _folder = Path.Combine(squadFolderPath, "tmp", "decompose", "preflight");
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
-    internal void Save(PendingDecomposePlan plan)
+    internal void Save(string checkId, string candidate)
     {
         Directory.CreateDirectory(_folder);
-        JsonFileStorage.AtomicWrite(
-            Path.Combine(_folder, plan.Group.GroupId + ".json"), plan, Options);
+        var path = Path.Combine(_folder, checkId + ".txt");
+        var tempPath = path + ".tmp";
+        File.WriteAllText(tempPath, candidate);
+        File.Move(tempPath, path, overwrite: true);
     }
 
-    internal void Delete(string groupId)
+    internal void Delete(string checkId)
     {
-        var path = Path.Combine(_folder, groupId + ".json");
+        var path = Path.Combine(_folder, checkId + ".txt");
         if (File.Exists(path)) File.Delete(path);
     }
 }

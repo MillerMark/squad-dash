@@ -61,6 +61,30 @@ internal sealed class TaskPlanRepairPromptBuilderTests
     }
 
     [Test]
+    public void Build_CombinesSchemaAndAllSemanticFindingsIntoOneRepairRequest()
+    {
+        const string semanticDiagnostics = """
+            Semantic human-proof coverage validation failed.
+            1. PLAN-001: first live UI outcome lacks an observation checkpoint.
+            2. PLAN-002: second live UI outcome lacks an observation checkpoint.
+            """;
+
+        var prompt = TaskPlanRepairPromptBuilder.Build(
+            RoryStyleCandidate,
+            semanticDiagnostics,
+            "LIVE SPECIFICATION");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("invalid-task-id:"));
+            Assert.That(prompt, Does.Contain("PLAN-001"));
+            Assert.That(prompt, Does.Contain("PLAN-002"));
+            Assert.That(prompt, Does.Contain("correct every schema violation and every affected reference"));
+            Assert.That(prompt, Does.Contain("one complete corrected TASKS_JSON block"));
+        });
+    }
+
+    [Test]
     public void Build_ReportsIndependentSchemaProblemsInOneRepairTurn()
     {
         const string candidate = """
