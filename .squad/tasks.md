@@ -1,4 +1,109 @@
-﻿<!-- decompose-group: INBOXTHUMB-20260827 | branch: feature/inbox-durable-plan-thumbnail | revision: 8e5ba72f84ceffef -->
+﻿<!-- decompose-group: SQUADCLI-20260826 | branch: upgrade/squad-cli-0-12-compat | revision: 3f0c2db8b77b06be -->
+**[SQUADCLI-20260826] Upgrade SquadDash to Squad CLI 0.12**
+> Upgrade SquadDash from Squad CLI 0.10-era assumptions to 0.12-compatible behavior across SDK bridge, CLI resolution, model catalog refresh, update detection, and workspace upgrade dry-run, while preserving explicit fallback behavior for older CLI installs where required.
+
+- [ ] **[SQUADCLI-20260826-001]** Adopt 0.12 baseline and capability policy
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: critical
+  description: Update the workspace CLI dependency constraint to `^0.12.0` and define centralized capability sentinels for 0.12-only features used by services and UI (update-check JSON, models refresh, workspace dry-run preview, and reasoning-effort pass-through expectations). Observable outcome: the repository declares the 0.12 baseline and the runtime can consistently decide feature availability for mixed-install environments. Production consumer: downstream CLI services and UI flows in tasks 004-009 use this policy for graceful fallback decisions.
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Establish dependency and capability policy in C# service layer and package metadata.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [ ] **[SQUADCLI-20260826-002]** Enable max reasoning effort in SDK bridge
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: high
+  description: Extend the TypeScript bridge normalization and request handling so `max` reasoning effort is accepted and forwarded without downgrade or stripping, including the model metadata path used by SquadDash. Observable outcome: a prompt request carrying `reasoningEffort: "max"` survives bridge normalization and reaches CLI invocation payload construction unchanged. Production consumer: C# prompt orchestration and model profile application in task 003 rely on this bridge contract.
+  dependsOn: SQUADCLI-20260826-001
+  agentAssignments: [{"agentHandle":"talia-rune","role":"Implement and verify TypeScript bridge support for \u0060max\u0060 reasoning effort.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [!] **[SQUADCLI-20260826-003]** Wire max reasoning through C# model profiles
+  (Failed — see inbox for details.)
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: high
+  description: Update C# model-profile and prompt request integration so `max` is a first-class reasoning-effort value from stored profile state through outbound SDK request creation. Observable outcome: selecting a profile configured for `max` produces runtime prompt requests that preserve that value end-to-end. Production consumer: preferences model-profile UI and execution flows consume this updated profile contract.
+  dependsOn: SQUADCLI-20260826-002
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement C# profile-domain and prompt integration updates for \u0060max\u0060 reasoning.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [!] **[SQUADCLI-20260826-004]** Expose max reasoning in model-profile UI
+  (Failed — see inbox for details.)
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: high
+  description: Update the WPF model-profile experience so `max` appears as a selectable reasoning effort where supported and persists correctly through existing profile editing workflows. Observable outcome: users can choose `max` in the model profile UI and later reopen preferences to see that value preserved. Production consumer: runtime prompt execution uses persisted profile settings from this UI path.
+  dependsOn: SQUADCLI-20260826-003
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Implement model-profile UI support for selecting and persisting \u0060max\u0060 reasoning effort.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[SQUADCLI-20260826-006]** Add models refresh command path in catalog service
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: high
+  description: Wire `squad models refresh` into the model catalog refresh pipeline and ensure cache invalidation coherently follows an explicit refresh operation. Observable outcome: invoking service refresh triggers CLI catalog refresh semantics before returning updated model metadata instead of only waiting on passive cache expiry. Production consumer: model catalog UI refresh action in task 007 relies on this backend contract.
+  dependsOn: SQUADCLI-20260826-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement backend model refresh command orchestration and cache invalidation behavior.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[SQUADCLI-20260826-005]** Switch update detection to update-check JSON
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: high
+  description: Replace npm-registry probing with `squad update-check --json` in CLI resolution/update detection and keep an explicit fallback path for pre-0.12 installs. Observable outcome: update status is derived from CLI-reported JSON when available and remains functional on downlevel CLI through fallback behavior. Production consumer: preferences and status surfaces that display update availability and instructions use this resolved update contract.
+  dependsOn: SQUADCLI-20260826-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement update-check JSON integration and fallback logic in CLI resolution service.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [ ] **[SQUADCLI-20260826-007]** Add manual model catalog refresh UI trigger
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: mid
+  description: Add a user-invoked refresh control in the model catalog/preferences UI that calls the backend refresh path and updates on-screen model data after completion. Observable outcome: users can trigger immediate model catalog refresh without waiting for cache timeout and see refreshed catalog state in the same UI flow. Production consumer: model selection and profile editing operate on refreshed catalog data.
+  dependsOn: SQUADCLI-20260826-006
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Implement and integrate the WPF manual model catalog refresh control.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [ ] **[SQUADCLI-20260826-009]** Prioritize native squad.exe and winget install flow
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: high
+  description: Update automatic CLI resolution to prefer native squad.exe candidates, including winget-installed PATH candidates, ahead of npm installations. Extend the backend installation contract used by Install Squad: when no usable CLI exists and winget is available, install the official native Squad CLI through winget, re-resolve it, and initialize the workspace through that executable. Preserve an explicit workspace-local npm fallback when native installation is unavailable or fails. Make prerequisite checks strategy-aware so Node.js and npm are required only for the npm path. Return source-aware progress, errors, diagnostics, and update guidance for the WPF layer to present. Do not implement WPF controls in this task. Observable outcome: the installer service can detect, acquire, initialize, and update through the native CLI while retaining the existing npm fallback.
+  dependsOn: SQUADCLI-20260826-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Implement native-first CLI resolution and winget-aware installation guidance updates.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [ ] **[SQUADCLI-20260826-011]** Wire native Squad installation into missing-install UI
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: high
+  description: Update the WPF missing-Squad and partial-install experiences to use the native installation contract from the preceding backend task. Make native winget installation the primary Install Squad path when available, with an explicit workspace-local npm fallback. If a native CLI already exists but the workspace is uninitialized, present initialization instead of reporting the CLI as missing. Update prerequisite messaging, progress, help content, failures, and diagnostics to identify the selected installation source. Require Node.js and npm only for the npm path. Keep installation execution in backend services. Test native installation, existing-native initialization, npm fallback, conditional prerequisites, progress, diagnostics, and failures.
+  dependsOn: SQUADCLI-20260826-009
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Primary implementation owner for this plan step.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  verificationLevel: enhanced
+
+- [ ] **[SQUADCLI-20260826-008]** Enable workspace upgrade dry-run preview
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: high
+  description: Confirm 0.12 preview capability through non-mutating capability checks and then enable workspace dry-run support by removing the legacy early exit and wiring preview args into dry-run execution. Preserve explicit unsupported behavior for environments that do not satisfy capability checks. Observable outcome: dry-run executes and returns preview results when supported, and degrades gracefully when unsupported. Production consumer: workspace upgrade UI can show dry-run results before apply.
+
+We've already done extensive work, I believe to to support the DRY run preview. There's already a window that does this. Let's examine all of that work before we start this step to make sure that what we're doing complements that, but does not circumvent it, does not reimplement it.
+  dependsOn: SQUADCLI-20260826-001
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Enable preview dry-run behavior in workspace upgrade services and command contracts.","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [ ] **[SQUADCLI-20260826-010]** Verify 0.12 upgrade contracts end-to-end
+  Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: mid
+  description: Run non-mutating verification focused on the accepted 0.12 scope to confirm all upgraded contracts hold together: max reasoning propagation, update-check JSON fallback behavior, models refresh integration, workspace dry-run preview behavior, and native-first CLI resolution. Observable outcome: verification evidence demonstrates these feature contracts are intact and no regression is introduced for documented fallback paths. Production consumer: final acceptance of the 0.12 compatibility upgrade proposal.
+  dependsOn: SQUADCLI-20260826-004, SQUADCLI-20260826-005, SQUADCLI-20260826-007, SQUADCLI-20260826-008, SQUADCLI-20260826-011
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Perform independent verification of cross-task 0.12 upgrade contracts and regression risk.","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: verification
+
+
+<!-- decompose-group: INBOXTHUMB-20260827 | branch: feature/inbox-durable-plan-thumbnail | revision: 8e5ba72f84ceffef -->
 **[INBOXTHUMB-20260827] Live Durable Plan Thumbnail in Inbox Window**
 > Add a live, clickable durable-plan graph thumbnail at the top of inbox message popups so users can preview plan status without leaving the message. Reuse the same graph visual contract as the full plan viewer while keeping rendering responsive, theme-aware, and synchronized with plan updates. Preserve current behavior for messages without durable plan linkage.
 
