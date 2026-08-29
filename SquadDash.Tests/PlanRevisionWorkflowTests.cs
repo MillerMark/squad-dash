@@ -7,6 +7,33 @@ namespace SquadDash.Tests;
 internal sealed class PlanRevisionWorkflowTests
 {
     [Test]
+    public void ProposedPlanPreview_PreservesVisibleAgentAssignments()
+    {
+        var sourcePath = Path.Combine(
+            TestContext.CurrentContext.TestDirectory,
+            "..", "..", "..", "..", "SquadDash", "MainWindow.xaml.cs");
+        var source = File.ReadAllText(Path.GetFullPath(sourcePath));
+        var constructorStart = source.IndexOf(
+            "var previewWindow = new PlanViewerWindow(",
+            StringComparison.Ordinal);
+        var constructorEnd = source.IndexOf(
+            "previewWindow.Show();",
+            constructorStart,
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(constructorStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(constructorEnd, Is.GreaterThan(constructorStart));
+        });
+
+        var proposedPreviewConstruction = source[constructorStart..constructorEnd];
+        Assert.That(proposedPreviewConstruction,
+            Does.Contain("resolveAgentAvatar: ResolveAgentAvatarForPlanViewer"),
+            "The proposed-plan preview must render assignments for completed and remaining steps.");
+    }
+
+    [Test]
     public void TranscriptPresentation_UsesExplicitNoChangeAndAppliedSummaries()
     {
         Assert.Multiple(() =>

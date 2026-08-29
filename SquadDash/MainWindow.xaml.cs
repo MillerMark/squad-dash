@@ -10052,7 +10052,8 @@ public partial class MainWindow : Window
                     _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath),
                     _inboxFontSize,
                     durablePlan: previewPlan,
-                    getSettings: () => _settingsSnapshot)
+                    getSettings: () => _settingsSnapshot,
+                    resolveAgentAvatar: ResolveAgentAvatarForPlanViewer)
                 {
                     Owner = CanShowOwnedWindow() ? this : null,
                     Title = $"Proposed Plan — {proposedPlan.DisplayName} — Revision {proposedPlan.RevisionNumber}",
