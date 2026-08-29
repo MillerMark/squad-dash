@@ -20,6 +20,34 @@ internal sealed class RestartCoordinatorStateStoreTests {
     public void TearDown() => _workspace.Dispose();
 
     [Test]
+    public void MainWindowClose_ExplicitlyEndsApplicationAfterAsyncCleanup() {
+        var sourcePath = Path.Combine(
+            TestContext.CurrentContext.TestDirectory,
+            "..", "..", "..", "..", "SquadDash", "MainWindow.xaml.cs");
+        var source = File.ReadAllText(Path.GetFullPath(sourcePath));
+        var handlerStart = source.IndexOf(
+            "private async void MainWindow_Closed",
+            StringComparison.Ordinal);
+        var nextHandler = source.IndexOf(
+            "private void MainWindow_Closing",
+            handlerStart,
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() => {
+            Assert.That(handlerStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(nextHandler, Is.GreaterThan(handlerStart));
+        });
+
+        var handler = source[handlerStart..nextHandler];
+        Assert.Multiple(() => {
+            Assert.That(handler, Does.Contain("finally"));
+            Assert.That(handler, Does.Contain("Application.Current?.Shutdown();"));
+            Assert.That(handler.IndexOf("Task.WhenAll", StringComparison.Ordinal),
+                Is.LessThan(handler.IndexOf("Application.Current?.Shutdown();", StringComparison.Ordinal)));
+        });
+    }
+
+    [Test]
     public void SaveAndLoad_RequestAndPlan_RoundTrip() {
         const string applicationRoot = @"D:\Drive\Source\SquadUI";
         const string requestId = "request-123";

@@ -247,6 +247,29 @@ internal sealed record PlanExecutionAttemptState(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 }
 
+internal static class PlanExecutionAttemptPresentation
+{
+    internal static string BuildStartedMessage(
+        string? displayStepLabel,
+        string? taskTitle,
+        string? assignedAgentDisplayName)
+    {
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            displayStepLabel,
+            taskTitle);
+        var title = string.IsNullOrWhiteSpace(taskTitle)
+            ? stepLabel
+            : taskTitle.Trim();
+        var actor = string.IsNullOrWhiteSpace(assignedAgentDisplayName)
+            ? "A generic worker"
+            : assignedAgentDisplayName.Trim();
+
+        return string.Equals(stepLabel, title, StringComparison.Ordinal)
+            ? $"{actor} started {stepLabel}."
+            : $"{actor} started {stepLabel}: {title}.";
+    }
+}
+
 internal static class PlanContextReadEvidence
 {
     private static readonly HashSet<string> ReadTools = new(StringComparer.OrdinalIgnoreCase)

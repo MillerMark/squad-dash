@@ -13219,6 +13219,7 @@ public partial class MainWindow : Window
                 "Concurrent primary writers are disabled until SquadDash can provision isolated worktrees.");
         PlanExecutionAttemptState? attempt = null;
         var createdNewExecutionAttempt = false;
+        string? assignedAgentDisplayName = null;
         if (assignments is { Count: 1 })
         {
             attempt = execution.PlanExecutionAttempt;
@@ -13230,6 +13231,8 @@ public partial class MainWindow : Window
                 var teamPath = Path.Combine(_currentWorkspace.SquadFolderPath, "team.md");
                 var roster = PlanStepAgentResolver.ParseTeamMd(
                     File.Exists(teamPath) ? File.ReadAllText(teamPath) : string.Empty);
+                assignedAgentDisplayName = roster.FirstOrDefault(agent =>
+                    string.Equals(agent.Handle, assignments[0].AgentHandle, StringComparison.OrdinalIgnoreCase))?.Name;
                 attempt = PlanExecutionAttemptState.Create(
                     _activeDecomposeGroupId,
                     currentTaskId!,
@@ -13297,11 +13300,13 @@ public partial class MainWindow : Window
             });
         if (createdNewExecutionAttempt && attempt is not null)
         {
-            var assignmentLabel = assignments is { Count: 1 }
-                ? $"assigned agent {assignments[0].AgentHandle}"
-                : "one generic primary worker";
+            var currentTaskIndex = group.Tasks.ToList().FindIndex(task =>
+                string.Equals(task.Id, currentTaskId, StringComparison.Ordinal));
             ScheduleDecomposeSystemEntry(
-                $"Plan execution attempt {attempt.AttemptId} started for {currentTaskId} with {assignmentLabel}.");
+                PlanExecutionAttemptPresentation.BuildStartedMessage(
+                    currentTaskIndex >= 0 ? (currentTaskIndex + 1).ToString() : null,
+                    currentTask.Title ?? currentTask.Description,
+                    assignedAgentDisplayName));
         }
         var routingContext = policy == PlanAgentRoutingPolicy.Off
             ? "## Serialized Plan Execution Safety\n\nAgent routing is disabled. " +
@@ -18208,6 +18213,23 @@ public partial class MainWindow : Window
             BorderThickness = new Thickness(0),
             Padding = new Thickness(0),
         };
+        var cardSelectionMenu = new ContextMenu();
+        cardSelectionMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        var copySelection = new MenuItem { Header = "_Copy" };
+        copySelection.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        string? selectedCardText = null;
+        cardSelectionMenu.Opened += (_, _) =>
+        {
+            selectedCardText = TranscriptCopyService.BuildSelectionText(cardViewer);
+            copySelection.IsEnabled = !string.IsNullOrEmpty(selectedCardText);
+        };
+        copySelection.Click += (_, _) =>
+        {
+            if (!string.IsNullOrEmpty(selectedCardText))
+                SetClipboardTextWithRetry(selectedCardText);
+        };
+        cardSelectionMenu.Items.Add(copySelection);
+        cardViewer.ContextMenu = cardSelectionMenu;
         cardViewer.PreviewMouseWheel += (_, e) =>
         {
             // This viewer exists only to provide selectable rich text inside the card; its own
@@ -47237,6 +47259,15 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException("Shutdown", ex, showDialog: false);
+        }
+        finally
+        {
+            // A hidden document/browser window can outlive MainWindow and keep the dispatcher
+            // running forever. Restart coordinators wait for this process to exit, so explicitly
+            // end the application only after all asynchronous persistence and disposal above.
+            SquadDashTrace.Write(TraceCategory.Shutdown,
+                "MainWindow_Closed: requesting explicit application shutdown after cleanup.");
+            Application.Current?.Shutdown();
         }
     }
 

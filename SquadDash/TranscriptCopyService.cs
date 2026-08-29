@@ -39,6 +39,19 @@ internal static class TranscriptCopyService {
     }
 
     /// <summary>
+    /// Returns selected text from a nested selectable document viewer, such as a recovery card.
+    /// Capturing this before its context menu takes focus keeps right-click Copy reliable.
+    /// </summary>
+    public static string? BuildSelectionText(FlowDocumentScrollViewer viewer) {
+        var selection = viewer.Selection;
+        if (selection.IsEmpty)
+            return null;
+
+        var result = selection.Text.TrimEnd();
+        return result.Length == 0 ? null : result;
+    }
+
+    /// <summary>
     /// Builds a markdown-faithful string for the current selection, using the original
     /// markdown source stored on each <see cref="Paragraph.Tag"/> by the renderer.
     /// Falls back to plain-text extraction for blocks without a stored source.

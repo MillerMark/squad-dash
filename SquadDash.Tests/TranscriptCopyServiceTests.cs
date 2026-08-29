@@ -1,4 +1,5 @@
 using System.Threading;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 
@@ -124,6 +125,29 @@ internal sealed class TranscriptCopyServiceTests {
         // A freshly constructed RichTextBox has an empty selection (caret only).
         var rtb = new RichTextBox();
         Assert.That(TranscriptCopyService.BuildSelectionText(rtb), Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void BuildSelectionText_NestedDocumentViewer_ReturnsSelectedReviewText() {
+        _ = Application.Current ?? new Application();
+        var document = new FlowDocument(new Paragraph(new Run("Automated review status")));
+        var viewer = new FlowDocumentScrollViewer {
+            Document = document,
+            IsSelectionEnabled = true,
+        };
+        var host = new Window { Content = viewer, ShowInTaskbar = false };
+        try {
+            host.Show();
+            host.UpdateLayout();
+            viewer.Selection.Select(document.ContentStart, document.ContentEnd);
+
+            Assert.That(
+                TranscriptCopyService.BuildSelectionText(viewer),
+                Is.EqualTo("Automated review status"));
+        }
+        finally {
+            host.Close();
+        }
     }
 
     [Test, Apartment(ApartmentState.STA)]

@@ -8,6 +8,35 @@ namespace SquadDash.Tests;
 internal sealed class PlanExecutionAttemptTests
 {
     [Test]
+    public void StartedMessage_UsesHumanStepAndAgentLabelsWithoutAttemptId()
+    {
+        var message = PlanExecutionAttemptPresentation.BuildStartedMessage(
+            "9",
+            "Wire native Squad installation into missing-install UI",
+            "Lyra Morn");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message, Is.EqualTo(
+                "Lyra Morn started Step 9: Wire native Squad installation into missing-install UI."));
+            Assert.That(message, Does.Not.Contain("attempt"));
+            Assert.That(message, Does.Not.Match("[0-9a-f]{32}"));
+        });
+    }
+
+    [Test]
+    public void StartedMessage_DescribesExplicitGenericRoutingWithoutInternalIds()
+    {
+        var message = PlanExecutionAttemptPresentation.BuildStartedMessage(
+            "3",
+            "Verify generated output",
+            assignedAgentDisplayName: null);
+
+        Assert.That(message, Is.EqualTo(
+            "A generic worker started Step 3: Verify generated output."));
+    }
+
+    [Test]
     public void FreshAttemptPrompt_PrefersVerifiedNoOpWithoutTurningTheAuditIntoAPlanStop()
     {
         var prompt = PlanFreshAttemptPrompt.Build(
