@@ -94,7 +94,8 @@ We've already done extensive work, I believe to to support the DRY run preview. 
   executionMode: implementation
   verificationLevel: enhanced
 
-- [ ] **[SQUADCLI-20260826-010]** Verify 0.12 upgrade contracts end-to-end
+- [!] **[SQUADCLI-20260826-010]** Verify 0.12 upgrade contracts end-to-end
+  (Failed — see inbox for details.)
   Group: SQUADCLI-20260826 | Branch: upgrade/squad-cli-0-12-compat | Priority: mid
   description: Run non-mutating verification focused on the accepted 0.12 scope to confirm all upgraded contracts hold together: max reasoning propagation, update-check JSON fallback behavior, models refresh integration, workspace dry-run preview behavior, and native-first CLI resolution. Observable outcome: verification evidence demonstrates these feature contracts are intact and no regression is introduced for documented fallback paths. Production consumer: final acceptance of the 0.12 compatibility upgrade proposal.
   dependsOn: SQUADCLI-20260826-004, SQUADCLI-20260826-005, SQUADCLI-20260826-007, SQUADCLI-20260826-008, SQUADCLI-20260826-011
