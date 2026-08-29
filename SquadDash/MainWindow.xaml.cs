@@ -28079,14 +28079,18 @@ public partial class MainWindow : Window
             SetInstallUiState(isInstalling: true, "Checking prerequisites...");
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var lastProgressMessage = "Checking prerequisites...";
+            string? installSourceLabel = null;
             var progress = new Progress<string>(text =>
             {
                 lastProgressMessage = text;
-                SetInstallStatus($"{text} ({(int)sw.Elapsed.TotalSeconds}s)");
+                if (InstallStatusTextFormatter.TryInferInstallSourceFromProgressMessage(text, out var inferredSource))
+                    installSourceLabel = inferredSource;
+
+                SetInstallStatus(InstallStatusTextFormatter.BuildProgressStatus(text, sw.Elapsed, installSourceLabel));
             });
 
             var elapsedTimer = new System.Windows.Threading.DispatcherTimer { Interval = UiTimingConstants.InstallProgressRefreshInterval };
-            elapsedTimer.Tick += (_, _) => SetInstallStatus($"{lastProgressMessage} ({(int)sw.Elapsed.TotalSeconds}s)");
+            elapsedTimer.Tick += (_, _) => SetInstallStatus(InstallStatusTextFormatter.BuildProgressStatus(lastProgressMessage, sw.Elapsed, installSourceLabel));
             elapsedTimer.Start();
 
             SquadCommandResult result;
@@ -28119,9 +28123,14 @@ public partial class MainWindow : Window
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(result.InstallSource))
+                installSourceLabel = result.InstallSource;
+
             if (_currentInstallationState?.IsSquadInstalledForActiveDirectory == true)
             {
-                SetInstallUiState(isInstalling: false, "Squad installed successfully. Starting the first Squad turn...");
+                SetInstallUiState(
+                    isInstalling: false,
+                    InstallStatusTextFormatter.BuildStatusText("Squad installed successfully. Starting the first Squad turn...", installSourceLabel));
                 RefreshAgentCards();
                 RefreshSidebar();
                 MaybePromptForUniverseSelection();
@@ -28136,7 +28145,7 @@ public partial class MainWindow : Window
                 : result.Message;
             var activeDirectory = _currentWorkspace.FolderPath;
 
-            SetInstallUiState(isInstalling: false, failureMessage);
+            SetInstallUiState(isInstalling: false, InstallStatusTextFormatter.BuildStatusText(failureMessage, installSourceLabel));
 
             ShowTextWindow(
                 "Squad Install Diagnostics",

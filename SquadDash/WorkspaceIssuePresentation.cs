@@ -60,31 +60,43 @@ internal static class WorkspaceIssueFactory {
         if (installationState is null)
             return null;
 
-        var missingTools = GetMissingTools();
-        if (missingTools.Length > 0) {
-            var toolList = string.Join(", ", missingTools);
-            return new WorkspaceIssuePresentation(
-                Title: "Node.js tooling is missing",
-                Message: $"SquadDash needs {toolList} on PATH before it can install or run Squad in this repo.",
-                DetailText: "Install a current Node.js LTS release, then restart SquadDash.",
-                HelpButtonLabel: "View Setup Steps",
-                HelpWindowTitle: "Node.js Setup",
-                HelpWindowContent: BuildMissingToolHelpText(missingTools),
-                PrimaryLink: new WorkspaceIssueExternalLink("Node.js Downloads", "https://nodejs.org/en/download"));
+        if (ShouldCheckNodeTooling(installationState)) {
+            var missingTools = GetMissingTools();
+            if (missingTools.Length > 0) {
+                var toolList = string.Join(", ", missingTools);
+                return new WorkspaceIssuePresentation(
+                    Title: "Node.js tooling is missing",
+                    Message: $"SquadDash needs {toolList} on PATH before it can install or run Squad in this repo.",
+                    DetailText: "Install a current Node.js LTS release, then restart SquadDash.",
+                    HelpButtonLabel: "View Setup Steps",
+                    HelpWindowTitle: "Node.js Setup",
+                    HelpWindowContent: BuildMissingToolHelpText(missingTools),
+                    PrimaryLink: new WorkspaceIssueExternalLink("Node.js Downloads", "https://nodejs.org/en/download"));
+            }
         }
-
         if (!IsPowerShellAvailable()) {
             return CreateMissingPowerShellIssue();
         }
 
-        if (installationState is null || installationState.IsSquadInstalledForActiveDirectory)
+        if (installationState.IsSquadInstalledForActiveDirectory)
             return null;
+
+        if (!installationState.IsWorkspaceInitialized && installationState.HasLocalCliCommand) {
+            return new WorkspaceIssuePresentation(
+                Title: "Initialize Squad workspace for this folder",
+                Message: $"Squad CLI is already available ({DescribeCliSource(installationState.DetectedCliSource)}), but this repo has not been initialized yet.",
+                DetailText: "Click Install Squad to run workspace initialization for this folder.",
+                ShowInstallButton: true,
+                HelpButtonLabel: "What Install Does",
+                HelpWindowTitle: "Initialize Squad",
+                HelpWindowContent: BuildInitializeWorkspaceHelpText(installationState));
+        }
 
         if (installationState.IsWorkspaceInitialized && !installationState.HasLocalCliCommand) {
             return new WorkspaceIssuePresentation(
                 Title: "Finish installing Squad for this folder",
-                Message: "This repo already has a .squad workspace, but the local Squad CLI is still missing.",
-                DetailText: "Install Squad to add the workspace-local CLI, then retry your prompt.",
+                Message: "This repo already has a .squad workspace, but the Squad CLI command is unavailable.",
+                DetailText: "Install Squad to repair the CLI setup, then retry your prompt.",
                 ShowInstallButton: true,
                 HelpButtonLabel: "View Repair Steps",
                 HelpWindowTitle: "Finish Installing Squad",
@@ -93,10 +105,10 @@ internal static class WorkspaceIssueFactory {
 
         return new WorkspaceIssuePresentation(
             Title: "Squad isn't installed for this folder yet",
-            Message: "This repo needs a workspace-local Squad setup before prompts can run here.",
+            Message: "This repo needs Squad setup before prompts can run here.",
             DetailText: installationState.HasPackageManifest
                 ? "Install Squad to create the missing .squad files and finish setup."
-                : "Install Squad to create package.json, install the local CLI, and initialize .squad.",
+                : "Install Squad to set up the CLI and initialize .squad.",
             ShowInstallButton: true,
             HelpButtonLabel: "What Install Does",
             HelpWindowTitle: "Install Squad",
@@ -388,10 +400,9 @@ internal static class WorkspaceIssueFactory {
         builder.AppendLine($"Folder: {installationState.ActiveDirectory}");
         builder.AppendLine();
         builder.AppendLine("Install Squad will:");
-        builder.AppendLine("1. Create package.json if this repo does not already have one.");
-        builder.AppendLine("2. Install the workspace-local Squad CLI into node_modules.");
-        builder.AppendLine("3. Apply the Windows compatibility patches SquadDash expects.");
-        builder.AppendLine("4. Initialize the .squad workspace for this repo.");
+        builder.AppendLine("1. Detect a usable Squad CLI (native first when available, otherwise npm-based fallback).");
+        builder.AppendLine("2. Prepare any required workspace files for the selected install path.");
+        builder.AppendLine("3. Initialize the .squad workspace for this repo.");
         return builder.ToString().TrimEnd();
     }
 
@@ -399,12 +410,25 @@ internal static class WorkspaceIssueFactory {
         var builder = new StringBuilder();
         builder.AppendLine($"Folder: {installationState.ActiveDirectory}");
         builder.AppendLine();
-        builder.AppendLine("This repo already has .squad files, but the local Squad CLI is missing.");
+        builder.AppendLine("This repo already has .squad files, but Squad CLI execution is unavailable.");
         builder.AppendLine();
         builder.AppendLine("What to do");
-        builder.AppendLine("1. Click Install Squad to restore the workspace-local CLI.");
+        builder.AppendLine("1. Click Install Squad to repair the current CLI path.");
         builder.AppendLine("2. If Install Squad still fails, use Cleanup > Run Squad Doctor to inspect the local setup.");
         builder.AppendLine("3. Retry the prompt after repair completes.");
+        return builder.ToString().TrimEnd();
+    }
+
+    private static string BuildInitializeWorkspaceHelpText(SquadInstallationState installationState) {
+        var builder = new StringBuilder();
+        builder.AppendLine($"Folder: {installationState.ActiveDirectory}");
+        builder.AppendLine();
+        builder.AppendLine($"Detected CLI source: {DescribeCliSource(installationState.DetectedCliSource)}");
+        builder.AppendLine();
+        builder.AppendLine("Install Squad will:");
+        builder.AppendLine("1. Reuse the detected CLI.");
+        builder.AppendLine("2. Run Squad initialization for this workspace.");
+        builder.AppendLine("3. Create required .squad files so prompts can run.");
         return builder.ToString().TrimEnd();
     }
 
@@ -566,6 +590,21 @@ internal static class WorkspaceIssueFactory {
         builder.AppendLine("Raw error");
         builder.AppendLine(rawError);
         return builder.ToString().TrimEnd();
+    }
+
+    internal static bool ShouldCheckNodeTooling(SquadInstallationState installationState) {
+        return installationState.DetectedCliSource is CliInstallSource.WorkspaceNpm or CliInstallSource.GlobalNpm;
+    }
+
+    private static string DescribeCliSource(CliInstallSource source) {
+        return source switch {
+            CliInstallSource.WorkspaceNpm => "workspace npm",
+            CliInstallSource.GlobalNpm => "global npm",
+            CliInstallSource.NativeWinget => "native (winget)",
+            CliInstallSource.NativeOther => "native",
+            CliInstallSource.Custom => "custom",
+            _ => "unknown"
+        };
     }
 
 }

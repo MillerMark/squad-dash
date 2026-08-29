@@ -393,6 +393,33 @@ internal sealed class WorkspaceIssueFactoryTests {
     }
 
     [Test]
+    public void CreateStartupIssue_WhenNativeCliExistsButWorkspaceUninitialized_ReturnsInitializationIssue() {
+        using var workspace = new TestWorkspace();
+        var state = new SquadInstallationState(
+            ActiveDirectory: workspace.RootPath,
+            SquadFolderPath: workspace.GetPath(".squad"),
+            TeamFilePath: workspace.GetPath(".squad", "team.md"),
+            PackageJsonPath: workspace.GetPath("package.json"),
+            LocalSquadCommandPath: workspace.GetPath("native", "squad.exe"),
+            IsWorkspaceInitialized: false,
+            HasPackageManifest: false,
+            HasLocalCliCommand: true,
+            IsSquadInstalledForActiveDirectory: false,
+            DetectedCliSource: CliInstallSource.NativeWinget);
+
+        var issue = WorkspaceIssueFactory.CreateStartupIssue(state);
+
+        Assume.That(issue, Is.Not.Null);
+        Assume.That(issue!.Title, Does.Not.Contain("PowerShell"));
+
+        Assert.Multiple(() => {
+            Assert.That(issue.Title, Does.Contain("Initialize Squad workspace"));
+            Assert.That(issue.Message, Does.Contain("native (winget)"));
+            Assert.That(issue.ShowInstallButton, Is.True);
+        });
+    }
+
+    [Test]
     public void CreateStartupIssue_WhenNothingInstalled_ReturnsSquadNotInstalledIssue() {
         using var workspace = new TestWorkspace();
         var state = new SquadInstallationState(
@@ -423,6 +450,30 @@ internal sealed class WorkspaceIssueFactoryTests {
         var issue = WorkspaceIssueFactory.CreateStartupIssue(null);
 
         Assert.That(issue is null || issue.Title.Contains("Node.js") || issue.Title.Contains("PowerShell"), Is.True);
+    }
+
+    [TestCase(CliInstallSource.WorkspaceNpm, true)]
+    [TestCase(CliInstallSource.GlobalNpm, true)]
+    [TestCase(CliInstallSource.NativeWinget, false)]
+    [TestCase(CliInstallSource.NativeOther, false)]
+    [TestCase(CliInstallSource.Custom, false)]
+    [TestCase(CliInstallSource.Unknown, false)]
+    public void ShouldCheckNodeTooling_IsOnlyTrueForNpmSources(CliInstallSource source, bool expected) {
+        var state = new SquadInstallationState(
+            ActiveDirectory: "C:\\repo",
+            SquadFolderPath: "C:\\repo\\.squad",
+            TeamFilePath: "C:\\repo\\.squad\\team.md",
+            PackageJsonPath: "C:\\repo\\package.json",
+            LocalSquadCommandPath: "C:\\repo\\node_modules\\.bin\\squad.cmd",
+            IsWorkspaceInitialized: false,
+            HasPackageManifest: false,
+            HasLocalCliCommand: false,
+            IsSquadInstalledForActiveDirectory: false,
+            DetectedCliSource: source);
+
+        var shouldCheck = WorkspaceIssueFactory.ShouldCheckNodeTooling(state);
+
+        Assert.That(shouldCheck, Is.EqualTo(expected));
     }
 
     private static ResolvedCliCandidate CreateAvailableCandidate(
