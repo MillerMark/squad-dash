@@ -52,6 +52,7 @@ internal sealed class PlanValidationSchedulingTests
             Assert.That(prompt, Does.Not.Contain("using the CLI's `general-purpose` agent type"));
             Assert.That(prompt, Does.Contain("Do not perform the validation yourself"));
             Assert.That(prompt, Does.Contain("human approval checkpoint"));
+            Assert.That(prompt, Does.Contain("\"description\": \"what this observation proves\""));
         });
     }
 
@@ -179,6 +180,44 @@ internal sealed class PlanValidationSchedulingTests
             Assert.That(result!.Passed, Is.False);
             Assert.That(result.ValidatedCommit, Is.Null);
             Assert.That(result.AssertionEvidence[0].Passed, Is.False);
+        });
+    }
+
+    [Test]
+    public void Parser_DerivesChecklistDescriptionFromAtomicQuestion_WhenLegacySchemaOmitsIt()
+    {
+        const string response = """
+            PLAN_VALIDATION_RESULT_JSON:
+            {
+              "validationId": "V1",
+              "planId": "P1",
+              "passed": false,
+              "outcome": "needs-human-proof",
+              "summary": "Automated evidence passed; one live observation remains.",
+              "assertionEvidence": [
+                { "assertion": "A produces the declared output.", "passed": false, "evidence": "Requires human observation." }
+              ],
+              "humanProofRequirements": [
+                {
+                  "requirementId": "observe-output",
+                  "proofType": "human-observation",
+                  "question": "Does the output appear in the running application?",
+                  "accessMode": "directly-reachable"
+                }
+              ],
+              "validatedCommit": "abc1234"
+            }
+            """;
+
+        Assert.That(PlanValidationResultParser.TryParse(response, out var result, out var error), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.Null);
+            Assert.That(result!.HumanProofRequirements, Has.Count.EqualTo(1));
+            Assert.That(result.HumanProofRequirements![0].Description,
+                Is.EqualTo("Does the output appear in the running application?"));
+            Assert.That(PlanValidationEvidencePolicy.Validate(
+                MakePlanWithReadyValidation().Validations![0], result), Is.Null);
         });
     }
 
@@ -487,6 +526,8 @@ internal sealed class PlanValidationSchedulingTests
             Assert.That(prompt, Does.Contain("exactly 1 assertionEvidence item"));
             Assert.That(prompt, Does.Contain("A produces the declared output."));
             Assert.That(prompt, Does.Contain("abc1234"));
+            Assert.That(prompt, Does.Contain(
+                "must contain requirementId, proofType, description, question, and"));
         });
     }
 

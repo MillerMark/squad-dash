@@ -112,6 +112,19 @@ internal sealed class PlanValidationEvidencePolicyTests
         Assert.That(PlanValidationHumanProofRecoveryPolicy.IsLegacyHumanProofOnlyFailure(failed), Is.True);
     }
 
+    [Test]
+    public void IncompleteGeneratedChecklist_IsRecognizedForChecklistRecoveryAfterRestart()
+    {
+        var failed = Validation with
+        {
+            Status = PlanValidationStatus.Failed,
+            Summary = "The corrected validation result still did not match the approved evidence contract. " +
+                      "Validation PROOF-20260803-VAL-001 returned an incomplete human review check.",
+        };
+
+        Assert.That(PlanValidationHumanProofRecoveryPolicy.IsLegacyHumanProofOnlyFailure(failed), Is.True);
+    }
+
     private static PlanValidationResultPayload Result(IReadOnlyList<PlanAssertionEvidence> evidence) =>
         new(
             Validation.ValidationId,

@@ -59,7 +59,7 @@ internal static class PlanValidationResultParser
             error = $"The response did not contain a valid {Marker} payload.";
             return false;
         }
-        result = extraction.Payload;
+        result = NormalizeHumanProofRequirements(extraction.Payload);
 
         if (result is null || string.IsNullOrWhiteSpace(result.ValidationId) ||
             string.IsNullOrWhiteSpace(result.PlanId) || string.IsNullOrWhiteSpace(result.Summary))
@@ -75,6 +75,31 @@ internal static class PlanValidationResultParser
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Keeps checklist results compatible with the first published validation schema, which
+    /// required an atomic question but did not show the separate display description field.
+    /// The question is already the complete human-observation contract, so it is safe to use it
+    /// as the display description rather than stopping an otherwise valid plan review.
+    /// </summary>
+    private static PlanValidationResultPayload? NormalizeHumanProofRequirements(
+        PlanValidationResultPayload? payload)
+    {
+        if (payload?.HumanProofRequirements is not { Count: > 0 } requirements ||
+            !requirements.Any(requirement =>
+                string.IsNullOrWhiteSpace(requirement.Description) &&
+                !string.IsNullOrWhiteSpace(requirement.Question)))
+            return payload;
+
+        return payload with
+        {
+            HumanProofRequirements = requirements.Select(requirement =>
+                string.IsNullOrWhiteSpace(requirement.Description) &&
+                !string.IsNullOrWhiteSpace(requirement.Question)
+                    ? requirement with { Description = requirement.Question!.Trim() }
+                    : requirement).ToArray(),
+        };
     }
 }
 
@@ -187,6 +212,8 @@ internal static class PlanValidationHumanProofRecoveryPolicy
             .Where(value => !string.IsNullOrWhiteSpace(value)));
         return text.Contains("human-proof checkpoint", StringComparison.OrdinalIgnoreCase) ||
                text.Contains("human approval checkpoint", StringComparison.OrdinalIgnoreCase) ||
-               text.Contains("human checkpoint evidence", StringComparison.OrdinalIgnoreCase);
+               text.Contains("human checkpoint evidence", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("human review check", StringComparison.OrdinalIgnoreCase) ||
+               text.Contains("review checklist", StringComparison.OrdinalIgnoreCase);
     }
 }

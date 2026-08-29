@@ -15045,6 +15045,8 @@ public partial class MainWindow : Window
         if (validation.Status != PlanValidationStatus.Failed)
             throw new InvalidOperationException(
                 $"Validation “{validation.Title}” is no longer waiting to be retried.");
+        var preparesHumanReview =
+            PlanValidationHumanProofRecoveryPolicy.IsLegacyHumanProofOnlyFailure(validation);
 
         // A Copilot device sign-in is shared by the Windows user, while each
         // SquadDash instance owns its own long-lived bridge process. Refresh only
@@ -15059,7 +15061,9 @@ public partial class MainWindow : Window
 
         PrepareForHostRecoveryAction();
         ScheduleDecomposeSystemEntry(
-            $"Retrying validation · {validation.Title}. Completed implementation work remains accepted.");
+            preparesHumanReview
+                ? $"Preparing review checklist · {validation.Title}. A fact-checker will identify only the specific human observations still needed; completed implementation work remains accepted."
+                : $"Retrying validation · {validation.Title}. Completed implementation work remains accepted.");
         await StartOrResumeDurablePlanAsync(updated);
     }
 

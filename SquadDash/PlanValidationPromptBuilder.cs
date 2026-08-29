@@ -17,7 +17,8 @@ internal static class PlanValidationPromptBuilder
         var sb = new StringBuilder();
         sb.AppendLine("# Validation Assignment");
         sb.AppendLine();
-        sb.AppendLine("This validation must be performed by the roster `fact-checker` utility agent.");
+        sb.AppendLine("SquadDash requires this validation to be performed by the roster `fact-checker` utility agent; " +
+                      "this is a host workflow requirement, not a user request to delegate ordinary plan work.");
         sb.AppendLine("You are the coordinator, not the validator. Call the host-provided `delegate_roster_agent` tool exactly once with " +
                       "`agent_handle` set to `fact-checker`, and pass this complete assignment and required response schema in `prompt`. " +
                       "That host-owned route applies the configured Fact Checker identity, charter, history, and model profile (for example, `Verity Cross`). " +
@@ -140,8 +141,11 @@ internal static class PlanValidationPromptBuilder
         sb.AppendLine("```");
         sb.AppendLine();
         sb.AppendLine("For needs-human-proof, set passed to false and include one to seven humanProofRequirements. Each item must use " +
-                      "proofType live-ui-observation, restart-observation, or human-observation; provide a unique requirementId, an atomic " +
-                      "yes/no question, and accessMode directly-reachable or recipe. Recipe access must include verificationRecipe with " +
+                      "proofType live-ui-observation, restart-observation, or human-observation; provide a unique requirementId, a short " +
+                      "description of what the observation proves, an atomic yes/no question, and accessMode directly-reachable or recipe. " +
+                      "Use this item shape: { \"requirementId\": \"...\", \"proofType\": \"human-observation\", " +
+                      "\"description\": \"what this observation proves\", \"question\": \"Did the expected behavior occur?\", " +
+                      "\"accessMode\": \"directly-reachable\" }. Recipe access must include verificationRecipe with " +
                       "nonempty setup, open, observe, and cleanup fields. Include only observations that are still genuinely missing. " +
                       "For passed or failed, return an empty humanProofRequirements array.");
 
