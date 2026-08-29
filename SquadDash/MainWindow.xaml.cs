@@ -12562,6 +12562,7 @@ public partial class MainWindow : Window
                 {
                     PlanRecoveryPrimaryActionKind.AcceptStep or
                     PlanRecoveryPrimaryActionKind.AcceptUnattributedStep or
+                    PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
                     PlanRecoveryPrimaryActionKind.ApproveAmendment =>
                         planToAccept => AcceptInterruptedStepAfterReviewAsync(planToAccept),
                     PlanRecoveryPrimaryActionKind.ResumeVerification when !hasRecoveryAssessment =>
@@ -12583,6 +12584,9 @@ public partial class MainWindow : Window
             interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptStep
                 ? current => _ = QueuePlanRecoveryCorrectionAsync(
                     PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
+                : interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp
+                    ? current => _ = RetryDecomposeTaskAsync(
+                        PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
                 : interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep
                     ? current => _ = RetryDecomposeTaskAsync(
                         PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
@@ -13392,7 +13396,7 @@ public partial class MainWindow : Window
                 planExecutionContext = PlanExecutionContextBuilder.Build(durablePlan, durableTask) +
                     $"\n\nGenerated plan projection: `{projectionPath}`. The context above is authoritative for this turn; " +
                     "the projection is an inspectable plan-only reference and tasks.md is not an execution source. " +
-                    "Inspect the current implementation and tests before changing anything. Treat requirements already satisfied by earlier or concurrent work as complete, avoid duplicating equivalent work, and report either the terminal changed commit or a `verified-no-op` result with requirement-scoped repository evidence from the unchanged task baseline; SquadDash records the full commit range. " +
+                    "Inspect the current implementation and tests before changing anything. Treat requirements already satisfied by earlier or concurrent work as complete, avoid duplicating equivalent work, and report either the terminal changed commit or a `verified-no-op` result with requirement-scoped repository evidence from the current inspected snapshot; SquadDash records the full commit range without attributing concurrent commits to this step. " +
                     "Capability discovery must be non-mutating: never run a mutating subcommand followed by `--help` in the active workspace. Inspect top-level help, installed source, or official documentation, or use an isolated disposable copy. Specifically, never run `squad upgrade --help`; Squad CLI 0.10 executes the upgrade instead of showing subcommand help.";
             }
         }
@@ -13409,8 +13413,9 @@ public partial class MainWindow : Window
         var verificationOnlyContext = PlanTaskExecutionPolicy.IsVerificationOnly(currentTask)
             ? "## Verification-Only Execution (host-owned)\n\n" +
               "This approved task verifies existing work and must not change source files or create a bookkeeping commit. " +
-              "Run the declared checks against the current worktree, return their exact proof evidence, and set `commit` " +
-              "to the current evaluated HEAD. SquadDash will accept the proof directly without a second independent review."
+              "Run the declared checks against the current worktree, return their exact proof evidence, set `completionKind` " +
+              "to `verified-no-op`, set `commit` to null, and set `evaluatedCommit` to the current HEAD. SquadDash will " +
+              "accept the proof directly without a second independent review."
             : null;
 
         var contexts = new[]
@@ -14901,13 +14906,27 @@ public partial class MainWindow : Window
                 workspace,
                 $"rev-parse --verify \"{result.EvaluatedCommit}^{{commit}}\"")).Trim();
 
+            if (!string.Equals(evaluated, head, StringComparison.OrdinalIgnoreCase))
+                return ($"The verified-no-op result evaluated {evaluated}, but the current inspected snapshot is HEAD {head}.", null);
+
             if (!string.Equals(head, baseline, StringComparison.OrdinalIgnoreCase))
-                return ($"A verified-no-op result requires an unchanged branch, but HEAD {head} differs from the task baseline {baseline}.", null);
-            if (!string.Equals(evaluated, baseline, StringComparison.OrdinalIgnoreCase))
-                return ($"The verified-no-op result evaluated {evaluated}, but the host-recorded task baseline is {baseline}.", null);
+            {
+                try
+                {
+                    await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{head}\"");
+                }
+                catch
+                {
+                    return ($"HEAD {head} is not descended from the verified-no-op task baseline {baseline}.", null);
+                }
+                SquadDashTrace.Write(
+                    "PlanExecution",
+                    $"Accepted verified no-op at current evaluated HEAD {head}; branch advanced from task baseline {baseline}. " +
+                    "Intervening commits were not attributed to this step.");
+            }
 
             await EnsurePlanWorktreeReadyAsync(workspace);
-            return (null, baseline);
+            return (null, evaluated);
         }
         catch (Exception ex)
         {
@@ -18213,23 +18232,6 @@ public partial class MainWindow : Window
             BorderThickness = new Thickness(0),
             Padding = new Thickness(0),
         };
-        var cardSelectionMenu = new ContextMenu();
-        cardSelectionMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
-        var copySelection = new MenuItem { Header = "_Copy" };
-        copySelection.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-        string? selectedCardText = null;
-        cardSelectionMenu.Opened += (_, _) =>
-        {
-            selectedCardText = TranscriptCopyService.BuildSelectionText(cardViewer);
-            copySelection.IsEnabled = !string.IsNullOrEmpty(selectedCardText);
-        };
-        copySelection.Click += (_, _) =>
-        {
-            if (!string.IsNullOrEmpty(selectedCardText))
-                SetClipboardTextWithRetry(selectedCardText);
-        };
-        cardSelectionMenu.Items.Add(copySelection);
-        cardViewer.ContextMenu = cardSelectionMenu;
         cardViewer.PreviewMouseWheel += (_, e) =>
         {
             // This viewer exists only to provide selectable rich text inside the card; its own
@@ -18286,7 +18288,11 @@ public partial class MainWindow : Window
         };
         card.SetResourceReference(Border.BackgroundProperty, "CardSurface");
         card.SetResourceReference(Border.BorderBrushProperty, "SubtleBorder");
-        var cardTag = new DecomposeRecoveryCardTag(recoveryTag, panel);
+        var copyParts = new List<string>();
+        var cardTag = new DecomposeRecoveryCardTag(recoveryTag, panel)
+        {
+            CopyTextProvider = () => string.Join(Environment.NewLine, copyParts),
+        };
         recoverySurface.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(card, cardTag));
         var blocks = cardDocument.Blocks;
 
@@ -18298,7 +18304,7 @@ public partial class MainWindow : Window
         titleParagraph.Inlines.Add(titleRun);
         blocks.Add(titleParagraph);
 
-        var copyParts = new List<string> { cardTitle };
+        copyParts.Add(cardTitle);
         var planLinkParagraph = CreateTranscriptParagraph(bottomMargin: 4);
         var planLabelRun = new Run("Plan: ");
         planLabelRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
@@ -18526,10 +18532,8 @@ public partial class MainWindow : Window
             reasonParagraph.Inlines.Add(reasonLabel);
             AddImportantRecoveryText(reasonParagraph.Inlines, compactReason);
             blocks.Add(reasonParagraph);
-            copyParts.Add("Why it stopped: " + compactReason);
+            copyParts.Add("Why it stopped: " + CommitReferenceText.Shorten(compactReason));
         }
-        cardTag.CopyText = string.Join(Environment.NewLine, copyParts);
-
         var hasPreservedWork = string.Equals(_decomposeContinuationTaskId, taskId, StringComparison.Ordinal) &&
                                _decomposeContinuationPaths.Count > 0;
         var presentation = durablePlan is null
@@ -18776,6 +18780,7 @@ public partial class MainWindow : Window
         if (durablePlan is not null &&
             primaryRecoveryAction?.Kind is PlanRecoveryPrimaryActionKind.AcceptStep or
                 PlanRecoveryPrimaryActionKind.AcceptUnattributedStep or
+                PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
                 PlanRecoveryPrimaryActionKind.ApproveAmendment)
         {
             if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
@@ -18805,6 +18810,13 @@ public partial class MainWindow : Window
                 AddAsyncAction(
                     $"Continue Working on {stepLabel}",
                     $"Keep {stepLabel} incomplete and continue from the preserved repository state.",
+                    async () => await RetryDecomposeTaskAsync(plan, taskId));
+            }
+            else if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp)
+            {
+                AddAsyncAction(
+                    "Retry Verification",
+                    $"Run the non-mutating checks for {stepLabel} again instead of accepting the prior reported result.",
                     async () => await RetryDecomposeTaskAsync(plan, taskId));
             }
             AddAction(
@@ -18864,8 +18876,9 @@ public partial class MainWindow : Window
             blocks.Add(paragraph);
         }
 
-        static void AddRecoveryRecommendationText(InlineCollection inlines, string text)
+        void AddRecoveryRecommendationText(InlineCollection inlines, string text)
         {
+            copyParts.Add(CommitReferenceText.Shorten(text));
             const string recommendedLabel = "Recommended:";
             const string recommendationLabel = "Recommendation:";
             var label = text.StartsWith(recommendedLabel, StringComparison.Ordinal)
@@ -18885,11 +18898,28 @@ public partial class MainWindow : Window
             AddImportantRecoveryText(inlines, text[label.Length..]);
         }
 
-        static void AddImportantRecoveryText(InlineCollection inlines, string text)
+        void AddImportantRecoveryText(InlineCollection inlines, string text)
         {
             var importantText = new Span();
             importantText.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            MarkdownFlowDocumentBuilder.AddInboxInlineText(importantText.Inlines, text);
+            foreach (var segment in CommitReferenceText.Parse(text))
+            {
+                if (segment.FullSha is null)
+                {
+                    MarkdownFlowDocumentBuilder.AddInboxInlineText(importantText.Inlines, segment.Text);
+                    continue;
+                }
+
+                var commitLink = new Hyperlink(new Run(segment.Text))
+                {
+                    Cursor = Cursors.Hand,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip("Open this commit in SquadDash"),
+                };
+                commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                var fullSha = segment.FullSha;
+                commitLink.Click += async (_, _) => await OpenCommitWithRemoteCheckAsync(fullSha);
+                importantText.Inlines.Add(commitLink);
+            }
             inlines.Add(importantText);
         }
 
@@ -19209,6 +19239,7 @@ public partial class MainWindow : Window
             {
                 case PlanRecoveryPrimaryActionKind.AcceptStep:
                 case PlanRecoveryPrimaryActionKind.AcceptUnattributedStep:
+                case PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp:
                 case PlanRecoveryPrimaryActionKind.ApproveAmendment:
                     // Acceptance is a human decision. Open the evidence-bearing surface instead
                     // of silently accepting work from the Plans panel's compact resume control.
@@ -19332,10 +19363,9 @@ public partial class MainWindow : Window
                 handoff.CompletionKind,
                 DecomposeStepCompletionKind.VerifiedNoOp,
                 StringComparison.Ordinal) &&
-            (!string.Equals(candidateCommit, baseline, StringComparison.OrdinalIgnoreCase) ||
-             !string.Equals(head, baseline, StringComparison.OrdinalIgnoreCase)))
+            !string.Equals(candidateCommit, head, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(
-                "The saved verified-no-op candidate no longer matches the unchanged task baseline.");
+                "The saved verified-no-op candidate no longer matches the current repository HEAD.");
         await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{candidateCommit}\"");
         await RunGitAsync(workspace, $"merge-base --is-ancestor \"{candidateCommit}\" \"{head}\"");
         if (!PlanVerificationRecoveryPolicy.TryCreateCandidate(
@@ -19590,11 +19620,12 @@ public partial class MainWindow : Window
               ]
             }
 
-            A changed completion requires passed verification and at least one task or mixed commit. If the baseline-to-HEAD
-            range is empty because every task requirement was already satisfied before this task began, use
+            A changed completion requires passed verification and at least one task or mixed commit. If every task
+            requirement is already satisfied at the exact assessed HEAD without attributing a commit to this task, use
             `classification: "complete"`, `completionKind: "verified-no-op"`, set `evaluatedCommit` to the exact assessed
             HEAD, and provide non-empty requirement-scoped `noOpEvidence`. Do not manufacture an empty commit or use no-op
-            to excuse missing work. SquadDash will independently validate the unchanged snapshot before any acceptance.
+            to excuse missing work. Classify every intervening commit, but do not attribute concurrent commits to this task.
+            SquadDash will independently validate the current snapshot before any acceptance.
             Use inconclusive whenever the
             evidence cannot safely distinguish task work from unrelated work. Not_started requires no task or mixed
             commits against the current revision; use superseded for replaced older-spec work. Do not include recovery choices or execute
@@ -19893,16 +19924,12 @@ public partial class MainWindow : Window
         {
             if (!RecoveryCommitValidator.CommitIdentifiersMatch(
                     response.EvaluatedCommit,
-                    context.AssessedHead) ||
-                !string.Equals(
-                    context.BaselineCommit,
-                    context.AssessedHead,
-                    StringComparison.OrdinalIgnoreCase))
+                    context.AssessedHead))
             {
                 RepairOrStopInvalidPlanRecoveryAssessment(
                     context,
                     response,
-                    "A verified-no-op assessment must evaluate the unchanged host-recorded task baseline.",
+                    "A verified-no-op assessment must identify the current inspected HEAD in evaluatedCommit.",
                     context.CommitReferences);
                 return;
             }
@@ -20071,11 +20098,12 @@ public partial class MainWindow : Window
         Plan durable,
         PendingPlanRecoveryAssessment context,
         PlanRecoveryAssessmentResponse response,
-        string terminalCommit)
+        string terminalCommit,
+        string summaryPrefix = "AI-assessed recovery: ")
     {
         if (_currentWorkspace is null || _planStore is null) return;
         var shortCommit = terminalCommit[..Math.Min(7, terminalCommit.Length)];
-        var summary = "AI-assessed recovery: " + response.Summary;
+        var summary = summaryPrefix + response.Summary;
         var currentGroup = PendingDecomposePlanAdapter.FromPlan(durable).Group with
         {
             HostRevision = durable.Revision,
@@ -20582,7 +20610,6 @@ public partial class MainWindow : Window
             var currentSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
             var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, storedPlan, taskId);
             if (!PlanRecoveryAssessmentSnapshotPolicy.IsCurrent(noOpAssessment, currentSnapshot) ||
-                !string.Equals(baseline, currentSnapshot.HeadCommit, StringComparison.OrdinalIgnoreCase) ||
                 noOpAssessment.NoOpEvidence is not { Count: > 0 } ||
                 !string.Equals(
                     noOpAssessment.Verification?.Status,
@@ -20590,7 +20617,21 @@ public partial class MainWindow : Window
                     StringComparison.OrdinalIgnoreCase))
             {
                 MessageBox.Show(this,
-                    "The already-satisfied assessment no longer matches the unchanged task baseline. Reassess before accepting it.",
+                    "The already-satisfied assessment no longer matches the current repository snapshot. Reassess before accepting it.",
+                    "Assessment Changed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return false;
+            }
+
+            try
+            {
+                await RunGitAsync(
+                    workspace,
+                    $"merge-base --is-ancestor \"{baseline}\" \"{currentSnapshot.HeadCommit}\"");
+            }
+            catch
+            {
+                MessageBox.Show(this,
+                    "The assessed snapshot is no longer descended from the task baseline. Reassess before accepting it.",
                     "Assessment Changed", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return false;
             }
@@ -20628,6 +20669,9 @@ public partial class MainWindow : Window
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
                 task.Status == PlanTaskStatus.Complete) == true;
         }
+
+        if (RejectedVerifiedNoOpRecoveryPolicy.CanAccept(storedPlan, taskId))
+            return await AcceptRejectedVerifiedNoOpAsync(storedPlan, pendingTask, taskId, workspace);
 
         InterruptedTaskReviewRange reviewRange;
         try
@@ -20883,6 +20927,81 @@ public partial class MainWindow : Window
         if (PlanRecoveryAcceptancePolicy.ShouldAdvanceAfterAcceptance(acceptedPlan!))
             await StartOrResumeDurablePlanAsync(acceptedPlan);
         return true;
+    }
+
+    private async Task<bool> AcceptRejectedVerifiedNoOpAsync(
+        Plan storedPlan,
+        PlanTask pendingTask,
+        string taskId,
+        string workspace)
+    {
+        if (_planStore is null) return false;
+
+        var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, storedPlan, taskId);
+        var snapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
+        try
+        {
+            await RunGitAsync(
+                workspace,
+                $"merge-base --is-ancestor \"{baseline}\" \"{snapshot.HeadCommit}\"");
+            await EnsurePlanWorktreeReadyAsync(workspace, storedPlan.PlanId);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this,
+                "SquadDash cannot safely accept the reported no-op at the current snapshot. " + ex.Message,
+                "Current Snapshot Cannot Be Accepted", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return false;
+        }
+
+        var status = NormalizeGitSnapshot(await RunGitAsync(
+            workspace, "status --porcelain --untracked-files=all"));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            pendingTask.DisplayStepLabel,
+            pendingTask.Title ?? pendingTask.Description);
+        var shortHead = snapshot.HeadCommit[..Math.Min(7, snapshot.HeadCommit.Length)];
+        var summary = $"The human reviewer accepted the previously reported no-op for {stepLabel} " +
+                      $"at current snapshot {shortHead}. Commits after the task baseline were not attributed to this step.";
+        var response = new PlanRecoveryAssessmentResponse(
+            Guid.NewGuid().ToString("N"),
+            PlanRecoveryClassification.Complete,
+            summary,
+            [],
+            new DecomposeStepVerification(
+                "passed",
+                "explicit human recovery decision",
+                "The reviewer explicitly accepted the reported verification result after current-snapshot safety checks."),
+            [],
+            CompletionKind: DecomposeStepCompletionKind.VerifiedNoOp,
+            EvaluatedCommit: snapshot.HeadCommit,
+            NoOpEvidence:
+            [
+                new PlanTaskNoOpEvidence(
+                    pendingTask.Title ?? pendingTask.Description ?? taskId,
+                    "Human accepted the prior no-op result after SquadDash confirmed current HEAD, baseline ancestry, and worktree safety.",
+                    [$"repository HEAD {shortHead}"]),
+            ]);
+        var context = new PendingPlanRecoveryAssessment(
+            PendingDecomposePlanAdapter.FromPlan(storedPlan),
+            taskId,
+            response.RecoveryAssessmentId,
+            baseline,
+            snapshot.HeadCommit,
+            status,
+            snapshot.Fingerprint,
+            [],
+            AdvisoryOnly: false);
+
+        PrepareForHostRecoveryAction();
+        await AcceptAssessedPlanRecoveryAsync(
+            storedPlan,
+            context,
+            response,
+            snapshot.HeadCommit,
+            summaryPrefix: "Human-confirmed recovery: ");
+        return _planStore.Load(storedPlan.PlanId)?.Tasks.Any(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal) &&
+            task.Status == PlanTaskStatus.Complete) == true;
     }
 
     private async Task<bool> AcceptAwaitingReviewStepAsync(
@@ -23749,14 +23868,32 @@ public partial class MainWindow : Window
     {
         try
         {
+            var clickSource = e.OriginalSource as DependencyObject;
+            var cardContainer = TranscriptCardLayout.FindContainer(clickSource);
+            var cardViewer = cardContainer is null
+                ? null
+                : TranscriptCopyService.FindCardDocumentViewer(cardContainer);
             var contextualOwner = TranscriptApprovalCardBuilder.FindContextMenuOwner(
-                e.OriginalSource as DependencyObject,
+                clickSource,
                 "Clarify This…");
             if (contextualOwner?.ContextMenu is { } contextualMenu)
             {
+                EnsureTranscriptCardCopyItems(contextualMenu, cardViewer, cardContainer);
                 contextualMenu.PlacementTarget = contextualOwner;
                 contextualMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
                 contextualMenu.IsOpen = true;
+                e.Handled = true;
+                return;
+            }
+
+            if (cardViewer is not null && TranscriptCardLayout.IsCard(cardContainer))
+            {
+                var cardMenu = new ContextMenu();
+                cardMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+                EnsureTranscriptCardCopyItems(cardMenu, cardViewer, cardContainer);
+                cardMenu.PlacementTarget = cardViewer;
+                cardMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+                cardMenu.IsOpen = true;
                 e.Handled = true;
                 return;
             }
@@ -23801,7 +23938,6 @@ public partial class MainWindow : Window
             }
 
             // Check if click is on a table — collected here, inserted after Copy below
-            var clickSource = e.OriginalSource as DependencyObject;
             var tablePanel = FindVisualAncestor<StackPanel>(clickSource);
             string? tableMarkdown = tablePanel?.Tag as string;
 
@@ -23817,6 +23953,8 @@ public partial class MainWindow : Window
                     SetClipboardTextWithRetry(text);
             };
             menu.Items.Add(copyItem);
+
+            EnsureTranscriptCardCopyItems(menu, selectionViewer: null, cardContainer);
 
             if (!string.IsNullOrWhiteSpace(tableMarkdown))
             {
@@ -47269,6 +47407,66 @@ public partial class MainWindow : Window
                 "MainWindow_Closed: requesting explicit application shutdown after cleanup.");
             Application.Current?.Shutdown();
         }
+    }
+
+    private void EnsureTranscriptCardCopyItems(
+        ContextMenu menu,
+        FlowDocumentScrollViewer? selectionViewer,
+        BlockUIContainer? cardContainer)
+    {
+        if (!TranscriptCardLayout.IsCard(cardContainer))
+            return;
+
+        const string selectionTag = "squaddash:copy-card-selection";
+        const string cardTag = "squaddash:copy-whole-card";
+        const string separatorTag = "squaddash:copy-card-separator";
+
+        if (selectionViewer is not null)
+        {
+            var selectionItem = menu.Items.OfType<MenuItem>()
+                .FirstOrDefault(item => string.Equals(item.Tag as string, selectionTag, StringComparison.Ordinal));
+            if (selectionItem is null)
+            {
+                selectionItem = new MenuItem { Header = "_Copy", Tag = selectionTag };
+                selectionItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                selectionItem.Click += (_, _) =>
+                {
+                    if (selectionItem.CommandParameter is string text && text.Length > 0)
+                        SetClipboardTextWithRetry(text);
+                };
+                menu.Items.Add(selectionItem);
+            }
+
+            var selectedText = TranscriptCopyService.BuildSelectionText(selectionViewer);
+            selectionItem.CommandParameter = selectedText;
+            selectionItem.IsEnabled = !string.IsNullOrEmpty(selectedText);
+        }
+
+        var wholeCardItem = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag as string, cardTag, StringComparison.Ordinal));
+        if (wholeCardItem is null)
+        {
+            if (menu.Items.Count > 0 && !menu.Items.OfType<Separator>()
+                    .Any(separator => string.Equals(separator.Tag as string, separatorTag, StringComparison.Ordinal)))
+            {
+                var separator = new Separator { Tag = separatorTag };
+                separator.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                menu.Items.Add(separator);
+            }
+
+            wholeCardItem = new MenuItem { Header = "Copy _Card", Tag = cardTag };
+            wholeCardItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            wholeCardItem.Click += (_, _) =>
+            {
+                if (wholeCardItem.CommandParameter is BlockUIContainer container &&
+                    TranscriptCopyService.BuildCardText(container) is { Length: > 0 } text)
+                    SetClipboardTextWithRetry(text);
+            };
+            menu.Items.Add(wholeCardItem);
+        }
+
+        wholeCardItem.CommandParameter = cardContainer;
+        wholeCardItem.IsEnabled = TranscriptCopyService.BuildCardText(cardContainer!) is { Length: > 0 };
     }
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)

@@ -337,6 +337,32 @@ internal sealed class TranscriptCopyServiceTests {
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void BuildSelectionText_SelectionSpanningGenericCard_PreservesSurroundingNarrative() {
+        var cardContent = new StackPanel();
+        cardContent.Children.Add(new TextBlock { Text = "Plan Recovery Required" });
+        cardContent.Children.Add(new TextBlock { Text = "Why it stopped: branch moved." });
+        cardContent.Children.Add(new Button { Content = "Retry" });
+        var card = TranscriptQuickReplyFactory.CreateContainer(
+            new Border { Child = cardContent },
+            new PlanPreflightRecoveryTag("PLAN-1", "revision"));
+        var rtb = MakeRichTextBox(
+            new Paragraph(new Run("Before card")),
+            card,
+            new Paragraph(new Run("After card")));
+
+        var result = TranscriptCopyService.BuildSelectionText(rtb);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Does.Contain("Before card"));
+            Assert.That(result, Does.Contain("Plan Recovery Required"));
+            Assert.That(result, Does.Contain("Why it stopped: branch moved."));
+            Assert.That(result, Does.Not.Contain("Retry"));
+            Assert.That(result, Does.Contain("After card"));
+        });
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>

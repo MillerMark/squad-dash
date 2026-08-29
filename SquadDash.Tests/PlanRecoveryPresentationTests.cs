@@ -43,7 +43,7 @@ internal sealed class PlanRecoveryPresentationTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(presentation.Finding, Does.Contain("already satisfied at the task baseline"));
+            Assert.That(presentation.Finding, Does.Contain("already satisfied at the inspected snapshot"));
             Assert.That(presentation.Recommendation, Does.Contain("review the no-op evidence"));
         });
     }
@@ -506,6 +506,49 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(action.Hint, Does.Contain("directly to independent verification"));
             Assert.That(action.Hint, Does.Contain("will not be repeated"));
         });
+    }
+
+    [Test]
+    public void RecoveryAction_RejectedVerifiedNoOpOffersExplicitHumanAcceptanceAndContinue()
+    {
+        var task = new PlanTask(
+            "PLAN-001", "Verify contracts", "Run non-mutating checks", [], "high",
+            PlanTaskStatus.Pending,
+            DisplayStepLabel: "11",
+            ExecutionMode: PlanTaskExecutionMode.Verification);
+        var plan = TestPlan(null) with
+        {
+            Tasks = [task],
+            InterruptionData = TestPlan(null).InterruptionData! with
+            {
+                Reason = "SquadDash rejected the step result after repair attempt: A verified-no-op result was rejected.",
+            },
+        };
+
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp));
+            Assert.That(action.Label, Is.EqualTo("Accept Step 11 as Complete & Continue"));
+            Assert.That(action.ProtocolAction, Is.EqualTo("accept-step-complete"));
+            Assert.That(action.Hint, Does.Contain("Intervening commits remain unattributed"));
+        });
+    }
+
+    [Test]
+    public void RecoveryAction_OrdinaryVerificationFailureStillOffersRetry()
+    {
+        var task = new PlanTask(
+            "PLAN-001", "Verify contracts", "Run non-mutating checks", [], "high",
+            PlanTaskStatus.Pending,
+            DisplayStepLabel: "11",
+            ExecutionMode: PlanTaskExecutionMode.Verification);
+        var plan = TestPlan(null) with { Tasks = [task] };
+
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+
+        Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.RetryVerification));
     }
 
     [Test]

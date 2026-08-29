@@ -448,6 +448,12 @@ internal static class PlanRecoveryAssessmentValidator
             validationErrors.Add(
                 "AI classified the task as complete without identifying any commit that contains its current work.");
         }
+        if (response.IsVerifiedNoOp && attributed.Length > 0)
+        {
+            validationErrors.Add(
+                "A verified-no-op assessment cannot attribute intervening commits to this task. " +
+                "Use changed completion when a task or mixed commit contains the current work.");
+        }
         if (response.Classification == PlanRecoveryClassification.NotStarted && attributed.Length > 0)
         {
             var attributedIds = actualCommits

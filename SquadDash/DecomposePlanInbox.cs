@@ -208,6 +208,13 @@ internal static class DecomposePlanInbox
                 "continue-working",
                 $"Keep {stepLabel} incomplete and continue from the preserved repository state."));
         }
+        else if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp)
+        {
+            actions.Add(BuildAction(
+                "Retry Verification",
+                "continue-working",
+                $"Run the non-mutating checks for {stepLabel} again instead of accepting the prior reported result."));
+        }
         actions.Add(BuildAction(
             "✎ Revise Remaining Plan…",
             "replan-failed-task",
@@ -232,6 +239,8 @@ internal static class DecomposePlanInbox
                 ? "\nUse the commit link above to investigate. Approving accepts the amendment and its checkpoint.\n"
                 : $"\nReview the commit if needed, then accept {stepLabel}, continue working on it, or revise the remaining plan.\n";
         }
+        else if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp)
+            body += $"\nSquadDash rejected a reported no-op. You can explicitly accept {stepLabel} after a current-snapshot safety check, retry verification, or revise the remaining plan.\n";
         else
             body += $"\nSquadDash does not have exact task-owned commit attribution. Review the repository changes, then explicitly mark {stepLabel} complete or continue working.\n";
 

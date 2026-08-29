@@ -491,6 +491,46 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void CommitCoverage_VerifiedNoOpAllowsConcurrentUnattributedCommits()
+    {
+        var response = Response(
+            PlanRecoveryClassification.Complete,
+            [Commit("c001", PlanRecoveryCommitRelation.Unrelated)]) with
+        {
+            CompletionKind = DecomposeStepCompletionKind.VerifiedNoOp,
+            EvaluatedCommit = "abcdef1",
+            NoOpEvidence =
+            [
+                new PlanTaskNoOpEvidence("Existing behavior", "Production wiring exists.", ["src/App.cs"]),
+            ],
+        };
+
+        Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
+            response, References("bbbbbbbb"), out var attributed, out var error), Is.True, error);
+        Assert.That(attributed, Is.Empty);
+    }
+
+    [Test]
+    public void CommitCoverage_VerifiedNoOpRejectsTaskAttributedCommit()
+    {
+        var response = Response(
+            PlanRecoveryClassification.Complete,
+            [Commit("c001", PlanRecoveryCommitRelation.Task)]) with
+        {
+            CompletionKind = DecomposeStepCompletionKind.VerifiedNoOp,
+            EvaluatedCommit = "abcdef1",
+            NoOpEvidence =
+            [
+                new PlanTaskNoOpEvidence("Existing behavior", "Production wiring exists.", ["src/App.cs"]),
+            ],
+        };
+
+        Assert.That(PlanRecoveryAssessmentValidator.TryValidateCommitCoverage(
+            response, References("bbbbbbbb"), out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("cannot attribute intervening commits"));
+    }
+
+    [Test]
     public void CommitCoverage_PreservesHistoryOrderForAttributedCommits()
     {
         var response = Response(

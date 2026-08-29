@@ -28,6 +28,7 @@ internal enum PlanRecoveryPrimaryActionKind
 {
     AcceptStep,
     AcceptUnattributedStep,
+    AcceptRejectedNoOp,
     ApproveAmendment,
     ResumeVerification,
     RetryVerification,
@@ -123,6 +124,15 @@ internal static class PlanRecoveryActionPresentationBuilder
                 "resume-verification");
         }
 
+        if (RejectedVerifiedNoOpRecoveryPolicy.CanAccept(plan, taskId))
+        {
+            return new PlanRecoveryPrimaryActionPresentation(
+                PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp,
+                plan.IsPaused ? $"Accept {stepLabel} as Complete" : $"Accept {stepLabel} as Complete & Continue",
+                $"Accept the reported no-op for {stepLabel} after SquadDash confirms the current snapshot, branch ancestry, and worktree state. Intervening commits remain unattributed to this step.",
+                "accept-step-complete");
+        }
+
         if (PlanTaskExecutionPolicy.IsVerificationOnly(task))
         {
             return new PlanRecoveryPrimaryActionPresentation(
@@ -142,6 +152,19 @@ internal static class PlanRecoveryActionPresentationBuilder
     }
 }
 
+/// <summary>
+/// Offers a bounded human override only when SquadDash explicitly rejected a verified-no-op
+/// result. The click path still revalidates the current repository snapshot before acceptance.
+/// Ordinary failed or inconclusive verification continues to offer retry/replan only.
+/// </summary>
+internal static class RejectedVerifiedNoOpRecoveryPolicy
+{
+    internal static bool CanAccept(Plan plan, string taskId) =>
+        plan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+        string.Equals(plan.InterruptionData?.InterruptedTaskId, taskId, StringComparison.Ordinal) &&
+        plan.InterruptionData?.Reason.Contains("verified-no-op", StringComparison.OrdinalIgnoreCase) == true;
+}
+
 internal sealed record PlanRecoveryAssessmentCardPresentation(
     string Finding,
     string Recommendation);
@@ -159,7 +182,7 @@ internal static class PlanRecoveryAssessmentCardPresentationBuilder
                 assessment.CompletionKind,
                 DecomposeStepCompletionKind.VerifiedNoOp,
                 StringComparison.Ordinal) => new(
-                $"AI found that {stepLabel} was already satisfied at the task baseline. {assessment.Summary}",
+                $"AI found that {stepLabel} was already satisfied at the inspected snapshot. {assessment.Summary}",
                 $"Recommendation: review the no-op evidence, then accept {stepLabel} as already satisfied if it matches your intent."),
             PlanRecoveryClassification.Complete => new(
                 $"AI found that {stepLabel} appears complete. {assessment.Summary}",

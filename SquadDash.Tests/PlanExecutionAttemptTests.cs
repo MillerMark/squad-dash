@@ -48,7 +48,8 @@ internal sealed class PlanExecutionAttemptTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(prompt, Does.Contain("unchanged host-recorded baseline"));
+            Assert.That(prompt, Does.Contain("current inspected snapshot"));
+            Assert.That(prompt, Does.Contain("Do not attribute concurrent commits"));
             Assert.That(prompt, Does.Contain("make no edits and return a `verified-no-op` result"));
             Assert.That(prompt, Does.Contain("Otherwise create or adopt the one clean changed result"));
             Assert.That(prompt, Does.Contain("Do not interrupt the plan merely because this audit is needed"));

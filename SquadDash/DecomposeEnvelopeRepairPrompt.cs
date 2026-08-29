@@ -60,7 +60,7 @@ internal static class DecomposeEnvelopeRepairPrompt
             SquadDash detected that your previous response completed normally but its required DECOMPOSE_STEP_RESULT_JSON envelope {{(envelopeWasPresent ? "did not describe a valid completion" : "was missing or invalid")}}.
             Validation error: {{reason}}
 
-            A normal implementation completion must create a new commit. If your completed inspection established that every task requirement was already satisfied at the host-recorded starting snapshot, correct the envelope to the verified-no-op form below. This is a factual claim, not a way to bypass unfinished work: preserve concrete repository evidence from the inspection you already performed. Do not run tools, modify files, create an empty commit, or invent evidence.
+            A normal implementation completion must create a new commit. If your completed inspection established that every task requirement was already satisfied at the exact repository snapshot you inspected, correct the envelope to the verified-no-op form below. This is a factual claim, not a way to bypass unfinished work: preserve concrete repository evidence from the inspection you already performed. Do not run tools, modify files, create an empty commit, or invent evidence.
 
             If the task was not already fully satisfied, do not claim verified-no-op. Return a truthful `partial` or `failed` result with concrete `remainingWork`; SquadDash can then route the task through its normal correction policy.
 
@@ -94,7 +94,7 @@ internal static class DecomposeEnvelopeRepairPrompt
               }
             }
 
-            Return only one corrected result envelope. SquadDash will require an unchanged host snapshot and an independent Fact Checker review before accepting this no-op claim.
+            Return only one corrected result envelope. SquadDash will require `evaluatedCommit` to identify the current HEAD and will require an independent Fact Checker review of the no-op claim before accepting it. Concurrent commits are not attributed to this task.
             """;
 
     private static bool IsCommitLookupFailure(string reason) =>

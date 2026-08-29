@@ -56,6 +56,7 @@
     <Compile Include="..\SquadDash\PlanCompletionSummaryBuilder.cs" Link="Source\PlanCompletionSummaryBuilder.cs" />
     <Compile Include="..\SquadDash\PlanFamilyArtifactArchiver.cs" Link="Source\PlanFamilyArtifactArchiver.cs" />
     <Compile Include="..\SquadDash\InboxRelativeTimePresenter.cs" Link="Source\InboxRelativeTimePresenter.cs" />
+    <Compile Include="..\SquadDash\CommitReferenceText.cs" Link="Source\CommitReferenceText.cs" />
     <Compile Include="..\SquadDash\InboxAttentionTargetPolicy.cs" Link="Source\InboxAttentionTargetPolicy.cs" />
     <Compile Include="..\SquadDash\PlanValidationRepairPrompt.cs" Link="Source\PlanValidationRepairPrompt.cs" />
     <Compile Include="..\SquadDash\ApprovalGateReadinessEvaluator.cs" Link="Source\ApprovalGateReadinessEvaluator.cs" />

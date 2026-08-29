@@ -105,30 +105,84 @@ internal static class InboxCommitLinkPresenter
 
         foreach (var run in EnumerateRuns(document).ToArray())
         {
+            var embedded = CommitReferenceText.Parse(run.Text);
+            if (embedded.Any(segment => segment.FullSha is not null))
+            {
+                ReplaceRun(run, embedded.Select(segment => segment.FullSha is null
+                    ? (Inline)CreateStyledRun(segment.Text, run)
+                    : CreateCommitLink(segment.Text, segment.FullSha, run, openCommit)));
+                continue;
+            }
+
             var value = run.Text?.Trim();
             if (string.IsNullOrWhiteSpace(value) || !CommitHash.IsMatch(value)) continue;
             if (run.FontFamily?.Source.Contains("Consolas", StringComparison.OrdinalIgnoreCase) != true) continue;
 
-            var link = new Hyperlink(new Run(value))
-            {
-                Cursor = Cursors.Hand,
-                ToolTip = ToolTipHelper.MakeThemedToolTip("Open this commit in SquadDash"),
-            };
-            link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-            var captured = value;
-            link.Click += (_, _) => openCommit(captured);
+            ReplaceRun(run,
+            [
+                CreateCommitLink(
+                    ProofProvenancePresenter.FormatShortSha(value) ?? value,
+                    value,
+                    run,
+                    openCommit),
+            ]);
+        }
+    }
 
-            switch (run.Parent)
+    private static Run CreateStyledRun(string text, Run source) => new(text)
+    {
+        FontFamily = source.FontFamily,
+        FontSize = source.FontSize,
+        FontStyle = source.FontStyle,
+        FontWeight = source.FontWeight,
+    };
+
+    private static Hyperlink CreateCommitLink(
+        string displaySha,
+        string fullSha,
+        Run source,
+        Action<string> openCommit)
+    {
+        var link = new Hyperlink(new Run(displaySha))
+        {
+            Cursor = Cursors.Hand,
+            FontFamily = source.FontFamily,
+            FontSize = source.FontSize,
+            FontStyle = source.FontStyle,
+            FontWeight = source.FontWeight,
+            ToolTip = ToolTipHelper.MakeThemedToolTip("Open this commit in SquadDash"),
+        };
+        link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+        link.Click += (_, _) => openCommit(fullSha);
+        return link;
+    }
+
+    private static void ReplaceRun(Run run, IEnumerable<Inline> replacements)
+    {
+        var parent = run.Parent;
+        foreach (var replacement in replacements)
+        {
+            switch (parent)
             {
                 case Paragraph paragraph:
-                    paragraph.Inlines.InsertBefore(run, link);
-                    paragraph.Inlines.Remove(run);
+                    paragraph.Inlines.InsertBefore(run, replacement);
                     break;
                 case Span span when span is not Hyperlink:
-                    span.Inlines.InsertBefore(run, link);
-                    span.Inlines.Remove(run);
+                    span.Inlines.InsertBefore(run, replacement);
                     break;
+                default:
+                    return;
             }
+        }
+
+        switch (parent)
+        {
+            case Paragraph paragraph:
+                paragraph.Inlines.Remove(run);
+                break;
+            case Span span when span is not Hyperlink:
+                span.Inlines.Remove(run);
+                break;
         }
     }
 

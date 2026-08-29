@@ -62,6 +62,25 @@ internal sealed class TranscriptQuickReplyFactoryTests
         });
     }
 
+    [Test]
+    public void CreateContainer_CardRegistersCopyableWithoutReplacingIdentityTag()
+    {
+        var identity = new PlanPreflightRecoveryTag("PLAN-1", "revision");
+        var label = new TextBlock { Text = "Plan recovery details" };
+        var card = new Border { Child = label };
+
+        var container = TranscriptQuickReplyFactory.CreateContainer(card, identity);
+        var copyable = TranscriptCardLayout.GetCopyable(container);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(container.Tag, Is.SameAs(identity));
+            Assert.That(copyable, Is.Not.Null);
+            Assert.That(copyable!.GetCopyText(), Is.EqualTo("Plan recovery details"));
+            Assert.That(TranscriptCardLayout.FindContainer(label), Is.SameAs(container));
+        });
+    }
+
     [TestCase("warning", QuickReplyTone.Warning)]
     [TestCase(" WARNING ", QuickReplyTone.Warning)]
     [TestCase("destructive", QuickReplyTone.Destructive)]

@@ -40,6 +40,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action? _onRepliedInChat;
     private readonly Action<double>? _onFontSizeChanged;
     private readonly Action<InboxAttachment>? _openDecomposePlan;
+    private readonly Action<string>? _openCommit;
     private readonly Action<string>? _openPlanByGroupId;
     private readonly Func<string, DecomposedTaskGroup?>? _resolvePlanGroupForThumbnail;
     private readonly Func<string, Dictionary<string, double>?>? _resolveLayoutNudgesForThumbnail;
@@ -83,6 +84,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _onRepliedInChat        = onRepliedInChat;
         _onFontSizeChanged      = onFontSizeChanged;
         _openDecomposePlan      = openDecomposePlan;
+        _openCommit             = openCommit;
         _openPlanByGroupId      = openPlanByGroupId;
         _resolvePlanGroupForThumbnail = resolvePlanGroupForThumbnail;
         _resolveLayoutNudgesForThumbnail = resolveLayoutNudgesForThumbnail;
@@ -343,7 +345,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         // ── Body ──────────────────────────────────────────────────────────────
         var doc = MarkdownFlowDocumentBuilder.BuildInbox(message.Body ?? string.Empty, _bodyFontSize);
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
-        InboxCommitLinkPresenter.Attach(doc, openCommit);
+        InboxCommitLinkPresenter.Attach(doc, _openCommit);
         InboxPlanLinkPresenter.Attach(doc, message, openDecomposePlan);
 
         _bodyViewer = new FlowDocumentScrollViewer
@@ -759,6 +761,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         var doc = MarkdownFlowDocumentBuilder.BuildInbox(_message.Body ?? string.Empty, _bodyFontSize);
         _relativeTimeTimer?.Stop();
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
+        InboxCommitLinkPresenter.Attach(doc, _openCommit);
         InboxPlanLinkPresenter.Attach(doc, _message, _openDecomposePlan);
         _bodyViewer.Document = doc;
     }

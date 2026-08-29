@@ -49,7 +49,7 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine($"Host-recorded baseline: `{baselineCommit}`");
         if (candidate.IsVerifiedNoOp)
         {
-            builder.AppendLine($"Evaluated unchanged snapshot: `{candidate.EvaluatedCommit}`");
+            builder.AppendLine($"Evaluated current snapshot: `{candidate.EvaluatedCommit}`");
             builder.AppendLine("Candidate completion kind: `verified-no-op` (no task commit is claimed or expected).");
         }
         else
@@ -65,7 +65,7 @@ internal static class PlanTaskVerificationPromptBuilder
         {
             builder.AppendLine("The empty task diff is expected and is not proof of completion. Inspect the repository state at the evaluated " +
                                "snapshot, every location named in `noOpEvidence`, relevant production call sites, and tests. Independently prove " +
-                               "that every current-task requirement was already satisfied at the baseline. Treat the worker's summary and " +
+                               "that every current-task requirement was already satisfied at the evaluated snapshot. Treat the worker's summary and " +
                                "no-op evidence as claims, not proof. Reject the no-op claim when any task-owned implementation or verification " +
                                "is still missing; provide the bounded work needed so the normal one-rework policy can correct it.");
         }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 
@@ -48,6 +49,33 @@ internal static class TranscriptCopyService {
             return null;
 
         var result = selection.Text.TrimEnd();
+        return result.Length == 0 ? null : result;
+    }
+
+    /// <summary>Builds readable text for a whole embedded transcript card.</summary>
+    internal static string? BuildCardText(BlockUIContainer container) {
+        if (TranscriptCardLayout.GetCopyable(container) is { } copyable) {
+            var copyText = copyable.GetCopyText().TrimEnd();
+            return copyText.Length == 0 ? null : copyText;
+        }
+
+        if (container.Child is StackPanel { Tag: string tableText } && tableText.Length > 0)
+            return tableText;
+        if (container.Child is TextBox { Tag: "codeblock" } codeBox)
+            return string.IsNullOrEmpty(codeBox.Text) ? null : codeBox.Text;
+        return null;
+    }
+
+    internal static string? BuildVisualCardText(UIElement card) {
+        if (FindDocumentViewer(card) is { Document: { } document }) {
+            var documentText = new TextRange(document.ContentStart, document.ContentEnd).Text.TrimEnd();
+            if (documentText.Length > 0)
+                return documentText;
+        }
+
+        var lines = new List<string>();
+        AppendVisibleCardText(lines, card);
+        var result = string.Join(Environment.NewLine, lines.Where(line => !string.IsNullOrWhiteSpace(line))).TrimEnd();
         return result.Length == 0 ? null : result;
     }
 
@@ -180,28 +208,54 @@ internal static class TranscriptCopyService {
     }
 
     private static bool TryAppendBlockUIContainer(StringBuilder sb, BlockUIContainer container) {
-        // Priority 1: ICopyable tag — model object knows how to render itself.
-        if (container.Tag is ICopyable copyable) {
-            var text = copyable.GetCopyText();
-            if (!string.IsNullOrEmpty(text))
-                sb.Append(text);
-            return true;
-        }
+        var text = BuildCardText(container);
+        if (text is null)
+            return false;
+        sb.Append(text);
+        return true;
+    }
 
-        // Priority 2: markdown table — StackPanel with Tag = preformatted markdown text.
-        if (container.Child is StackPanel sp && sp.Tag is string tableText && tableText.Length > 0) {
-            sb.Append(tableText);
-            return true;
-        }
+    internal static FlowDocumentScrollViewer? FindCardDocumentViewer(BlockUIContainer container) =>
+        FindDocumentViewer(container.Child);
 
-        // Priority 3: code block TextBox — identified by Tag = "codeblock".
-        if (container.Child is TextBox { Tag: "codeblock" } codeBox) {
-            sb.Append(codeBox.Text);
-            return true;
+    private static FlowDocumentScrollViewer? FindDocumentViewer(UIElement element) {
+        if (element is FlowDocumentScrollViewer viewer)
+            return viewer;
+        if (element is Border { Child: UIElement borderChild })
+            return FindDocumentViewer(borderChild);
+        if (element is ContentControl { Content: UIElement content })
+            return FindDocumentViewer(content);
+        if (element is Panel panel) {
+            foreach (UIElement child in panel.Children)
+                if (FindDocumentViewer(child) is { } nested)
+                    return nested;
         }
+        return null;
+    }
 
-        // Unknown container type — silently skip so future additions don't crash.
-        return false;
+    private static void AppendVisibleCardText(List<string> lines, UIElement element) {
+        if (element.Visibility != System.Windows.Visibility.Visible)
+            return;
+        switch (element) {
+            case TextBlock textBlock when !string.IsNullOrWhiteSpace(textBlock.Text):
+                lines.Add(textBlock.Text.TrimEnd());
+                return;
+            case TextBox textBox when !string.IsNullOrWhiteSpace(textBox.Text):
+                lines.Add(textBox.Text.TrimEnd());
+                return;
+            case Button:
+                return; // Action labels are controls, not card narrative.
+            case Border { Child: UIElement child }:
+                AppendVisibleCardText(lines, child);
+                return;
+            case ContentControl { Content: UIElement content }:
+                AppendVisibleCardText(lines, content);
+                return;
+            case Panel panel:
+                foreach (UIElement childElement in panel.Children)
+                    AppendVisibleCardText(lines, childElement);
+                return;
+        }
     }
 
     private static bool OverlapsSelection(TextElement element, TextPointer start, TextPointer end) {

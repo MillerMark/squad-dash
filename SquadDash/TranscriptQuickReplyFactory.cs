@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace SquadDash;
 
@@ -29,7 +30,8 @@ internal sealed class DecomposeRecoveryCardTag : ICopyable
     internal DecomposeRecoveryTag Identity { get; }
     internal FrameworkElement ActionsPanel { get; }
     internal string CopyText { get; set; } = string.Empty;
-    public string GetCopyText() => CopyText;
+    internal Func<string>? CopyTextProvider { get; set; }
+    public string GetCopyText() => CopyTextProvider?.Invoke() ?? CopyText;
 }
 internal sealed record PlanGateApprovalTag(string PlanId, string GateId);
 internal sealed record PlanPreflightRecoveryTag(string GroupId, string Revision);
@@ -43,6 +45,15 @@ internal sealed record TranscriptProtocolJsonIndicatorTag(string Marker);
 /// </summary>
 internal static class TranscriptCardLayout
 {
+    private static readonly DependencyProperty HostContainerProperty = DependencyProperty.RegisterAttached(
+        "HostContainer",
+        typeof(BlockUIContainer),
+        typeof(TranscriptCardLayout));
+    private static readonly DependencyProperty CopyableProperty = DependencyProperty.RegisterAttached(
+        "Copyable",
+        typeof(ICopyable),
+        typeof(TranscriptCardLayout));
+
     internal static T MakeResponsive<T>(T card) where T : FrameworkElement
     {
         card.Width = double.NaN;
@@ -58,12 +69,45 @@ internal static class TranscriptCardLayout
     {
         if (child is FrameworkElement element)
             MakeResponsive(element);
-        return new BlockUIContainer(child)
+        var container = new BlockUIContainer(child)
         {
             Margin = margin ?? new Thickness(0, 2, 0, 10),
             Tag = tag,
         };
+        child.SetValue(HostContainerProperty, container);
+        if (tag is not ICopyable && child is Border)
+            child.SetValue(CopyableProperty, new VisualTranscriptCardCopyData(child));
+        return container;
     }
+
+    /// <summary>Finds the transcript container that owns a clicked card descendant.</summary>
+    internal static BlockUIContainer? FindContainer(DependencyObject? origin)
+    {
+        for (var current = origin; current is not null;)
+        {
+            if (current is BlockUIContainer direct)
+                return direct;
+            if (current.GetValue(HostContainerProperty) is BlockUIContainer registered)
+                return registered;
+
+            DependencyObject? parent = null;
+            if (current is Visual or System.Windows.Media.Media3D.Visual3D)
+                parent = VisualTreeHelper.GetParent(current);
+            current = parent ?? LogicalTreeHelper.GetParent(current);
+        }
+        return null;
+    }
+
+    internal static bool IsCard(BlockUIContainer? container) =>
+        container is not null && (container.Tag is ICopyable || container.Child is Border);
+
+    internal static ICopyable? GetCopyable(BlockUIContainer container) =>
+        container.Tag as ICopyable ?? container.Child.GetValue(CopyableProperty) as ICopyable;
+}
+
+internal sealed class VisualTranscriptCardCopyData(UIElement card) : ICopyable
+{
+    public string GetCopyText() => TranscriptCopyService.BuildVisualCardText(card) ?? string.Empty;
 }
 
 /// <summary>Creates consistently styled, transcript-scaled quick-reply controls.</summary>
