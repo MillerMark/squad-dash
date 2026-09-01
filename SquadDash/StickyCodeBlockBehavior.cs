@@ -256,7 +256,29 @@ internal static class StickyCodeBlockBehavior
             _button = button;
             _resolveViewport = resolveViewport;
             _inset = inset;
-            _visuals = new VisualCollection(this) { _button };
+            _visuals = new VisualCollection(this);
+            
+            try
+            {
+                _visuals.Add(_button);
+            }
+            catch (ArgumentException)
+            {
+                // Button is already a child of another visual. Try to remove it from its current parent.
+                var parentVisual = VisualTreeHelper.GetParent(_button);
+                if (parentVisual is Adorner parentAdorner)
+                {
+                    // Access the parent adorner's visual collection through reflection
+                    var fieldInfo = typeof(Adorner).BaseType?.GetField("_visualChildren", 
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    if (fieldInfo?.GetValue(parentAdorner) is VisualCollection parentVisuals)
+                    {
+                        parentVisuals.Remove(_button);
+                    }
+                }
+                
+                _visuals.Add(_button);
+            }
         }
 
         protected override int VisualChildrenCount => _visuals.Count;
