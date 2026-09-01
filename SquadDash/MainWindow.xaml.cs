@@ -483,6 +483,7 @@ public partial class MainWindow : Window
     private string? _activeTabId;   // null = Active Draft; otherwise a queued item Id
     private FrmUltimateCallout? _categorizationCallout;
     private FrmUltimateCallout? _queuePauseCallout;
+    private FrmUltimateCallout? _globalInstallTipCallout;
     private string? _priorityFeedbackId;        // Id of the recently-prioritized queue item
     private DispatcherTimer? _priorityFeedbackTimer;
     private DispatcherTimer? _planRevisionPromptGlowTimer;
@@ -28549,9 +28550,16 @@ public partial class MainWindow : Window
                 bool hasGlobalCli = globalCliCandidate is { IsAvailable: true, DetectedSource: CliInstallSource.GlobalNpm };
                 if (!hasGlobalCli)
                 {
-                    WorkspaceIssueDetailTextBlock.Text =
-                        "Tip: Install globally from the Squad version menu (in the title bar above) to avoid per-folder setups in other repos.";
-                    WorkspaceIssueDetailTextBlock.Visibility = System.Windows.Visibility.Visible;
+                    var isDark = Resources.Contains("IsDarkTheme") && (bool)Resources["IsDarkTheme"];
+                    var fontSize = Resources.Contains("FontSizeBody") ? Convert.ToDouble(Resources["FontSizeBody"]) : 13.0;
+                    _globalInstallTipCallout?.Close();
+                    _globalInstallTipCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
+                        "**Tip:** Open the Squad version menu here to install Squad globally — this avoids per-folder setup in every new repo.",
+                        SquadVersionPanel,
+                        width: 320,
+                        theme: isDark ? CalloutTheme.Dark : CalloutTheme.Light,
+                        fontSize: fontSize,
+                        placement: CalloutPlacement.South);
                 }
                 RefreshAgentCards();
                 RefreshSidebar();
