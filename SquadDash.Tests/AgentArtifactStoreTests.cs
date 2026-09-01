@@ -82,6 +82,34 @@ internal sealed class AgentArtifactStoreTests
     }
 
     [Test]
+    public void ExpandDisplayArtifacts_XmlWrappedManifest_ReplacesManifestWithFencedCodeBlock()
+    {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(
+            Path.Combine(".squad", "tmp", "agent-artifacts", "prompt.md"),
+            "# Escalation Prompt");
+        const string response = """
+            Created the prompt.
+
+            <SQUADDASH_ARTIFACT_JSON>
+            { "path": ".squad/tmp/agent-artifacts/prompt.md", "language": "markdown", "display": "code_block", "label": "Escalation Prompt" }
+            </SQUADDASH_ARTIFACT_JSON>
+            """;
+
+        var expanded = AgentArtifactBlockExpander.ExpandDisplayArtifacts(response, workspace.RootPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(expanded, Does.Contain("Created the prompt."));
+            Assert.That(expanded, Does.Contain("**Escalation Prompt**"));
+            Assert.That(expanded, Does.Contain("```markdown"));
+            Assert.That(expanded, Does.Contain("# Escalation Prompt"));
+            Assert.That(expanded, Does.Not.Contain("<SQUADDASH_ARTIFACT_JSON>"));
+            Assert.That(expanded, Does.Not.Contain("</SQUADDASH_ARTIFACT_JSON>"));
+        });
+    }
+
+    [Test]
     public void ExpandDisplayArtifacts_PlanShapedArtifact_RemainsHidden()
     {
         using var workspace = new TestWorkspace();

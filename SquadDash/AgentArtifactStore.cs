@@ -155,6 +155,7 @@ internal static class AgentArtifactStore
         For transcript display, append:
         SQUADDASH_ARTIFACT_JSON:
         {"path":".squad/tmp/agent-artifacts/<file>","language":"json","display":"code_block","label":"optional label","sha256":"optional sha256"}
+        Use the exact bare marker line above. Do not wrap SQUADDASH_ARTIFACT_JSON in XML, HTML, Markdown, or code-fence tags.
 
         Never use SQUADDASH_ARTIFACT_JSON for TASKS_JSON or another machine-consumed host protocol.
         For a task plan that is too large to return inline, write the complete JSON object to

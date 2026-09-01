@@ -4,20 +4,19 @@ namespace SquadDash;
 
 internal static class AgentArtifactBlockExpander
 {
+    private const string XmlDisplayArtifactStartTag = "<SQUADDASH_ARTIFACT_JSON>";
+    private const string XmlDisplayArtifactEndTag = "</SQUADDASH_ARTIFACT_JSON>";
+
     internal static string ExpandDisplayArtifacts(string text, string workspaceRoot)
     {
         if (string.IsNullOrWhiteSpace(text) ||
-            !text.Contains(AgentArtifactStore.DisplayArtifactMarker, StringComparison.Ordinal))
+            !ContainsDisplayArtifactReference(text))
             return text;
 
         var expanded = text;
         for (var i = 0; i < 8; i++)
         {
-            if (!StructuredJsonBlockParser.TryExtractObject<AgentArtifactReference>(
-                    expanded,
-                    AgentArtifactStore.DisplayArtifactMarker,
-                    out var extraction) ||
-                extraction is null)
+            if (!TryExtractDisplayArtifactReference(expanded, out var extraction) || extraction is null)
                 break;
 
             var replacement = BuildReplacement(workspaceRoot, extraction.Payload);
@@ -28,6 +27,39 @@ internal static class AgentArtifactBlockExpander
         }
 
         return expanded;
+    }
+
+    private static bool ContainsDisplayArtifactReference(string text) =>
+        text.Contains(AgentArtifactStore.DisplayArtifactMarker, StringComparison.Ordinal) ||
+        text.Contains(XmlDisplayArtifactStartTag, StringComparison.Ordinal);
+
+    private static bool TryExtractDisplayArtifactReference(
+        string text,
+        out StructuredJsonBlockExtraction<AgentArtifactReference>? extraction)
+    {
+        if (StructuredJsonBlockParser.TryExtractObject(
+                text,
+                AgentArtifactStore.DisplayArtifactMarker,
+                out extraction))
+            return extraction is not null;
+
+        if (!StructuredJsonBlockParser.TryExtractObject(
+                text,
+                XmlDisplayArtifactStartTag,
+                out var xmlExtraction) ||
+            xmlExtraction is null)
+        {
+            extraction = null;
+            return false;
+        }
+
+        var trailing = StripLeadingXmlEndTag(xmlExtraction.TrailingText);
+        extraction = xmlExtraction with
+        {
+            TrailingText = trailing,
+            VisibleText = CombineVisibleText(xmlExtraction.TextBeforeBlock, trailing),
+        };
+        return true;
     }
 
     private static string BuildReplacement(string workspaceRoot, AgentArtifactReference reference)
@@ -83,6 +115,24 @@ internal static class AgentArtifactBlockExpander
         }
 
         return new string('`', Math.Max(3, maxRun + 1));
+    }
+
+    private static string StripLeadingXmlEndTag(string text)
+    {
+        var trimmed = text.TrimStart();
+        if (!trimmed.StartsWith(XmlDisplayArtifactEndTag, StringComparison.Ordinal))
+            return text;
+
+        return trimmed[XmlDisplayArtifactEndTag.Length..].TrimStart();
+    }
+
+    private static string CombineVisibleText(string before, string after)
+    {
+        if (string.IsNullOrWhiteSpace(before))
+            return after.Trim();
+        if (string.IsNullOrWhiteSpace(after))
+            return before.TrimEnd();
+        return before.TrimEnd() + "\n\n" + after.Trim();
     }
 
     private static string Combine(string before, string replacement, string after)
