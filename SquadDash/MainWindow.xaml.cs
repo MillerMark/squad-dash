@@ -28544,6 +28544,15 @@ public partial class MainWindow : Window
                 SetInstallUiState(
                     isInstalling: false,
                     InstallStatusTextFormatter.BuildStatusText("Squad installed successfully. Starting the first Squad turn...", installSourceLabel));
+                // Show global install tip if no global CLI is available on this machine
+                var globalCliCandidate = await TryResolveGlobalSquadCliAsync(_currentWorkspace?.FolderPath).ConfigureAwait(true);
+                bool hasGlobalCli = globalCliCandidate is { IsAvailable: true, DetectedSource: CliInstallSource.GlobalNpm };
+                if (!hasGlobalCli)
+                {
+                    WorkspaceIssueDetailTextBlock.Text =
+                        "Tip: Install globally from the Squad version menu (in the title bar above) to avoid per-folder setups in other repos.";
+                    WorkspaceIssueDetailTextBlock.Visibility = System.Windows.Visibility.Visible;
+                }
                 RefreshAgentCards();
                 RefreshSidebar();
                 MaybePromptForUniverseSelection();
