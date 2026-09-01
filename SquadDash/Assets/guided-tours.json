@@ -162,8 +162,8 @@
         "advanceTrigger": "QuickReplySelected",
         "requiredContext": "",
         "requiredContextValue": true,
-        "targetOffsetX": 0.7846003898635477,
-        "targetOffsetY": 0.4717917649167319
+        "targetOffsetX": 0.08842443729903537,
+        "targetOffsetY": 0.5757679142509984
       },
       {
         "title": "Prompts navigation",
@@ -259,7 +259,7 @@
       },
       {
         "title": "Spinner 1",
-        "markdownText": "The **spinner** gives a sense of how hard an agent works.\r\nThe **faster** it spins, the more **active** the agent.",
+        "markdownText": "The **spinner** shows how hard an agent works.\r\nThe **faster** it spins, the more **active** the agent.",
         "targetControlId": "TourDemoAgentSpinner_MaxSmart",
         "calloutPlacement": "South",
         "preAction": "None",
