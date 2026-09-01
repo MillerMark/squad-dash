@@ -161,7 +161,11 @@ internal static class StickyCodeBlockBehavior
             TryAttachAdorner();
             _adorner?.InvalidateMeasure();
             _adorner?.InvalidateArrange();
-            _adornerLayer?.Update(_container);
+            if (_adornerLayer is not null)
+            {
+                try { _adornerLayer.Update(_container); }
+                catch (InvalidOperationException) { }
+            }
         }
 
         private FrameworkElement? ResolveViewport() => _viewport ?? _scrollViewer;
