@@ -104,7 +104,7 @@ internal static class WorkspaceIssueFactory {
         }
 
         return new WorkspaceIssuePresentation(
-            Title: "Squad isn't installed for this folder yet",
+            Title: "The Squad CLI isn't installed in this folder yet",
             Message: "This repo needs Squad setup before prompts can run here.",
             DetailText: installationState.HasPackageManifest
                 ? "Install Squad to create the missing .squad files and finish setup."

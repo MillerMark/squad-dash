@@ -28488,6 +28488,7 @@ public partial class MainWindow : Window
             }
 
             SetInstallUiState(isInstalling: true, "Checking prerequisites...");
+            WorkspaceIssueTitleTextBlock.Text = "Installing Squad CLI...";
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var lastProgressMessage = "Checking prerequisites...";
             string? installSourceLabel = null;
@@ -28539,6 +28540,7 @@ public partial class MainWindow : Window
 
             if (_currentInstallationState?.IsSquadInstalledForActiveDirectory == true)
             {
+                WorkspaceIssueTitleTextBlock.Text = "The Squad CLI has been successfully installed.";
                 SetInstallUiState(
                     isInstalling: false,
                     InstallStatusTextFormatter.BuildStatusText("Squad installed successfully. Starting the first Squad turn...", installSourceLabel));
