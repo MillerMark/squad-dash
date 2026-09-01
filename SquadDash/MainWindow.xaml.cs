@@ -28476,6 +28476,7 @@ public partial class MainWindow : Window
                 return;
 
             _installSquadButtonPressed = true;
+            WorkspaceIssueDetailTextBlock.Visibility = System.Windows.Visibility.Collapsed;
 
             if (IsDeveloperSimulationActive())
             {
