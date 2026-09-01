@@ -24,5 +24,7 @@
     }
   ],
   "actions": [],
-  "usedActions": []
+  "usedActions": [],
+  "gitSha": null,
+  "priority": null
 }
