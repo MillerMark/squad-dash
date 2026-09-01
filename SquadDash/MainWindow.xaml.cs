@@ -54888,7 +54888,10 @@ public partial class MainWindow : Window
                 menu.Items.Add(createRepoItem);
             }
 
-            menu.PlacementTarget = BranchIndicatorStrip;
+            // Anchor to BranchNameText (tight visual bounds) rather than the full-width
+            // BranchIndicatorStrip Border. On Mac/VM with DPI scaling, the full-width
+            // element causes WPF to position the popup far to the right.
+            menu.PlacementTarget = BranchNameText;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
             menu.IsOpen = true;
         }
