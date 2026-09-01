@@ -146,6 +146,9 @@ internal static class StickyCodeBlockBehavior
             {
                 try { _adornerLayer.Remove(_adorner); }
                 catch (InvalidOperationException) { }
+                // Release the button from the adorner's visual collection so it can be
+                // re-parented to a new adorner without an ArgumentException.
+                _adorner.ReleaseButton();
             }
 
             _adorner = null;
@@ -256,34 +259,18 @@ internal static class StickyCodeBlockBehavior
             _button = button;
             _resolveViewport = resolveViewport;
             _inset = inset;
-            _visuals = new VisualCollection(this);
-            
-            try
-            {
-                _visuals.Add(_button);
-            }
-            catch (ArgumentException)
-            {
-                // Button is already a child of another visual. Try to remove it from its current parent.
-                var parentVisual = VisualTreeHelper.GetParent(_button);
-                if (parentVisual is Adorner parentAdorner)
-                {
-                    // Access the parent adorner's visual collection through reflection
-                    var fieldInfo = typeof(Adorner).BaseType?.GetField("_visualChildren", 
-                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                    if (fieldInfo?.GetValue(parentAdorner) is VisualCollection parentVisuals)
-                    {
-                        parentVisuals.Remove(_button);
-                    }
-                }
-                
-                _visuals.Add(_button);
-            }
+            _visuals = new VisualCollection(this) { _button };
         }
 
         protected override int VisualChildrenCount => _visuals.Count;
 
         protected override Visual GetVisualChild(int index) => _visuals[index];
+
+        internal void ReleaseButton()
+        {
+            if (_visuals.Contains(_button))
+                _visuals.Remove(_button);
+        }
 
         // Only the child button should receive input; the transparent remainder of the
         // adorner must not interfere with code selection or the TextBox scrollbar.
