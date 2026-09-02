@@ -113,6 +113,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private FrmUltimateCallout? _reviewCallout;
     private bool _isAiReviewPending;
     private string? _reviewStatusMessage;
+    private TextBlock? _actionStatusText;
+    private string? _actionStatusMessage;
     private DecomposedTaskGroup? _deferredDefinitionEdit;
     private (Dictionary<string, Point> OldPositions, IReadOnlyList<string> AffectedTaskIds)? _pendingAnimation;
     private int _buildSeq;
@@ -610,6 +612,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (primaryControls.Children.Count > 0)
             header.Children.Add(primaryControls);
 
+        _actionStatusText = new TextBlock
+        {
+            Text = _actionStatusMessage,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 8),
+            Visibility = string.IsNullOrWhiteSpace(_actionStatusMessage)
+                ? Visibility.Collapsed
+                : Visibility.Visible,
+        };
+        _actionStatusText.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+        _actionStatusText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        header.Children.Add(_actionStatusText);
+
         if (applyAction is not null)
         {
             var actionRegion = new StackPanel();
@@ -633,13 +648,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 button.Focusable = false;
                 button.Click += async (_, _) =>
                 {
+                    ClearActionStatus();
                     actionsPanel.IsEnabled = false;
                     try
                     {
                         if (await applyAction(capturedAction))
                             Close();
                         else
+                        {
                             actionsPanel.IsEnabled = true;
+                            EnsureActionStatus("The plan action could not be completed. Review the current plan state and try again.");
+                        }
                     }
                     catch (PlanPreflightBlockedException blocked)
                     {
@@ -662,7 +681,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         actionsPanel.IsEnabled = true;
                         SquadDashTrace.Write(TraceCategory.General,
                             $"Plan viewer action '{capturedAction.Action}' failed: {ex}");
-                        UIErrorHelper.ShowError("Plan", ex.Message, this);
+                        ShowActionStatus("Plan action failed", ex.Message);
                     }
                 };
                 actionsPanel.Children.Add(button);
@@ -857,16 +876,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         $"Enabled after every review item is checked. {primaryAction.Hint}"));
                 completeReviewButton.Click += async (_, _) =>
                 {
+                    ClearActionStatus();
                     reviewActions.IsEnabled = false;
                     try
                     {
                         if (await onAdoptVerifiedCommitRange(capturedPlan)) Close();
-                        else reviewActions.IsEnabled = true;
+                        else
+                        {
+                            reviewActions.IsEnabled = true;
+                            EnsureActionStatus("The review could not be completed. The plan remains at this checkpoint.");
+                        }
                     }
                     catch (Exception ex)
                     {
                         reviewActions.IsEnabled = true;
-                        UIErrorHelper.ShowError("Complete Review", ex.Message, this);
+                        SquadDashTrace.Write(TraceCategory.General, $"Complete plan review failed: {ex}");
+                        ShowActionStatus("Review could not be completed", ex.Message);
                     }
                 };
                 reviewActions.Children.Add(completeReviewButton);
@@ -952,16 +977,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 acceptButton.Focusable = false;
                 acceptButton.Click += async (_, _) =>
                 {
+                    ClearActionStatus();
                     assessmentPanel.IsEnabled = false;
                     try
                     {
                         if (await onAdoptVerifiedCommitRange(durablePlan)) Close();
-                        else assessmentPanel.IsEnabled = true;
+                        else
+                        {
+                            assessmentPanel.IsEnabled = true;
+                            EnsureActionStatus("The completed step could not be accepted. The plan remains stopped for review.");
+                        }
                     }
                     catch (Exception ex)
                     {
                         assessmentPanel.IsEnabled = true;
-                        UIErrorHelper.ShowError("Accept Completed Step", ex.Message, this);
+                        SquadDashTrace.Write(TraceCategory.General, $"Accept completed plan step failed: {ex}");
+                        ShowActionStatus("Completed step could not be accepted", ex.Message);
                     }
                 };
                 assessmentPanel.Children.Add(acceptButton);
@@ -1069,20 +1100,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 adoptButton.Focusable = false;
                 adoptButton.Click += async (_, _) =>
                 {
+                    ClearActionStatus();
                     interruptedPanel.IsEnabled = false;
                     try
                     {
                         if (await capturedAction(capturedPlan))
                             Close();
                         else
+                        {
                             interruptedPanel.IsEnabled = true;
+                            EnsureActionStatus("Plan recovery could not continue. The current recovery state is unchanged.");
+                        }
                     }
                     catch (Exception ex)
                     {
                         interruptedPanel.IsEnabled = true;
                         SquadDashTrace.Write(TraceCategory.General,
                             $"Plan recovery assessment failed: {ex}");
-                        UIErrorHelper.ShowError("Plan Recovery", ex.Message, this);
+                        ShowActionStatus("Plan recovery could not continue", ex.Message);
                     }
                 };
                 interruptedPanel.Children.Add(adoptButton);
@@ -4251,7 +4286,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 buttons.IsEnabled = true;
                 readiness.Text = "Retry failed. Review the error details and try again.";
                 SquadDashTrace.Write(TraceCategory.General, $"Plan viewer retry failed: {ex}");
-                UIErrorHelper.ShowError("Plan", ex.Message, this);
+                ShowActionStatus("Retry failed", ex.Message);
             }
         };
 
@@ -6404,6 +6439,34 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _isAiReviewPending = false;
         _reviewStatusMessage = error;
         RefreshDetailPanel();
+    }
+
+    internal void SetActionStatus(string title, string message) =>
+        ShowActionStatus(title, message);
+
+    private void ClearActionStatus()
+    {
+        _actionStatusMessage = null;
+        if (_actionStatusText is null) return;
+        _actionStatusText.Text = string.Empty;
+        _actionStatusText.Visibility = Visibility.Collapsed;
+    }
+
+    private void EnsureActionStatus(string message)
+    {
+        if (string.IsNullOrWhiteSpace(_actionStatusMessage))
+            ShowActionStatus("Action not completed", message);
+    }
+
+    private void ShowActionStatus(string title, string message)
+    {
+        _actionStatusMessage = string.IsNullOrWhiteSpace(title)
+            ? message
+            : $"{title}: {message}";
+        if (_actionStatusText is null) return;
+        _actionStatusText.Text = _actionStatusMessage;
+        _actionStatusText.Visibility = Visibility.Visible;
+        _actionStatusText.BringIntoView();
     }
 
     private void NavigateReview(int requestedIndex)

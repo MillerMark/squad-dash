@@ -162,6 +162,22 @@ internal static class RecoveryCommitValidator
             !hostOwnedPaths.Any(hostPath => IsHostOwnedPath(path, hostPath)));
     }
 
+    /// <summary>
+    /// Returns <see langword="true"/> when the range contains at least one task-owned change
+    /// after host state is excluded. Host-recorded interrupted-task ranges may contain state
+    /// written by SquadDash itself, so those ranges require real task work without treating
+    /// the already-present state files as task output.
+    /// </summary>
+    internal static bool ContainsNonHostChanges(
+        IEnumerable<string> changedPaths,
+        IReadOnlyCollection<string> hostOwnedPaths)
+    {
+        return changedPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(NormalizePath)
+            .Any(path => !hostOwnedPaths.Any(hostPath => IsHostOwnedPath(path, hostPath)));
+    }
+
     private static bool IsHostOwnedPath(string normalizedPath, string hostPath)
     {
         var normalizedHost = NormalizePath(hostPath);

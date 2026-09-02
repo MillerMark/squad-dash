@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -253,7 +254,165 @@ internal sealed class RecoveryActionValidationTests
         Assert.That(result, Is.False);
     }
 
+    [Test]
+    public void ContainsNonHostChanges_StateOnly_ReturnsFalse()
+    {
+        var result = RecoveryCommitValidator.ContainsNonHostChanges(
+            [".squad/decisions/inbox/review.md", "Package/.squad/plans/plan.json"],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { ".squad/", "Package/.squad/" });
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public void ContainsNonHostChanges_MixedTaskAndState_ReturnsTrue()
+    {
+        var result = RecoveryCommitValidator.ContainsNonHostChanges(
+            [
+                ".squad/decisions/inbox/review.md",
+                "Package/.squad/plans/plan.json",
+                "Plugins/Web/Feature.cs",
+            ],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { ".squad/", "Package/.squad/" });
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public void ContainsNonHostChanges_EmptyChanges_ReturnsFalse()
+    {
+        var result = RecoveryCommitValidator.ContainsNonHostChanges(
+            [],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" });
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public void InterruptedStepAcceptance_ReportsFailuresWithoutModalDialogs()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var handler = ExtractMethod(
+            source,
+            "private async Task<bool> AcceptInterruptedStepAfterReviewAsync(",
+            "private Plan? ApplyAndPublishValidationHumanReviewRequired(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler, Does.Contain("ReportPlanActionIssue("));
+            Assert.That(handler, Does.Not.Contain("MessageBox.Show("));
+            Assert.That(handler, Does.Not.Contain("UIErrorHelper."));
+        });
+    }
+
+    [Test]
+    public void HumanReviewValidation_ReportsFailuresWithoutModalDialogs()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var handler = ExtractMethod(
+            source,
+            "private async Task<bool> ValidateHumanReviewStepAcceptanceAsync(",
+            "private void ReconcileDecomposeRecoveryInboxMessages(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler, Does.Contain("ReportPlanActionIssue("));
+            Assert.That(handler, Does.Not.Contain("MessageBox.Show("));
+            Assert.That(handler, Does.Not.Contain("UIErrorHelper."));
+        });
+    }
+
+    [Test]
+    public void PlanViewer_UsesInlineStatusForAcceptanceAndRecoveryFailures()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var contentBuilder = ExtractMethod(
+            source,
+            "private void BuildContent(",
+            "private PlanTaskCorrectionActivityState ResolveTaskCorrectionActivity(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(contentBuilder, Does.Contain("EnsureActionStatus("));
+            Assert.That(contentBuilder, Does.Contain("ShowActionStatus("));
+            Assert.That(contentBuilder, Does.Not.Contain("UIErrorHelper.ShowError(\"Complete Review\""));
+            Assert.That(contentBuilder, Does.Not.Contain("UIErrorHelper.ShowError(\"Accept Completed Step\""));
+            Assert.That(contentBuilder, Does.Not.Contain("UIErrorHelper.ShowError(\"Plan Recovery\""));
+        });
+    }
+
+    [Test]
+    public void RecoveryOptions_KeepActionsVisibleUntilAnActionSucceeds()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var panel = ExtractMethod(
+            source,
+            "private void AppendRecoveryOptionsPanel(",
+            "private async Task<bool> ExecuteRecoveryOptionAsync(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(panel, Does.Contain("panel.IsEnabled = false;"));
+            Assert.That(panel, Does.Contain("if (await ExecuteRecoveryOptionAsync("));
+            Assert.That(panel, Does.Contain("actionRegion.Visibility = Visibility.Collapsed;"));
+            Assert.That(panel, Does.Not.Contain("panel.Visibility = Visibility.Collapsed;"));
+        });
+    }
+
+    [TestCase(
+        "private async Task<bool> AdoptOrphanCommitAsync(",
+        "private async Task<bool> RevertAndRetryAsync(")]
+    [TestCase(
+        "private async Task<bool> RevertAndRetryAsync(",
+        "private async Task ReplanWithCurrentStateAsync(")]
+    public void DestructiveRecoveryActions_UseOnlyTheirAuthorizationDialog(
+        string startMarker,
+        string endMarker)
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var handler = ExtractMethod(source, startMarker, endMarker);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler, Does.Contain("ReportPlanActionIssue("));
+            Assert.That(CountOccurrences(handler, "MessageBox.Show("), Is.EqualTo(1));
+            Assert.That(handler, Does.Not.Contain("UIErrorHelper."));
+        });
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private static string ExtractMethod(string source, string startMarker, string endMarker)
+    {
+        var start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        var end = source.IndexOf(endMarker, start, StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0), $"Missing marker: {startMarker}");
+        Assert.That(end, Is.GreaterThan(start), $"Missing marker: {endMarker}");
+        return source[start..end];
+    }
+
+    private static string FindRepoFile(params string[] pathParts)
+    {
+        var current = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (current is not null)
+        {
+            var candidate = Path.Combine([current.FullName, .. pathParts]);
+            if (File.Exists(candidate)) return candidate;
+            current = current.Parent;
+        }
+        throw new FileNotFoundException($"Could not find repository file '{Path.Combine(pathParts)}'.");
+    }
+
+    private static int CountOccurrences(string source, string value)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = source.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+        return count;
+    }
 
     private static PlanTask MakeTask(
         string taskId,

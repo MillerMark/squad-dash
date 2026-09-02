@@ -452,6 +452,7 @@ public partial class MainWindow : Window
     private bool _isClosing;
     private readonly List<InboxMessageWindow> _openInboxWindows = new();
     private readonly List<(string GroupId, PlanViewerWindow Window)> _openPlanViewerWindows = new();
+    private readonly Dictionary<string, string> _planActionIssues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TextDisplayWindow> _openTextWindows = new(StringComparer.OrdinalIgnoreCase);
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
@@ -19251,6 +19252,14 @@ public partial class MainWindow : Window
             bool removeAfterAction = true,
             QuickReplyTone tone = QuickReplyTone.Default)
         {
+            var actionStatus = new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(4, 4, 4, 0),
+                Visibility = Visibility.Collapsed,
+            };
+            actionStatus.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+            actionStatus.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
             var button = TranscriptQuickReplyFactory.CreateButton(
                 label,
                 _transcriptFontSize,
@@ -19258,12 +19267,22 @@ public partial class MainWindow : Window
                 tone: tone);
             button.Click += async (_, _) =>
             {
+                actionStatus.Visibility = Visibility.Collapsed;
                 panel.IsEnabled = false;
                 try
                 {
                     var succeeded = await action();
                     if (!succeeded)
+                    {
                         panel.IsEnabled = true;
+                        actionStatus.Text = _planActionIssues.TryGetValue(
+                            plan.Group.GroupId,
+                            out var planIssue)
+                            ? planIssue
+                            : "The action could not be completed. The plan remains stopped.";
+                        actionStatus.Visibility = Visibility.Visible;
+                        actionStatus.BringIntoView();
+                    }
                     else if (removeAfterAction)
                         panel.Visibility = Visibility.Collapsed;
                 }
@@ -19283,10 +19302,14 @@ public partial class MainWindow : Window
                 {
                     panel.IsEnabled = true;
                     panel.Visibility = Visibility.Visible;
-                    HandleUiCallbackException("Decompose recovery", ex);
+                    SquadDashTrace.Write("DecomposeRecovery", $"Transcript action failed: {ex}");
+                    actionStatus.Text = $"Action failed: {ex.Message}";
+                    actionStatus.Visibility = Visibility.Visible;
+                    actionStatus.BringIntoView();
                 }
             };
             panel.Children.Add(button);
+            panel.Children.Add(actionStatus);
             return button;
         }
     }
@@ -20716,7 +20739,16 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(response.Summary))
             ShowSystemTranscriptEntry($"🤖 Recovery analysis: {response.Summary}");
 
+        var actionRegion = new StackPanel();
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        var actionStatus = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(4, 4, 4, 0),
+            Visibility = Visibility.Collapsed,
+        };
+        actionStatus.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
+        actionStatus.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         foreach (var option in viableOptions)
         {
             var btn = TranscriptQuickReplyFactory.CreateButton(
@@ -20726,9 +20758,33 @@ public partial class MainWindow : Window
             var capturedOption = option;
             btn.Click += async (_, _) =>
             {
-                panel.Visibility = Visibility.Collapsed;
-                try { await ExecuteRecoveryOptionAsync(capturedOption, plan, taskId); }
-                catch (Exception ex) { HandleUiCallbackException("Recovery option", ex); }
+                ClearPlanActionIssue(plan.Group.GroupId);
+                actionStatus.Visibility = Visibility.Collapsed;
+                panel.IsEnabled = false;
+                try
+                {
+                    if (await ExecuteRecoveryOptionAsync(capturedOption, plan, taskId))
+                    {
+                        actionRegion.Visibility = Visibility.Collapsed;
+                        return;
+                    }
+
+                    panel.IsEnabled = true;
+                    if (_planActionIssues.TryGetValue(plan.Group.GroupId, out var issue))
+                    {
+                        actionStatus.Text = issue;
+                        actionStatus.Visibility = Visibility.Visible;
+                        actionStatus.BringIntoView();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    panel.IsEnabled = true;
+                    SquadDashTrace.Write("RecoveryOption", $"{plan.Group.GroupId}: {ex}");
+                    actionStatus.Text = $"Recovery action failed: {ex.Message}";
+                    actionStatus.Visibility = Visibility.Visible;
+                    actionStatus.BringIntoView();
+                }
             };
             if (string.Equals(option.Id, response.Recommendation, StringComparison.Ordinal))
             {
@@ -20737,15 +20793,17 @@ public partial class MainWindow : Window
             }
             panel.Children.Add(btn);
         }
+        actionRegion.Children.Add(panel);
+        actionRegion.Children.Add(actionStatus);
 
         CoordinatorThread.Document.Blocks.Add(
             TranscriptQuickReplyFactory.CreateContainer(
-                panel,
+                actionRegion,
                 new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId)));
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
-    private async Task ExecuteRecoveryOptionAsync(
+    private async Task<bool> ExecuteRecoveryOptionAsync(
         PlanRecoveryOption option,
         PendingDecomposePlan plan,
         string taskId)
@@ -20754,25 +20812,47 @@ public partial class MainWindow : Window
         {
             case "replan":
                 await ReplanWithCurrentStateAsync(option, plan, taskId);
-                break;
+                return true;
             case "clean-retry":
                 await RetryDecomposeTaskAsync(plan, taskId);
-                break;
+                return true;
             case "revert-and-retry":
-                await RevertAndRetryAsync(option, plan, taskId);
-                break;
+                return await RevertAndRetryAsync(option, plan, taskId);
             case "adopt-commit":
             case "partial-adopt":
-                await AdoptOrphanCommitAsync(option, plan, taskId);
-                break;
+                return await AdoptOrphanCommitAsync(option, plan, taskId);
+            default:
+                ReportPlanActionIssue(
+                    plan.Group.GroupId,
+                    "Unknown recovery action",
+                    $"SquadDash does not recognize recovery action '{option.Action}'.");
+                return false;
         }
     }
 
     // ── Recovery action: Accept reviewed repository work ─────────────────────
 
+    private void ClearPlanActionIssue(string planId)
+    {
+        _planActionIssues.Remove(planId);
+        _plansPanelController?.SetPlanStatus(planId, null);
+    }
+
+    private void ReportPlanActionIssue(string planId, string title, string message)
+    {
+        var status = $"{title}: {message}";
+        SquadDashTrace.Write("PlanAction", $"{planId}: {status}");
+        _planActionIssues[planId] = status;
+        _plansPanelController?.SetPlanStatus(planId, status);
+        foreach (var entry in _openPlanViewerWindows.Where(entry =>
+                     string.Equals(entry.GroupId, planId, StringComparison.Ordinal)))
+            entry.Window.SetActionStatus(title, message);
+    }
+
     private async Task<bool> AcceptInterruptedStepAfterReviewAsync(Plan displayedPlan)
     {
         if (_currentWorkspace is null || _planStore is null) return false;
+        ClearPlanActionIssue(displayedPlan.PlanId);
         var workspace = _currentWorkspace.FolderPath;
         var storedPlan = _planStore.Load(displayedPlan.PlanId);
         if (storedPlan?.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval &&
@@ -20782,9 +20862,10 @@ public partial class MainWindow : Window
             storedPlan.LifecycleStatus != PlanLifecycleStatus.Interrupted ||
             !string.Equals(storedPlan.Revision, displayedPlan.Revision, StringComparison.Ordinal))
         {
-            MessageBox.Show(this,
-                "The interrupted plan changed after this viewer opened. Reopen the plan before adopting preserved work.",
-                "Plan Changed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ReportPlanActionIssue(
+                displayedPlan.PlanId,
+                "Plan changed",
+                "The interrupted plan changed after this viewer opened. Reopen the plan before adopting preserved work.");
             return false;
         }
 
@@ -20794,9 +20875,10 @@ public partial class MainWindow : Window
             task.Status != PlanTaskStatus.Complete);
         if (pendingTask is null || string.IsNullOrWhiteSpace(taskId))
         {
-            MessageBox.Show(this,
-                "SquadDash cannot identify a pending interrupted task for this plan.",
-                "No Interrupted Task", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "No interrupted task",
+                "SquadDash cannot identify a pending interrupted task for this plan.");
             return false;
         }
         var taskIndex = storedPlan.Tasks.ToList().FindIndex(task =>
@@ -20822,9 +20904,10 @@ public partial class MainWindow : Window
         var activeBranch = ReadGitBranch(workspace);
         if (!string.Equals(activeBranch, storedPlan.Branch, StringComparison.Ordinal))
         {
-            MessageBox.Show(this,
-                $"Plan '{storedPlan.PlanId}' requires branch '{storedPlan.Branch}', but '{activeBranch}' is active.",
-                "Branch Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "Branch mismatch",
+                $"Plan '{storedPlan.PlanId}' requires branch '{storedPlan.Branch}', but '{activeBranch}' is active.");
             return false;
         }
 
@@ -20843,9 +20926,10 @@ public partial class MainWindow : Window
                     "passed",
                     StringComparison.OrdinalIgnoreCase))
             {
-                MessageBox.Show(this,
-                    "The already-satisfied assessment no longer matches the current repository snapshot. Reassess before accepting it.",
-                    "Assessment Changed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ReportPlanActionIssue(
+                    storedPlan.PlanId,
+                    "Assessment changed",
+                    "The already-satisfied assessment no longer matches the current repository snapshot. Reassess before accepting it.");
                 return false;
             }
 
@@ -20857,9 +20941,10 @@ public partial class MainWindow : Window
             }
             catch
             {
-                MessageBox.Show(this,
-                    "The assessed snapshot is no longer descended from the task baseline. Reassess before accepting it.",
-                    "Assessment Changed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                ReportPlanActionIssue(
+                    storedPlan.PlanId,
+                    "Assessment changed",
+                    "The assessed snapshot is no longer descended from the task baseline. Reassess before accepting it.");
                 return false;
             }
 
@@ -20907,9 +20992,10 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this,
-                $"SquadDash could not reconstruct the reviewed repository range: {ex.Message}",
-                "Review Range Unavailable", MessageBoxButton.OK, MessageBoxImage.Error);
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "Review range unavailable",
+                $"SquadDash could not reconstruct the reviewed repository range: {ex.Message}");
             return false;
         }
         var baselineCommit = reviewRange.BaselineCommit;
@@ -20929,15 +21015,18 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"SquadDash could not enumerate the candidate range: {ex.Message}",
-                "Commit Range Unavailable", MessageBoxButton.OK, MessageBoxImage.Error);
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "Commit range unavailable",
+                $"SquadDash could not enumerate the candidate range: {ex.Message}");
             return false;
         }
         if (candidates.Count == 0)
         {
-            MessageBox.Show(this,
-                "There are no commits after the last accepted plan task.",
-                "Nothing to Adopt", MessageBoxButton.OK, MessageBoxImage.Information);
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "Nothing to adopt",
+                "There are no commits after the last accepted plan task.");
             return false;
         }
 
@@ -20946,18 +21035,20 @@ public partial class MainWindow : Window
             RecoveryCommitValidator.CommitIdentifiersMatch(entry.Commit, selected.Commit));
         if (selectedIndex < 0)
         {
-            MessageBox.Show(this,
-                "The selected commit is no longer present in the reviewed range. Reopen the action and try again.",
-                "Commit Range Changed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "Commit range changed",
+                "The selected commit is no longer present in the reviewed range. Reopen the action and try again.");
             return false;
         }
         var selectedRange = candidates.Take(selectedIndex + 1).ToArray();
         var maximumReviewCommits = reviewRange.HasExactTaskAttribution ? 50 : 250;
         if (selectedRange.Length > maximumReviewCommits)
         {
-            MessageBox.Show(this,
-                $"The reviewed range contains {selectedRange.Length} commits. Split or replan the task before acceptance.",
-                "Range Too Large", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "Range too large",
+                $"The reviewed range contains {selectedRange.Length} commits. Split or replan the task before acceptance.");
             return false;
         }
 
@@ -20977,24 +21068,15 @@ public partial class MainWindow : Window
                 $"diff --name-only \"{baselineCommit}..{selected.Commit}\"") )
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
-        var hostOwnedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" };
-        if (tasksRelativePath is not null) hostOwnedPaths.Add(tasksRelativePath);
-        var containsNonHostChanges = changedPaths.Any(path =>
-            !path.StartsWith(".squad/", StringComparison.OrdinalIgnoreCase) &&
-            (tasksRelativePath is null || !string.Equals(
-                path.Replace('\\', '/'),
-                tasksRelativePath,
-                StringComparison.OrdinalIgnoreCase)));
-        if (reviewRange.HasExactTaskAttribution
-                ? !RecoveryCommitValidator.ContainsOnlyNonHostChanges(changedPaths, hostOwnedPaths)
-                : !containsNonHostChanges)
+        var hostOwnedPaths = await GetHostOwnedRecoveryPathsAsync(workspace);
+        if (!RecoveryCommitValidator.ContainsNonHostChanges(changedPaths, hostOwnedPaths))
         {
-            MessageBox.Show(this,
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "Suspicious commit range",
                 reviewRange.HasExactTaskAttribution
-                    ? "The recorded range has no task changes or contains SquadDash-owned state. It cannot be adopted."
-                    : "The reviewed range contains no non-host repository changes, so it cannot establish completed task work.",
-                "Suspicious Commit Range", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    ? "The recorded range contains no task changes after SquadDash-owned state is excluded. It cannot be accepted."
+                    : "The reviewed range contains no non-host repository changes, so it cannot establish completed task work.");
             return false;
         }
 
@@ -21199,9 +21281,10 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this,
-                "SquadDash cannot safely accept the reported no-op at the current snapshot. " + ex.Message,
-                "Current Snapshot Cannot Be Accepted", MessageBoxButton.OK, MessageBoxImage.Warning);
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "Current snapshot cannot be accepted",
+                "SquadDash cannot safely accept the reported no-op at the current snapshot. " + ex.Message);
             return false;
         }
 
@@ -21263,8 +21346,9 @@ public partial class MainWindow : Window
         var token = _planApprovalRuntime.Actions.GetCurrentToken(storedPlan.PlanId);
         if (token is null || !token.GateIds.Contains(reviewAttention.Gate.GateId, StringComparer.Ordinal))
         {
-            UIErrorHelper.ShowWarning(
-                "Review Changed",
+            ReportPlanActionIssue(
+                storedPlan.PlanId,
+                "Review changed",
                 "The human-review checkpoint changed. Reopen the current review before continuing.");
             return false;
         }
@@ -21286,7 +21370,7 @@ public partial class MainWindow : Window
         if (_currentWorkspace is null) return false;
         if (reviewAttention.Checklist.Count == 0 || reviewAttention.Checklist.Any(item => !item.IsChecked))
         {
-            UIErrorHelper.ShowWarning("Review Incomplete", "Verify every checklist item before continuing.");
+            ReportPlanActionIssue(plan.PlanId, "Review incomplete", "Verify every checklist item before continuing.");
             return false;
         }
         var handoff = reviewAttention.Task.Handoff;
@@ -21297,7 +21381,10 @@ public partial class MainWindow : Window
         var reviewTarget = isVerifiedNoOp ? handoff?.EvaluatedCommit : handoff?.Commit;
         if (handoff is null || string.IsNullOrWhiteSpace(reviewTarget))
         {
-            UIErrorHelper.ShowWarning("Review Evidence Missing", "The reviewed task has no durable completion handoff.");
+            ReportPlanActionIssue(
+                plan.PlanId,
+                "Review evidence missing",
+                "The reviewed task has no durable completion handoff.");
             return false;
         }
 
@@ -21305,8 +21392,9 @@ public partial class MainWindow : Window
         var activeBranch = ReadGitBranch(workspace);
         if (!string.Equals(activeBranch, plan.Branch, StringComparison.Ordinal))
         {
-            UIErrorHelper.ShowError(
-                "Branch Mismatch",
+            ReportPlanActionIssue(
+                plan.PlanId,
+                "Branch mismatch",
                 $"Plan '{plan.PlanId}' requires branch '{plan.Branch}', but '{activeBranch}' is active.");
             return false;
         }
@@ -21319,7 +21407,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            UIErrorHelper.ShowError("Review Could Not Be Completed", ex.Message);
+            ReportPlanActionIssue(plan.PlanId, "Review could not be completed", ex.Message);
             return false;
         }
     }
@@ -21414,12 +21502,12 @@ public partial class MainWindow : Window
 
     // ── Recovery action: Adopt orphan commit ─────────────────────────────────
 
-    private async Task AdoptOrphanCommitAsync(
+    private async Task<bool> AdoptOrphanCommitAsync(
         PlanRecoveryOption option,
         PendingDecomposePlan plan,
         string taskId)
     {
-        if (_currentWorkspace is null) return;
+        if (_currentWorkspace is null) return false;
         var workspace = _currentWorkspace.FolderPath;
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
 
@@ -21427,20 +21515,19 @@ public partial class MainWindow : Window
         var activeBranch = ReadGitBranch(workspace);
         if (!string.Equals(activeBranch, plan.Group.Branch, StringComparison.Ordinal))
         {
-            MessageBox.Show(this,
-                $"Cannot adopt: plan '{plan.Group.GroupId}' requires branch '{plan.Group.Branch}', " +
-                $"but '{activeBranch}' is active.",
-                "Branch Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Branch mismatch",
+                $"Cannot adopt: plan '{plan.Group.GroupId}' requires branch '{plan.Group.Branch}', but '{activeBranch}' is active.");
+            return false;
         }
 
         // 2. Revision check
         var storedPlan = _planStore?.Load(plan.Group.GroupId);
         if (storedPlan is null)
         {
-            MessageBox.Show(this, "The durable plan is no longer available.",
-                "Plan Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            ReportPlanActionIssue(plan.Group.GroupId, "Plan not found", "The durable plan is no longer available.");
+            return false;
         }
         var currentRevision = storedPlan.Revision;
         var currentGroup = PendingDecomposePlanAdapter.FromPlan(storedPlan).Group with
@@ -21449,10 +21536,11 @@ public partial class MainWindow : Window
         };
         if (!string.Equals(currentRevision, plan.Revision, StringComparison.Ordinal))
         {
-            MessageBox.Show(this,
-                "The plan changed after these recovery controls were created. Reload the recovery panel.",
-                "Revision Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Revision mismatch",
+                "The plan changed after these recovery controls were created. Reload the recovery panel.");
+            return false;
         }
 
         // 3. Baseline commit
@@ -21460,11 +21548,11 @@ public partial class MainWindow : Window
             ?? _decomposeIterationBaselineCommit;
         if (string.IsNullOrWhiteSpace(baselineCommit))
         {
-            MessageBox.Show(this,
-                "Cannot adopt: the baseline commit is unknown. " +
-                "The plan may need to be retried from scratch.",
-                "Baseline Unknown", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Baseline unknown",
+                "Cannot adopt: the baseline commit is unknown. The plan may need to be retried from scratch.");
+            return false;
         }
 
         // 4. Candidate commit discovery — exactly one commit expected
@@ -21476,16 +21564,16 @@ public partial class MainWindow : Window
         }
         catch (InvalidOperationException ex)
         {
-            MessageBox.Show(this, $"Cannot adopt: {ex.Message}",
-                "Ambiguous Commits", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            ReportPlanActionIssue(plan.Group.GroupId, "Ambiguous commits", $"Cannot adopt: {ex.Message}");
+            return false;
         }
         if (candidateCommit is null)
         {
-            MessageBox.Show(this,
-                "No commits found between the baseline and HEAD. There is nothing to adopt.",
-                "Nothing to Adopt", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Nothing to adopt",
+                "No commits found between the baseline and HEAD. There is nothing to adopt.");
+            return false;
         }
 
         // 5. Commit reachability
@@ -21495,10 +21583,11 @@ public partial class MainWindow : Window
         }
         catch
         {
-            MessageBox.Show(this,
-                $"Commit {candidateCommit} could not be verified as a reachable commit object.",
-                "Commit Not Reachable", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Commit not reachable",
+                $"Commit {candidateCommit} could not be verified as a reachable commit object.");
+            return false;
         }
 
         // 6. Changed files from commit
@@ -21507,18 +21596,16 @@ public partial class MainWindow : Window
             .Replace("\r\n", "\n", StringComparison.Ordinal)
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
-        var hostOwnedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { ".squad/plans/", ".squad/" };
-        if (tasksRelativePath is not null) hostOwnedPaths.Add(tasksRelativePath);
+        var hostOwnedPaths = await GetHostOwnedRecoveryPathsAsync(workspace);
 
         if (!RecoveryCommitValidator.ContainsOnlyNonHostChanges(changedFilesRaw, hostOwnedPaths))
         {
-            MessageBox.Show(this,
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Suspicious commit",
                 $"Commit {candidateCommit} has no task changes or also modifies SquadDash-owned state " +
-                "(tasks.md or plan files). Use a source-only task commit before adopting it.",
-                "Suspicious Commit", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+                "(tasks.md or plan files). Use a source-only task commit before adopting it.");
+            return false;
         }
 
         // 7. Downstream dependency check (warning only, not a blocker)
@@ -21545,7 +21632,7 @@ public partial class MainWindow : Window
             MessageBoxButton.YesNo,
             MessageBoxImage.Question,
             MessageBoxResult.No);
-        if (confirmation != MessageBoxResult.Yes) return;
+        if (confirmation != MessageBoxResult.Yes) return false;
 
         // 9. Record the adoption
         var commitSummary = commitSummaryLine.Length > 8
@@ -21571,12 +21658,13 @@ public partial class MainWindow : Window
                 syntheticResult);
             if (!TryPublishPlanProgress(updated, out var saveError))
             {
-                MessageBox.Show(this,
+                ReportPlanActionIssue(
+                    plan.Group.GroupId,
+                    "Plan progress not saved",
                     "The commit was validated, but durable plan progress could not be saved. " +
                     (saveError ?? "Unknown persistence error") +
-                    " The plan will remain stopped for recovery.",
-                    "Plan Progress Not Saved", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
+                    " The plan will remain stopped for recovery.");
+                return false;
             }
             RefreshPlanProjectionBestEffort(updated, "orphan-commit-adopted");
         }
@@ -21590,16 +21678,17 @@ public partial class MainWindow : Window
             currentGroup with { HostRevision = currentRevision },
             continuationTaskId: null,
             continuationPaths: []);
+        return true;
     }
 
     // ── Recovery action: Revert commit and retry ──────────────────────────────
 
-    private async Task RevertAndRetryAsync(
+    private async Task<bool> RevertAndRetryAsync(
         PlanRecoveryOption option,
         PendingDecomposePlan plan,
         string taskId)
     {
-        if (_currentWorkspace is null) return;
+        if (_currentWorkspace is null) return false;
         var workspace = _currentWorkspace.FolderPath;
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
 
@@ -21607,19 +21696,18 @@ public partial class MainWindow : Window
         var activeBranch = ReadGitBranch(workspace);
         if (!string.Equals(activeBranch, plan.Group.Branch, StringComparison.Ordinal))
         {
-            MessageBox.Show(this,
-                $"Cannot revert: plan '{plan.Group.GroupId}' requires branch '{plan.Group.Branch}', " +
-                $"but '{activeBranch}' is active.",
-                "Branch Mismatch", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Branch mismatch",
+                $"Cannot revert: plan '{plan.Group.GroupId}' requires branch '{plan.Group.Branch}', but '{activeBranch}' is active.");
+            return false;
         }
 
         var currentPlan = _planStore?.Load(plan.Group.GroupId);
         if (currentPlan is null)
         {
-            MessageBox.Show(this, "The durable plan is no longer available.",
-                "Plan Not Found", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            ReportPlanActionIssue(plan.Group.GroupId, "Plan not found", "The durable plan is no longer available.");
+            return false;
         }
 
         // 2. Baseline and candidate commits
@@ -21636,10 +21724,8 @@ public partial class MainWindow : Window
             }
             catch (InvalidOperationException ex)
             {
-                MessageBox.Show(this,
-                    $"Cannot revert: {ex.Message}",
-                    "Ambiguous Commits", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
+                ReportPlanActionIssue(plan.Group.GroupId, "Ambiguous commits", $"Cannot revert: {ex.Message}");
+                return false;
             }
         }
 
@@ -21647,7 +21733,7 @@ public partial class MainWindow : Window
         {
             // No commits between baseline and HEAD — just retry from scratch without reverting
             await RetryDecomposeTaskAsync(plan, taskId);
-            return;
+            return true;
         }
 
         // 3. Dependency safety check — refuse if downstream tasks are already complete
@@ -21656,12 +21742,12 @@ public partial class MainWindow : Window
         var downstream = RecoveryCommitValidator.FindDownstreamCompletedDependents(planTasks, taskId);
         if (downstream.Count > 0)
         {
-            MessageBox.Show(this,
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Revert blocked by dependents",
                 $"Cannot revert: tasks that built on {taskId} are already complete: " +
-                string.Join(", ", downstream) + ".\n\n" +
-                "Manually revert and fix the dependent tasks before retrying.",
-                "Revert Blocked by Dependents", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+                string.Join(", ", downstream) + ". Manually revert and fix the dependent tasks before retrying.");
+            return false;
         }
 
         // 4. Explicit user authorization (required by spec)
@@ -21675,7 +21761,7 @@ public partial class MainWindow : Window
             MessageBoxButton.YesNo,
             MessageBoxImage.Warning,
             MessageBoxResult.No);
-        if (authorization != MessageBoxResult.Yes) return;
+        if (authorization != MessageBoxResult.Yes) return false;
 
         // 5. Execute recoverable revert (git revert --no-edit creates a revert commit)
         try
@@ -21684,11 +21770,11 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this,
-                "Git revert failed — there may be merge conflicts. " +
-                "Resolve conflicts manually and retry.\n\n" + ex.Message,
-                "Revert Failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Revert failed",
+                "Git revert failed; there may be merge conflicts. Resolve conflicts manually and retry. " + ex.Message);
+            return false;
         }
 
         // Audit trail
@@ -21696,6 +21782,7 @@ public partial class MainWindow : Window
 
         // 7. Restart via normal loop
         await RetryDecomposeTaskAsync(plan, taskId);
+        return true;
     }
 
     // ── Recovery action: Replan with current repository state ─────────────────
@@ -58649,6 +58736,24 @@ public partial class MainWindow : Window
         var repositoryRoot = await RunGitAsync(workspace, "rev-parse --show-toplevel");
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
         return DecomposeWorktreePolicy.GetRepositoryRelativePath(repositoryRoot, tasksPath);
+    }
+
+    private async Task<IReadOnlyCollection<string>> GetHostOwnedRecoveryPathsAsync(string workspace)
+    {
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" };
+        if (_currentWorkspace is null) return paths;
+
+        var repositoryRoot = await RunGitAsync(workspace, "rev-parse --show-toplevel");
+        var squadRelativePath = DecomposeWorktreePolicy.GetRepositoryRelativePath(
+            repositoryRoot,
+            _currentWorkspace.SquadFolderPath);
+        if (!string.IsNullOrWhiteSpace(squadRelativePath))
+            paths.Add(squadRelativePath.TrimEnd('/', '\\') + "/");
+
+        var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
+        if (!string.IsNullOrWhiteSpace(tasksRelativePath))
+            paths.Add(tasksRelativePath);
+        return paths;
     }
 
     private async void CodeHealthDoTheseButton_Click(object sender, RoutedEventArgs e)
