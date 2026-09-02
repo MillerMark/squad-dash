@@ -237,8 +237,12 @@ internal static class TranscriptCopyService {
         if (element.Visibility != System.Windows.Visibility.Visible)
             return;
         switch (element) {
-            case TextBlock textBlock when !string.IsNullOrWhiteSpace(textBlock.Text):
-                lines.Add(textBlock.Text.TrimEnd());
+            case TextBlock textBlock:
+                var text = ExtractInlineText(textBlock.Inlines);
+                if (string.IsNullOrWhiteSpace(text))
+                    text = textBlock.Text;
+                if (!string.IsNullOrWhiteSpace(text))
+                    lines.Add(text.TrimEnd());
                 return;
             case TextBox textBox when !string.IsNullOrWhiteSpace(textBox.Text):
                 lines.Add(textBox.Text.TrimEnd());

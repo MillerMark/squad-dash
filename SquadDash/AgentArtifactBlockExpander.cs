@@ -43,7 +43,7 @@ internal static class AgentArtifactBlockExpander
                 out extraction))
             return extraction is not null;
 
-        if (!StructuredJsonBlockParser.TryExtractObject(
+        if (!StructuredJsonBlockParser.TryExtractObject<AgentArtifactReference>(
                 text,
                 XmlDisplayArtifactStartTag,
                 out var xmlExtraction) ||

@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -352,6 +353,30 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void Build_CardCopyTextIncludesInlineQuestionEvidenceAndInboxLink()
+    {
+        var original = BuildTestPlan();
+        var gate = original.ApprovalGates[0] with
+        {
+            Question = "Are the AiGenService routing fix, the RazorLocationParser approach, and the Blazor instruction prompt a sound foundation?"
+        };
+        var plan = original with { ApprovalGates = [gate] };
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, gate, 14, _ => { },
+            onOpenInbox: () => { });
+
+        var text = TranscriptCopyService.BuildCardText(card.Container);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("Test Plan"));
+            Assert.That(text, Does.Contain(gate.Question));
+            Assert.That(text, Does.Contain("evidence"));
+            Assert.That(text, Does.Contain("See your inbox message for more detail."));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void Build_ClarifyMenuIsBoundDirectlyToChecklistClickTargets()
     {
         var plan = BuildTestPlan();
@@ -557,7 +582,73 @@ public class TranscriptApprovalCardBuilderTests
             card.NoteTextBox,
             new Point(double.MaxValue, double.MaxValue));
 
-        Assert.That(card.NoteTextBox.CaretIndex, Is.EqualTo(card.NoteTextBox.Text.Length));
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.NoteTextBox.Focusable, Is.True);
+            Assert.That(card.NoteTextBox.IsReadOnly, Is.False);
+            Assert.That(card.NoteTextBox.IsTabStop, Is.True);
+            Assert.That(card.NoteTextBox.CaretIndex, Is.EqualTo(card.NoteTextBox.Text.Length));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void InsertTextIntoNoteEditor_ReplacesSelectionAndMovesCaret()
+    {
+        var noteBox = new TextBox { Text = "Review later" };
+        noteBox.Select(7, 5);
+
+        TranscriptApprovalCardBuilder.InsertTextIntoNoteEditor(noteBox, "now");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(noteBox.Text, Is.EqualTo("Review now"));
+            Assert.That(noteBox.SelectionStart, Is.EqualTo("Review now".Length));
+            Assert.That(noteBox.SelectionLength, Is.EqualTo(0));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Build_NoteEditorOwnsPasteCommand()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+
+        var hasPasteBinding = card.NoteTextBox.CommandBindings
+            .OfType<CommandBinding>()
+            .Any(binding => ReferenceEquals(binding.Command, ApplicationCommands.Paste));
+
+        Assert.That(hasPasteBinding, Is.True);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TranscriptRightClickRouting_DefersToEditableApprovalNoteTextBox()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+
+        var shouldDefer = TranscriptApprovalCardBuilder.ShouldDeferContextMenuToEditableTextBox(
+            card.NoteTextBox,
+            out var resolvedTextBox);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(shouldDefer, Is.True);
+            Assert.That(resolvedTextBox, Is.SameAs(card.NoteTextBox));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TranscriptRightClickRouting_KeepsCodeBlockTextBoxesOnTranscriptMenu()
+    {
+        var codeBox = new TextBox { Tag = "codeblock" };
+
+        var shouldDefer = TranscriptApprovalCardBuilder.ShouldDeferContextMenuToEditableTextBox(
+            codeBox,
+            out _);
+
+        Assert.That(shouldDefer, Is.False);
     }
 
     [Test]

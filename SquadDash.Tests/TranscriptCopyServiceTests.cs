@@ -363,6 +363,23 @@ internal sealed class TranscriptCopyServiceTests {
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void BuildVisualCardText_TextBlockInlines_IncludesLinksAndRuns() {
+        var prompt = new TextBlock { Text = "See your " };
+        prompt.Inlines.Add(new Hyperlink(new Run("inbox message")));
+        prompt.Inlines.Add(new Run(" for more detail."));
+
+        var text = TranscriptCopyService.BuildVisualCardText(new Border {
+            Child = new StackPanel {
+                Children = {
+                    prompt,
+                },
+            },
+        });
+
+        Assert.That(text, Is.EqualTo("See your inbox message for more detail."));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>

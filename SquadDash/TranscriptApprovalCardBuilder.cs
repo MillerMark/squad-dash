@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
@@ -38,6 +39,36 @@ internal static class TranscriptApprovalCardBuilder
             else
                 current = VisualTreeHelper.GetParent(current);
         }
+        return null;
+    }
+
+    internal static bool ShouldDeferContextMenuToEditableTextBox(
+        DependencyObject? clickSource,
+        [NotNullWhen(true)] out TextBox? editableTextBox)
+    {
+        editableTextBox = FindVisualAncestorOrSelf<TextBox>(clickSource);
+        return editableTextBox is not null &&
+            !"codeblock".Equals(editableTextBox.Tag as string) &&
+            editableTextBox.IsEnabled &&
+            !editableTextBox.IsReadOnly;
+    }
+
+    private static T? FindVisualAncestorOrSelf<T>(DependencyObject? element)
+        where T : DependencyObject
+    {
+        var current = element;
+        while (current is not null)
+        {
+            if (current is T match)
+                return match;
+
+            if (current is not Visual and not System.Windows.Media.Media3D.Visual3D)
+                current = (current as FrameworkContentElement)?.Parent ??
+                          (current as FrameworkElement)?.Parent;
+            else
+                current = VisualTreeHelper.GetParent(current);
+        }
+
         return null;
     }
 
@@ -554,6 +585,9 @@ internal static class TranscriptApprovalCardBuilder
             MinHeight = 24,
             MaxHeight = 72,
             AcceptsReturn = false,
+            Focusable = true,
+            IsReadOnly = false,
+            IsTabStop = true,
             TextWrapping = TextWrapping.Wrap,
             FontSize = fontSize - 1,
             Margin = new Thickness(0, 0, 0, 12),
@@ -561,6 +595,7 @@ internal static class TranscriptApprovalCardBuilder
             BorderThickness = new Thickness(1),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
+        ConfigureNoteEditor(noteBox);
         noteBox.SetResourceReference(TextBox.BackgroundProperty, "ApprovalFieldSurface");
         noteBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
         noteBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
@@ -781,9 +816,21 @@ internal static class TranscriptApprovalCardBuilder
     internal static void FocusNoteEditorAtPoint(TextBox noteBox, Point point)
     {
         ArgumentNullException.ThrowIfNull(noteBox);
-        noteBox.Focus();
+        _ = noteBox.Focus();
+        _ = Keyboard.Focus(noteBox);
         var index = noteBox.GetCharacterIndexFromPoint(point, snapToText: true);
         noteBox.CaretIndex = index < 0 ? noteBox.Text.Length : index;
+        noteBox.SelectionLength = 0;
+
+        _ = noteBox.Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Input,
+            () =>
+            {
+                if (!CanEditNoteBox(noteBox))
+                    return;
+                _ = noteBox.Focus();
+                _ = Keyboard.Focus(noteBox);
+            });
     }
 
     /// <summary>Shows the updating overlay and disables all actions.</summary>
@@ -958,6 +1005,60 @@ internal static class TranscriptApprovalCardBuilder
     }
 
     // ── Private helpers ──────────────────────────────────────────────────
+
+    private static void ConfigureNoteEditor(TextBox noteBox)
+    {
+        noteBox.PreviewTextInput += (_, e) =>
+        {
+            if (!CanEditNoteBox(noteBox) || string.IsNullOrEmpty(e.Text))
+                return;
+
+            InsertTextIntoNoteEditor(noteBox, e.Text);
+            e.Handled = true;
+        };
+        noteBox.PreviewKeyDown += (_, e) =>
+        {
+            if (!IsPasteShortcut(e) || !CanEditNoteBox(noteBox) || !Clipboard.ContainsText())
+                return;
+
+            InsertTextIntoNoteEditor(noteBox, Clipboard.GetText());
+            e.Handled = true;
+        };
+        noteBox.CommandBindings.Add(new CommandBinding(
+            ApplicationCommands.Paste,
+            (_, e) =>
+            {
+                if (!CanEditNoteBox(noteBox) || !Clipboard.ContainsText())
+                    return;
+
+                InsertTextIntoNoteEditor(noteBox, Clipboard.GetText());
+                e.Handled = true;
+            },
+            (_, e) =>
+            {
+                e.CanExecute = CanEditNoteBox(noteBox) && Clipboard.ContainsText();
+                e.Handled = true;
+            }));
+    }
+
+    internal static void InsertTextIntoNoteEditor(TextBox noteBox, string text)
+    {
+        ArgumentNullException.ThrowIfNull(noteBox);
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        var insertionStart = noteBox.SelectionStart;
+        noteBox.SelectedText = text;
+        noteBox.SelectionStart = insertionStart + text.Length;
+        noteBox.SelectionLength = 0;
+    }
+
+    private static bool CanEditNoteBox(TextBox noteBox) =>
+        noteBox.IsEnabled && !noteBox.IsReadOnly;
+
+    private static bool IsPasteShortcut(KeyEventArgs e) =>
+        (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) != 0) ||
+        (e.Key == Key.Insert && (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
 
     /// <summary>Creates a themed <see cref="TextBlock"/> with the given text, size, and foreground resource key.</summary>
     private static TextBlock CreateStyledTextBlock(string text, double fontSize, string foregroundKey)

@@ -24120,6 +24120,13 @@ public partial class MainWindow : Window
         try
         {
             var clickSource = e.OriginalSource as DependencyObject;
+            if (TranscriptApprovalCardBuilder.ShouldDeferContextMenuToEditableTextBox(clickSource, out var editableTextBox))
+            {
+                _ = editableTextBox.Focus();
+                _ = Keyboard.Focus(editableTextBox);
+                return;
+            }
+
             var cardContainer = TranscriptCardLayout.FindContainer(clickSource);
             var cardViewer = cardContainer is null
                 ? null
@@ -25228,6 +25235,7 @@ public partial class MainWindow : Window
             // Only intercept on the FIRST key (when prompt is hidden); once visible let the TextBox handle input normally.
             if (_transcriptFullScreenEnabled
                 && !_fullScreenPromptVisible
+                && Keyboard.FocusedElement is not TextBox
                 && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) == ModifierKeys.None
                 && IsPrintableKey(e.Key))
             {
@@ -25326,6 +25334,7 @@ public partial class MainWindow : Window
 
             // ── Fullscreen: paste clipboard text to prompt (Ctrl+V or Shift+Insert) ──
             if (_transcriptFullScreenEnabled &&
+                Keyboard.FocusedElement is not TextBox &&
                 ((e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) != 0) ||
                  (e.Key == Key.Insert && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)) &&
                 Clipboard.ContainsText())
