@@ -341,7 +341,7 @@ internal sealed class RecoveryActionValidationTests
     }
 
     [Test]
-    public void RecoveryOptions_KeepActionsVisibleUntilAnActionSucceeds()
+    public void RecoveryOptions_ClearBeforeAgentWorkAndReportImmediateFailureInTranscript()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var panel = ExtractMethod(
@@ -351,10 +351,9 @@ internal sealed class RecoveryActionValidationTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(panel, Does.Contain("panel.IsEnabled = false;"));
-            Assert.That(panel, Does.Contain("if (await ExecuteRecoveryOptionAsync("));
-            Assert.That(panel, Does.Contain("actionRegion.Visibility = Visibility.Collapsed;"));
-            Assert.That(panel, Does.Not.Contain("panel.Visibility = Visibility.Collapsed;"));
+            Assert.That(panel, Does.Contain("panel.Visibility = Visibility.Collapsed;"));
+            Assert.That(panel, Does.Contain("await ExecuteRecoveryOptionAsync("));
+            Assert.That(panel, Does.Not.Contain("panel.Visibility = Visibility.Visible;"));
         });
     }
 

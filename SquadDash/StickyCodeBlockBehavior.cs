@@ -142,17 +142,20 @@ internal static class StickyCodeBlockBehavior
 
         private void RemoveAdorner()
         {
-            if (_adornerLayer is not null && _adorner is not null)
-            {
-                try { _adornerLayer.Remove(_adorner); }
-                catch (InvalidOperationException) { }
-                // Release the button from the adorner's visual collection so it can be
-                // re-parented to a new adorner without an ArgumentException.
-                _adorner.ReleaseButton();
-            }
-
+            var layer = _adornerLayer;
+            var adorner = _adorner;
             _adorner = null;
             _adornerLayer = null;
+
+            if (layer is not null && adorner is not null)
+            {
+                try { layer.Remove(adorner); }
+                catch (Exception ex) when (ex is InvalidOperationException or NullReferenceException) { }
+                // Release the button from the adorner's visual collection so it can be
+                // re-parented to a new adorner without an ArgumentException.
+                try { adorner.ReleaseButton(); }
+                catch (Exception ex) when (ex is InvalidOperationException or NullReferenceException) { }
+            }
         }
 
         private void RefreshPosition()

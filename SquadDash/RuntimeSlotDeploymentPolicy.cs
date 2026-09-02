@@ -17,11 +17,17 @@ internal static class RuntimeSlotDeploymentPolicy {
         ArgumentNullException.ThrowIfNull(runningExecutablePaths);
 
         var payloadPath = NormalizePath(slotStore.GetPayloadPath(slotName));
+        var slotDirectory = NormalizePath(slotStore.GetSlotDirectory(slotName));
         foreach (var executablePath in runningExecutablePaths) {
             if (string.IsNullOrWhiteSpace(executablePath))
                 continue;
 
-            if (string.Equals(NormalizePath(executablePath), payloadPath, StringComparison.OrdinalIgnoreCase))
+            var normalizedExecutablePath = NormalizePath(executablePath);
+            if (string.Equals(normalizedExecutablePath, payloadPath, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    Path.GetDirectoryName(normalizedExecutablePath),
+                    slotDirectory,
+                    StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 

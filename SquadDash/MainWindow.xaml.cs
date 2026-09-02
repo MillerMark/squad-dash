@@ -11317,8 +11317,9 @@ public partial class MainWindow : Window
     {
         if (_pendingPlanTaskCorrectionContext is not null)
         {
-            UIErrorHelper.ShowWarning(
-                "Correct Plan Step",
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Correct plan step",
                 "A plan-step correction is already prepared or running. Submit or remove that queued correction before preparing another one.");
             return;
         }
@@ -11331,8 +11332,9 @@ public partial class MainWindow : Window
             durable.LifecycleStatus is not (PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) ||
             !string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal))
         {
-            UIErrorHelper.ShowWarning(
-                "Continue Working on Step",
+            ReportPlanActionIssue(
+                plan.Group.GroupId,
+                "Continue working on step",
                 "The plan or its recorded task evidence changed. Reopen the current recovery card.");
             return;
         }
@@ -11433,8 +11435,9 @@ public partial class MainWindow : Window
             string.Equals(candidate.GateId, item.GateId, StringComparison.Ordinal));
         if (gate is null || gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval))
         {
-            UIErrorHelper.ShowWarning(
-                "Clarify Human Review",
+            ReportPlanActionIssue(
+                current.PlanId,
+                "Clarify human review",
                 "This review checkpoint changed before the clarification prompt could be created.");
             return;
         }
@@ -11486,8 +11489,9 @@ public partial class MainWindow : Window
             string.Equals(candidate.GateId, item.GateId, StringComparison.Ordinal));
         if (gate is null || gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval))
         {
-            UIErrorHelper.ShowWarning(
-                "Refresh Human Review Wording",
+            ReportPlanActionIssue(
+                current.PlanId,
+                "Refresh human review wording",
                 "This review checkpoint changed before the wording-refresh prompt could be created.");
             return;
         }
@@ -11496,8 +11500,9 @@ public partial class MainWindow : Window
             string.Equals(candidate.ItemId, item.ItemId, StringComparison.Ordinal));
         if (currentItem is null)
         {
-            UIErrorHelper.ShowWarning(
-                "Refresh Human Review Wording",
+            ReportPlanActionIssue(
+                current.PlanId,
+                "Refresh human review wording",
                 "This human-review requirement is no longer part of the current checkpoint.");
             return;
         }
@@ -12527,8 +12532,9 @@ public partial class MainWindow : Window
 
         if (card is null)
         {
-            UIErrorHelper.ShowWarning(
-                "Open Review Card",
+            ReportPlanActionIssue(
+                current.PlanId,
+                "Open review card",
                 "SquadDash could not reconstruct the review card from the current plan state.");
             return;
         }
@@ -18378,8 +18384,9 @@ public partial class MainWindow : Window
             item.CandidateCommit);
         if (ReferenceEquals(updated, current)) return;
         if (!TryPublishPlanProgress(updated, out var saveError))
-            UIErrorHelper.ShowWarning(
-                "Save Human Review",
+            ReportPlanActionIssue(
+                planId,
+                "Save human review",
                 saveError ?? "SquadDash could not save this verification selection.");
     }
 
@@ -18403,8 +18410,9 @@ public partial class MainWindow : Window
 
         if (commits.Length == 0)
         {
-            UIErrorHelper.ShowWarning(
-                "Open Evidence",
+            ReportPlanActionIssue(
+                plan.PlanId,
+                "Open evidence",
                 $"SquadDash does not have commit evidence recorded for {reviewTask.Title}.");
             return;
         }
@@ -20739,16 +20747,7 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(response.Summary))
             ShowSystemTranscriptEntry($"🤖 Recovery analysis: {response.Summary}");
 
-        var actionRegion = new StackPanel();
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-        var actionStatus = new TextBlock
-        {
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(4, 4, 4, 0),
-            Visibility = Visibility.Collapsed,
-        };
-        actionStatus.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
-        actionStatus.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
         foreach (var option in viableOptions)
         {
             var btn = TranscriptQuickReplyFactory.CreateButton(
@@ -20759,31 +20758,14 @@ public partial class MainWindow : Window
             btn.Click += async (_, _) =>
             {
                 ClearPlanActionIssue(plan.Group.GroupId);
-                actionStatus.Visibility = Visibility.Collapsed;
-                panel.IsEnabled = false;
+                panel.Visibility = Visibility.Collapsed;
                 try
                 {
-                    if (await ExecuteRecoveryOptionAsync(capturedOption, plan, taskId))
-                    {
-                        actionRegion.Visibility = Visibility.Collapsed;
-                        return;
-                    }
-
-                    panel.IsEnabled = true;
-                    if (_planActionIssues.TryGetValue(plan.Group.GroupId, out var issue))
-                    {
-                        actionStatus.Text = issue;
-                        actionStatus.Visibility = Visibility.Visible;
-                        actionStatus.BringIntoView();
-                    }
+                    await ExecuteRecoveryOptionAsync(capturedOption, plan, taskId);
                 }
                 catch (Exception ex)
                 {
-                    panel.IsEnabled = true;
-                    SquadDashTrace.Write("RecoveryOption", $"{plan.Group.GroupId}: {ex}");
-                    actionStatus.Text = $"Recovery action failed: {ex.Message}";
-                    actionStatus.Visibility = Visibility.Visible;
-                    actionStatus.BringIntoView();
+                    HandleUiCallbackException("Recovery option", ex);
                 }
             };
             if (string.Equals(option.Id, response.Recommendation, StringComparison.Ordinal))
@@ -20793,12 +20775,10 @@ public partial class MainWindow : Window
             }
             panel.Children.Add(btn);
         }
-        actionRegion.Children.Add(panel);
-        actionRegion.Children.Add(actionStatus);
 
         CoordinatorThread.Document.Blocks.Add(
             TranscriptQuickReplyFactory.CreateContainer(
-                actionRegion,
+                panel,
                 new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId)));
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
@@ -20844,6 +20824,7 @@ public partial class MainWindow : Window
         SquadDashTrace.Write("PlanAction", $"{planId}: {status}");
         _planActionIssues[planId] = status;
         _plansPanelController?.SetPlanStatus(planId, status);
+        ShowSystemTranscriptEntry($"Plan action did not continue. {status}");
         foreach (var entry in _openPlanViewerWindows.Where(entry =>
                      string.Equals(entry.GroupId, planId, StringComparison.Ordinal)))
             entry.Window.SetActionStatus(title, message);
@@ -56583,15 +56564,17 @@ public partial class MainWindow : Window
             gate.Status == PlanGateStatus.AwaitingApproval);
         if (plan is null || currentToken is null || currentGate is null)
         {
-            UIErrorHelper.ShowWarning(
-                "Approval Review",
+            ReportPlanActionIssue(
+                payload.PlanId,
+                "Approval review",
                 "This approval is no longer waiting for review. Open the plan to see its current state.");
             return;
         }
         if (HasPendingPlanRevision(plan.PlanId))
         {
-            UIErrorHelper.ShowWarning(
-                "Approval Review",
+            ReportPlanActionIssue(
+                plan.PlanId,
+                "Approval review",
                 "Resolve the pending plan revision proposal before reviewing this approval checkpoint.");
             return;
         }
@@ -58339,11 +58322,9 @@ public partial class MainWindow : Window
             if (selection is null ||
                 selection.Kind is TasksPanelExecutionKind.NoTasks or TasksPanelExecutionKind.InvalidPlanSelection)
             {
-                MessageBox.Show(
-                    selection?.Error ?? "SquadDash could not determine which tasks are visible.",
-                    "Nothing Safe to Run",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                ShowSystemTranscriptEntry(
+                    "Nothing safe to run. " +
+                    (selection?.Error ?? "SquadDash could not determine which tasks are visible."));
                 return;
             }
 
@@ -58351,20 +58332,16 @@ public partial class MainWindow : Window
             {
                 if (IsLoopRunning)
                 {
-                    MessageBox.Show(
-                        "A structured plan cannot be started while another loop is running. Queueing plan executions requires its own branch and recovery preflight.",
-                        "Plan Already Running",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
+                    ShowSystemTranscriptEntry(
+                        "Plan not started. A structured plan cannot be started while another loop is running. " +
+                        "Queueing plan executions requires its own branch and recovery preflight.");
                     return;
                 }
                 if (selection.ContainsBlockedTask)
                 {
-                    MessageBox.Show(
-                        "This plan contains a failed or partial task. Use its recovery actions to replan or retry it.",
-                        "Plan Is Blocked",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Information);
+                    ShowSystemTranscriptEntry(
+                        "Plan not started. This plan contains a failed or partial task. " +
+                        "Use its recovery actions to replan or retry it.");
                     return;
                 }
 

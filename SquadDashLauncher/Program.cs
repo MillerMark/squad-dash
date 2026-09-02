@@ -48,6 +48,9 @@ internal static class Program {
         var instances = registry.LoadLiveInstances(appRoot);
         var restartRequestId = instances.Count > 0 ? Guid.NewGuid().ToString("N") : null;
         var restartRequestSaved = false;
+        var restartCoordinatorLauncherPath = instances.Count > 0
+            ? CreateDetachedRestartCoordinatorLauncher(restartRequestId!)
+            : null;
 
         var activeState = slotStore.Load();
         string nextSlot;
@@ -63,7 +66,10 @@ internal static class Program {
                 SaveRestartRequest(restartStateStore, appRoot, restartRequestId!, instances);
                 restartRequestSaved = true;
                 RequestCloseRegisteredInstances(instances);
-                StartDetachedDeferredDeployCoordinator(restartRequestId!, stagedBuildOutput);
+                StartDetachedDeferredDeployCoordinator(
+                    restartRequestId!,
+                    stagedBuildOutput,
+                    restartCoordinatorLauncherPath!);
                 return 0;
             }
 
@@ -80,7 +86,7 @@ internal static class Program {
                 if (!restartRequestSaved)
                     SaveRestartRequest(restartStateStore, appRoot, restartRequestId!, instances);
 
-                StartDetachedRestartCoordinator(restartRequestId!);
+                StartDetachedRestartCoordinator(restartRequestId!, restartCoordinatorLauncherPath!);
             }
         }
         catch {
@@ -269,9 +275,7 @@ internal static class Program {
         });
     }
 
-    private static void StartDetachedRestartCoordinator(string requestId) {
-        var launcherPath = CreateDetachedRestartCoordinatorLauncher(requestId);
-
+    private static void StartDetachedRestartCoordinator(string requestId, string launcherPath) {
         Process.Start(new ProcessStartInfo {
             FileName = launcherPath,
             Arguments = $"--complete-restart {QuoteArgument(requestId)}",
@@ -280,9 +284,10 @@ internal static class Program {
         });
     }
 
-    private static void StartDetachedDeferredDeployCoordinator(string requestId, string stagedBuildOutputDirectory) {
-        var launcherPath = CreateDetachedRestartCoordinatorLauncher(requestId);
-
+    private static void StartDetachedDeferredDeployCoordinator(
+        string requestId,
+        string stagedBuildOutputDirectory,
+        string launcherPath) {
         Process.Start(new ProcessStartInfo {
             FileName = launcherPath,
             Arguments = $"--complete-deploy-restart {QuoteArgument(requestId)} {QuoteArgument(stagedBuildOutputDirectory)}",
@@ -591,6 +596,8 @@ internal static class Program {
 
     private static IReadOnlyList<string> GetRunningPayloadPaths() {
         var paths = new List<string>();
+        if (!string.IsNullOrWhiteSpace(Environment.ProcessPath))
+            paths.Add(Environment.ProcessPath);
         var processName = Path.GetFileNameWithoutExtension(RuntimeSlotNames.PayloadFileName);
 
         foreach (var process in Process.GetProcessesByName(processName)) {
