@@ -1008,22 +1008,16 @@ internal static class TranscriptApprovalCardBuilder
 
     private static void ConfigureNoteEditor(TextBox noteBox)
     {
-        noteBox.PreviewTextInput += (_, e) =>
-        {
-            if (!CanEditNoteBox(noteBox) || string.IsNullOrEmpty(e.Text))
-                return;
+        noteBox.AddHandler(
+            TextCompositionManager.PreviewTextInputEvent,
+            new TextCompositionEventHandler((_, e) => HandleNoteEditorPreviewTextInput(noteBox, e)),
+            handledEventsToo: true);
 
-            InsertTextIntoNoteEditor(noteBox, e.Text);
-            e.Handled = true;
-        };
-        noteBox.PreviewKeyDown += (_, e) =>
-        {
-            if (!IsPasteShortcut(e) || !CanEditNoteBox(noteBox) || !Clipboard.ContainsText())
-                return;
+        noteBox.AddHandler(
+            Keyboard.PreviewKeyDownEvent,
+            new KeyEventHandler((_, e) => HandleNoteEditorPreviewKeyDown(noteBox, e)),
+            handledEventsToo: true);
 
-            InsertTextIntoNoteEditor(noteBox, Clipboard.GetText());
-            e.Handled = true;
-        };
         noteBox.CommandBindings.Add(new CommandBinding(
             ApplicationCommands.Paste,
             (_, e) =>
@@ -1039,6 +1033,28 @@ internal static class TranscriptApprovalCardBuilder
                 e.CanExecute = CanEditNoteBox(noteBox) && Clipboard.ContainsText();
                 e.Handled = true;
             }));
+    }
+
+    internal static void HandleNoteEditorPreviewTextInput(TextBox noteBox, TextCompositionEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(noteBox);
+        ArgumentNullException.ThrowIfNull(e);
+        if (!CanEditNoteBox(noteBox) || string.IsNullOrEmpty(e.Text))
+            return;
+
+        InsertTextIntoNoteEditor(noteBox, e.Text);
+        e.Handled = true;
+    }
+
+    internal static void HandleNoteEditorPreviewKeyDown(TextBox noteBox, KeyEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(noteBox);
+        ArgumentNullException.ThrowIfNull(e);
+        if (!IsPasteShortcut(e) || !CanEditNoteBox(noteBox) || !Clipboard.ContainsText())
+            return;
+
+        InsertTextIntoNoteEditor(noteBox, Clipboard.GetText());
+        e.Handled = true;
     }
 
     internal static void InsertTextIntoNoteEditor(TextBox noteBox, string text)

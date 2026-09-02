@@ -14,6 +14,9 @@ internal sealed class ApplicationSettingsStore {
     private const string MutexName = @"Local\SquadDash.ApplicationSettings";
     private readonly string _settingsPath;
 
+    private string CurrentSchemaRecoveryPath =>
+        $"{_settingsPath}.v{ApplicationSettingsSnapshot.CurrentSchemaVersion}.recovery";
+
     public ApplicationSettingsStore() {
         var settingsDirectory = SquadDashPaths.AppData;
         Directory.CreateDirectory(settingsDirectory);
@@ -818,34 +821,89 @@ internal sealed class ApplicationSettingsStore {
     }
 
     private ApplicationSettingsSnapshot LoadCore(){
-        if (!File.Exists(_settingsPath))
+        if (!File.Exists(_settingsPath)) {
+            if (TryLoadCurrentSchemaRecovery(out var missingFileRecovery))
+                return missingFileRecovery;
+
             return ApplicationSettingsSnapshot.Empty.Normalize();
+        }
 
         try {
-            var json = File.ReadAllText(_settingsPath);
-            var snapshot = JsonSerializer.Deserialize<ApplicationSettingsSnapshot>(json);
-            var normalized = snapshot?.Normalize() ?? ApplicationSettingsSnapshot.Empty.Normalize();
-            return MigrateEncryptedFieldsIfNeeded(normalized);
+            var snapshot = ReadSnapshot(_settingsPath);
+            if (snapshot.SettingsSchemaVersion < ApplicationSettingsSnapshot.CurrentSchemaVersion &&
+                TryLoadCurrentSchemaRecovery(out var downgradeRecovery)) {
+                SquadDashTrace.Write(
+                    "Workspace",
+                    $"Settings schema downgrade detected ({snapshot.SettingsSchemaVersion} < {ApplicationSettingsSnapshot.CurrentSchemaVersion}); restored current-schema recovery.");
+                SaveCore(downgradeRecovery);
+                return downgradeRecovery;
+            }
+
+            var normalized = MigrateEncryptedFieldsIfNeeded(snapshot.Normalize());
+            if (snapshot.SettingsSchemaVersion < ApplicationSettingsSnapshot.CurrentSchemaVersion)
+                SaveCore(normalized);
+            return normalized;
         }
         catch (Exception ex) {
-            SquadDashTrace.Write("Workspace", $"Settings load failed: {ex.Message}. Attempting backup recovery...");
-            
-            // Try to recover from backup
+            SquadDashTrace.Write("Workspace", $"Settings load failed: {ex.Message}. Attempting recovery...");
+
+            if (TryLoadCurrentSchemaRecovery(out var currentSchemaRecovery)) {
+                SquadDashTrace.Write("Workspace", "Settings recovered from current-schema recovery.");
+                SaveCore(currentSchemaRecovery);
+                return currentSchemaRecovery;
+            }
+
             var backupPath = _settingsPath + ".backup";
             if (File.Exists(backupPath)) {
                 try {
-                    var json = File.ReadAllText(backupPath);
-                    var snapshot = JsonSerializer.Deserialize<ApplicationSettingsSnapshot>(json);
-                    var normalized = snapshot?.Normalize() ?? ApplicationSettingsSnapshot.Empty.Normalize();
-                    SquadDashTrace.Write("Workspace", $"Settings recovered from backup.");
+                    var normalized = ReadSnapshot(backupPath).Normalize();
+                    SquadDashTrace.Write("Workspace", "Settings recovered from rolling backup.");
+                    SaveCore(normalized);
                     return normalized;
                 }
                 catch (Exception backupEx) {
-                    SquadDashTrace.Write("Workspace", $"Backup recovery also failed: {backupEx.Message}. Resetting to defaults.");
+                    SquadDashTrace.Write("Workspace", $"Rolling backup recovery also failed: {backupEx.Message}.");
                 }
             }
-            
-            return ApplicationSettingsSnapshot.Empty.Normalize();
+
+            throw new InvalidDataException(
+                $"Could not read SquadDash settings from '{_settingsPath}' or a recovery copy. The existing file was left unchanged.",
+                ex);
+        }
+    }
+
+    private bool TryLoadCurrentSchemaRecovery(out ApplicationSettingsSnapshot snapshot) {
+        snapshot = null!;
+        if (!File.Exists(CurrentSchemaRecoveryPath))
+            return false;
+
+        try {
+            var candidate = ReadSnapshot(CurrentSchemaRecoveryPath);
+            if (candidate.SettingsSchemaVersion < ApplicationSettingsSnapshot.CurrentSchemaVersion)
+                return false;
+
+            snapshot = candidate.Normalize();
+            return true;
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Workspace", $"Current-schema settings recovery failed: {ex.Message}.");
+            return false;
+        }
+    }
+
+    private static ApplicationSettingsSnapshot ReadSnapshot(string path) {
+        const int attempts = 5;
+        for (var attempt = 1; ; attempt++) {
+            try {
+                var json = File.ReadAllText(path);
+                return JsonSerializer.Deserialize<ApplicationSettingsSnapshot>(json)
+                    ?? throw new InvalidDataException($"Settings file '{path}' contained no snapshot.");
+            }
+            catch (Exception ex) when (
+                attempt < attempts &&
+                ex is IOException or UnauthorizedAccessException) {
+                Thread.Sleep(attempt * 25);
+            }
         }
     }
 
@@ -1021,6 +1079,7 @@ internal sealed class ApplicationSettingsStore {
     private void SaveCore(ApplicationSettingsSnapshot snapshot) {
         var normalized = snapshot.Normalize();
         JsonFileStorage.AtomicWrite(_settingsPath, normalized);
+        JsonFileStorage.AtomicWrite(CurrentSchemaRecoveryPath, normalized);
     }
 
     private static MutexLease AcquireMutex() {
@@ -1051,6 +1110,7 @@ internal sealed class ApplicationSettingsStore {
 
     public WorkspaceDocsPanelState GetDocsPanelState(string? workspaceFolder)
     {
+        using var mutex = AcquireMutex();
         var current = LoadCore();
         if (!string.IsNullOrEmpty(workspaceFolder))
         {
@@ -1289,6 +1349,10 @@ internal sealed record ApplicationSettingsSnapshot(
     double PromptFontSize,
     IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> AgentImagePathsByWorkspace,
     IReadOnlyDictionary<string, string> IgnoredRoutingIssueFingerprintsByWorkspace) {
+
+    public const int CurrentSchemaVersion = 1;
+
+    public int SettingsSchemaVersion { get; init; }
 
     /// <summary>
     /// Per-workspace home branch name. Keyed by normalised workspace folder path.
@@ -1972,6 +2036,7 @@ internal sealed record ApplicationSettingsSnapshot(
             NormalizeFontSize(PromptFontSize),
             normalizedAgentImages,
             normalizedIgnoredRoutingIssueFingerprints) {
+            SettingsSchemaVersion = CurrentSchemaVersion,
             UserName = string.IsNullOrWhiteSpace(UserName) ? null : UserName.Trim(),
             SpeechRegion = string.IsNullOrWhiteSpace(SpeechRegion) ? null : SpeechRegion.Trim(),
             TranscriptFontSize = NormalizeFontSize(TranscriptFontSize),

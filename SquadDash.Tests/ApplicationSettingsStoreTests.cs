@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json.Nodes;
 
 namespace SquadDash.Tests;
 
@@ -481,17 +482,71 @@ internal sealed class ApplicationSettingsStoreTests {
     }
 
     [Test]
-    public void Load_WhenFileContainsMalformedJson_ReturnsDefaultSnapshot() {
+    public void Load_WhenFileContainsMalformedJson_LeavesExistingFileUnchanged() {
         using var workspace = new TestWorkspace();
         var settingsDir = workspace.GetPath("settings");
         Directory.CreateDirectory(settingsDir);
-        File.WriteAllText(Path.Combine(settingsDir, "settings.json"), "not valid json {{ ]]]");
-        var store = new ApplicationSettingsStore(Path.Combine(settingsDir, "settings.json"));
+        var settingsPath = Path.Combine(settingsDir, "settings.json");
+        const string malformed = "not valid json {{ ]]]";
+        File.WriteAllText(settingsPath, malformed);
+        var store = new ApplicationSettingsStore(settingsPath);
 
+        Assert.Throws<InvalidDataException>(() => store.Load());
+        Assert.That(File.ReadAllText(settingsPath), Is.EqualTo(malformed));
+    }
+
+    [Test]
+    public void Save_WritesCurrentSchemaMarkerAndRecoveryCopy() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+
+        store.SaveSpeechRegion("eastus");
+
+        var main = JsonNode.Parse(File.ReadAllText(settingsPath))!.AsObject();
+        var recoveryPath = $"{settingsPath}.v{ApplicationSettingsSnapshot.CurrentSchemaVersion}.recovery";
+        var recovery = JsonNode.Parse(File.ReadAllText(recoveryPath))!.AsObject();
+
+        Assert.Multiple(() => {
+            Assert.That(main[nameof(ApplicationSettingsSnapshot.SettingsSchemaVersion)]!.GetValue<int>(),
+                Is.EqualTo(ApplicationSettingsSnapshot.CurrentSchemaVersion));
+            Assert.That(recovery[nameof(ApplicationSettingsSnapshot.SettingsSchemaVersion)]!.GetValue<int>(),
+                Is.EqualTo(ApplicationSettingsSnapshot.CurrentSchemaVersion));
+            Assert.That(recovery[nameof(ApplicationSettingsSnapshot.SpeechRegion)]!.GetValue<string>(),
+                Is.EqualTo("eastus"));
+        });
+    }
+
+    [Test]
+    public void Save_AfterOlderBuildStripsFields_RestoresCurrentSchemaSettings() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+        var store = new ApplicationSettingsStore(settingsPath);
+
+        store.SaveSpeechRegion("eastus");
+        store.SaveWorkspaceTintStop(repo, 4);
+        store.SaveDocsPanelState(repo, new WorkspaceDocsPanelState { TasksPanelVisible = true });
+
+        var legacy = JsonNode.Parse(File.ReadAllText(settingsPath))!.AsObject();
+        legacy.Remove(nameof(ApplicationSettingsSnapshot.SettingsSchemaVersion));
+        legacy.Remove(nameof(ApplicationSettingsSnapshot.SpeechRegion));
+        legacy.Remove(nameof(ApplicationSettingsSnapshot.TintStopByWorkspace));
+        legacy.Remove(nameof(ApplicationSettingsSnapshot.DocsPanelStateByWorkspace));
+        File.WriteAllText(settingsPath, legacy.ToJsonString(JsonFileStorage.PrettyPrint));
+
+        store.SaveLoopContinuousContext(false);
         var loaded = store.Load();
 
-        Assert.That(loaded, Is.Not.Null);
-        Assert.That(loaded.RecentFolders, Is.Empty);
+        Assert.Multiple(() => {
+            Assert.That(loaded.SpeechRegion, Is.EqualTo("eastus"));
+            Assert.That(loaded.TintStopByWorkspace[repo], Is.EqualTo(4));
+            Assert.That(loaded.DocsPanelStateByWorkspace[repo].TasksPanelVisible, Is.True);
+            Assert.That(loaded.LoopContinuousContext, Is.False);
+            Assert.That(loaded.SettingsSchemaVersion,
+                Is.EqualTo(ApplicationSettingsSnapshot.CurrentSchemaVersion));
+        });
     }
 
     // QueuePaused persistence regression tests

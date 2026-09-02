@@ -608,6 +608,27 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void HandleNoteEditorPreviewTextInput_WhenAlreadyHandled_StillInsertsText()
+    {
+        var noteBox = new TextBox();
+        var composition = new TextComposition(InputManager.Current, noteBox, "x");
+        var args = new TextCompositionEventArgs(Keyboard.PrimaryDevice, composition)
+        {
+            RoutedEvent = TextCompositionManager.PreviewTextInputEvent,
+            Handled = true,
+        };
+
+        TranscriptApprovalCardBuilder.HandleNoteEditorPreviewTextInput(noteBox, args);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(noteBox.Text, Is.EqualTo("x"));
+            Assert.That(noteBox.CaretIndex, Is.EqualTo(1));
+            Assert.That(args.Handled, Is.True);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void Build_NoteEditorOwnsPasteCommand()
     {
         var plan = BuildTestPlan();
