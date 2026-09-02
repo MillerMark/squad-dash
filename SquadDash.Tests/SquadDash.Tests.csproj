@@ -45,6 +45,7 @@
     <Compile Include="..\SquadDash\PlanValidationPromptBuilder.cs" Link="Source\PlanValidationPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PlanValidationProviderFailurePresentation.cs" Link="Source\PlanValidationProviderFailurePresentation.cs" />
     <Compile Include="..\SquadDash\PlanTaskVerificationResult.cs" Link="Source\PlanTaskVerificationResult.cs" />
+    <Compile Include="..\SquadDash\JumpListLaunchPathResolver.cs" Link="Source\JumpListLaunchPathResolver.cs" />
     <Compile Include="..\SquadDash\PlanTaskVerificationPromptBuilder.cs" Link="Source\PlanTaskVerificationPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PlanTaskVerificationInstructions.cs" Link="Source\PlanTaskVerificationInstructions.cs" />
     <Compile Include="..\SquadDash\PlanExecutionContextBuilder.cs" Link="Source\PlanExecutionContextBuilder.cs" />

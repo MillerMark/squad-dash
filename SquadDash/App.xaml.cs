@@ -151,6 +151,11 @@ namespace SquadDash {
             {
                 var exe = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
                 if (exe is null) return;
+                var workspacePaths = WorkspacePathsProvider.Discover();
+                var launchPath = JumpListLaunchPathResolver.Resolve(
+                    workspacePaths.ApplicationRoot,
+                    AppContext.BaseDirectory,
+                    exe);
 
                 var jumpList = new JumpList();
 
@@ -158,9 +163,9 @@ namespace SquadDash {
                 {
                     Title = "New Window",
                     Description = "Open a new SquadDash window",
-                    ApplicationPath = exe,
+                    ApplicationPath = launchPath,
                     Arguments = "--new-window",
-                    IconResourcePath = exe,
+                    IconResourcePath = launchPath,
                 });
 
                 foreach (var folder in recentFolders)
@@ -175,9 +180,9 @@ namespace SquadDash {
                     {
                         Title            = title,
                         Description      = folder,
-                        ApplicationPath  = exe,
+                        ApplicationPath  = launchPath,
                         Arguments        = $"--folder \"{folder}\"",
-                        IconResourcePath = exe,
+                        IconResourcePath = launchPath,
                         CustomCategory   = "Recent Workspaces",
                     });
                 }
