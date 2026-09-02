@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace SquadDash;
@@ -36,27 +38,172 @@ internal sealed record PlanTaskVerificationResult(
     [property: JsonPropertyName("verdict")] string Verdict,
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("claimFindings")] IReadOnlyList<PlanTaskVerificationFinding> ClaimFindings,
-    [property: JsonPropertyName("missingOrOverstatedWork")] IReadOnlyList<string> MissingOrOverstatedWork,
+    [property: JsonPropertyName("missingOrOverstatedWork")]
+    [property: JsonConverter(typeof(VerificationNarrativeListJsonConverter))]
+    IReadOnlyList<string> MissingOrOverstatedWork,
     [property: JsonPropertyName("testAssessment")] string TestAssessment,
-    [property: JsonPropertyName("reworkInstructions")] IReadOnlyList<string> ReworkInstructions);
+    [property: JsonPropertyName("reworkInstructions")]
+    [property: JsonConverter(typeof(VerificationNarrativeListJsonConverter))]
+    IReadOnlyList<string> ReworkInstructions);
+
+internal sealed class VerificationNarrativeListJsonConverter : JsonConverter<IReadOnlyList<string>>
+{
+    public override IReadOnlyList<string> Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+            return [];
+
+        using var document = JsonDocument.ParseValue(ref reader);
+        if (document.RootElement.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Expected an array of strings or structured finding objects.");
+
+        var items = new List<string>();
+        foreach (var element in document.RootElement.EnumerateArray())
+        {
+            var normalized = element.ValueKind switch
+            {
+                JsonValueKind.String => element.GetString(),
+                JsonValueKind.Object => FormatObject(element),
+                JsonValueKind.Null => null,
+                _ => throw new JsonException(
+                    "Expected each array item to be a string or structured finding object."),
+            };
+
+            if (!string.IsNullOrWhiteSpace(normalized))
+                items.Add(normalized.Trim());
+        }
+
+        return items;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        IReadOnlyList<string> value,
+        JsonSerializerOptions options)
+    {
+        writer.WriteStartArray();
+        foreach (var item in value ?? [])
+            writer.WriteStringValue(item);
+        writer.WriteEndArray();
+    }
+
+    private static string FormatObject(JsonElement element)
+    {
+        string? priority = null;
+        string? subject = null;
+        var details = new List<string>();
+
+        foreach (var property in element.EnumerateObject())
+        {
+            var value = FormatValue(property.Value);
+            if (string.IsNullOrWhiteSpace(value))
+                continue;
+
+            if (string.Equals(property.Name, "priority", StringComparison.OrdinalIgnoreCase))
+            {
+                priority = value;
+                continue;
+            }
+
+            if (subject is null && IsSubjectProperty(property.Name))
+            {
+                subject = value;
+                continue;
+            }
+
+            details.Add($"{ToDisplayLabel(property.Name)}: {value}");
+        }
+
+        var builder = new StringBuilder();
+        if (!string.IsNullOrWhiteSpace(priority))
+            builder.Append('[').Append(priority!.Trim().ToLowerInvariant()).Append("] ");
+        if (!string.IsNullOrWhiteSpace(subject))
+            builder.Append(subject!.Trim());
+        if (details.Count > 0)
+        {
+            if (builder.Length > 0)
+                builder.Append(": ");
+            builder.AppendJoin("; ", details);
+        }
+
+        return builder.Length > 0 ? builder.ToString() : element.GetRawText();
+    }
+
+    private static string? FormatValue(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString(),
+        JsonValueKind.Array => string.Join(", ", value.EnumerateArray()
+            .Select(FormatValue)
+            .Where(item => !string.IsNullOrWhiteSpace(item))),
+        JsonValueKind.Null => null,
+        _ => value.GetRawText(),
+    };
+
+    private static string ToDisplayLabel(string propertyName) => propertyName switch
+    {
+        "issue" => "Issue",
+        "details" => "Details",
+        "observation" => "Observation",
+        "evidence" => "Evidence",
+        "reason" => "Reason",
+        "locations" => "Locations",
+        _ => propertyName,
+    };
+
+    private static bool IsSubjectProperty(string propertyName) =>
+        string.Equals(propertyName, "task", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(propertyName, "requirement", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(propertyName, "claim", StringComparison.OrdinalIgnoreCase);
+}
 
 internal static class PlanTaskVerificationResultParser
 {
     internal const string Marker = "PLAN_TASK_VERIFICATION_JSON:";
     internal const string LegacyMarker = "PLAN_TASK_SCRUTINY_JSON:";
+    private static readonly JsonSerializerOptions ParseOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        AllowTrailingCommas = true,
+        ReadCommentHandling = JsonCommentHandling.Skip,
+    };
 
     internal static bool TryParse(string? text, out PlanTaskVerificationResult? result, out string? error)
     {
         result = null;
         error = null;
-        var extracted = StructuredJsonBlockParser.TryExtractObject<PlanTaskVerificationResult>(
+        var extracted = StructuredJsonBlockParser.TryExtractObject<JsonElement>(
             text, Marker, out var extraction) ||
-            StructuredJsonBlockParser.TryExtractObject<PlanTaskVerificationResult>(
+            StructuredJsonBlockParser.TryExtractObject<JsonElement>(
                 text, LegacyMarker, out extraction) ||
-            StructuredJsonBlockParser.TryExtractSingleObject<PlanTaskVerificationResult>(text, out extraction);
-        if (!extracted || extraction?.Payload is not { } parsed)
+            StructuredJsonBlockParser.TryExtractSingleObject<JsonElement>(text, out extraction);
+        if (!extracted || extraction is null)
         {
             error = $"The response did not contain a valid {Marker} payload.";
+            return false;
+        }
+
+        PlanTaskVerificationResult? parsed;
+        try
+        {
+            parsed = JsonSerializer.Deserialize<PlanTaskVerificationResult>(
+                extraction.JsonText,
+                ParseOptions);
+        }
+        catch (JsonException exception)
+        {
+            var path = string.IsNullOrWhiteSpace(exception.Path)
+                ? string.Empty
+                : $" at {exception.Path}";
+            error = $"The {Marker} payload could not be deserialized{path}: {exception.Message}";
+            return false;
+        }
+
+        if (parsed is null)
+        {
+            error = $"The {Marker} payload deserialized to null.";
             return false;
         }
 

@@ -196,6 +196,10 @@ internal sealed class PlanTaskVerificationTests
             Assert.That(prompt, Does.Contain(PlanTaskVerificationResultParser.Marker));
             Assert.That(prompt, Does.Contain("Do not inspect files again"));
             Assert.That(prompt, Does.Contain("Do not add prose before or after it"));
+            Assert.That(prompt, Does.Contain("must be JSON arrays of strings"));
+            Assert.That(prompt, Does.Contain("do not return objects in either array"));
+            Assert.That(prompt, Does.Contain("\"missingOrOverstatedWork\": [\"<discrepancy string; use [] when none>\"]"));
+            Assert.That(prompt, Does.Contain("\"reworkInstructions\": [\"<correction string; use [] unless verdict is rework-required>\"]"));
             Assert.That(prompt, Does.Contain("\"evaluatedCommit\": \"abcdef1\""));
             Assert.That(prompt, Does.Contain("production approval actions are still enabled"));
             Assert.That(prompt, Does.Contain("Exact validation error: An accepted result cannot contain missing work."));
@@ -229,6 +233,8 @@ internal sealed class PlanTaskVerificationTests
             Assert.That(prompt, Does.Contain("`agent_handle` set to `fact-checker`"));
             Assert.That(prompt, Does.Not.Contain("using the CLI's `general-purpose` agent type"));
             Assert.That(prompt, Does.Contain("Do not perform the verification yourself"));
+            Assert.That(prompt, Does.Contain("Copy the complete host-provided result schema"));
+            Assert.That(prompt, Does.Contain("must be JSON arrays of strings"));
             Assert.That(prompt, Does.Contain("human-review-required"));
             Assert.That(prompt, Does.Contain("User-facing identity: `Step 1` — Build source"));
             Assert.That(prompt, Does.Contain("never abbreviate it as `task006`"));
@@ -300,6 +306,86 @@ internal sealed class PlanTaskVerificationTests
         {
             Assert.That(parsed, Is.True, error);
             Assert.That(result?.Verdict, Is.EqualTo(PlanTaskVerificationVerdict.ReworkRequired));
+        });
+    }
+
+    [Test]
+    public void Parser_NormalizesStructuredArraysFromBlazorVerificationIncident()
+    {
+        var response = """
+            ```json
+            {
+              "planId": "BLAZORAIGEN-20260316",
+              "taskId": "BLAZORAIGEN-20260316-004",
+              "revision": "0b97ffe5a608c0c5",
+              "evaluatedCommit": "6904a07213614bb300698a0ff0f23303e69b7d6b",
+              "verdict": "rework-required",
+              "summary": "Span correction is missing and the test claim is overstated.",
+              "claimFindings": [
+                {
+                  "claim": "Implemented AddToPromptAsync() with complete data-aigid annotation pipeline",
+                  "disposition": "missing",
+                  "evidence": "IBlazorSpanMappingService is imported but never invoked."
+                },
+                {
+                  "claim": "Wrote 12 comprehensive NUnit unit tests covering all scenarios",
+                  "disposition": "overstated",
+                  "evidence": "Only 10 tests are present."
+                }
+              ],
+              "missingOrOverstatedWork": [
+                {
+                  "requirement": "Apply span correction via IBlazorSpanMappingService.CorrectPositionInBlazorDocument",
+                  "observation": "The service is imported but never called.",
+                  "locations": ["AiGenBlazorLanguageExtension.cs:32", "AiGenBlazorLanguageExtension.cs:88-115"]
+                }
+              ],
+              "testAssessment": "Critical integration coverage is missing.",
+              "reworkInstructions": [
+                {
+                  "priority": "critical",
+                  "task": "Implement span offset correction in ExtractAndAddCodeBlockAsync",
+                  "details": "Correct the offsets before registering the companion document."
+                }
+              ]
+            }
+            ```
+            """;
+
+        var parsed = PlanTaskVerificationResultParser.TryParse(response, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result?.Verdict, Is.EqualTo(PlanTaskVerificationVerdict.ReworkRequired));
+            Assert.That(result?.MissingOrOverstatedWork.Single(),
+                Does.Contain("Apply span correction via IBlazorSpanMappingService.CorrectPositionInBlazorDocument"));
+            Assert.That(result?.MissingOrOverstatedWork.Single(),
+                Does.Contain("Locations: AiGenBlazorLanguageExtension.cs:32, AiGenBlazorLanguageExtension.cs:88-115"));
+            Assert.That(result?.ReworkInstructions.Single(),
+                Does.StartWith("[critical] Implement span offset correction in ExtractAndAddCodeBlockAsync"));
+            Assert.That(result?.ReworkInstructions.Single(),
+                Does.Contain("Correct the offsets before registering the companion document."));
+        });
+    }
+
+    [Test]
+    public void Parser_SurfacesDeserializationPathForMalformedTypedField()
+    {
+        var response = """
+            PLAN_TASK_VERIFICATION_JSON:
+            {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
+             "verdict":"accepted","summary":"ok","claimFindings":"not-an-array",
+             "missingOrOverstatedWork":[],"testAssessment":"adequate","reworkInstructions":[]}
+            """;
+
+        var parsed = PlanTaskVerificationResultParser.TryParse(response, out _, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(error, Does.Contain("could not be deserialized"));
+            Assert.That(error, Does.Contain("claimFindings"));
         });
     }
 

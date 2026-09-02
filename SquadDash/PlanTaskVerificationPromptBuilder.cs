@@ -20,7 +20,8 @@ internal static class PlanTaskVerificationPromptBuilder
                            "That host-owned route applies the configured Fact Checker identity, charter, history, and model profile (for example, `Verity Cross`). " +
                            "Do not use the generic `task` tool or create a temporary agent named Fact Checker. " +
                            "Do not perform the verification yourself or substitute the implementation agent, a generic reviewer, or prose-only findings.");
-        builder.AppendLine("After the fact-checker returns, relay its PLAN_TASK_VERIFICATION_JSON result exactly as the only top-level result. " +
+        builder.AppendLine("Copy the complete host-provided result schema, including identity fields and array element types, verbatim into the fact-checker assignment. " +
+                           "After the fact-checker returns, relay its PLAN_TASK_VERIFICATION_JSON result exactly as the only top-level result. " +
                            "If it cannot establish a claim without human observation, it must use `human-review-required`; it must never simulate or imply a human observation.");
         builder.AppendLine(PlanDelegationRequestContext.Build(
             plan.PlanId,
@@ -202,6 +203,7 @@ internal static class PlanTaskVerificationPromptBuilder
         PlanTask task,
         DecomposeStepResult candidate)
     {
+        builder.AppendLine("`missingOrOverstatedWork` and `reworkInstructions` must be JSON arrays of strings. Put all priority, evidence, location, and correction details inside each string; do not return objects in either array.");
         builder.AppendLine(PlanTaskVerificationResultParser.Marker);
         builder.AppendLine("{");
         builder.AppendLine($"  \"planId\": \"{plan.PlanId}\",");
@@ -211,9 +213,9 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine("  \"verdict\": \"accepted|rework-required|human-review-required\",");
         builder.AppendLine("  \"summary\": \"...\",");
         builder.AppendLine("  \"claimFindings\": [{\"claim\":\"...\",\"disposition\":\"supported|missing|overstated|unclear\",\"evidence\":\"...\"}],");
-        builder.AppendLine("  \"missingOrOverstatedWork\": [],");
+        builder.AppendLine("  \"missingOrOverstatedWork\": [\"<discrepancy string; use [] when none>\"],");
         builder.AppendLine("  \"testAssessment\": \"...\",");
-        builder.AppendLine("  \"reworkInstructions\": []");
+        builder.AppendLine("  \"reworkInstructions\": [\"<correction string; use [] unless verdict is rework-required>\"]");
         builder.AppendLine("}");
     }
 }

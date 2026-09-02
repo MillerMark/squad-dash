@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -7076,7 +7077,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (!string.IsNullOrWhiteSpace(task.Description))
         {
             AddSectionHeader("Original Task Description");
-            var descPara = new Paragraph(new Run(task.Description));
+            var descPara = new Paragraph();
+            foreach (var inline in BuildDescriptionInlinesWithTaskLinks(task.Description, plan))
+                descPara.Inlines.Add(inline);
             descPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             descPara.Margin = new Thickness(0, 0, 0, 12);
@@ -7264,6 +7267,44 @@ internal sealed class PlanViewerWindow : ChromedWindow
             accepted.Margin = new Thickness(0, 4, 0, 4);
             _detailDocument?.Blocks.Add(accepted);
         }
+    }
+
+    // Matches inline task references such as "task 003", "task-007", or "Task 12" so they can be
+    // rendered as clickable "Step N" links pointing at the referenced task's actual position in the plan.
+    private static readonly Regex TaskReferenceRegex =
+        new(@"\btask[\s-]?(\d{2,4})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private IEnumerable<Inline> BuildDescriptionInlinesWithTaskLinks(string description, Plan? plan)
+    {
+        if (plan?.Tasks is not { Count: > 0 } tasks)
+        {
+            yield return new Run(description);
+            yield break;
+        }
+
+        var lastIndex = 0;
+        foreach (Match match in TaskReferenceRegex.Matches(description))
+        {
+            var numberText = match.Groups[1].Value;
+            var referencedTask = tasks.FirstOrDefault(t =>
+                t.TaskId.EndsWith("-" + numberText, StringComparison.Ordinal)
+                || string.Equals(t.TaskId, numberText, StringComparison.Ordinal));
+
+            if (referencedTask is null)
+                continue;
+
+            if (match.Index > lastIndex)
+                yield return new Run(description[lastIndex..match.Index]);
+
+            var stepLabel = referencedTask.DisplayStepLabel
+                ?? (tasks.ToList().IndexOf(referencedTask) + 1).ToString();
+            yield return CreateTaskLink($"Step {stepLabel}", referencedTask.TaskId);
+
+            lastIndex = match.Index + match.Length;
+        }
+
+        if (lastIndex < description.Length)
+            yield return new Run(description[lastIndex..]);
     }
 
     private Hyperlink CreateTaskLink(string taskTitle, string taskId)
