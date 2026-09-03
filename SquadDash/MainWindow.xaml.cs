@@ -15357,28 +15357,32 @@ public partial class MainWindow : Window
                 turns, plan.PlanId, plan.Revision, taskId);
             foreach (var candidate in candidates)
             {
-                string candidateBaseline;
+                string taskBaseline;
+                string candidateCommit;
                 try
                 {
-                    candidateBaseline = (await RunGitAsync(
+                    taskBaseline = (await RunGitAsync(
                         _currentWorkspace.FolderPath,
-                        $"rev-parse --verify \"{candidate.Commit}^{{commit}}^\"")).Trim();
+                        $"rev-parse --verify \"{baseline}^{{commit}}\"")).Trim();
+                    candidateCommit = (await RunGitAsync(
+                        _currentWorkspace.FolderPath,
+                        $"rev-parse --verify \"{candidate.Commit}^{{commit}}\"")).Trim();
                     await RunGitAsync(
                         _currentWorkspace.FolderPath,
-                        $"merge-base --is-ancestor \"{baseline}\" \"{candidateBaseline}\"");
+                        $"merge-base --is-ancestor \"{taskBaseline}\" \"{candidateCommit}\"");
                 }
                 catch (Exception ex)
                 {
                     SquadDashTrace.Write(
                         "PlanRecovery",
-                        $"Rejected captured result plan={plan.PlanId} task={taskId} commit={candidate.Commit}: its parent is not reachable from the recorded interruption baseline. {ex.Message}");
+                        $"Rejected captured result plan={plan.PlanId} task={taskId} commit={candidate.Commit}: it is not reachable from the recorded interruption baseline. {ex.Message}");
                     continue;
                 }
 
                 var validation = await ValidateDecomposeStepCommitAsync(
                     candidate,
                     verificationOnly: false,
-                    baselineOverride: candidateBaseline);
+                    baselineOverride: taskBaseline);
                 if (validation.Error is not null || string.IsNullOrWhiteSpace(validation.EffectiveCommit))
                 {
                     SquadDashTrace.Write(
@@ -15390,7 +15394,7 @@ public partial class MainWindow : Window
                 var evidence = new PlanTaskCommitEvidence(
                     taskId,
                     candidate.ExecutionAttemptId,
-                    candidateBaseline,
+                    taskBaseline,
                     validation.EffectiveCommit,
                     candidate.Summary,
                     candidate.Verification,
@@ -59759,6 +59763,12 @@ public partial class MainWindow : Window
             terminal = (await RunGitAsync(
                 workspace,
                 $"rev-parse --verify \"{exact.Commit}^{{commit}}\"")).Trim();
+            baseline = await RecoverBroadenedInterruptedTaskBaselineAsync(
+                           plan,
+                           workspace,
+                           baseline,
+                           terminal)
+                       ?? baseline;
         }
         else
         {
@@ -59836,6 +59846,70 @@ public partial class MainWindow : Window
             terminal,
             commits,
             exact is not null);
+    }
+
+    private async Task<string?> RecoverBroadenedInterruptedTaskBaselineAsync(
+        Plan plan,
+        string workspace,
+        string exactBaseline,
+        string terminal)
+    {
+        var interruptionBaseline = plan.InterruptionData?.LastCommit;
+        if (string.IsNullOrWhiteSpace(interruptionBaseline))
+            return null;
+
+        string resolvedInterruptionBaseline;
+        try
+        {
+            resolvedInterruptionBaseline = (await RunGitAsync(
+                workspace,
+                $"rev-parse --verify \"{interruptionBaseline}^{{commit}}\"")).Trim();
+            if (string.Equals(resolvedInterruptionBaseline, exactBaseline, StringComparison.OrdinalIgnoreCase))
+                return null;
+            await RunGitAsync(
+                workspace,
+                $"merge-base --is-ancestor \"{resolvedInterruptionBaseline}\" \"{exactBaseline}\"");
+            await RunGitAsync(
+                workspace,
+                $"merge-base --is-ancestor \"{resolvedInterruptionBaseline}\" \"{terminal}\"");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "PlanRecovery",
+                $"Could not broaden interrupted review range for plan={plan.PlanId}: {ex.Message}");
+            return null;
+        }
+
+        var hostOwnedPaths = await GetHostOwnedRecoveryPathsAsync(workspace);
+        var exactChangedPaths = await GetChangedPathsInRangeAsync(workspace, exactBaseline, terminal);
+        if (RecoveryCommitValidator.ContainsNonHostChanges(exactChangedPaths, hostOwnedPaths))
+            return null;
+
+        var broadenedChangedPaths = await GetChangedPathsInRangeAsync(
+            workspace,
+            resolvedInterruptionBaseline,
+            terminal);
+        if (!RecoveryCommitValidator.ShouldRecoverBroadenedInterruptedRange(
+                exactChangedPaths,
+                broadenedChangedPaths,
+                hostOwnedPaths))
+            return null;
+
+        SquadDashTrace.Write(
+            "PlanRecovery",
+            $"Broadened interrupted review range for plan={plan.PlanId} from baseline={exactBaseline} to interruptionBaseline={resolvedInterruptionBaseline}.");
+        return resolvedInterruptionBaseline;
+    }
+
+    private async Task<IReadOnlyList<string>> GetChangedPathsInRangeAsync(
+        string workspace,
+        string baseline,
+        string terminal)
+    {
+        return (await RunGitAsync(workspace, $"diff --name-only \"{baseline}..{terminal}\""))
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
     private async Task<bool> IsCommitOnRemoteAsync(string sha)

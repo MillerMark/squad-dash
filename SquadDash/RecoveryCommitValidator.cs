@@ -178,6 +178,20 @@ internal static class RecoveryCommitValidator
             .Any(path => !hostOwnedPaths.Any(hostPath => IsHostOwnedPath(path, hostPath)));
     }
 
+    /// <summary>
+    /// Detects recovered exact evidence whose baseline was accidentally narrowed to a
+    /// host-state-only tail commit range while the original interrupted-task range still
+    /// contains source changes.
+    /// </summary>
+    internal static bool ShouldRecoverBroadenedInterruptedRange(
+        IEnumerable<string> exactChangedPaths,
+        IEnumerable<string> broadenedChangedPaths,
+        IReadOnlyCollection<string> hostOwnedPaths)
+    {
+        return !ContainsNonHostChanges(exactChangedPaths, hostOwnedPaths) &&
+               ContainsNonHostChanges(broadenedChangedPaths, hostOwnedPaths);
+    }
+
     private static bool IsHostOwnedPath(string normalizedPath, string hostPath)
     {
         var normalizedHost = NormalizePath(hostPath);

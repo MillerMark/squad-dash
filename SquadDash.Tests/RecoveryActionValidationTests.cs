@@ -288,6 +288,31 @@ internal sealed class RecoveryActionValidationTests
     }
 
     [Test]
+    public void ShouldRecoverBroadenedInterruptedRange_StateOnlyExactRangeAndSourceInBroaderRange_ReturnsTrue()
+    {
+        var result = RecoveryCommitValidator.ShouldRecoverBroadenedInterruptedRange(
+            [".squad/decisions/inbox/review.md"],
+            [
+                ".squad/decisions/inbox/review.md",
+                "Plugins/Web/DevExpress.CodeAnalysis.Web.Features/Blazor/AiGen/Tests/AiGenBlazorIntegrationTests.cs",
+            ],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" });
+
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public void ShouldRecoverBroadenedInterruptedRange_ExactRangeAlreadyContainsSource_ReturnsFalse()
+    {
+        var result = RecoveryCommitValidator.ShouldRecoverBroadenedInterruptedRange(
+            ["Plugins/Web/Feature.cs"],
+            ["Plugins/Web/Feature.cs", ".squad/decisions/inbox/review.md"],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad/" });
+
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
     public void InterruptedStepAcceptance_ReportsFailuresWithoutModalDialogs()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
