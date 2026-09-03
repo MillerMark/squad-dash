@@ -314,12 +314,13 @@ internal sealed class PlanTaskActivityResolverTests
             Is.EqualTo(expected));
     }
 
+    [TestCase(PlanTaskActivityState.Executing, "Step 2 - Working")]
     [TestCase(PlanTaskActivityState.VerificationPending, "Step 2 - Verification pending")]
     [TestCase(PlanTaskActivityState.Verifying, "Step 2 - Verifying")]
     [TestCase(PlanTaskActivityState.Assessing, "Step 2 - Assessing")]
     [TestCase(PlanTaskActivityState.Reworking, "Step 2 - Correcting")]
     [TestCase(PlanTaskActivityState.Queued, "Step 2")]
-    public void StepLabel_DescribesVerificationPhase(
+    public void StepLabel_DescribesActivityPhase(
         PlanTaskActivityState activityState,
         string expected)
     {

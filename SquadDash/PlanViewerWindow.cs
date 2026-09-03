@@ -6914,6 +6914,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.Margin = new Thickness(0, 0, 0, 8);
         _detailDocument.Blocks.Add(statusPara);
 
+        AppendTaskActivitySummary(PlanTaskInspectorPresentation.BuildActivitySummary(
+            task,
+            plan,
+            _isTaskActivityActive?.Invoke(task.TaskId) ?? true,
+            _recoveryAssessmentTaskIds.Contains(task.TaskId) ||
+                (_isRecoveryAssessmentActive?.Invoke(task.TaskId) ?? false),
+            ResolveTaskCorrectionActivity(task.TaskId) == PlanTaskCorrectionActivityState.Running));
+
         // 3. Completion Summary (shown first when present). Legacy prose is deliberately one
         // bullet; sentence boundaries are not completion-item boundaries.
         var completionItems = task.CompletionSummaryItems is { Count: > 0 }
@@ -7131,9 +7139,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // 8. Approval gate guidance
         if (plan is not null)
         {
-            AppendApprovalGuidance(plan.ApprovalGates.Where(gate =>
-                gate.AfterTaskIds.Contains(task.TaskId, StringComparer.Ordinal) ||
-                gate.BeforeTaskIds.Contains(task.TaskId, StringComparer.Ordinal)));
+            AppendApprovalGuidance(PlanTaskInspectorPresentation.SelectApprovalGuidanceGates(task, plan));
         }
 
         // 9. Description
@@ -7201,6 +7207,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             _detailDocument.Blocks.Add(agentList);
         }
+    }
+
+    private void AppendTaskActivitySummary(PlanTaskInspectorActivitySummary? summary)
+    {
+        if (_detailDocument is null || summary is null || !summary.ShouldShowCallout)
+            return;
+
+        AddSectionHeader("Current Activity");
+        var activityPara = new Paragraph();
+        var labelRun = new Run(summary.Label) { FontWeight = FontWeights.SemiBold };
+        labelRun.SetResourceReference(TextElement.ForegroundProperty, summary.ColorKey);
+        activityPara.Inlines.Add(labelRun);
+        activityPara.Inlines.Add(new LineBreak());
+        activityPara.Inlines.Add(new Run(summary.Description));
+        activityPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        activityPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        activityPara.Margin = new Thickness(0, 0, 0, 12);
+        _detailDocument.Blocks.Add(activityPara);
     }
 
     private ScrollViewer BuildChangedFilesPanel(

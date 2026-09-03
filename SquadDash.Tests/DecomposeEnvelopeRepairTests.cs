@@ -270,6 +270,28 @@ public class DecomposeEnvelopeRepairTests
             Assert.That(prompt, Does.Contain("Proof evidence requires requirementId, proofType, and summary."));
             Assert.That(prompt, Does.Contain("Correct the validation error"));
             Assert.That(prompt, Does.Contain("Do not re-run any tools"));
+            Assert.That(prompt, Does.Contain("`completionKind` is only valid when `status` is `complete`"));
+            Assert.That(prompt, Does.Contain("For `partial` or `failed`, omit `completionKind`"));
+        });
+    }
+
+    [Test]
+    public void RepairPrompt_GenericSchemaRepair_PreservesExecutionAttemptWithoutAgentExecutions()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.Build(
+            "g1",
+            "t1",
+            "r1",
+            "completionKind is only valid for a complete result.",
+            envelopeWasPresent: true,
+            executionAttemptId: "attempt-generic");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("\"executionAttemptId\": \"attempt-generic\""));
+            Assert.That(prompt, Does.Not.Contain("\"agentExecutions\":"));
+            Assert.That(prompt, Does.Contain("Preserve the `executionAttemptId` field shown in the corrected envelope"));
+            Assert.That(prompt, Does.Contain("Do not add `agentExecutions` unless the corrected envelope schema above includes it"));
         });
     }
 
@@ -319,6 +341,26 @@ public class DecomposeEnvelopeRepairTests
             Assert.That(prompt, Does.Contain("\"requestedAgent\":\"brucebanner\""));
             Assert.That(prompt, Does.Contain("\"requestedAgent\":\"shuri\""));
             Assert.That(prompt, Does.Contain("Preserve the `executionAttemptId` and `agentExecutions` fields"));
+        });
+    }
+
+    [Test]
+    public void RepairPrompt_GenericVerifiedNoOpRepair_PreservesExecutionAttemptWithoutAgentExecutions()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.Build(
+            "g1",
+            "t1",
+            "r1",
+            "The step reported completion without creating a new commit.",
+            envelopeWasPresent: true,
+            executionAttemptId: "attempt-generic");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("\"completionKind\": \"verified-no-op\""));
+            Assert.That(prompt, Does.Contain("\"executionAttemptId\": \"attempt-generic\""));
+            Assert.That(prompt, Does.Not.Contain("\"agentExecutions\":"));
+            Assert.That(prompt, Does.Contain("Preserve the `executionAttemptId` field shown in the corrected envelope"));
         });
     }
 

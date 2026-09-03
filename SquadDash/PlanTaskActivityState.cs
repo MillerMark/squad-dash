@@ -54,6 +54,7 @@ internal static class PlanTaskActivityPresentation
         string stepLabel,
         PlanTaskActivityState activityState) => activityState switch
     {
+        PlanTaskActivityState.Executing => $"Step {stepLabel} - Working",
         PlanTaskActivityState.VerificationPending => $"Step {stepLabel} - Verification pending",
         PlanTaskActivityState.Verifying => $"Step {stepLabel} - Verifying",
         PlanTaskActivityState.Assessing => $"Step {stepLabel} - Assessing",
