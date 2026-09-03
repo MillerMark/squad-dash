@@ -92,6 +92,65 @@ internal sealed class PlanValidationSchedulingTests
     }
 
     [Test]
+    public void ValidationPrompt_IncludesScopedHumanProofEvidenceForCommandValidationRerun()
+    {
+        var validation = new PlanValidationNode(
+            "V1", "Validate", "Validate A", ["T1"], ["T2"],
+            ["A produces the declared output."], ["contract-a"],
+            "command", ["dotnet test"], true,
+            PlanValidationStatus.Ready);
+        var proofRequirement = new PlanTaskProofRequirement(
+            "observe-output",
+            "human-observation",
+            "Observe the output in the running application.",
+            "Does the output appear in the running application?",
+            HumanVerificationAccessMode.DirectlyReachable);
+        var approvedProofGate = new PlanApprovalGate(
+            "V1-HUMAN-PROOF", "Review human proof.", ["T1"], ["T2"],
+            PlanGateStatus.Approved,
+            ResolvedAt: DateTimeOffset.UtcNow,
+            PlanRevision: "rev",
+            PresentationAnchor: "validation:V1",
+            ResolvedBy: "MillerMark",
+            ProofRequirements: [proofRequirement],
+            ProofEvidence:
+            [
+                new PlanTaskProofEvidence(
+                    "observe-output",
+                    "human-observation",
+                    "MillerMark confirmed the output appears.")
+            ]);
+        var unrelatedProofGate = new PlanApprovalGate(
+            "V2-HUMAN-PROOF", "Review other proof.", ["T1"], ["T2"],
+            PlanGateStatus.Approved,
+            PresentationAnchor: "validation:V2",
+            ProofRequirements: [proofRequirement],
+            ProofEvidence:
+            [
+                new PlanTaskProofEvidence(
+                    "observe-output",
+                    "human-observation",
+                    "Unrelated proof should not appear.")
+            ]);
+        var plan = MakePlan(validation) with
+        {
+            ApprovalGates = [approvedProofGate, unrelatedProofGate],
+        };
+
+        var prompt = PlanValidationPromptBuilder.Build(plan, validation, "abc1234");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("## Human Proof Checkpoints"));
+            Assert.That(prompt, Does.Contain("V1-HUMAN-PROOF"));
+            Assert.That(prompt, Does.Contain("status: `approved`; reviewer: `MillerMark`"));
+            Assert.That(prompt, Does.Contain("Human evidence (human-observation): MillerMark confirmed the output appears."));
+            Assert.That(prompt, Does.Not.Contain("V2-HUMAN-PROOF"));
+            Assert.That(prompt, Does.Not.Contain("Unrelated proof should not appear."));
+        });
+    }
+
+    [Test]
     public void CompactPlanContext_IncludesCompletedTasksAndOutputs()
     {
         var plan = MakePlanWithReadyValidation();

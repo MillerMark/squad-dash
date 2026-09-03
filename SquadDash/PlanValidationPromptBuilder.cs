@@ -86,7 +86,10 @@ internal static class PlanValidationPromptBuilder
         if (string.Equals(validation.Mode, "audit", StringComparison.Ordinal))
             sb.Append(BuildCompactPlanContext(plan));
         else
+        {
             AppendTaskOutputs(sb, plan, validation);
+            AppendHumanProofCheckpoints(sb, plan, validation);
+        }
 
         // Verification commands
         if (validation.Commands is { Count: > 0 })
@@ -200,33 +203,56 @@ internal static class PlanValidationPromptBuilder
                 sb.AppendLine($"  - Independent verification `{latest.Verdict}`: {Truncate(latest.Summary, 220)}");
             }
         }
-        var proofGates = plan.ApprovalGates
-            .Where(gate => gate.ProofRequirements is { Count: > 0 })
-            .ToArray();
-        if (proofGates.Length > 0)
-        {
-            sb.AppendLine();
-            sb.AppendLine("## Human Proof Checkpoints");
-            sb.AppendLine();
-            foreach (var gate in proofGates)
-            {
-                sb.AppendLine($"- **{gate.GateId}** — status: `{gate.Status}`; reviewer: `{gate.ResolvedBy ?? "not recorded"}`");
-                foreach (var requirement in gate.ProofRequirements!)
-                {
-                    var evidence = gate.ProofEvidence?.FirstOrDefault(candidate =>
-                        string.Equals(candidate.RequirementId, requirement.RequirementId, StringComparison.Ordinal));
-                    sb.AppendLine($"  - Required proof `{requirement.RequirementId}` ({requirement.ProofType}): {requirement.Description}");
-                    sb.AppendLine(evidence is null
-                        ? "    Human evidence: MISSING"
-                        : $"    Human evidence ({evidence.ProofType}): {evidence.Summary}");
-                    foreach (var artifact in evidence?.Artifacts ?? [])
-                        sb.AppendLine($"    Artifact: `{artifact}`");
-                }
-            }
-        }
+        AppendHumanProofCheckpoints(sb, plan, validation: null);
         sb.AppendLine();
         return sb.ToString();
     }
+
+    private static void AppendHumanProofCheckpoints(
+        StringBuilder sb,
+        Plan plan,
+        PlanValidationNode? validation)
+    {
+        var proofGates = plan.ApprovalGates
+            .Where(gate => gate.ProofRequirements is { Count: > 0 });
+        if (validation is not null)
+        {
+            var validationAnchor = $"validation:{validation.ValidationId}";
+            var afterTaskIds = validation.AfterTaskIds.ToHashSet(StringComparer.Ordinal);
+            var beforeTaskIds = validation.BeforeTaskIds.ToHashSet(StringComparer.Ordinal);
+            proofGates = proofGates.Where(gate =>
+                string.Equals(gate.PresentationAnchor, validationAnchor, StringComparison.Ordinal) ||
+                string.IsNullOrWhiteSpace(gate.PresentationAnchor) &&
+                HasSameIds(gate.AfterTaskIds, afterTaskIds) &&
+                HasSameIds(gate.BeforeTaskIds, beforeTaskIds));
+        }
+
+        var matchingGates = proofGates.ToArray();
+        if (matchingGates.Length == 0)
+            return;
+
+        sb.AppendLine();
+        sb.AppendLine("## Human Proof Checkpoints");
+        sb.AppendLine();
+        foreach (var gate in matchingGates)
+        {
+            sb.AppendLine($"- **{gate.GateId}** — status: `{gate.Status}`; reviewer: `{gate.ResolvedBy ?? "not recorded"}`");
+            foreach (var requirement in gate.ProofRequirements!)
+            {
+                var evidence = gate.ProofEvidence?.FirstOrDefault(candidate =>
+                    string.Equals(candidate.RequirementId, requirement.RequirementId, StringComparison.Ordinal));
+                sb.AppendLine($"  - Required proof `{requirement.RequirementId}` ({requirement.ProofType}): {requirement.Description}");
+                sb.AppendLine(evidence is null
+                    ? "    Human evidence: MISSING"
+                    : $"    Human evidence ({evidence.ProofType}): {evidence.Summary}");
+                foreach (var artifact in evidence?.Artifacts ?? [])
+                    sb.AppendLine($"    Artifact: `{artifact}`");
+            }
+        }
+    }
+
+    private static bool HasSameIds(IReadOnlyList<string> actual, IReadOnlySet<string> expected) =>
+        actual.Count == expected.Count && actual.All(expected.Contains);
 
     private static void AppendTaskOutputs(
         StringBuilder sb,
