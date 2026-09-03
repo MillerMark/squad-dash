@@ -9,14 +9,25 @@ internal static class DecomposeEnvelopeRepairPrompt
         string taskId,
         string revision,
         string reason,
-        bool envelopeWasPresent = false)
+        bool envelopeWasPresent = false,
+        string? executionAttemptId = null,
+        IReadOnlyList<DecomposedAgentAssignment>? assignments = null)
     {
         if (IsMissingNewCommitFailure(reason))
-            return BuildVerifiedNoOpCorrection(groupId, taskId, revision, reason, envelopeWasPresent);
+            return BuildVerifiedNoOpCorrection(
+                groupId,
+                taskId,
+                revision,
+                reason,
+                envelopeWasPresent,
+                executionAttemptId,
+                assignments);
 
         var correctionInstruction = IsCommitLookupFailure(reason)
             ? "The reported commit did not resolve. Run only `git rev-parse --short HEAD`, copy its output exactly into `commit`, and do not inspect or change any files."
             : "Do not re-run any tools, re-examine files, or repeat previous work.";
+        var assignmentJsonFields = BuildAssignmentJsonFields(executionAttemptId, assignments);
+        var assignmentInstruction = BuildAssignmentInstruction(executionAttemptId, assignments);
 
         return $$"""
             SquadDash detected that your previous response completed normally but its required DECOMPOSE_STEP_RESULT_JSON envelope {{(envelopeWasPresent ? "did not match the required schema" : "was missing or invalid")}}.
@@ -40,6 +51,7 @@ internal static class DecomposeEnvelopeRepairPrompt
               "completedWork": ["one concrete completed outcome per array item"],
               "remainingWork": [],
               "deferredWork": [],
+            {{assignmentJsonFields}}
               "verification": {
                 "status": "passed",
                 "command": "<exact command used to verify>",
@@ -48,6 +60,7 @@ internal static class DecomposeEnvelopeRepairPrompt
             }
 
             Preserve every deliberate deferral from the previous handoff. Each deferredWork entry must name the exact requirement, reason, and downstream ownerTaskIds. Do not invent a deferral while repairing the envelope.
+            {{assignmentInstruction}}
             """;
     }
 
@@ -56,7 +69,14 @@ internal static class DecomposeEnvelopeRepairPrompt
         string taskId,
         string revision,
         string reason,
-        bool envelopeWasPresent) => $$"""
+        bool envelopeWasPresent,
+        string? executionAttemptId,
+        IReadOnlyList<DecomposedAgentAssignment>? assignments)
+    {
+        var assignmentJsonFields = BuildAssignmentJsonFields(executionAttemptId, assignments);
+        var assignmentInstruction = BuildAssignmentInstruction(executionAttemptId, assignments);
+
+        return $$"""
             SquadDash detected that your previous response completed normally but its required DECOMPOSE_STEP_RESULT_JSON envelope {{(envelopeWasPresent ? "did not describe a valid completion" : "was missing or invalid")}}.
             Validation error: {{reason}}
 
@@ -80,6 +100,7 @@ internal static class DecomposeEnvelopeRepairPrompt
               "completedWork": ["one already-satisfied outcome per array item"],
               "remainingWork": [],
               "deferredWork": [],
+            {{assignmentJsonFields}}
               "noOpEvidence": [
                 {
                   "requirement": "one exact current-task requirement",
@@ -95,7 +116,54 @@ internal static class DecomposeEnvelopeRepairPrompt
             }
 
             Return only one corrected result envelope. SquadDash will require `evaluatedCommit` to identify the current HEAD and will require an independent Fact Checker review of the no-op claim before accepting it. Concurrent commits are not attributed to this task.
+            {{assignmentInstruction}}
             """;
+    }
+
+    private static string BuildAssignmentJsonFields(
+        string? executionAttemptId,
+        IReadOnlyList<DecomposedAgentAssignment>? assignments)
+    {
+        if (string.IsNullOrWhiteSpace(executionAttemptId) || assignments is not { Count: > 0 })
+            return string.Empty;
+
+        var reports = assignments
+            .Where(assignment => !string.IsNullOrWhiteSpace(assignment.AgentHandle))
+            .Select(assignment => new
+            {
+                requestedAgent = assignment.AgentHandle.Trim(),
+                actualPrimaryAgent = assignment.AgentHandle.Trim(),
+            })
+            .ToArray();
+        if (reports.Length == 0)
+            return string.Empty;
+
+        return $$"""
+              "agentExecutions": {{JsonSerializer.Serialize(reports)}},
+              "executionAttemptId": {{JsonSerializer.Serialize(executionAttemptId.Trim())}},
+""";
+    }
+
+    private static string BuildAssignmentInstruction(
+        string? executionAttemptId,
+        IReadOnlyList<DecomposedAgentAssignment>? assignments)
+    {
+        if (string.IsNullOrWhiteSpace(executionAttemptId) || assignments is not { Count: > 0 })
+            return string.Empty;
+
+        var handles = assignments
+            .Select(assignment => assignment.AgentHandle?.Trim())
+            .Where(handle => !string.IsNullOrWhiteSpace(handle))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (handles.Length == 0)
+            return string.Empty;
+
+        return $$"""
+
+            This assigned-agent task already has host-observed completion for {{string.Join(", ", handles)}}. Preserve the `executionAttemptId` and `agentExecutions` fields shown in the corrected envelope; SquadDash validates them against host-owned evidence and will reject the repair if they are omitted or changed.
+            """;
+    }
 
     private static bool IsCommitLookupFailure(string reason) =>
         reason.Contains("Git validation failed", StringComparison.OrdinalIgnoreCase) ||

@@ -274,6 +274,55 @@ public class DecomposeEnvelopeRepairTests
     }
 
     [Test]
+    public void RepairPrompt_AssignedSchemaRepair_PreservesExecutionAttemptWrapUp()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.Build(
+            "g1",
+            "t1",
+            "r1",
+            "Proof evidence requires requirementId, proofType, and summary.",
+            envelopeWasPresent: true,
+            executionAttemptId: "attempt-123",
+            assignments: [new DecomposedAgentAssignment("brucebanner", "QA")]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("\"executionAttemptId\": \"attempt-123\""));
+            Assert.That(prompt, Does.Contain("\"agentExecutions\":"));
+            Assert.That(prompt, Does.Contain("\"requestedAgent\":\"brucebanner\""));
+            Assert.That(prompt, Does.Contain("\"actualPrimaryAgent\":\"brucebanner\""));
+            Assert.That(prompt, Does.Contain("already has host-observed completion for brucebanner"));
+            Assert.That(prompt, Does.Contain("will reject the repair if they are omitted or changed"));
+        });
+    }
+
+    [Test]
+    public void RepairPrompt_AssignedVerifiedNoOpRepair_PreservesExecutionAttemptWrapUp()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.Build(
+            "g1",
+            "t1",
+            "r1",
+            "The step reported completion without creating a new commit.",
+            envelopeWasPresent: true,
+            executionAttemptId: "attempt-456",
+            assignments:
+            [
+                new DecomposedAgentAssignment("brucebanner", "QA"),
+                new DecomposedAgentAssignment("shuri", "AiGen"),
+            ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("\"completionKind\": \"verified-no-op\""));
+            Assert.That(prompt, Does.Contain("\"executionAttemptId\": \"attempt-456\""));
+            Assert.That(prompt, Does.Contain("\"requestedAgent\":\"brucebanner\""));
+            Assert.That(prompt, Does.Contain("\"requestedAgent\":\"shuri\""));
+            Assert.That(prompt, Does.Contain("Preserve the `executionAttemptId` and `agentExecutions` fields"));
+        });
+    }
+
+    [Test]
     public void RepairPrompt_UnresolvableCommit_AllowsOnlyReadOnlyHeadLookup()
     {
         var prompt = DecomposeEnvelopeRepairPrompt.Build(

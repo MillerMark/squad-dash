@@ -14098,7 +14098,9 @@ public partial class MainWindow : Window
                     taskId,
                     revision,
                     repairError,
-                    resultEnvelopeWasPresent);
+                    resultEnvelopeWasPresent,
+                    executionAttempt?.AttemptId,
+                    expectedAssignments);
                 if (persistedTask?.ProofRequirements is { Count: > 0 } proofRequirements)
                 {
                     var resultRequirements = PlanProofCapabilityPolicy.ResultEnvelopeRequirements(proofRequirements);
