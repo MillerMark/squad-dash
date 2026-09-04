@@ -12086,17 +12086,20 @@ public partial class MainWindow : Window
                 var currentDirtyPaths = await GetPlanPreflightDirtyPathsAsync(plan.Group.GroupId);
                 if (currentDirtyPaths is not null)
                 {
-                    var currentException = new PlanPreflightBlockedException(
-                        exception.Condition,
+                    var refreshedContent = PlanPreflightRecoveryContent.TryRefreshFromDirtyPaths(
+                        exception,
                         currentDirtyPaths,
-                        exception.TargetBranch);
-                    content = buildContent(currentException);
-                    summary.Text = content.Summary;
-                    files.Text = content.ChangedFilesSummary;
-                    files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
-                        ? Visibility.Collapsed
-                        : Visibility.Visible;
-                    detailsText.Text = content.TechnicalDetails;
+                        buildContent);
+                    if (refreshedContent is not null)
+                    {
+                        content = refreshedContent;
+                        summary.Text = content.Summary;
+                        files.Text = content.ChangedFilesSummary;
+                        files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+                            ? Visibility.Collapsed
+                            : Visibility.Visible;
+                        detailsText.Text = content.TechnicalDetails;
+                    }
                 }
 
                 var ready = readinessOverride is null

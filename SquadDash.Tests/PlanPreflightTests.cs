@@ -109,6 +109,45 @@ internal sealed class PlanPreflightTests
         });
     }
 
+    [Test]
+    public void RecoveryRefresh_EmptyDirtyPaths_DoesNotBuildZeroFileWarning()
+    {
+        var exception = new PlanPreflightBlockedException(
+            "Preserved work is uncommitted",
+            ["SquadDash/MainWindow.xaml.cs"],
+            "feature/recovery");
+
+        var refreshed = PlanPreflightRecoveryContent.TryRefreshFromDirtyPaths(
+            exception,
+            [],
+            current => PlanPreflightRecoveryContent.FromPreservedWork(current, "PLAN-005"));
+
+        Assert.That(refreshed, Is.Null);
+    }
+
+    [Test]
+    public void RecoveryRefresh_DirtyPaths_RebuildsContentFromCurrentPaths()
+    {
+        var exception = new PlanPreflightBlockedException(
+            "Preserved work is uncommitted",
+            ["old/path.cs"],
+            "feature/recovery");
+
+        var refreshed = PlanPreflightRecoveryContent.TryRefreshFromDirtyPaths(
+            exception,
+            ["new/path.cs"],
+            current => PlanPreflightRecoveryContent.FromPreservedWork(current, "PLAN-005"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(refreshed, Is.Not.Null);
+            Assert.That(refreshed!.Summary, Does.Contain("1 uncommitted file"));
+            Assert.That(refreshed.ChangedFilesSummary, Does.Contain("new/path.cs"));
+            Assert.That(refreshed.ChangedFilesSummary, Does.Not.Contain("old/path.cs"));
+            Assert.That(refreshed.TechnicalDetails, Does.Contain("Changed files: 1"));
+        });
+    }
+
     [TestCase(true, "abc123", "def456", true)]
     [TestCase(false, "abc123", "def456", false)]
     [TestCase(true, "abc123", "abc123", false)]

@@ -166,6 +166,24 @@ internal sealed record PlanPreflightRecoveryContent(
             details,
             clipboardDetails);
     }
+
+    internal static PlanPreflightRecoveryContent? TryRefreshFromDirtyPaths(
+        PlanPreflightBlockedException exception,
+        IReadOnlyList<string> currentDirtyPaths,
+        Func<PlanPreflightBlockedException, PlanPreflightRecoveryContent> contentFactory)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        ArgumentNullException.ThrowIfNull(currentDirtyPaths);
+        ArgumentNullException.ThrowIfNull(contentFactory);
+
+        if (!exception.RequiresRepositoryInitialization && currentDirtyPaths.Count == 0)
+            return null;
+
+        return contentFactory(new PlanPreflightBlockedException(
+            exception.Condition,
+            currentDirtyPaths,
+            exception.TargetBranch));
+    }
 }
 
 internal static class PlanRecoveryCommitReadiness

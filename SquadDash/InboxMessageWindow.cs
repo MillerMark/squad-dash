@@ -675,17 +675,20 @@ internal sealed class InboxMessageWindow : ChromedWindow
                         currentDirtyPaths = await getDirtyPaths();
                         if (currentDirtyPaths is not null)
                         {
-                            content = PlanPreflightRecoveryContent.From(
-                                new PlanPreflightBlockedException(
-                                    exception.Condition,
-                                    currentDirtyPaths,
-                                    exception.TargetBranch));
-                            summary.Text = content.Summary;
-                            files.Text = content.ChangedFilesSummary;
-                            files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
-                                ? Visibility.Collapsed
-                                : Visibility.Visible;
-                            detailText.Text = content.TechnicalDetails;
+                            var refreshedContent = PlanPreflightRecoveryContent.TryRefreshFromDirtyPaths(
+                                exception,
+                                currentDirtyPaths,
+                                PlanPreflightRecoveryContent.From);
+                            if (refreshedContent is not null)
+                            {
+                                content = refreshedContent;
+                                summary.Text = content.Summary;
+                                files.Text = content.ChangedFilesSummary;
+                                files.Visibility = string.IsNullOrWhiteSpace(content.ChangedFilesSummary)
+                                    ? Visibility.Collapsed
+                                    : Visibility.Visible;
+                                detailText.Text = content.TechnicalDetails;
+                            }
                         }
                     }
                     var clean = currentDirtyPaths is not null
