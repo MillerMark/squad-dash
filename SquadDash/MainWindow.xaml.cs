@@ -6731,8 +6731,8 @@ public partial class MainWindow : Window
         thread.DetailText = summary;
         RecordPlanAgentCompletion(thread, evt, succeeded: false);
         _agentThreadRegistry.FinalizeAgentThread(thread);
-        ProviderFailureTranscriptBlockFactory.Append(thread, failure, agentLabel);
-        ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, agentLabel);
+        ProviderFailureTranscriptBlockFactory.Append(thread, failure, agentLabel, _transcriptFontSize);
+        ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, agentLabel, _transcriptFontSize);
         ScrollToEndIfAtBottom(thread);
         ScrollToEndIfAtBottom(CoordinatorThread);
         StopRequiredPlanWorkAfterProviderFailure(thread, failure, agentLabel);
@@ -6908,7 +6908,7 @@ public partial class MainWindow : Window
             return;
 
         var failure = ProviderFailurePresentation.Analyze(evt.Message, BuildProviderFailureContext(evt));
-        ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, "Coordinator");
+        ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, "Coordinator", _transcriptFontSize);
         ScrollToEndIfAtBottom(CoordinatorThread);
         UpdateLeadAgent("Error", string.Empty, failure.BuildThreadSummary("Coordinator"));
         SquadDashTrace.Write(

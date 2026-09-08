@@ -14,10 +14,11 @@ internal static class ProviderFailureTranscriptBlockFactory
     internal static BlockUIContainer Append(
         TranscriptThreadState thread,
         ProviderFailurePresentation failure,
-        string agentLabel)
+        string agentLabel,
+        double transcriptFontSize)
     {
         ArgumentNullException.ThrowIfNull(thread);
-        var container = Create(failure, agentLabel);
+        var container = Create(failure, agentLabel, transcriptFontSize);
         var fingerprint = ((ProviderFailureTranscriptTag)container.Tag).Fingerprint;
         var previousMatches = thread.Document.Blocks
             .OfType<BlockUIContainer>()
@@ -32,35 +33,41 @@ internal static class ProviderFailureTranscriptBlockFactory
 
     internal static BlockUIContainer Create(
         ProviderFailurePresentation failure,
-        string agentLabel)
+        string agentLabel,
+        double transcriptFontSize)
     {
         ArgumentNullException.ThrowIfNull(failure);
         var normalizedLabel = string.IsNullOrWhiteSpace(agentLabel) ? "Agent" : agentLabel.Trim();
+        var baseFontSize = transcriptFontSize;
+        var titleFontSize = baseFontSize + 1d;
 
         var panel = new StackPanel();
         panel.Children.Add(CreateTextBlock(
             $"⛔ {normalizedLabel}: {failure.Title}",
             FontWeights.Bold,
-            new Thickness(0, 0, 0, 5)));
+            new Thickness(0, 0, 0, 5),
+            titleFontSize));
         panel.Children.Add(CreateTextBlock(
             failure.Explanation,
             FontWeights.Normal,
-            new Thickness(0, 0, 0, 5)));
+            new Thickness(0, 0, 0, 5),
+            baseFontSize));
 
         if (!string.IsNullOrWhiteSpace(failure.ContextLine))
         {
             var context = CreateTextBlock(
                 failure.ContextLine,
                 FontWeights.Normal,
-                new Thickness(0, 0, 0, 7));
-            context.FontSize = 11;
+                new Thickness(0, 0, 0, 7),
+                baseFontSize);
             panel.Children.Add(context);
         }
 
         panel.Children.Add(CreateTextBlock(
             "Provider error",
             FontWeights.SemiBold,
-            new Thickness(0, 0, 0, 3)));
+            new Thickness(0, 0, 0, 3),
+            baseFontSize));
 
         var codeBlock = new TextBox
         {
@@ -71,7 +78,7 @@ internal static class ProviderFailureTranscriptBlockFactory
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
             FontFamily = new FontFamily("Consolas"),
-            FontSize = 12,
+            FontSize = baseFontSize,
             BorderThickness = new Thickness(1),
             Padding = new Thickness(8, 6, 8, 6),
             Margin = new Thickness(0, 0, 0, 7),
@@ -83,10 +90,15 @@ internal static class ProviderFailureTranscriptBlockFactory
         codeBlock.SetResourceReference(Control.BorderBrushProperty, ForegroundResourceKey);
         panel.Children.Add(codeBlock);
 
-        var guidance = CreateTextBlock(
-            "How to fix: " + failure.Guidance,
-            FontWeights.SemiBold,
-            new Thickness(0));
+        var guidance = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0),
+            FontSize = baseFontSize
+        };
+        guidance.Inlines.Add(new Run("How to fix: ") { FontWeight = FontWeights.SemiBold });
+        guidance.Inlines.Add(new Run(failure.Guidance));
+        guidance.SetResourceReference(TextBlock.ForegroundProperty, ForegroundResourceKey);
         panel.Children.Add(guidance);
 
         var border = new Border
@@ -114,14 +126,15 @@ internal static class ProviderFailureTranscriptBlockFactory
     private static string BuildFingerprint(ProviderFailurePresentation failure, string agentLabel) =>
         string.Join("|", agentLabel, failure.Category, failure.Title, failure.ContextLine ?? string.Empty);
 
-    private static TextBlock CreateTextBlock(string text, FontWeight weight, Thickness margin)
+    private static TextBlock CreateTextBlock(string text, FontWeight weight, Thickness margin, double fontSize)
     {
         var textBlock = new TextBlock
         {
             Text = text,
             TextWrapping = TextWrapping.Wrap,
             FontWeight = weight,
-            Margin = margin
+            Margin = margin,
+            FontSize = fontSize
         };
         textBlock.SetResourceReference(TextBlock.ForegroundProperty, ForegroundResourceKey);
         return textBlock;

@@ -200,7 +200,7 @@ internal sealed class ProviderFailurePresentationTests
     public void TranscriptBlock_RendersRawErrorAsThemedReadOnlyCodeBlock()
     {
         var failure = ProviderFailurePresentation.Analyze("HTTP 401 Unauthorized");
-        var container = ProviderFailureTranscriptBlockFactory.Create(failure, "Lyra Morn");
+        var container = ProviderFailureTranscriptBlockFactory.Create(failure, "Lyra Morn", 14);
         var border = (Border)container.Child;
         var panel = (StackPanel)border.Child;
         var codeBlock = panel.Children.OfType<TextBox>().Single();
@@ -233,7 +233,8 @@ internal sealed class ProviderFailurePresentationTests
         ProviderFailureTranscriptBlockFactory.Append(
             thread,
             ProviderFailurePresentation.Analyze("HTTP 503 Service Unavailable"),
-            "Lyra Morn");
+            "Lyra Morn",
+            14);
 
         Assert.Multiple(() =>
         {
@@ -260,9 +261,9 @@ internal sealed class ProviderFailurePresentationTests
             "HTTP 429 rate limit exceeded. Request-ID second",
             new ProviderFailureContext(Model: "gpt-test", ProfileAlias: "Profile A"));
 
-        ProviderFailureTranscriptBlockFactory.Append(thread, first, "Arjun Sen");
+        ProviderFailureTranscriptBlockFactory.Append(thread, first, "Arjun Sen", 14);
         thread.Document.Blocks.Add(new Paragraph(new Run("newer transcript work")));
-        ProviderFailureTranscriptBlockFactory.Append(thread, second, "Arjun Sen");
+        ProviderFailureTranscriptBlockFactory.Append(thread, second, "Arjun Sen", 14);
 
         var failureCards = thread.Document.Blocks
             .Cast<Block>()

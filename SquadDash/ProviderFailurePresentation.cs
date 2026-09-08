@@ -118,7 +118,7 @@ internal sealed record ProviderFailurePresentation(
             category = ProviderFailureCategory.DeploymentOrModel;
             title = "Azure deployment not found";
             explanation = BuildDeploymentExplanation(context);
-            guidance = "Open SquadDash Options > AI > Model, select this profile, and set Model to an Azure deployment name that exists on this resource.";
+            guidance = "Open SquadDash Options > AI > Model, select this profile, and set Model to the exact Azure deployment name that exists on this resource.";
         }
         else if (ContainsAny(normalized, "model_not_found", "model not found", "model does not exist", "no such model", "unsupported model", "unknown model"))
         {
@@ -177,7 +177,7 @@ internal sealed record ProviderFailurePresentation(
             category = ProviderFailureCategory.Unknown;
             title = "Agent provider failed";
             explanation = "SquadDash received an unclassified provider or agent-launch error.";
-            guidance = "Review the complete provider error shown above, then open SquadDash Options > AI > Model and select or verify an available model for this profile before retrying.";
+            guidance = "Review the complete raw error shown above, then open SquadDash Options > AI > Model and select or verify an available model for this profile before retrying.";
         }
 
         return new ProviderFailurePresentation(
