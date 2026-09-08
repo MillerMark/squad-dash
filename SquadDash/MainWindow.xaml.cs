@@ -10107,6 +10107,10 @@ public partial class MainWindow : Window
             actions.IsEnabled = false;
             return;
         }
+        // A proposed-plan preview may have edited the same pending proposal in place.
+        // Always approve the latest validated payload rather than the snapshot captured
+        // when the transcript card was first rendered.
+        pending = latest;
 
         if (!PlanRevisionDeltaApplier.TryMaterialize(
                 current, pending.Payload, out var revisedPlan, out var reopened, out var materializationError) ||
@@ -10220,13 +10224,14 @@ public partial class MainWindow : Window
             var proposedLink = new Hyperlink(new Run($"View proposed plan — revision {proposedPlan.RevisionNumber}"))
             {
                 Cursor = Cursors.Hand,
-                ToolTip = "Open a read-only preview of the proposed revision",
+                ToolTip = "Open the proposed revision; future pending steps can be edited before approval",
             };
             proposedLink.Click += (_, _) =>
             {
-                var previewPlan = proposedPlan with
+                var latestProposedPlan = ResolveLatestPendingRevisionPreview(current, pending) ?? proposedPlan;
+                var previewPlan = latestProposedPlan with
                 {
-                    Summary = "PROPOSED REVISION — not active. " + proposedPlan.Summary,
+                    Summary = "PROPOSED REVISION — not active. " + latestProposedPlan.Summary,
                 };
                 var previewWindow = new PlanViewerWindow(
                     PendingDecomposePlanAdapter.FromPlan(previewPlan),
@@ -10234,10 +10239,12 @@ public partial class MainWindow : Window
                     _inboxFontSize,
                     durablePlan: previewPlan,
                     getSettings: () => _settingsSnapshot,
-                    resolveAgentAvatar: ResolveAgentAvatarForPlanViewer)
+                    resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
+                    saveDefinitionEdit: edited => SavePendingPlanRevisionEdit(pending, edited),
+                    getAssignableAgents: GetAssignablePlanAgentsForViewer)
                 {
                     Owner = CanShowOwnedWindow() ? this : null,
-                    Title = $"Proposed Plan — {proposedPlan.DisplayName} — Revision {proposedPlan.RevisionNumber}",
+                    Title = $"Proposed Plan — {latestProposedPlan.DisplayName} — Revision {latestProposedPlan.RevisionNumber}",
                 };
                 previewWindow.Show();
             };
@@ -49205,6 +49212,89 @@ public partial class MainWindow : Window
             assignments,
             perAgentOverrideProfileId: null,
             agentCategory: ModelProfileCategory.Coordinator);
+    }
+
+    private Plan? ResolveLatestPendingRevisionPreview(
+        Plan cardBasePlan,
+        PendingPlanRevisionProposal captured)
+    {
+        if (_currentWorkspace is null) return null;
+        _planStore ??= new PlanStore(_currentWorkspace.SquadFolderPath);
+        var current = _planStore.Load(captured.Payload.PlanId);
+        var latest = new PendingPlanRevisionProposalStore(_currentWorkspace.SquadFolderPath)
+            .Load(captured.Payload.PlanId);
+        if (current is null || latest is null ||
+            !string.Equals(latest.ProposalId, captured.ProposalId, StringComparison.Ordinal) ||
+            !string.Equals(current.Revision, latest.Payload.BaseRevision, StringComparison.Ordinal) ||
+            !string.Equals(current.Revision, cardBasePlan.Revision, StringComparison.Ordinal))
+            return null;
+
+        if (!PlanRevisionDeltaApplier.TryMaterialize(
+                current, latest.Payload, out var revised, out var reopened, out _) || revised is null)
+            return null;
+        var preview = PlanRevisionApplier.Apply(
+            current, revised, latest.Payload.BaseRevision, latest.CreatedAt, reopened);
+        return preview.Outcome == PlanRevisionApplyOutcome.Applied ? preview.UpdatedPlan : null;
+    }
+
+    private PlanDefinitionEditResult SavePendingPlanRevisionEdit(
+        PendingPlanRevisionProposal captured,
+        DecomposedTaskGroup editedGroup)
+    {
+        if (_currentWorkspace is null)
+            throw new InvalidOperationException("The workspace is no longer available.");
+
+        _planStore ??= new PlanStore(_currentWorkspace.SquadFolderPath);
+        var current = _planStore.Load(captured.Payload.PlanId)
+            ?? throw new InvalidOperationException("The current plan is no longer available.");
+        var store = new PendingPlanRevisionProposalStore(_currentWorkspace.SquadFolderPath);
+        var latest = store.Load(captured.Payload.PlanId)
+            ?? throw new InvalidOperationException("The pending revision is no longer available.");
+        if (!string.Equals(latest.ProposalId, captured.ProposalId, StringComparison.Ordinal) ||
+            !string.Equals(current.Revision, latest.Payload.BaseRevision, StringComparison.Ordinal))
+            throw new InvalidOperationException("The pending revision changed. Reopen its latest preview.");
+
+        if (!StagedPlanEditor.TryValidateUnlockedChanges(current, editedGroup, out var lockError))
+            throw new InvalidOperationException(lockError ?? "The edit would change work that has already started.");
+        var routingPolicy = PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy);
+        if (!PlanAgentAssignmentCatalogValidator.TryValidate(
+                editedGroup,
+                _currentWorkspace.SquadFolderPath,
+                out var assignmentError,
+                requireExplicitRouting: routingPolicy != PlanAgentRoutingPolicy.Off,
+                enforceAssignments: routingPolicy != PlanAgentRoutingPolicy.Off))
+            throw new InvalidOperationException(
+                assignmentError ?? "The edited plan has invalid agent assignments.");
+
+        if (!PlanRevisionDeltaApplier.TryMaterialize(
+                current, latest.Payload, out _, out var reopened, out var materializationError))
+            throw new InvalidOperationException(
+                materializationError ?? "The pending revision is no longer valid.");
+
+        var preview = PlanRevisionApplier.Apply(
+            current,
+            editedGroup,
+            current.Revision,
+            DateTimeOffset.UtcNow,
+            reopened);
+        if (preview.Outcome != PlanRevisionApplyOutcome.Applied || preview.UpdatedPlan is null)
+            throw new InvalidOperationException(preview.Error ?? "The edited proposal could not be validated.");
+
+        var editedPayload = latest.Payload with
+        {
+            Summary = latest.Payload.Summary.EndsWith(" (edited by user)", StringComparison.Ordinal)
+                ? latest.Payload.Summary
+                : latest.Payload.Summary + " (edited by user)",
+            ReopenTaskIds = reopened.Count == 0 ? null : reopened.ToArray(),
+            RevisedPlan = editedGroup,
+            Operations = null,
+        };
+        store.Replace(latest with { Payload = editedPayload });
+        SquadDashTrace.Write("PlanRevision",
+            $"Updated pending proposal={latest.ProposalId} plan={current.PlanId} source=user-editor.");
+        return new PlanDefinitionEditResult(
+            PendingDecomposePlanAdapter.FromPlan(preview.UpdatedPlan),
+            preview.UpdatedPlan);
     }
 
     private bool RefreshBridgeModelSettingsBeforeDispatch()

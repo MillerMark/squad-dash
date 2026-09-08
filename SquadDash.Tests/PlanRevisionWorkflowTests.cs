@@ -459,6 +459,35 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void ProposalStore_ReplacePreservesProposalIdentityForUserEdits()
+    {
+        using var workspace = new TestWorkspace();
+        var group = MakeGroup();
+        var store = new PendingPlanRevisionProposalStore(workspace.GetPath(".squad"));
+        var proposal = store.Save(new PlanRevisionProposalPayload(
+            group.GroupId, "base-1", "AI proposal", null, group));
+
+        var editedGroup = group with { Summary = "User-edited proposal" };
+        store.Replace(proposal with
+        {
+            Payload = proposal.Payload with
+            {
+                Summary = "AI proposal (edited by user)",
+                RevisedPlan = editedGroup,
+                Operations = null,
+            },
+        });
+        var loaded = store.Load(group.GroupId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded!.ProposalId, Is.EqualTo(proposal.ProposalId));
+            Assert.That(loaded.Payload.Summary, Is.EqualTo("AI proposal (edited by user)"));
+            Assert.That(loaded.Payload.RevisedPlan!.Summary, Is.EqualTo("User-edited proposal"));
+        });
+    }
+
+    [Test]
     public void PromptInjection_IncludesExecutingPlanOnlyAfterLoopYields()
     {
         using var workspace = new TestWorkspace();

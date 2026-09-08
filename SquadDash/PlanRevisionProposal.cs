@@ -176,6 +176,12 @@ internal sealed class PendingPlanRevisionProposalStore(string squadFolderPath)
         return proposal;
     }
 
+    internal void Replace(PendingPlanRevisionProposal proposal)
+    {
+        Directory.CreateDirectory(_folder);
+        JsonFileStorage.AtomicWrite(GetPath(proposal.Payload.PlanId), proposal, Options);
+    }
+
     internal PendingPlanRevisionProposal? Load(string planId)
     {
         var path = GetPath(planId);
