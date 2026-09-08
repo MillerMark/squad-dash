@@ -6917,6 +6917,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.Margin = new Thickness(0, 0, 0, 8);
         _detailDocument.Blocks.Add(statusPara);
 
+        // 3. The task contract comes before its later execution evidence. Pending work remains
+        // editable and is therefore simply "Task Description"; once work has begun, the wording
+        // makes clear that this is the original contract rather than the worker's result.
+        if (!string.IsNullOrWhiteSpace(task.Description))
+        {
+            AddSectionHeader(string.Equals(task.Status, PlanTaskStatus.Pending, StringComparison.Ordinal)
+                ? "Task Description"
+                : "Original Task Description");
+            var descPara = new Paragraph();
+            foreach (var inline in BuildDescriptionInlinesWithTaskLinks(task.Description, plan))
+                descPara.Inlines.Add(inline);
+            descPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            descPara.Margin = new Thickness(0, 0, 0, 12);
+            _detailDocument.Blocks.Add(descPara);
+        }
+
+        // 4. Human approval follows the work description because it is performed after that work.
+        if (plan is not null)
+            AppendApprovalGuidance(PlanTaskInspectorPresentation.SelectApprovalGuidanceGates(task, plan));
+
         AppendTaskActivitySummary(PlanTaskInspectorPresentation.BuildActivitySummary(
             task,
             plan,
@@ -6925,7 +6946,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 (_isRecoveryAssessmentActive?.Invoke(task.TaskId) ?? false),
             ResolveTaskCorrectionActivity(task.TaskId) == PlanTaskCorrectionActivityState.Running));
 
-        // 3. Completion Summary (shown first when present). Legacy prose is deliberately one
+        // 5. Completion Summary. Legacy prose is deliberately one
         // bullet; sentence boundaries are not completion-item boundaries.
         var completionItems = task.CompletionSummaryItems is { Count: > 0 }
             ? task.CompletionSummaryItems.Where(item => !string.IsNullOrWhiteSpace(item)).ToArray()
@@ -6978,7 +6999,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
         }
 
-        // 4. Commit evidence
+        // 6. Commit evidence
         var detailEvidence = _durablePlan is null
             ? Array.Empty<PlanEvidenceCommit>()
             : PlanRecoveryPresentationBuilder.ResolveTaskEvidence(_durablePlan, task).ToArray();
@@ -7007,7 +7028,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(commitPara);
         }
 
-        // 5. Unique handoff details. The handoff commit, summary, and worker-reported
+        // 7. Unique handoff details. The handoff commit, summary, and worker-reported
         // verification duplicate the canonical completion and independent verification above.
         if (task.Handoff is { } handoff)
         {
@@ -7043,7 +7064,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         }
 
-        // 6. Verification
+        // 8. Verification
         var humanAcceptanceGates = ResolveHumanAcceptanceGates(task, plan);
         if (task.VerificationHistory is { Count: > 0 } || humanAcceptanceGates.Count > 0)
         {
@@ -7120,7 +7141,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             AppendHumanVerificationAcceptance(humanAcceptanceGates);
         }
 
-        // 7. Proof Evidence
+        // 9. Proof Evidence
         if (task.ProofEvidence is { Count: > 0 })
         {
             AddSectionHeader("Proof Evidence");
@@ -7137,25 +7158,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 proofList.ListItems.Add(new ListItem(proofPara));
             }
             _detailDocument.Blocks.Add(proofList);
-        }
-
-        // 8. Approval gate guidance
-        if (plan is not null)
-        {
-            AppendApprovalGuidance(PlanTaskInspectorPresentation.SelectApprovalGuidanceGates(task, plan));
-        }
-
-        // 9. Description
-        if (!string.IsNullOrWhiteSpace(task.Description))
-        {
-            AddSectionHeader("Original Task Description");
-            var descPara = new Paragraph();
-            foreach (var inline in BuildDescriptionInlinesWithTaskLinks(task.Description, plan))
-                descPara.Inlines.Add(inline);
-            descPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            descPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(descPara);
         }
 
         // 10. Dependencies

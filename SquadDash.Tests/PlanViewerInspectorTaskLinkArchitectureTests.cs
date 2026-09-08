@@ -115,7 +115,10 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
             Assert.That(method, Does.Contain("AddSectionHeader(\"Changed Files\")"));
             Assert.That(method, Does.Contain("AddSectionHeader(\"Verification\")")
                 .And.Not.Contain("AddSectionHeader(\"Verification History\")"));
-            Assert.That(method, Does.Contain("AddSectionHeader(\"Original Task Description\")"));
+            Assert.That(method, Does.Contain("? \"Task Description\"")
+                .And.Contain(": \"Original Task Description\""));
+            Assert.That(method.IndexOf("Task Description", StringComparison.Ordinal),
+                Is.LessThan(method.IndexOf("AppendApprovalGuidance", StringComparison.Ordinal)));
         });
     }
 
