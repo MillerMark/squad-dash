@@ -23,7 +23,8 @@ internal sealed record ProviderFailureContext(
     string? ProfileAlias = null,
     string? ProviderBaseUrl = null,
     string? ProviderType = null,
-    string? WireApi = null);
+    string? WireApi = null,
+    string? RequestedModel = null);
 
 internal sealed record ProviderFailurePresentation(
     ProviderFailureCategory Category,
@@ -120,7 +121,9 @@ internal sealed record ProviderFailurePresentation(
             explanation = BuildDeploymentExplanation(context);
             guidance = "Open SquadDash Options > AI > Model, select this profile, and set Model to the exact Azure deployment name that exists on this resource.";
         }
-        else if (ContainsAny(normalized, "model_not_found", "model not found", "model does not exist", "no such model", "unsupported model", "unknown model"))
+        else if (ContainsAny(normalized, "model_not_found", "model not found", "model does not exist", "no such model", "unsupported model", "unknown model") ||
+                 (normalized.Contains("model", StringComparison.Ordinal) &&
+                  normalized.Contains("is not available", StringComparison.Ordinal)))
         {
             category = ProviderFailureCategory.DeploymentOrModel;
             title = "Model not found";
@@ -242,6 +245,8 @@ internal sealed record ProviderFailurePresentation(
         var parts = new List<string>();
         AddContext(parts, "Profile", context.ProfileAlias);
         AddContext(parts, "Model/deployment", context.Model);
+        if (!string.Equals(context.RequestedModel?.Trim(), context.Model?.Trim(), StringComparison.OrdinalIgnoreCase))
+            AddContext(parts, "Requested model", context.RequestedModel);
         AddContext(parts, "Provider", context.ProviderType);
         AddContext(parts, "Protocol", context.WireApi);
         AddContext(parts, "Endpoint", context.ProviderBaseUrl);

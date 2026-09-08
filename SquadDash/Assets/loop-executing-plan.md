@@ -58,6 +58,11 @@ For the assigned task:
 6. End with exactly one host-owned result payload using the assigned group, task, and revision:
 
 ```
+
+This object is specifically the `complete` + `changed` variant. Do not obtain a partial or failed
+result by changing only its `status`: `completionKind` is required for `complete` and forbidden for
+`partial` and `failed`; those non-complete variants must also omit `evaluatedCommit` and
+`noOpEvidence`.
 DECOMPOSE_STEP_RESULT_JSON:
 {
   "groupId": "GROUP-YYYYMMDD",
@@ -107,11 +112,11 @@ immediately with `git rev-parse --verify "<reported-sha>^{commit}"`. If Git reje
 worker to run `git rev-parse --short HEAD` and return the exact output, then verify the correction
 before emitting `DECOMPOSE_STEP_RESULT_JSON`.
 
-When the task has agent assignments, `executionAttemptId` and `agentExecutions` are required. The
-attempt ID must match the host-supplied value, and each requested/actual handle must match one exact
-plan assignment. Do not report tool-call IDs or child lineage; SquadDash validates those host-owned
-values directly. Omit the assignment fields only for legacy or explicitly generic tasks with no
-structured assignments.
+Whenever the host supplies an `executionAttemptId`, preserve it exactly, including for an explicitly
+generic task. When the task has roster agent assignments, `agentExecutions` is also required and each
+requested/actual handle must match one exact plan assignment. Omit `agentExecutions` for a generic
+task. Do not report tool-call IDs or child lineage; SquadDash validates those host-owned values
+directly.
 
 Every explicit current-task requirement is owned by this task unless the approved plan clearly
 assigns it to a named downstream task. If work is deliberately deferred, include one `deferredWork`
@@ -128,6 +133,8 @@ List the concrete unfinished work in `remainingWork`; never claim complete. Use 
 when the step made no safe progress. A partial result may include a commit, but if it does its
 verification status must be `passed`.
 
-**On failure:** write a concise narrative and emit the same result payload with `status: "failed"`,
-no commit unless one was safely created, concrete `remainingWork`, and truthful verification evidence.
+**On failure:** write a concise narrative and emit a failed-result variant with `status: "failed"`,
+no `completionKind`, `evaluatedCommit`, or `noOpEvidence`, no commit unless one was safely created,
+concrete `remainingWork`, and truthful verification evidence. Preserve a host-supplied
+`executionAttemptId`.
 SquadDash will block the plan, persist the result, stop the loop, and offer recovery actions.

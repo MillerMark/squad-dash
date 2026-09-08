@@ -55,11 +55,30 @@ type NamedAgentRequest = {
     agentRoute?: SquadNamedAgentRoute;
 };
 
-function buildPromptFailureContext(request: PromptRequest | DelegateRequest | NamedAgentRequest): Record<string, unknown> {
+function normalizeRequestedModel(model: string | undefined): string | undefined {
+    const normalized = model?.trim();
+    return !normalized || normalized.toLowerCase() === "auto" ? undefined : normalized;
+}
+
+function extractUnavailableSessionModel(message: string): string | undefined {
+    const match = /\bmodel\s+["']([^"']+)["']\s+is\s+not\s+available\b/i.exec(message);
+    return match?.[1]?.trim() || undefined;
+}
+
+function buildPromptFailureContext(
+    request: PromptRequest | DelegateRequest | NamedAgentRequest,
+    error?: unknown
+): Record<string, unknown> {
     const route = request.type === "named_agent" ? request.agentRoute : undefined;
     const requestReasoningEffort = "reasoningEffort" in request ? request.reasoningEffort : undefined;
+    const rawRequestedModel = route?.model ?? request.model;
+    const requestedModel = rawRequestedModel?.trim() || undefined;
+    const errorMessage = error instanceof Error ? error.message : String(error ?? "");
+    const sessionModel = extractUnavailableSessionModel(errorMessage);
     return {
-        model: route?.model ?? request.model,
+        model: sessionModel ?? normalizeRequestedModel(rawRequestedModel),
+        requestedModel,
+        sessionModel,
         reasoningEffort: route?.reasoningEffort ?? requestReasoningEffort,
         profileId: route?.profileId,
         profileAlias: route?.profileAlias,
@@ -1718,7 +1737,7 @@ async function main() {
                 type: "error",
                 requestId: directRequest.requestId,
                 message: err instanceof Error ? err.message : String(err),
-                ...buildPromptFailureContext(directRequest)
+                ...buildPromptFailureContext(directRequest, err)
             });
         }
         finally {
@@ -1917,7 +1936,7 @@ async function main() {
                     type: "error",
                     requestId: request.requestId,
                     message: err instanceof Error ? err.message : String(err),
-                    ...buildPromptFailureContext(request)
+                    ...buildPromptFailureContext(request, err)
                 });
             })
             .finally(() => {

@@ -200,6 +200,43 @@ not required. Use the exact property names below; do not substitute familiar sho
   human-only proof requirement at a checkpoint after the producing work and before any final audit.
   AI assessment, source inspection, and headless tests are not substitutes for direct observation.
   A missing checkpoint is a plan validation error and must be repaired before the plan is staged.
+- Every task must retain meaningful work or evidence that its assigned executor can actually produce.
+  A task whose only outcomes are human observations is an invalid human-only task shell; do not ask an
+  AI worker to perform, simulate, or claim those observations. Replace it with an AI-executable
+  preparation task followed by a human approval gate. The preparation task should produce a Markdown
+  runbook (plain-language, step-by-step instructions the reviewer can follow) containing Setup, Open,
+  Act, Observe, and Cleanup sections, and should deliver or attach that runbook through the SquadDash
+  Inbox so the reviewer can find it when the gate opens. Where ordinary product state is insufficient
+  or costly to recreate, also produce a disposable fixture, sample project, sample files, test data,
+  diagnostic instrumentation, or another declared output that makes the review repeatable. Use
+  `accessMode: "fixture"` with exact `fixtureTaskId` and `fixtureOutputId` references when a fixture is
+  produced; otherwise provide a complete recipe. A screenshot is not a substitute for interaction
+  unless the required outcome concerns only static appearance.
+
+  Bad: `Perform the live Visual Studio smoke test`, with only `live-ui-observation` proof.
+
+  Good: `Prepare the Visual Studio smoke-test kit`, producing declared runbook and optional fixture
+  outputs and sending the instructions to the Inbox; then place the atomic live observations in the
+  following human approval gate.
+
+- Model validation work in three capability domains based on the tools actually available to the
+  executor, not on a generic assumption that "AI can test it":
+  1. **AI-reachable:** repository inspection, files, commands, deterministic tests, and browser or
+     service automation when the current executor genuinely has the required access and tooling.
+  2. **Human-only:** native or host-embedded application interaction, complex build/install/restart
+     flows outside the executor's environment, physical keyboard or mouse input, voice dictation,
+     cameras, microphones, speakers, and judgments that require live human sight, hearing, timing,
+     focus, or interaction.
+  3. **Mixed:** AI prepares the state and evidence package; the human performs only the irreducible
+     interaction or perception and records a pass/fail attestation.
+
+  A web end-to-end flow is AI-reachable only when usable browser automation is actually available
+  and can establish the exact promised outcome. Before accepting any human-only or mixed proof,
+  require the plan to answer: What state must exist? Which parts can AI prepare? What exact artifact,
+  fixture, sample, data, or diagnostics will reduce human effort? What steps will the human perform?
+  What exact pass/fail observation will they make? How will they clean up and report a failure? How
+  will the instructions and artifacts reach them through the SquadDash Inbox? If these answers are
+  missing, the plan is not ready for approval.
 - `tasks[].proofRequirements[].requirementId`: required unique lowercase kebab-case identifier.
 - `tasks[].proofRequirements[].proofType`: required supported proof type listed above.
 - `tasks[].proofRequirements[].description`: required non-empty evidence contract.
@@ -505,7 +542,7 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   "groupId": "GROUP-YYYYMMDD",
   "taskId": "GROUP-YYYYMMDD-NNN",
   "revision": "revision from the persisted group header",
-  "executionAttemptId": "host-supplied attempt ID when this task has an assigned roster agent",
+  "executionAttemptId": "exact host-supplied attempt ID whenever the host creates an execution attempt",
   "status": "complete",
   "completionKind": "changed",
   "commit": "exact abbreviated Git commit SHA from git rev-parse --short HEAD",
@@ -557,13 +594,20 @@ the baseline, requires no task worktree changes, and always sends the claim to a
 Checker. A rejected no-op claim follows the ordinary one-rework policy so missing implementation can
 be corrected. Envelope repair does not consume that semantic rework opportunity.
 
+The object above is specifically the `complete` + `changed` variant; it is not a template whose
+`status` may be changed while retaining every completion-only field. `completionKind` is required for
+`complete` and must be omitted for `partial` and `failed`. Those non-complete variants must also omit
+`evaluatedCommit` and `noOpEvidence`. A partial result may preserve a safely created commit but must
+include concrete `remainingWork`; a failed result reports no commit unless one was safely created.
+
 `status` must be `complete`, `partial`, or `failed`. Complete requires either a new task commit or an
 independently accepted verified no-op, plus passed verification. Partial requires concrete `remainingWork` and never unlocks dependent tasks. SquadDash
 validates the assignment, revision, Git commit, clean-worktree boundary, and verification evidence
-before changing any plan status. `executionAttemptId` and `agentExecutions` are required only when
-SquadDash supplies a verified roster assignment context for the current attempt. Report the supplied
-attempt ID and the observable requested/actual roster handles. Do not report tool-call IDs or child
-lineage: SquadDash owns and validates that internal evidence directly.
+before changing any plan status. `executionAttemptId` is required whenever SquadDash supplies one,
+including an explicitly generic attempt. `agentExecutions` is required only for verified roster
+assignments and must be omitted for generic tasks. Report the exact supplied attempt ID and, only for
+roster assignments, the observable requested/actual roster handles. Do not report tool-call IDs or
+child lineage: SquadDash owns and validates that internal evidence directly.
 Every explicit current-task requirement is owned by the current task unless the approved graph
 clearly assigns it to a named downstream task. Report every deliberate deferral in `deferredWork`;
 use an empty array when there are none. A complete result may not silently omit a requirement or

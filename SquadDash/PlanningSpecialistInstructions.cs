@@ -114,6 +114,20 @@ internal static class PlanningSpecialistInstructions
                taken without the prescribed interaction, and headless tests do not substitute for that
                checkpoint. Omission is a plan validation error: correct the plan rather than allowing an
                inevitably failing completion audit.
+               Reject any task whose only meaningful outcome is a human observation. Replace that shell
+               with an AI-executable preparation task followed by a human gate. The preparation task should
+               produce a Markdown runbook—plain-language, step-by-step Setup, Open, Act, Observe, and Cleanup
+               instructions—and deliver or attach it through the SquadDash Inbox. Where appropriate, also
+               produce a disposable fixture, sample project, sample files, test data, or diagnostics as
+               declared outputs and reference them exactly from the gate.
+               Classify validation using the current executor's real capability boundary. Repository,
+               command, deterministic test, and genuinely available browser/service automation may be
+               AI-reachable. Native or host-embedded application interaction, inaccessible build/install/
+               restart flows, physical keyboard or mouse input, voice, cameras, microphones, speakers,
+               and live human sight, hearing, timing, or focus are human-only. For mixed work, AI owns
+               preparation and evidence packaging while the human owns only irreducible interaction and
+               perception. Require exact setup, AI-prepared artifacts, human actions, pass/fail observations,
+               cleanup, failure-reporting guidance, and Inbox delivery before accepting the plan.
                Do not merely summarize or paraphrase
                a payload that still requires top-level submission.
                Describe the final handoff as submitting or proposing the plan. Never claim that the plan

@@ -165,7 +165,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 sessionId,
                 configDirectory,
                 requestId,
-                Model: ActiveProfile?.Model ?? CopilotDefaultModel,
+                Model: ResolveRequestModel(ActiveProfile?.Model ?? CopilotDefaultModel),
                 ApprovalGroupContext: approvalGroupContext,
                 NamedAgentRoutes: NamedAgentRoutes);
             await RunBridgeRequestOnceAsync(
@@ -228,7 +228,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 coordinatorSessionId,
                 configDirectory,
                 requestId,
-                Model: agentRoute?.Model ?? ActiveProfile?.Model ?? CopilotDefaultModel,
+                Model: ResolveRequestModel(agentRoute?.Model ?? ActiveProfile?.Model ?? CopilotDefaultModel),
                 ReasoningEffort: NormalizeReasoningEffort(agentRoute?.ReasoningEffort ?? ActiveProfile?.ReasoningEffort),
                 ApprovalGroupContext: approvalGroupContext,
                 AgentRoute: agentRoute);
@@ -392,7 +392,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             sessionId,
             configDirectory,
             requestId,
-            Model: ActiveProfile?.Model ?? CopilotDefaultModel,
+            Model: ResolveRequestModel(ActiveProfile?.Model ?? CopilotDefaultModel),
             ReasoningEffort: NormalizeReasoningEffort(ActiveProfile?.ReasoningEffort),
             NamedAgentRoutes: NamedAgentRoutes,
             PlanDelegationGuard: planDelegationGuard);
@@ -777,9 +777,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         ModelProfile? profile) {
         var isCopilot = profile is null ||
                         string.Equals(profile.ProviderType, "copilot", StringComparison.OrdinalIgnoreCase);
-        var model = string.Equals(profile?.Model, "auto", StringComparison.OrdinalIgnoreCase)
-            ? null
-            : profile?.Model;
+        var model = ResolveRequestModel(profile?.Model);
         SquadSdkProviderConfiguration? provider = null;
         if (!isCopilot && !string.IsNullOrWhiteSpace(profile?.ProviderUrl)) {
             provider = new SquadSdkProviderConfiguration(
@@ -817,6 +815,14 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             return "max";
 
         return normalized;
+    }
+
+    internal static string? ResolveRequestModel(string? model) {
+        var normalized = model?.Trim();
+        return string.IsNullOrWhiteSpace(normalized) ||
+               string.Equals(normalized, "auto", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : normalized;
     }
 
     /// <summary>
@@ -1721,7 +1727,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 prompt,
                 workingDirectory,
                 sessionId,
-                Model: ActiveProfile?.Model ?? CopilotDefaultModel,
+                Model: ResolveRequestModel(ActiveProfile?.Model ?? CopilotDefaultModel),
                 ReasoningEffort: NormalizeReasoningEffort(ActiveProfile?.ReasoningEffort));
             var payload = JsonSerializer.Serialize(request);
             await process.StandardInput.WriteLineAsync(payload).ConfigureAwait(false);

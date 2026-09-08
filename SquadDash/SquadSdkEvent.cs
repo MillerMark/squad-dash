@@ -79,6 +79,8 @@ public sealed class SquadSdkEvent {
     public string? LatestIntent { get; set; }
     public string[]? RecentActivity { get; set; }
     public string? Model { get; set; }
+    public string? RequestedModel { get; set; }
+    public string? SessionModel { get; set; }
     public string? ProfileId { get; set; }
     public string? ProfileAlias { get; set; }
     public string? ProviderBaseUrl { get; set; }

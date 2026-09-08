@@ -19,8 +19,9 @@ internal sealed record PlanHumanProofCoverageReviewPayload(
     [property: JsonPropertyName("issues")] IReadOnlyList<PlanHumanProofCoverageIssue> Issues);
 
 /// <summary>
-/// Focused semantic preflight for the one plan constraint a JSON schema cannot infer: whether
-/// prose promises a human-observable outcome without placing human proof at the right boundary.
+/// Focused semantic preflight for plan constraints a JSON schema cannot infer: whether prose
+/// promises a human-observable outcome without placing human proof at the right boundary, or leaves
+/// an AI executor with a task whose only meaningful outcome is that human observation.
 /// </summary>
 internal static class PlanHumanProofCoverageReview
 {
@@ -32,9 +33,10 @@ internal static class PlanHumanProofCoverageReview
 
     internal static string BuildPrompt(string checkId, string candidateHash) => $$"""
         Perform one focused plan-contract preflight. Do not implement, revise, or broadly critique
-        the plan. Determine only whether every promised outcome that inherently requires a person
-        to interact with or observe the live product has a matching human-only proof requirement
-        in an approval gate at the correct boundary.
+        the plan. Determine whether every promised outcome that inherently requires a person to
+        interact with or observe the live product has a matching human-only proof requirement in an
+        approval gate at the correct boundary, and whether every preceding task still contains
+        meaningful work or evidence its assigned executor can actually produce.
 
         Read the isolated revision-locked candidate definition from:
         .squad/tmp/decompose/preflight/{{checkId}}.txt
@@ -51,6 +53,31 @@ internal static class PlanHumanProofCoverageReview
         for human proof when an outcome is completely and truthfully automated. A matching checkpoint
         must occur after the work that creates the behavior and before a final audit that claims it.
 
+        A task whose only meaningful outcome is one or more human observations is an invalid
+        human-only task shell even when those observations are correctly routed to a gate. Require
+        the planner to replace it with an AI-executable preparation task followed by the human gate.
+        The preparation task should produce a Markdown runbook (plain-language, step-by-step Setup,
+        Open, Act, Observe, and Cleanup instructions) and deliver or attach it through the SquadDash
+        Inbox. When normal product state is insufficient or costly to recreate, it should also
+        produce a declared fixture, sample project, sample files, test data, or diagnostics that the
+        gate references exactly. A screenshot is sufficient only for a purely static visual claim.
+
+        Do not classify a task as a human-only shell merely because it contains human proof, uses
+        verification execution mode, has no declared output, or has a title such as smoke test. Read
+        its complete execution contract. Use revision-required for this issue only when the task
+        explicitly asks AI to perform or claim the human interaction and contains no meaningful
+        AI-accessible command, inspection, preparation, artifact, fixture, or evidence work. If such
+        work exists, the task is executable and the separate human gate is valid.
+
+        Judge capability from the executor's actual environment. Repository inspection, commands,
+        deterministic tests, and genuinely available browser/service automation may be AI-reachable.
+        Native or host-embedded application interaction, inaccessible build/install/restart flows,
+        physical keyboard or mouse input, voice, cameras, microphones, speakers, and live human sight,
+        hearing, timing, or focus are human-only. For mixed work, require AI to prepare the state,
+        instructions, fixtures, expected observations, cleanup, and failure-capture guidance so the
+        human performs only the irreducible interaction or perception. The plan must say how that
+        package reaches the reviewer through the SquadDash Inbox.
+
         Return exactly one block:
 
         {{Marker}}
@@ -63,15 +90,16 @@ internal static class PlanHumanProofCoverageReview
             {
               "targetId": "canonical task, validation, or plan ID",
               "observableOutcome": "the exact uncovered human-observable promise",
-              "reason": "why existing approved proof cannot establish it",
-              "recommendation": "the checkpoint and atomic observation the planner must add"
+              "reason": "why proof is uncovered or why the task is not executable by its assigned worker",
+              "recommendation": "the checkpoint to add, or the preparation task, Inbox instructions, and optional fixture to produce"
             }
           ]
         }
 
-        Use revision-required only when at least one human-observable promise is uncovered. Use ready
-        with an empty issues array otherwise. Do not report implementation-quality, architecture,
-        naming, style, or ordinary automated-test findings in this focused preflight.
+        Use revision-required when at least one human-observable promise is uncovered or at least one
+        human-only task shell remains. Use ready with an empty issues array otherwise. Do not report
+        implementation-quality, architecture, naming, style, or ordinary automated-test findings in
+        this focused preflight.
         """;
 
     internal static bool TryParse(

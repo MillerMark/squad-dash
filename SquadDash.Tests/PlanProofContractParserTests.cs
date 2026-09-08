@@ -70,6 +70,12 @@ internal sealed class PlanProofContractParserTests
                 original.Tasks[0] with
                 {
                     ExecutionMode = PlanTaskExecutionMode.Verification,
+                    Outputs =
+                    [
+                        new DecomposedTaskOutput(
+                            "manual-review-instructions",
+                            "Step-by-step Markdown instructions delivered to the reviewer."),
+                    ],
                     ProofRequirements = [humanProof],
                 },
             ],

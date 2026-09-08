@@ -171,6 +171,27 @@ internal static class PlanProofCapabilityPolicy
         };
     }
 
+    /// <summary>
+    /// Finds verification tasks that have no declared AI proof or output after their human-only
+    /// proof is routed to an approval gate. This is advisory structural evidence, not proof that a
+    /// task is unexecutable; semantic review examines its execution contract before staging.
+    /// </summary>
+    internal static IReadOnlyList<string> FindHumanOnlyVerificationShellTaskIds(
+        DecomposedTaskGroup authored,
+        DecomposedTaskGroup routed)
+    {
+        var routedTasks = routed.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
+        return authored.Tasks
+            .Where(task =>
+                PlanTaskExecutionPolicy.IsVerificationOnly(task) &&
+                (task.ProofRequirements ?? []).Any(requirement => IsHumanOnly(requirement.ProofType)) &&
+                routedTasks.TryGetValue(task.Id, out var routedTask) &&
+                routedTask.ProofRequirements is not { Count: > 0 } &&
+                routedTask.Outputs is not { Count: > 0 })
+            .Select(task => task.Id)
+            .ToArray();
+    }
+
     internal static string? BuildHumanQuestion(
         IReadOnlyList<PlanTaskProofRequirement>? humanProofs)
     {

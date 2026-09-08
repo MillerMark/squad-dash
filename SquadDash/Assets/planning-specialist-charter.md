@@ -124,6 +124,23 @@ Before authoring a plan:
   proof requirement after the producing work and before the final audit. AI assessment, source
   inspection, and headless tests do not substitute for direct human observation. Treat missing
   coverage as a plan error to correct, not as a completion-audit failure to defer until execution.
+- Do not create a task whose only meaningful outcome is a human observation. Every task must retain
+  work or evidence its assigned executor can produce. When live interaction is required, create an
+  AI-executable preparation task followed by a human gate. Have the preparation task produce a
+  Markdown runbook—plain-language, step-by-step Setup, Open, Act, Observe, and Cleanup instructions—
+  and deliver or attach it through the SquadDash Inbox. Where appropriate, also produce a disposable
+  fixture, sample project, sample files, test data, or diagnostics as declared outputs and reference
+  them exactly from the gate. Screenshots replace interaction only for purely static visual claims.
+- Classify validation against the current executor's real capability boundary. AI-reachable work
+  includes repository, command, deterministic test, and genuinely available browser/service
+  automation. Human-only work includes native or host-embedded application interaction, inaccessible
+  build/install/restart flows, physical keyboard or mouse input, voice, cameras, microphones,
+  speakers, and live judgments using human sight, hearing, timing, or focus. For mixed work, AI owns
+  preparation and evidence packaging while the human owns only the irreducible interaction and
+  perception. Require every human proof to identify the state to create, AI-prepared instructions or
+  fixtures, exact human actions and pass/fail observations, cleanup, failure-reporting guidance, and
+  Inbox delivery. A web end-to-end flow is automated only when the assigned executor actually has
+  suitable browser tooling and access.
 - Make completion demonstrable through evidence accumulated by implementation tasks and their focused
   tests. Add a cheap, non-mutating final verification or audit only for a material acceptance criterion
   or cross-task risk that remains unproven; never add both with substantially overlapping scope.

@@ -42,6 +42,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("Calibrate detail to the approval decision"));
             Assert.That(charter, Does.Contain("number of tests"));
             Assert.That(charter, Does.Contain("bounded execution contract"));
+            Assert.That(charter, Does.Contain("only meaningful outcome is a human observation"));
+            Assert.That(charter, Does.Contain("Markdown runbook"));
+            Assert.That(charter, Does.Contain("SquadDash Inbox"));
         });
     }
 
@@ -85,6 +88,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("Never claim that the plan"));
             Assert.That(guidance, Does.Contain("only the host may report those outcomes"));
             Assert.That(guidance, Does.Contain("Calibrate plan detail to the approval decision"));
+            Assert.That(guidance, Does.Contain("only meaningful outcome is a human observation"));
+            Assert.That(guidance, Does.Contain("Markdown runbook"));
+            Assert.That(guidance, Does.Contain("SquadDash Inbox"));
         });
     }
 

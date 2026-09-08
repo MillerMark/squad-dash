@@ -59,6 +59,26 @@ internal sealed class DefaultPromptInstructionProviderTests
     }
 
     [Test]
+    public void DecomposePlanningSpecification_PreventsHumanOnlyTaskShellsBeforeValidation()
+    {
+        var instruction = DecomposePlanningInstructions.LoadSpecification()
+            .ReplaceLineEndings(" ");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("invalid human-only task shell"));
+            Assert.That(instruction, Does.Match("do not ask an\\s+AI worker to perform, simulate, or claim those observations"));
+            Assert.That(instruction, Does.Contain("Bad: `Perform the live Visual Studio smoke test`"));
+            Assert.That(instruction, Does.Contain("Good: `Prepare the Visual Studio smoke-test kit`"));
+            Assert.That(instruction, Does.Contain("plain-language, step-by-step instructions"));
+            Assert.That(instruction, Does.Match("SquadDash\\s+Inbox"));
+            Assert.That(instruction, Does.Contain("**AI-reachable:**"));
+            Assert.That(instruction, Does.Contain("**Human-only:**"));
+            Assert.That(instruction, Does.Contain("**Mixed:**"));
+        });
+    }
+
+    [Test]
     public void DecomposePlanningSpecification_DocumentsEverySerializedPlanProperty()
     {
         var instruction = DecomposePlanningInstructions.LoadSpecification();

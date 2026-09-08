@@ -11,9 +11,21 @@ internal static class DecomposeEnvelopeRepairPrompt
         string reason,
         bool envelopeWasPresent = false,
         string? executionAttemptId = null,
-        IReadOnlyList<DecomposedAgentAssignment>? assignments = null)
+        IReadOnlyList<DecomposedAgentAssignment>? assignments = null,
+        string? previousStatus = null,
+        bool verificationOnly = false)
     {
-        if (IsMissingNewCommitFailure(reason))
+        if (IsCompletionKindOnNonCompleteResult(reason, previousStatus))
+            return BuildNonCompleteCorrection(
+                groupId,
+                taskId,
+                revision,
+                reason,
+                previousStatus!,
+                executionAttemptId,
+                assignments);
+
+        if (verificationOnly || IsMissingNewCommitFailure(reason))
             return BuildVerifiedNoOpCorrection(
                 groupId,
                 taskId,
@@ -66,6 +78,59 @@ internal static class DecomposeEnvelopeRepairPrompt
             - For a `complete` changed result, keep `completionKind: "changed"`, include the exact commit, and keep passed verification evidence.
 
             Preserve every deliberate deferral from the previous handoff. Each deferredWork entry must name the exact requirement, reason, and downstream ownerTaskIds. Do not invent a deferral while repairing the envelope.
+            {{executionAttemptInstruction}}
+            """;
+    }
+
+    private static string BuildNonCompleteCorrection(
+        string groupId,
+        string taskId,
+        string revision,
+        string reason,
+        string previousStatus,
+        string? executionAttemptId,
+        IReadOnlyList<DecomposedAgentAssignment>? assignments)
+    {
+        var status = string.Equals(previousStatus, "failed", StringComparison.Ordinal)
+            ? "failed"
+            : "partial";
+        var executionAttemptJsonFields = BuildExecutionAttemptJsonFields(executionAttemptId, assignments);
+        var executionAttemptInstruction = BuildExecutionAttemptInstruction(executionAttemptId, assignments);
+
+        return $$"""
+            SquadDash detected one completion-only field in a non-complete task result.
+            Validation error: {{reason}}
+
+            Correct only the result envelope. Do not re-run tools, re-examine files, repeat work, or
+            turn an incomplete result into a completion claim. Preserve the previous `{{status}}`
+            status and every truthful work, deferral, commit, and verification fact. Include the
+            optional `commit` field only when the previous result safely created one. Remove
+            `completionKind`, `evaluatedCommit`, and `noOpEvidence`; those fields are forbidden for
+            `partial` and `failed` results.
+
+            Authoritative identity for this execution attempt: groupId `{{groupId}}`, taskId
+            `{{taskId}}`, revision `{{revision}}`.
+
+            Required {{status}} variant:
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId": "{{groupId}}",
+              "taskId": "{{taskId}}",
+              "revision": "{{revision}}",
+              "status": "{{status}}",
+              "summary": "<preserve the truthful prior summary>",
+              "completedWork": ["<preserve each concrete completed outcome>"],
+              "remainingWork": ["<concrete work or human evidence still required>"],
+              "deferredWork": [],
+            {{executionAttemptJsonFields}}
+              "verification": {
+                "status": "<passed or failed, matching what actually occurred>",
+                "command": "<exact command or inspection actually performed>",
+                "summary": "<truthful verification outcome>"
+              }
+            }
+
+            Return only the corrected envelope. Do not add any completion-only field.
             {{executionAttemptInstruction}}
             """;
     }
@@ -190,6 +255,10 @@ internal static class DecomposeEnvelopeRepairPrompt
         reason.Contains("without creating a new commit", StringComparison.OrdinalIgnoreCase) ||
         reason.Contains("verified-no-op", StringComparison.OrdinalIgnoreCase) ||
         reason.Contains("noOpEvidence", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsCompletionKindOnNonCompleteResult(string reason, string? previousStatus) =>
+        previousStatus is "partial" or "failed" &&
+        reason.Contains("completionKind is only valid for a complete result", StringComparison.OrdinalIgnoreCase);
 
     internal static string BuildProofEvidenceCorrection(
         IReadOnlyList<DecomposedTaskProofRequirement> requirements)

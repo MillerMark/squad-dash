@@ -582,7 +582,26 @@ internal static class TasksJsonParser
             // Plans with cohesion issues are accepted but logged for host review.
         }
 
-        group = PlanProofCapabilityPolicy.RouteHumanProofsToApprovalGates(parsed);
+        var routed = PlanProofCapabilityPolicy.RouteHumanProofsToApprovalGates(parsed);
+        var humanOnlyShells = PlanProofCapabilityPolicy.FindHumanOnlyVerificationShellTaskIds(
+            parsed,
+            routed);
+        if (humanOnlyShells.Count > 0)
+        {
+            // Structural detection is intentionally advisory. A verification task can contain useful
+            // command or inspection work in its execution contract even when the author omitted a
+            // machine-proof/output declaration. The focused semantic preflight examines that prose
+            // before staging and requests repair only when the task is genuinely human-only. Keeping
+            // parsing permissive also prevents this new-plan quality check from blocking legacy plan
+            // reparse, collection, and revision paths.
+            SquadDashTrace.Write(
+                "PlanPreflight",
+                "Plan contains verification tasks that have no declared AI proof or output after " +
+                "human proof routing. Accepted for semantic preflight rather than rejected. Candidate " +
+                $"task IDs: [{string.Join(", ", humanOnlyShells)}]");
+        }
+
+        group = routed;
         return true;
     }
 

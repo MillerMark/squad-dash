@@ -284,7 +284,8 @@ public class DecomposeEnvelopeRepairTests
             "r1",
             "completionKind is only valid for a complete result.",
             envelopeWasPresent: true,
-            executionAttemptId: "attempt-generic");
+            executionAttemptId: "attempt-generic",
+            previousStatus: "failed");
 
         Assert.Multiple(() =>
         {
@@ -292,6 +293,30 @@ public class DecomposeEnvelopeRepairTests
             Assert.That(prompt, Does.Not.Contain("\"agentExecutions\":"));
             Assert.That(prompt, Does.Contain("Preserve the `executionAttemptId` field shown in the corrected envelope"));
             Assert.That(prompt, Does.Contain("Do not add `agentExecutions` unless the corrected envelope schema above includes it"));
+            Assert.That(prompt, Does.Contain("\"status\": \"failed\""));
+            Assert.That(prompt, Does.Not.Contain("\"completionKind\":"));
+            Assert.That(prompt, Does.Contain("Do not re-run tools"));
+        });
+    }
+
+    [Test]
+    public void RepairPrompt_VerificationOnlySchemaRepair_DoesNotSuggestChangedCommit()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.Build(
+            "g1",
+            "t1",
+            "r1",
+            "Proof evidence requires requirementId, proofType, and summary.",
+            envelopeWasPresent: true,
+            executionAttemptId: "attempt-verification",
+            verificationOnly: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("\"completionKind\": \"verified-no-op\""));
+            Assert.That(prompt, Does.Contain("\"commit\": null"));
+            Assert.That(prompt, Does.Contain("\"executionAttemptId\": \"attempt-verification\""));
+            Assert.That(prompt, Does.Not.Contain("\"completionKind\": \"changed\""));
         });
     }
 

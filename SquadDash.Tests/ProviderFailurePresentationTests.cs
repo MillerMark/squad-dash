@@ -133,6 +133,24 @@ internal sealed class ProviderFailurePresentationTests
         Assert.That(result.Title, Is.EqualTo("Azure deployment not found"));
     }
 
+    [Test]
+    public void Analyze_UnavailableSessionModel_ShowsActualAndRequestedModels()
+    {
+        var result = ProviderFailurePresentation.Analyze(
+            "Execution failed: Error: Model \"claude-sonnet-4.6\" is not available.",
+            new ProviderFailureContext(
+                Model: "claude-sonnet-4.6",
+                RequestedModel: "auto"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Category, Is.EqualTo(ProviderFailureCategory.DeploymentOrModel));
+            Assert.That(result.Explanation, Does.Contain("claude-sonnet-4.6"));
+            Assert.That(result.ContextLine, Does.Contain("Model/deployment: claude-sonnet-4.6"));
+            Assert.That(result.ContextLine, Does.Contain("Requested model: auto"));
+        });
+    }
+
     [TestCase(ProviderFailureCategory.Authentication, true)]
     [TestCase(ProviderFailureCategory.DeploymentOrModel, true)]
     [TestCase(ProviderFailureCategory.EndpointOrProtocol, true)]

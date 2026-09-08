@@ -1756,7 +1756,8 @@ public partial class MainWindow : Window
             instructionProvider: serviceProvider?.GetRequiredService<IPromptInstructionProvider>() ?? new DefaultPromptInstructionProvider(),
             getSubmittedAttachments: () => _pendingTranscriptAttachments ?? Array.Empty<FollowUpAttachment>(),
             promptBuilder: serviceProvider?.GetRequiredService<ISquadBridgePromptBuilder>(),
-            consumeInterruptedPromptFreshnessInstructionAsync: ConsumeInterruptedPromptFreshnessInstructionAsync);
+            consumeInterruptedPromptFreshnessInstructionAsync: ConsumeInterruptedPromptFreshnessInstructionAsync,
+            prepareBridgeForTurn: RefreshBridgeModelSettingsBeforeDispatch);
         _pec.TryHandlePlanRuntimeFailure = error =>
             TryHandleActivePlanValidationProviderFailure(error, confirmedProviderEvent: false);
 
@@ -6961,11 +6962,12 @@ public partial class MainWindow : Window
 
     private static ProviderFailureContext BuildProviderFailureContext(SquadSdkEvent evt) =>
         new(
-            evt.Model,
+            evt.SessionModel ?? evt.Model,
             evt.ProfileAlias,
             evt.ProviderBaseUrl,
             evt.ProviderType,
-            evt.WireApi);
+            evt.WireApi,
+            evt.RequestedModel);
 
     private void HandleSubagentCancelled(SquadSdkEvent evt)
     {
@@ -9664,7 +9666,7 @@ public partial class MainWindow : Window
         queued.IsLocked = true;
         queued.DisplayLabel = "Validate plan proof coverage";
         queued.ReadOnlyDisplayText =
-            "AI is checking that every human-observable plan outcome has an approval checkpoint.";
+            "AI is checking that human-observable outcomes have checkpoints and executable preparation.";
         SyncQueuePanel();
     }
 
@@ -14105,7 +14107,9 @@ public partial class MainWindow : Window
                     repairError,
                     resultEnvelopeWasPresent,
                     executionAttempt?.AttemptId,
-                    expectedAssignments);
+                    expectedAssignments,
+                    result?.Status,
+                    verificationOnly);
                 if (persistedTask?.ProofRequirements is { Count: > 0 } proofRequirements)
                 {
                     var resultRequirements = PlanProofCapabilityPolicy.ResultEnvelopeRequirements(proofRequirements);
@@ -33165,26 +33169,7 @@ public partial class MainWindow : Window
                     UpdateVoiceHintVisibility();
                     RefreshInstallationState();
                     RefreshDeveloperRuntimeIssuePreview();
-                    var previousByokSettings = _bridge.ByokProviderSettings;
-                    var previousCopilotDefaultModel = _bridge.CopilotDefaultModel;
-                    var previousActiveProfile = _bridge.ActiveProfile;
-                    var previousNamedAgentRoutes = _bridge.NamedAgentRoutes;
-                    var currentByokSettings = BuildByokSettings(snapshot);
-                    var currentCopilotDefaultModel = BuildCopilotDefaultModel(snapshot);
-                    var currentActiveProfile = ResolveActiveProfile(snapshot);
-                    var currentNamedAgentRoutes = BuildNamedAgentRoutes();
-                    _bridge.ByokProviderSettings = currentByokSettings;
-                    _bridge.CopilotDefaultModel = currentCopilotDefaultModel;
-                    _bridge.ActiveProfile = currentActiveProfile;
-                    _bridge.NamedAgentRoutes = currentNamedAgentRoutes;
-                    if (!Equals(previousActiveProfile, currentActiveProfile) ||
-                        !Equals(previousByokSettings, currentByokSettings) ||
-                        !string.Equals(previousCopilotDefaultModel, currentCopilotDefaultModel, StringComparison.Ordinal) ||
-                        !previousNamedAgentRoutes.SequenceEqual(currentNamedAgentRoutes)) {
-                        DetachCurrentSessionForModelSettingsChange("preferences-model-changed");
-                        RestartBridgeForSettingsWhenIdle("preferences-model-changed");
-                    }
-                    else
+                    if (!ApplyBridgeModelSettings(snapshot, "preferences-model-changed"))
                         SquadDashTrace.Write("Bridge", "Preferences saved; model bridge settings unchanged, no bridge restart needed.");
                 },
                 startPtt: (tb) => {
@@ -49219,6 +49204,43 @@ public partial class MainWindow : Window
             assignments,
             perAgentOverrideProfileId: null,
             agentCategory: ModelProfileCategory.Coordinator);
+    }
+
+    private bool RefreshBridgeModelSettingsBeforeDispatch()
+    {
+        var persistedSnapshot = _settingsStore.Load();
+        _settingsManager.Replace(persistedSnapshot);
+        return ApplyBridgeModelSettings(persistedSnapshot, "pre-dispatch-settings-refresh");
+    }
+
+    private bool ApplyBridgeModelSettings(ApplicationSettingsSnapshot snapshot, string reason)
+    {
+        var previousByokSettings = _bridge.ByokProviderSettings;
+        var previousCopilotDefaultModel = _bridge.CopilotDefaultModel;
+        var previousActiveProfile = _bridge.ActiveProfile;
+        var currentByokSettings = BuildByokSettings(snapshot);
+        var currentCopilotDefaultModel = BuildCopilotDefaultModel(snapshot);
+        var currentActiveProfile = ResolveActiveProfile(snapshot);
+        var currentNamedAgentRoutes = BuildNamedAgentRoutes();
+
+        _bridge.ByokProviderSettings = currentByokSettings;
+        _bridge.CopilotDefaultModel = currentCopilotDefaultModel;
+        _bridge.ActiveProfile = currentActiveProfile;
+        _bridge.NamedAgentRoutes = currentNamedAgentRoutes;
+
+        var changed = !Equals(previousActiveProfile, currentActiveProfile) ||
+                      (previousActiveProfile is null && currentActiveProfile is null &&
+                       (!Equals(previousByokSettings, currentByokSettings) ||
+                        !string.Equals(previousCopilotDefaultModel, currentCopilotDefaultModel, StringComparison.Ordinal)));
+        if (!changed)
+            return false;
+
+        SquadDashTrace.Write(
+            "Routing",
+            $"Detected changed model settings reason={reason}; refreshing bridge routing and starting a new provider session.");
+        DetachCurrentSessionForModelSettingsChange(reason);
+        RestartBridgeForSettingsWhenIdle(reason);
+        return true;
     }
 
     private void RestartBridgeForSettingsWhenIdle(string reason)

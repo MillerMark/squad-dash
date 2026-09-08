@@ -37,6 +37,15 @@ internal sealed class SquadSdkProcessSerializationTests {
         Assert.That(json, Does.Not.Contain("\"model\""));
     }
 
+    [TestCase(null, null)]
+    [TestCase("", null)]
+    [TestCase(" auto ", null)]
+    [TestCase("AUTO", null)]
+    [TestCase(" claude-opus-4.8 ", "claude-opus-4.8")]
+    public void ResolveRequestModel_NormalizesAutoAndWhitespace(string? input, string? expected) {
+        Assert.That(SquadSdkProcess.ResolveRequestModel(input), Is.EqualTo(expected));
+    }
+
     [Test]
     public void PromptRequest_NullSessionId_OmitsSessionIdProperty() {
         var json = JsonSerializer.Serialize(new SquadSdkPromptRequest(
@@ -553,6 +562,28 @@ internal sealed class SquadSdkProcessSerializationTests {
             Assert.That(evt.TotalInputTokens, Is.EqualTo(321));
             Assert.That(evt.TotalOutputTokens, Is.EqualTo(123));
             Assert.That(evt.TotalTokens, Is.EqualTo(444));
+        });
+    }
+
+    [Test]
+    public void SquadSdkEvent_DeserializesRequestedAndSessionModels() {
+        const string json = """
+            {
+              "type": "error",
+              "model": "claude-sonnet-4.6",
+              "requestedModel": "auto",
+              "sessionModel": "claude-sonnet-4.6"
+            }
+            """;
+
+        var evt = JsonSerializer.Deserialize<SquadSdkEvent>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        Assert.Multiple(() => {
+            Assert.That(evt!.Model, Is.EqualTo("claude-sonnet-4.6"));
+            Assert.That(evt.RequestedModel, Is.EqualTo("auto"));
+            Assert.That(evt.SessionModel, Is.EqualTo("claude-sonnet-4.6"));
         });
     }
 

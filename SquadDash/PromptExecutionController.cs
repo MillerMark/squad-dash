@@ -171,6 +171,7 @@ internal sealed class PromptExecutionController {
     private readonly Action<bool> _setIsPromptRunning;
     private readonly Func<bool>   _getIsClosing;
     private readonly Func<bool>   _getRestartPending;
+    private readonly Func<bool>   _prepareBridgeForTurn;
     private readonly Action       _close;
 
     // ── Injected — Routing Flags ──────────────────────────────────────────
@@ -421,7 +422,8 @@ internal sealed class PromptExecutionController {
         IPromptInstructionProvider? instructionProvider = null,
         Func<IReadOnlyList<FollowUpAttachment>>? getSubmittedAttachments = null,
         ISquadBridgePromptBuilder? promptBuilder = null,
-        Func<Task<string?>>? consumeInterruptedPromptFreshnessInstructionAsync = null) {
+        Func<Task<string?>>? consumeInterruptedPromptFreshnessInstructionAsync = null,
+        Func<bool>? prepareBridgeForTurn = null) {
 
         _runPromptAsync                        = runPromptAsync;
         _runNamedAgentDelegationAsync          = runNamedAgentDelegationAsync;
@@ -437,6 +439,7 @@ internal sealed class PromptExecutionController {
         _setIsPromptRunning                    = setIsPromptRunning;
         _getIsClosing                          = getIsClosing;
         _getRestartPending                     = getRestartPending;
+        _prepareBridgeForTurn                  = prepareBridgeForTurn ?? (() => false);
         _close                                 = close;
         _getPendingRoutingRepairRecheck        = getPendingRoutingRepairRecheck;
         _setPendingRoutingRepairRecheck        = setPendingRoutingRepairRecheck;
@@ -1958,12 +1961,14 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             allowLocalCommandHandling: true,
-            async (workspace, configDirectory) => {
+            async (workspace, configDirectory, forceFreshSession) => {
                 var freshnessInstruction = _consumeInterruptedPromptFreshnessInstructionAsync is null
                     ? null
                     : await _consumeInterruptedPromptFreshnessInstructionAsync();
                 var bridgePrompt = BuildBridgePrompt(prompt, freshnessInstruction);
-                var sessionId = sessionIdOverride ?? _conversationManager.CurrentSessionId;
+                var sessionId = forceFreshSession
+                    ? null
+                    : sessionIdOverride ?? _conversationManager.CurrentSessionId;
                 SavePromptDispatchDiagnostic(
                     workspace,
                     sessionId,
@@ -1993,7 +1998,7 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             allowLocalCommandHandling: false,
-            async (workspace, configDirectory) => {
+            async (workspace, configDirectory, _) => {
                 var currentSessionId = _conversationManager.CurrentSessionId;
                 if (string.IsNullOrWhiteSpace(currentSessionId))
                     throw new InvalidOperationException(
@@ -2022,7 +2027,7 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             allowLocalCommandHandling: false,
-            async (workspace, configDirectory) => {
+            async (workspace, configDirectory, _) => {
                 var currentSessionId = _conversationManager.CurrentSessionId;
                 await _runNamedAgentDirectAsync(
                     targetAgentHandle,
@@ -2046,6 +2051,7 @@ internal sealed class PromptExecutionController {
         var workspace = _workspaceContext.GetCurrentWorkspace();
         if (workspace is null) return;
 
+        _prepareBridgeForTurn();
         _setIsPromptRunning(true);
         _updateInteractiveControlState();
         ActiveToolName = null;
@@ -2086,7 +2092,7 @@ internal sealed class PromptExecutionController {
         bool addToHistory,
         bool clearPromptBox,
         bool allowLocalCommandHandling,
-        Func<SessionWorkspace, string?, Task> runBridgeTurnAsync) {
+        Func<SessionWorkspace, string?, bool, Task> runBridgeTurnAsync) {
         if (_workspaceContext.GetCurrentWorkspace() is null)
             return;
 
@@ -2124,6 +2130,7 @@ internal sealed class PromptExecutionController {
                 "UI",
                 $"ExecutePromptAsync start prompt={visiblePrompt} cwd={workspace.FolderPath}");
 
+            var forceFreshSession = _prepareBridgeForTurn();
             _setIsPromptRunning(true);
             _conversationManager.ResetHistoryNavigation();
             _updateInteractiveControlState();
@@ -2178,7 +2185,7 @@ internal sealed class PromptExecutionController {
                 _clearRuntimeIssue();
             }
             else {
-                await runBridgeTurnAsync(workspace, configDirectory);
+                await runBridgeTurnAsync(workspace, configDirectory, forceFreshSession);
                 _clearRuntimeIssue();
                 _refreshAgentCards();
                 _refreshSidebar();

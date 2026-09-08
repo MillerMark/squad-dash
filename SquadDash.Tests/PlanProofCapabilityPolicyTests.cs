@@ -153,7 +153,7 @@ internal sealed class PlanProofCapabilityPolicyTests
               "summary":"Deliver a cohesive feature and require truthful proof from the executor capable of observing it.",
               "tasks":[
                 {"id":"CAPABILITY-20260804-001","title":"Build the feature","description":"Implement the feature. Observable outcome: the feature builds. Production consumer: task 002 exercises it.","dependsOn":[],"priority":"high","agentRoutingMode":"generic","genericAgentReason":"fixture"},
-                {"id":"CAPABILITY-20260804-002","title":"Observe the live feature","description":"Exercise the feature. Observable outcome: the running UI updates. Production consumer: the production window displays the update.","dependsOn":["CAPABILITY-20260804-001"],"priority":"high","agentRoutingMode":"generic","genericAgentReason":"fixture","proofRequirements":[{"requirementId":"live","proofType":"live-ui-observation","description":"Observe the running UI update.","question":"Does the running UI show the expected update?"}]}
+                {"id":"CAPABILITY-20260804-002","title":"Prepare live feature review","description":"Produce instructions that make the live feature review repeatable. Observable outcome: the reviewer receives a usable test kit. Production consumer: the following human checkpoint uses the kit.","dependsOn":["CAPABILITY-20260804-001"],"priority":"high","agentRoutingMode":"generic","genericAgentReason":"fixture","executionMode":"implementation","outputs":[{"outputId":"manual-review-kit","description":"Markdown instructions delivered through the SquadDash Inbox."}],"proofRequirements":[{"requirementId":"live","proofType":"live-ui-observation","description":"Observe the running UI update.","question":"Does the running UI show the expected update?"}]}
               ],
               "validations":[{"validationId":"CAPABILITY-20260804-VAL-001","title":"Feature proven","description":"Audit the accepted implementation and human observation.","afterTaskIds":["CAPABILITY-20260804-002"],"beforeTaskIds":[],"assertions":["The feature was observed in the running UI."],"mode":"audit"}]
             }
@@ -170,6 +170,77 @@ internal sealed class PlanProofCapabilityPolicyTests
             Assert.That(parsed.ApprovalGates[0].Question,
                 Is.EqualTo("Does the running UI show the expected update?"));
         });
+    }
+
+    [Test]
+    public void TasksJsonParser_AllowsPotentialHumanOnlyShellForSemanticPreflight()
+    {
+        var json = """
+            TASKS_JSON:
+            {
+              "groupId":"CAPABILITY-20260804",
+              "groupTitle":"Capability-aware proof",
+              "branch":"feature/capability-proof",
+              "summary":"Require a real human observation without asking AI to fabricate it.",
+              "tasks":[
+                {
+                  "id":"CAPABILITY-20260804-001",
+                  "title":"Perform the live smoke test",
+                  "description":"Open the product and observe the live behavior. Observable outcome: the UI works. Production consumer: the user accepts the result.",
+                  "dependsOn":[],
+                  "priority":"high",
+                  "agentRoutingMode":"generic",
+                  "genericAgentReason":"The observation requires a person.",
+                  "executionMode":"verification",
+                  "proofRequirements":[{
+                    "requirementId":"live",
+                    "proofType":"live-ui-observation",
+                    "description":"Observe the running UI update.",
+                    "question":"Does the running UI show the expected update?",
+                    "accessMode":"recipe",
+                    "verificationRecipe":{
+                      "setup":"Start the product.",
+                      "open":"Open the feature.",
+                      "observe":"Confirm the update.",
+                      "cleanup":"Close the product."
+                    }
+                  }]
+                }
+              ]
+            }
+            """;
+
+        Assert.That(TasksJsonParser.TryParse(json, out var parsed, out var diagnostic), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostic, Is.Null);
+            Assert.That(parsed?.Tasks.Single().ProofRequirements, Is.Null);
+            Assert.That(parsed?.ApprovalGates?.Single().ProofRequirements?.Single().RequirementId,
+                Is.EqualTo("live"));
+        });
+    }
+
+    [Test]
+    public void StructuralShellDetection_IsAdvisoryEvidenceForSemanticPreflight()
+    {
+        var authoredTask = Task(
+            "CAPABILITY-20260804-001",
+            proofRequirements:
+            [
+                new DecomposedTaskProofRequirement(
+                    "live",
+                    "live-ui-observation",
+                    "Observe the running UI update."),
+            ]) with
+        {
+            ExecutionMode = PlanTaskExecutionMode.Verification,
+        };
+        var authored = Group([authoredTask]);
+        var routed = PlanProofCapabilityPolicy.RouteHumanProofsToApprovalGates(authored);
+
+        Assert.That(
+            PlanProofCapabilityPolicy.FindHumanOnlyVerificationShellTaskIds(authored, routed),
+            Is.EqualTo(new[] { authoredTask.Id }));
     }
 
     private static DecomposedSubTask Task(

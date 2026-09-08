@@ -10,16 +10,23 @@ internal sealed class PlanHumanProofCoverageReviewTests
         const string candidateHash = "abcdef0123456789";
 
         var prompt = PlanHumanProofCoverageReview.BuildPrompt(checkId, candidateHash);
+        var normalized = prompt.ReplaceLineEndings(" ");
 
         Assert.Multiple(() =>
         {
-            Assert.That(prompt, Does.Contain(PlanHumanProofCoverageReview.Marker));
-            Assert.That(prompt, Does.Contain("human-observable promise"));
-            Assert.That(prompt, Does.Contain("headless tests do not establish direct human observation"));
-            Assert.That(prompt, Does.Contain("Do not report implementation-quality"));
-            Assert.That(prompt, Does.Contain(checkId));
-            Assert.That(prompt, Does.Contain(candidateHash));
-            Assert.That(prompt, Does.Contain("report all uncovered human-proof"));
+            Assert.That(normalized, Does.Contain(PlanHumanProofCoverageReview.Marker));
+            Assert.That(normalized, Does.Contain("human-observable promise"));
+            Assert.That(normalized, Does.Contain("headless tests do not establish direct human observation"));
+            Assert.That(normalized, Does.Contain("invalid human-only task shell"));
+            Assert.That(normalized, Does.Contain("Markdown runbook"));
+            Assert.That(normalized, Does.Contain("through the SquadDash Inbox"));
+            Assert.That(normalized, Does.Contain("sample project"));
+            Assert.That(normalized, Does.Contain("Do not classify a task as a human-only shell merely because"));
+            Assert.That(normalized, Does.Contain("only when the task explicitly asks AI to perform or claim the human interaction"));
+            Assert.That(normalized, Does.Contain("Do not report implementation-quality"));
+            Assert.That(normalized, Does.Contain(checkId));
+            Assert.That(normalized, Does.Contain(candidateHash));
+            Assert.That(normalized, Does.Contain("report all uncovered human-proof"));
         });
     }
 
