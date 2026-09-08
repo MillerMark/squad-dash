@@ -678,6 +678,21 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void HumanChecklist_SingleProofUsesGateQuestionWhenProofHasNoQuestion()
+    {
+        var gate = new PlanApprovalGate(
+            "GATE-007", "Review", [], [], PlanGateStatus.AwaitingApproval,
+            Question: "Does the clarified behavior work?",
+            ProofRequirements:
+            [new PlanTaskProofRequirement("visual", "live-ui-observation", "Inspect the UI")]);
+        var plan = TestPlan(null) with { ApprovalGates = [gate] };
+
+        var item = PlanHumanReviewChecklist.Build(plan, [gate]).Single();
+
+        Assert.That(item.Text, Is.EqualTo("Does the clarified behavior work?"));
+    }
+
+    [Test]
     public void HumanChecklist_NewCandidateRequiresFreshChecksButShowsPriorVerification()
     {
         var task = new PlanTask(

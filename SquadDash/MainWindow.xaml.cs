@@ -18391,7 +18391,7 @@ public partial class MainWindow : Window
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
-    private void RecordHumanReviewChecklistSelection(
+    private async void RecordHumanReviewChecklistSelection(
         string planId,
         PlanHumanReviewChecklistItem item,
         bool isChecked)
@@ -18406,10 +18406,49 @@ public partial class MainWindow : Window
             item.CandidateCommit);
         if (ReferenceEquals(updated, current)) return;
         if (!TryPublishPlanProgress(updated, out var saveError))
+        {
             ReportPlanActionIssue(
                 planId,
                 "Save human review",
                 saveError ?? "SquadDash could not save this verification selection.");
+            return;
+        }
+
+        if (_approvalTranscriptCards.TryGetValue(planId, out var cards))
+            foreach (var card in cards)
+                card.SetChecklistSelection(item, isChecked);
+
+        try
+        {
+            if (_planApprovalRuntime is not null && _inboxStore is not null)
+            {
+                await _planApprovalRuntime.Requests.RefreshFromPlanAsync(updated);
+                var messageId = DurableApprovalRequestManager.BuildMessageId(planId);
+                var messages = _inboxStore.LoadAll();
+                _inboxPanel?.Refresh(messages);
+                if (_inboxStore.GetById(messageId) is { } message)
+                    RefreshOpenApprovalInboxWindows(messageId, message);
+            }
+
+            if (_openPlanApprovalReviewWindows.ContainsKey(planId) &&
+                _planApprovalRuntime?.Actions.GetCurrentToken(planId) is { } token &&
+                updated.ApprovalGates.FirstOrDefault(gate =>
+                    gate.Status == PlanGateStatus.AwaitingApproval) is { } gate)
+            {
+                ShowGateApprovalReviewWindow(
+                    updated,
+                    gate,
+                    BuildLightweightApprovalSnapshot(updated, gate),
+                    token,
+                    activate: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Could not synchronize human-review selection plan={planId} item={item.ItemId}: {ex.Message}");
+        }
     }
 
     private void OpenApprovalStepEvidence(Plan plan, ReviewTaskEntry reviewTask)
@@ -52613,7 +52652,10 @@ public partial class MainWindow : Window
                                 resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
                                 resolveLayoutNudgesForThumbnail: ResolveLayoutNudgesForThumbnail,
                                 isPlanExecuted: IsPlanExecuted,
-                                resolveAgentAvatar: ResolveAgentAvatarForPlanViewer);
+                                resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
+                                workspaceFolder: _currentWorkspace?.FolderPath,
+                                loadPlan: planId => _planStore?.Load(planId),
+                                onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection);
                             win.Owner = this;
                             _openInboxWindows.Add(win);
                             win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -54344,7 +54386,10 @@ public partial class MainWindow : Window
             resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
             resolveLayoutNudgesForThumbnail: ResolveLayoutNudgesForThumbnail,
             isPlanExecuted: IsPlanExecuted,
-            resolveAgentAvatar: ResolveAgentAvatarForPlanViewer);
+            resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
+            workspaceFolder: _currentWorkspace?.FolderPath,
+            loadPlan: planId => _planStore?.Load(planId),
+            onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed    += (_, _) => _openInboxWindows.Remove(win);
@@ -54443,7 +54488,10 @@ public partial class MainWindow : Window
             resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
             resolveLayoutNudgesForThumbnail: ResolveLayoutNudgesForThumbnail,
             isPlanExecuted: IsPlanExecuted,
-            resolveAgentAvatar: ResolveAgentAvatarForPlanViewer);
+            resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
+            workspaceFolder: _currentWorkspace?.FolderPath,
+            loadPlan: planId => _planStore?.Load(planId),
+            onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection);
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -56553,15 +56601,22 @@ public partial class MainWindow : Window
             if (string.Equals(
                     action.RouteMode,
                     DurableApprovalRequestManager.ApprovalReviewRouteMode,
-                    StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
+                    throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
+                await ShowCurrentApprovalCardFromInboxAsync(payload, message);
+                return;
+            }
+
+            if (string.Equals(
                     action.RouteMode,
                     DurableApprovalRequestManager.ApprovalRouteMode,
                     StringComparison.OrdinalIgnoreCase))
             {
                 if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
                     throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
-                await ShowCurrentApprovalCardFromInboxAsync(payload, message);
+                await HandleApprovalClickAsync(payload.ToClickToken());
                 return;
             }
 

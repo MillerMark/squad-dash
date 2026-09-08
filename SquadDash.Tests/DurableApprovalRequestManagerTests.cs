@@ -382,7 +382,41 @@ public class DurableApprovalRequestManagerTests
 
         var body = DurableApprovalRequestManager.BuildBody(plan, ["GATE-001"], []);
 
-        Assert.That(body, Does.Contain("Verify the Following:** Does clicking the item populate the detail panel?"));
+        Assert.That(body, Does.Contain("**Manual test instructions**")
+            .And.Contain("☐ Does clicking the item populate the detail panel?"));
+    }
+
+    [Test]
+    public void BuildBody_PlacesRecipeObservationCheckboxAndCleanupInHumanOrder()
+    {
+        var original = MakePlan();
+        var gate = original.ApprovalGates[0] with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "new-result",
+                    "live-ui-observation",
+                    "Observe the generated result.",
+                    "Does the new result appear?",
+                    HumanVerificationAccessMode.Recipe,
+                    new HumanVerificationRecipe(
+                        "Build and install the prepared package.",
+                        "Open the sample and invoke the feature.",
+                        "The new result appears.",
+                        "Remove the sample and temporary package.")),
+            ],
+        };
+        var plan = original with { ApprovalGates = [gate] };
+
+        var body = DurableApprovalRequestManager.BuildBody(plan, [gate.GateId], []);
+
+        var setup = body.IndexOf("**Set up:**", StringComparison.Ordinal);
+        var open = body.IndexOf("**Open and perform:**", StringComparison.Ordinal);
+        var observe = body.IndexOf("**Observe:**", StringComparison.Ordinal);
+        var checkbox = body.IndexOf("☐ Does the new result appear?", StringComparison.Ordinal);
+        var cleanup = body.IndexOf("**Clean up:**", StringComparison.Ordinal);
+        Assert.That(new[] { setup, open, observe, checkbox, cleanup }, Is.Ordered.And.All.GreaterThanOrEqualTo(0));
     }
 
     [Test]
@@ -448,5 +482,28 @@ public class DurableApprovalRequestManagerTests
         Assert.That(actions[0].RouteMode, Is.EqualTo(DurableApprovalRequestManager.ApprovalReviewRouteMode));
         Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
         Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-001", "GATE-002" }));
+    }
+
+    [Test]
+    public void BuildActions_ExposesExplicitContinueOnlyAfterEveryHumanCheckIsSelected()
+    {
+        var original = MakePlan();
+        var gate = original.ApprovalGates[0] with
+        {
+            Question = "Does the result appear?",
+            HumanReviewSelections =
+            [
+                new PlanHumanReviewSelection(
+                    "legacy#1", true, PlanHumanReviewChecklist.UncommittedCandidate, DateTimeOffset.UtcNow),
+            ],
+        };
+        var plan = original with { ApprovalGates = [gate] };
+        var state = new DurableApprovalState(plan.PlanId, [gate.GateId], [], Version: 3);
+
+        var actions = DurableApprovalRequestManager.BuildActions(plan, state);
+
+        Assert.That(actions, Has.Count.EqualTo(2));
+        Assert.That(actions[1].RouteMode, Is.EqualTo(DurableApprovalRequestManager.ApprovalRouteMode));
+        Assert.That(actions[1].Hint, Does.Contain("does not continue automatically"));
     }
 }

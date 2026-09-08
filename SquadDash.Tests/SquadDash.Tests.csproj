@@ -383,6 +383,7 @@
     <Compile Include="..\SquadDash\TintKeys.cs" Link="Source\TintKeys.cs" />
     <Compile Include="..\SquadDash\AttachmentBlockFormatter.cs" Link="Source\AttachmentBlockFormatter.cs" />
     <Compile Include="..\SquadDash\InboxMessageWindow.cs" Link="Source\InboxMessageWindow.cs" />
+    <Compile Include="..\SquadDash\InboxApprovalChecklistPresenter.cs" Link="Source\InboxApprovalChecklistPresenter.cs" />
     <Compile Include="..\SquadDash\PlanThumbnailRenderer.cs" Link="Source\PlanThumbnailRenderer.cs" />
     <Compile Include="..\SquadDash\UIErrorHelper.cs" Link="Source\UIErrorHelper.cs" />
     <Compile Include="..\SquadDash\InboxMessage.cs" Link="Source\InboxMessage.cs" />

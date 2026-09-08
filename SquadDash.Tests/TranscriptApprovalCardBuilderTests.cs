@@ -86,6 +86,30 @@ public class TranscriptApprovalCardBuilderTests
             BuiltAt: DateTimeOffset.UtcNow);
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void ExternalChecklistSelection_UpdatesCardWithoutRepeatingPersistenceCallback()
+    {
+        var plan = BuildTestPlan();
+        var writes = 0;
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { },
+            onChecklistChanged: (_, _) => writes++);
+        var item = PlanHumanReviewChecklist.Build(plan, plan.ApprovalGates).Single();
+
+        card.SetChecklistSelection(item, true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.CanApprove(), Is.True);
+            Assert.That(card.ApproveButton.IsEnabled, Is.True);
+            Assert.That(writes, Is.Zero, "cross-surface synchronization must not write the same change twice");
+        });
+    }
+
     [Test]
     public void BuildApproveLabel_SingleGate_ReturnsCheckpointLabel()
     {

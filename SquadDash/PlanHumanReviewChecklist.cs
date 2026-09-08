@@ -139,9 +139,11 @@ internal static class PlanHumanReviewChecklist
         {
             foreach (var requirement in gate.ProofRequirements)
             {
-                var source = string.IsNullOrWhiteSpace(requirement.Question)
-                    ? requirement.Description
-                    : requirement.Question!;
+                var source = !string.IsNullOrWhiteSpace(requirement.Question)
+                    ? requirement.Question!
+                    : gate.ProofRequirements.Count == 1 && !string.IsNullOrWhiteSpace(gate.Question)
+                        ? gate.Question!
+                        : requirement.Description;
                 var parts = SplitLegacyQuestions(source);
                 for (var index = 0; index < parts.Count; index++)
                 {

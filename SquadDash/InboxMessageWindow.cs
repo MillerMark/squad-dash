@@ -26,7 +26,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Func<string, TaskItem?>? _lookupTask;
     private readonly Action<string, InboxMessage>? _attachSelectedTextToChat;
     private readonly Action<string, InboxMessage>? _attachSelectedTextToNewChat;
-    private readonly InboxMessage _message;
+    private InboxMessage _message;
     private readonly FlowDocumentScrollViewer _bodyViewer;
     private readonly WrapPanel _attachmentsPanel;
     private readonly WrapPanel _navigationActionsPanel;
@@ -45,6 +45,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Func<string, DecomposedTaskGroup?>? _resolvePlanGroupForThumbnail;
     private readonly Func<string, Dictionary<string, double>?>? _resolveLayoutNudgesForThumbnail;
     private readonly Func<string, bool>? _isPlanExecuted;
+    private readonly string? _workspaceFolder;
+    private readonly Func<string, Plan?>? _loadPlan;
+    private readonly Action<string, PlanHumanReviewChecklistItem, bool>? _onHumanReviewSelectionChanged;
     private double _bodyFontSize;
     private bool _markedRead;
     private readonly string? _planGroupId;
@@ -72,7 +75,10 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Func<string, DecomposedTaskGroup?>? resolvePlanGroupForThumbnail = null,
         Func<string, Dictionary<string, double>?>? resolveLayoutNudgesForThumbnail = null,
         Func<string, bool>? isPlanExecuted = null,
-        Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null)
+        Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
+        string? workspaceFolder = null,
+        Func<string, Plan?>? loadPlan = null,
+        Action<string, PlanHumanReviewChecklistItem, bool>? onHumanReviewSelectionChanged = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
         _lookupTask             = lookupTask;
@@ -90,6 +96,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _resolveLayoutNudgesForThumbnail = resolveLayoutNudgesForThumbnail;
         _isPlanExecuted         = isPlanExecuted;
         _resolveAgentAvatar     = resolveAgentAvatar;
+        _workspaceFolder        = workspaceFolder;
+        _loadPlan               = loadPlan;
+        _onHumanReviewSelectionChanged = onHumanReviewSelectionChanged;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
         MessageId               = message.Id;
         _planGroupId            = message.ResolvePlanGroupId();
@@ -343,10 +352,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         }
 
         // ── Body ──────────────────────────────────────────────────────────────
-        var doc = MarkdownFlowDocumentBuilder.BuildInbox(message.Body ?? string.Empty, _bodyFontSize);
+        var doc = BuildBodyDocument(message);
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
-        InboxCommitLinkPresenter.Attach(doc, _openCommit);
-        InboxPlanLinkPresenter.Attach(doc, message, openDecomposePlan);
 
         _bodyViewer = new FlowDocumentScrollViewer
         {
@@ -761,12 +768,78 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     private void RebuildDocument()
     {
-        var doc = MarkdownFlowDocumentBuilder.BuildInbox(_message.Body ?? string.Empty, _bodyFontSize);
+        var doc = BuildBodyDocument(_message);
         _relativeTimeTimer?.Stop();
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
-        InboxCommitLinkPresenter.Attach(doc, _openCommit);
-        InboxPlanLinkPresenter.Attach(doc, _message, _openDecomposePlan);
         _bodyViewer.Document = doc;
+    }
+
+    private FlowDocument BuildBodyDocument(InboxMessage message)
+    {
+        var document = MarkdownFlowDocumentBuilder.BuildInbox(
+            message.Body ?? string.Empty,
+            _bodyFontSize,
+            OpenInlineBodyLink);
+        InboxCommitLinkPresenter.Attach(document, _openCommit);
+        InboxPlanLinkPresenter.Attach(document, message, _openDecomposePlan);
+
+        var planId = message.ResolvePlanGroupId();
+        var plan = string.IsNullOrWhiteSpace(planId) ? null : _loadPlan?.Invoke(planId);
+        if (plan is not null && _onHumanReviewSelectionChanged is not null)
+        {
+            var activeGateIds = DurableApprovalRequestManager.ReadState(message)?.ActiveGateIds ?? [];
+            var activeGates = plan.ApprovalGates
+                .Where(gate => activeGateIds.Contains(gate.GateId, StringComparer.Ordinal))
+                .ToArray();
+            var checklist = PlanHumanReviewChecklist.Build(plan, activeGates);
+            InboxApprovalChecklistPresenter.Attach(
+                document,
+                checklist,
+                (item, isChecked) => _onHumanReviewSelectionChanged(plan.PlanId, item, isChecked));
+        }
+
+        return document;
+    }
+
+    private void OpenInlineBodyLink(string target)
+    {
+        const string pathPrefix = "app://open-path:";
+        try
+        {
+            if (target.StartsWith(pathPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var rawPath = Uri.UnescapeDataString(target[pathPrefix.Length..]).Trim();
+                if (string.IsNullOrWhiteSpace(rawPath))
+                    return;
+
+                var expanded = Environment.ExpandEnvironmentVariables(rawPath);
+                var resolved = System.IO.Path.IsPathRooted(expanded)
+                    ? System.IO.Path.GetFullPath(expanded)
+                    : System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                        _workspaceFolder ?? Environment.CurrentDirectory,
+                        expanded));
+                if (!File.Exists(resolved) && !Directory.Exists(resolved))
+                {
+                    UIErrorHelper.ShowWarning("Open Failed", $"The linked file or folder was not found:\n{resolved}");
+                    return;
+                }
+
+                if (File.Exists(resolved) && resolved.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+                    MarkdownDocumentWindow.Show(this, System.IO.Path.GetFileName(resolved), resolved);
+                else
+                    Process.Start(new ProcessStartInfo(resolved) { UseShellExecute = true });
+                return;
+            }
+
+            if (target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                target.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Shell", $"Inbox body link open failed: {ex.Message}");
+            UIErrorHelper.ShowWarning("Open Failed", $"Could not open the linked target:\n{ex.Message}");
+        }
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
@@ -1356,12 +1429,20 @@ internal sealed class InboxMessageWindow : ChromedWindow
         InboxMessage updatedMessage,
         Action<InboxAction, InboxMessage> onActionClicked)
     {
+        _message = updatedMessage;
+        var bodyScrollViewer = FindScrollViewer(_bodyViewer);
+        var verticalOffset = bodyScrollViewer?.VerticalOffset;
         // Replace body document
-        var doc = MarkdownFlowDocumentBuilder.BuildInbox(updatedMessage.Body ?? string.Empty, _bodyFontSize);
+        var doc = BuildBodyDocument(updatedMessage);
         _relativeTimeTimer?.Stop();
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
-        InboxPlanLinkPresenter.Attach(doc, updatedMessage, _openDecomposePlan);
         _bodyViewer.Document = doc;
+        if (verticalOffset is { } offset)
+        {
+            Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Loaded,
+                () => FindScrollViewer(_bodyViewer)?.ScrollToVerticalOffset(offset));
+        }
 
         // Keep navigation links on their own row above the decision buttons.
         _navigationActionsPanel.Children.Clear();

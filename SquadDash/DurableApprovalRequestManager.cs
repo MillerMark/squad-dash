@@ -584,18 +584,36 @@ internal sealed class DurableApprovalRequestManager
                     : $"- **Step {stepLabel}:** {reason}");
                 if (gate is not null)
                 {
-                    if (gate.HumanReviewDispositions is { Count: > 0 })
+                    var reviewItems = PlanHumanReviewChecklist.Build(plan, [gate]);
+                    if (reviewItems.Count > 0)
                     {
-                        var reviewItems = PlanHumanReviewChecklist.Build(plan, [gate]);
-                        if (reviewItems.Count > 0)
+                        parts.Add("");
+                        parts.Add("**Manual test instructions**");
+                        for (var itemIndex = 0; itemIndex < reviewItems.Count; itemIndex++)
                         {
-                            parts.Add("  - **Verify the Following:**");
-                            foreach (var item in reviewItems)
-                                parts.Add($"    - {(item.IsChecked ? "☑" : "☐")} {item.Text}");
+                            var item = reviewItems[itemIndex];
+                            if (reviewItems.Count > 1)
+                                parts.Add($"**Check {itemIndex + 1}**");
+                            var requirement = gate.ProofRequirements?.FirstOrDefault(candidate =>
+                                string.Equals(candidate.RequirementId, item.RequirementId, StringComparison.Ordinal));
+                            var recipe = requirement?.VerificationRecipe;
+                            if (recipe is not null)
+                            {
+                                parts.Add($"1. **Set up:** {recipe.Setup}");
+                                parts.Add($"2. **Open and perform:** {recipe.Open}");
+                                parts.Add($"3. **Observe:** {recipe.Observe}");
+                            }
+                            parts.Add("");
+                            parts.Add($"- {(item.IsChecked ? "☑" : "☐")} {item.Text}");
+                            if (recipe is not null)
+                            {
+                                parts.Add("");
+                                parts.Add($"4. **Clean up:** {recipe.Cleanup}");
+                            }
+                            if (itemIndex + 1 < reviewItems.Count)
+                                parts.Add("");
                         }
                     }
-                    else if (PlanProofCapabilityPolicy.ResolveHumanQuestion(gate) is { Length: > 0 } question)
-                        parts.Add($"  - **Verify the Following:** {question}");
                 }
             }
 
@@ -758,8 +776,8 @@ internal sealed class DurableApprovalRequestManager
             plan.Revision,
             state.Version,
             state.ActiveGateIds);
-        return
-        [
+        var actions = new List<InboxAction>
+        {
             new InboxAction
             {
                 Label = "Open approval review",
@@ -767,8 +785,32 @@ internal sealed class DurableApprovalRequestManager
                 Prompt = JsonSerializer.Serialize(payload, StateSerializerOptions),
                 Hint = "Open the detailed checklist in a separate modeless window. This does not approve the plan.",
             },
-        ];
+        };
+
+        var activeGates = state.ActiveGateIds
+            .Select(gateId => plan.ApprovalGates.FirstOrDefault(gate =>
+                string.Equals(gate.GateId, gateId, StringComparison.Ordinal)))
+            .Where(gate => gate is not null)
+            .Cast<PlanApprovalGate>()
+            .ToArray();
+        var checklist = PlanHumanReviewChecklist.Build(plan, activeGates);
+        if (checklist.Count == 0 || checklist.All(item => item.IsChecked))
+        {
+            actions.Add(new InboxAction
+            {
+                Label = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
+                    plan, state.ActiveGateIds).Label,
+                RouteMode = ApprovalRouteMode,
+                Prompt = JsonSerializer.Serialize(payload, StateSerializerOptions),
+                Hint = "Record final approval and continue the plan. Checking the last item does not continue automatically.",
+            });
+        }
+
+        return actions;
     }
+
+    /// <summary>Reads the durable approval state embedded in an Inbox message.</summary>
+    internal static DurableApprovalState? ReadState(InboxMessage message) => DeserializeState(message);
 
     // ── Test seam ────────────────────────────────────────────────────────────
 

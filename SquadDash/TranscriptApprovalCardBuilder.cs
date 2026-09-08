@@ -144,6 +144,9 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Returns whether at least one current human-verification item is unchecked.</summary>
         internal Func<bool> CanAddressUncheckedItems { get; init; } = static () => false;
 
+        /// <summary>Updates one checklist item from another live surface without writing it again.</summary>
+        internal Action<PlanHumanReviewChecklistItem, bool> SetChecklistSelection { get; init; } = static (_, _) => { };
+
         /// <summary>True once a later coordinator turn has made this transcript card historical.</summary>
         internal bool IsRetired { get; set; }
     }
@@ -242,6 +245,7 @@ internal static class TranscriptApprovalCardBuilder
             item => item.IsChecked,
             StringComparer.Ordinal);
         var checklistBoxes = new List<Action<bool>>();  // each action: setChecked(value)
+        var externalChecklistSetters = new Dictionary<string, Action<bool>>(StringComparer.Ordinal);
         if (checklistItems.Count > 0)
         {
             var questionStack = new StackPanel();
@@ -329,22 +333,25 @@ internal static class TranscriptApprovalCardBuilder
                 }
 
                 var capturedItem = item;
-                Action<bool> setChecked = (value) =>
+                void SetChecked(bool value, bool notify)
                 {
                     localChecked = value;
                     checkIconViewbox.Visibility = value ? Visibility.Visible : Visibility.Hidden;
                     checklistState[capturedItem.GateId + "\0" + capturedItem.ItemId] = value;
-                    onChecklistChanged?.Invoke(capturedItem, value);
+                    if (notify)
+                        onChecklistChanged?.Invoke(capturedItem, value);
                     UpdateApprovalAvailability();
-                };
+                }
 
                 checkBorder.MouseDown += (_, e) =>
                 {
                     if (e.ChangedButton == MouseButton.Left)
-                        setChecked(!localChecked);
+                        SetChecked(!localChecked, notify: true);
                 };
 
-                checklistBoxes.Add(setChecked);
+                checklistBoxes.Add(value => SetChecked(value, notify: true));
+                externalChecklistSetters[capturedItem.GateId + "\0" + capturedItem.ItemId] =
+                    value => SetChecked(value, notify: false);
                 questionStack.Children.Add(itemRow);
                 if (item.WasPreviouslyChecked && !item.IsChecked)
                 {
@@ -799,6 +806,11 @@ internal static class TranscriptApprovalCardBuilder
             CommitLinks = commitLinks,
             CanApprove = () => checklistState.Count == 0 || checklistState.Values.All(value => value),
             CanAddressUncheckedItems = () => checklistState.Values.Any(value => !value),
+            SetChecklistSelection = (item, value) =>
+            {
+                if (externalChecklistSetters.TryGetValue(item.GateId + "\0" + item.ItemId, out var setter))
+                    setter(value);
+            },
         };
 
         void UpdateApprovalAvailability()
