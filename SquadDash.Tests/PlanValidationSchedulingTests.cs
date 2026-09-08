@@ -587,6 +587,7 @@ internal sealed class PlanValidationSchedulingTests
             Assert.That(prompt, Does.Contain("abc1234"));
             Assert.That(prompt, Does.Contain(
                 "must contain requirementId, proofType, description, question, and"));
+            Assert.That(prompt, Does.Contain("requirementId must be lowercase and hyphenated"));
         });
     }
 

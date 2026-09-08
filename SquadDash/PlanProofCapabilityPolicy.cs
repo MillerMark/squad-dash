@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace SquadDash;
 
 internal enum PlanProofExecutorKind
@@ -15,6 +17,12 @@ internal enum PlanProofExecutorKind
 /// </summary>
 internal static class PlanProofCapabilityPolicy
 {
+    private static readonly Regex CanonicalRequirementIdPattern =
+        new(@"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$", RegexOptions.Compiled);
+
+    private static readonly Regex RequirementIdSeparatorPattern =
+        new(@"[^a-z0-9]+", RegexOptions.Compiled);
+
     private static readonly IReadOnlyDictionary<string, PlanProofExecutorKind> Executors =
         new Dictionary<string, PlanProofExecutorKind>(StringComparer.Ordinal)
         {
@@ -35,6 +43,27 @@ internal static class PlanProofCapabilityPolicy
     internal static bool IsHumanOnly(string? proofType) =>
         Classify(proofType) == PlanProofExecutorKind.Human;
 
+    internal static bool IsCanonicalRequirementId(string? requirementId) =>
+        requirementId is not null && CanonicalRequirementIdPattern.IsMatch(requirementId);
+
+    internal static string CanonicalizeRequirementId(
+        string? requirementId,
+        string fallbackId,
+        ISet<string> usedIds)
+    {
+        var canonical = SlugifyRequirementId(requirementId);
+        if (!IsCanonicalRequirementId(canonical))
+            canonical = SlugifyRequirementId(fallbackId);
+        if (!IsCanonicalRequirementId(canonical))
+            canonical = "human-proof";
+
+        var unique = canonical!;
+        for (var suffix = 2; usedIds.Contains(unique); suffix++)
+            unique = $"{canonical}-{suffix}";
+        usedIds.Add(unique);
+        return unique;
+    }
+
     /// <summary>
     /// Returns the authored approval question, or a compatibility question derived from a
     /// legacy human-proof requirement when the stored gate predates the question field.
@@ -44,17 +73,7 @@ internal static class PlanProofCapabilityPolicy
         if (!string.IsNullOrWhiteSpace(gate.Question))
             return gate.Question.Trim();
 
-        var observations = (gate.ProofRequirements ?? [])
-            .Where(requirement => IsHumanOnly(requirement.ProofType))
-            .Select(requirement => requirement.Description.Trim().TrimEnd('.', '?', '!'))
-            .Where(description => description.Length > 0)
-            .ToArray();
-        return observations.Length switch
-        {
-            0 => null,
-            1 => $"Did you observe the following behavior: {observations[0]}?",
-            _ => $"Did you observe each of these behaviors: {string.Join("; ", observations)}?",
-        };
+        return BuildHumanQuestion(gate.ProofRequirements);
     }
 
     internal static IReadOnlyList<DecomposedTaskProofRequirement> ResultEnvelopeRequirements(
@@ -152,6 +171,35 @@ internal static class PlanProofCapabilityPolicy
         };
     }
 
+    internal static string? BuildHumanQuestion(
+        IReadOnlyList<PlanTaskProofRequirement>? humanProofs)
+    {
+        var proofs = (humanProofs ?? [])
+            .Where(requirement => IsHumanOnly(requirement.ProofType))
+            .ToArray();
+        if (proofs.Length == 0)
+            return null;
+
+        var supplied = proofs
+            .Select(requirement => requirement.Question?.Trim())
+            .Where(question => !string.IsNullOrWhiteSpace(question))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (supplied.Length > 0)
+            return string.Join(Environment.NewLine, supplied!);
+
+        var observations = proofs
+            .Select(requirement => (requirement.Description ?? string.Empty).Trim().TrimEnd('.', '?', '!'))
+            .Where(description => description.Length > 0)
+            .ToArray();
+        return observations.Length switch
+        {
+            0 => null,
+            1 => $"Did you observe the following behavior: {observations[0]}?",
+            _ => $"Did you observe each of these behaviors: {string.Join("; ", observations)}?",
+        };
+    }
+
     private static string BuildHumanQuestion(
         IReadOnlyList<DecomposedTaskProofRequirement> humanProofs)
     {
@@ -164,11 +212,26 @@ internal static class PlanProofCapabilityPolicy
             return string.Join(Environment.NewLine, supplied!);
 
         var observations = humanProofs
-            .Select(requirement => requirement.Description.Trim().TrimEnd('.', '?', '!'))
+            .Select(requirement => (requirement.Description ?? string.Empty).Trim().TrimEnd('.', '?', '!'))
             .Where(description => description.Length > 0)
             .ToArray();
         return observations.Length == 1
             ? $"Did you observe the following behavior: {observations[0]}?"
             : $"Did you observe each of these behaviors: {string.Join("; ", observations)}?";
+    }
+
+    private static string? SlugifyRequirementId(string? requirementId)
+    {
+        if (string.IsNullOrWhiteSpace(requirementId))
+            return null;
+
+        var slug = RequirementIdSeparatorPattern
+            .Replace(requirementId.Trim().ToLowerInvariant(), "-")
+            .Trim('-');
+        if (slug.Length == 0)
+            return null;
+        if (slug[0] is < 'a' or > 'z')
+            slug = "check-" + slug;
+        return slug;
     }
 }

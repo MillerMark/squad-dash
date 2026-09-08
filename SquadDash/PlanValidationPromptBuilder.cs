@@ -144,7 +144,7 @@ internal static class PlanValidationPromptBuilder
         sb.AppendLine("```");
         sb.AppendLine();
         sb.AppendLine("For needs-human-proof, set passed to false and include one to seven humanProofRequirements. Each item must use " +
-                      "proofType live-ui-observation, restart-observation, or human-observation; provide a unique requirementId, a short " +
+                      "proofType live-ui-observation, restart-observation, or human-observation; provide a unique lowercase hyphenated requirementId, a short " +
                       "description of what the observation proves, an atomic yes/no question, and accessMode directly-reachable or recipe. " +
                       "Use this item shape: { \"requirementId\": \"...\", \"proofType\": \"human-observation\", " +
                       "\"description\": \"what this observation proves\", \"question\": \"Did the expected behavior occur?\", " +

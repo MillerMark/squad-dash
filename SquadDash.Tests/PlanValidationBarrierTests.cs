@@ -115,9 +115,136 @@ internal sealed class PlanValidationBarrierTests
             Assert.That(plan.Validations![0].Status, Is.EqualTo(PlanValidationStatus.Pending));
             Assert.That(plan.ApprovalGates, Has.Count.EqualTo(1));
             Assert.That(plan.ApprovalGates[0].Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(plan.ApprovalGates[0].Question, Is.EqualTo(requirement.Question));
             Assert.That(plan.ApprovalGates[0].ProofRequirements, Is.EqualTo(new[] { requirement }));
             Assert.That(ApprovalGateReadinessEvaluator.IsValidationBlockedByApproval(
                 plan, plan.Validations[0]), Is.True);
+        });
+    }
+
+    [Test]
+    public void HumanProofOnlyGap_NormalizesCheckpointForExecutionSchema()
+    {
+        var plan = MakeSchemaValidPlanWithReadyValidation();
+        var validationId = plan.Validations![0].ValidationId;
+        var requirements = new[]
+        {
+            new PlanTaskProofRequirement(
+                "BLAZORAIGEN-20260316-VAL-001-HP1",
+                "human-observation",
+                "The live preview visibly shows the validated state.",
+                "Does the live preview show the validated state?",
+                HumanVerificationAccessMode.DirectlyReachable),
+            new PlanTaskProofRequirement(
+                "BLAZORAIGEN-20260316-VAL-001-HP-1",
+                "restart-observation",
+                "The validated state remains visible after restart.",
+                "After restart, does the validated state remain visible?",
+                HumanVerificationAccessMode.Recipe,
+                new HumanVerificationRecipe(
+                    "Prepare the validated state.",
+                    "Restart SquadDash and reopen the workspace.",
+                    "Confirm the validated state remains visible.",
+                    "Restore the original state.")),
+        };
+
+        var updated = PlanStoreUpdater.ApplyValidationHumanReviewRequired(
+            plan,
+            validationId,
+            "Human observations remain.",
+            ["Automated checks passed."],
+            "abc1234",
+            requirements);
+        var projected = PendingDecomposePlanAdapter.FromPlan(updated).Group;
+        var payload = "TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(projected);
+
+        Assert.Multiple(() =>
+        {
+            var gate = updated.ApprovalGates.Single();
+            Assert.That(gate.Question, Does.Contain("Does the live preview show the validated state?"));
+            Assert.That(gate.Question, Does.Contain("After restart, does the validated state remain visible?"));
+            Assert.That(gate.ProofRequirements!.Select(requirement => requirement.RequirementId),
+                Is.EqualTo(new[]
+                {
+                    "blazoraigen-20260316-val-001-hp1",
+                    "blazoraigen-20260316-val-001-hp-1",
+                }));
+            Assert.That(TasksJsonParser.TryParse(payload, out _, out var diagnostic),
+                Is.True, diagnostic?.Message);
+        });
+    }
+
+    [Test]
+    public void RepairValidationHumanProofGateSchema_RepairsLegacyValidationCheckpoints()
+    {
+        var plan = MakeSchemaValidPlanWithReadyValidation();
+        var validationId = plan.Validations![0].ValidationId;
+        var firstRequirement = new PlanTaskProofRequirement(
+            "BLAZORAIGEN-20260316-VAL-001-HP1",
+            "human-observation",
+            "The live preview visibly shows the validated state.",
+            "Does the live preview show the validated state?",
+            HumanVerificationAccessMode.DirectlyReachable);
+        var secondRequirement = new PlanTaskProofRequirement(
+            "BLAZORAIGEN-20260316-VAL-001-HP-1",
+            "human-observation",
+            "The command palette exposes the validated action.",
+            "Does the command palette expose the validated action?",
+            HumanVerificationAccessMode.DirectlyReachable);
+        var legacy = plan with
+        {
+            ApprovalGates =
+            [
+                new PlanApprovalGate(
+                    GateId: $"{validationId}-HUMAN-PROOF",
+                    Message: "Review the first human proof.",
+                    AfterTaskIds: plan.Validations[0].AfterTaskIds,
+                    BeforeTaskIds: plan.Validations[0].BeforeTaskIds,
+                    Status: PlanGateStatus.Approved,
+                    PlanRevision: plan.Revision,
+                    PresentationAnchor: $"validation:{validationId}",
+                    ResolvedBy: "Mark",
+                    ProofRequirements: [firstRequirement],
+                    ProofEvidence:
+                    [
+                        new PlanTaskProofEvidence(
+                            firstRequirement.RequirementId,
+                            firstRequirement.ProofType,
+                            "Mark confirmed the live preview.",
+                            [$"squaddash://approval/{plan.PlanId}/{validationId}-HUMAN-PROOF"]),
+                    ],
+                    AfterTaskIdsSpecified: true,
+                    BeforeTaskIdsSpecified: true),
+                new PlanApprovalGate(
+                    GateId: $"{validationId}-HUMAN-PROOF-2",
+                    Message: "Review the second human proof.",
+                    AfterTaskIds: plan.Validations[0].AfterTaskIds,
+                    BeforeTaskIds: plan.Validations[0].BeforeTaskIds,
+                    Status: PlanGateStatus.Pending,
+                    PlanRevision: plan.Revision,
+                    PresentationAnchor: $"validation:{validationId}",
+                    ProofRequirements: [secondRequirement],
+                    AfterTaskIdsSpecified: true,
+                    BeforeTaskIdsSpecified: true),
+            ],
+        };
+
+        var repaired = PlanStoreUpdater.RepairValidationHumanProofGateSchema(legacy);
+        var projected = PendingDecomposePlanAdapter.FromPlan(repaired).Group;
+        var payload = "TASKS_JSON:\n" + System.Text.Json.JsonSerializer.Serialize(projected);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.ApprovalGates.All(gate => !string.IsNullOrWhiteSpace(gate.Question)),
+                Is.True);
+            Assert.That(repaired.ApprovalGates[0].ProofRequirements![0].RequirementId,
+                Is.EqualTo("blazoraigen-20260316-val-001-hp1"));
+            Assert.That(repaired.ApprovalGates[0].ProofEvidence![0].RequirementId,
+                Is.EqualTo("blazoraigen-20260316-val-001-hp1"));
+            Assert.That(repaired.ApprovalGates[1].ProofRequirements![0].RequirementId,
+                Is.EqualTo("blazoraigen-20260316-val-001-hp-1"));
+            Assert.That(TasksJsonParser.TryParse(payload, out _, out var diagnostic),
+                Is.True, diagnostic?.Message);
         });
     }
 
@@ -584,6 +711,56 @@ internal sealed class PlanValidationBarrierTests
             ],
             [],
             new PlanProgress(1, 2), new PlanTimestamps(DateTimeOffset.UtcNow),
+            Validations: [validation]);
+    }
+
+    private static Plan MakeSchemaValidPlanWithReadyValidation()
+    {
+        const string groupId = "BLAZORAIGEN-20260316";
+        var firstTaskId = $"{groupId}-001";
+        var secondTaskId = $"{groupId}-002";
+        var validation = new PlanValidationNode(
+            $"{groupId}-VAL-001",
+            "Verify Contract",
+            "Verify the first task produces what the second task consumes.",
+            [firstTaskId],
+            [secondTaskId],
+            ["The first task produces the declared contract."],
+            ["contract-a"],
+            "evidence",
+            [],
+            true,
+            PlanValidationStatus.Ready);
+        return new Plan(
+            groupId,
+            "rev",
+            PlanSource.TasksJson,
+            PlanLifecycleStatus.Executing,
+            "Integration Plan",
+            "feature/plan",
+            "Verify cross-task contracts.",
+            [
+                new PlanTask(
+                    firstTaskId,
+                    "Task A",
+                    "Create A. Observable outcome: A exports contract-a. Production consumer: Task B consumes contract-a.",
+                    [],
+                    "high",
+                    PlanTaskStatus.Complete,
+                    Commit: "aaa1111",
+                    Outputs: [new PlanTaskOutput("contract-a", "Public contract")]),
+                new PlanTask(
+                    secondTaskId,
+                    "Task B",
+                    "Use A. Observable outcome: B consumes contract-a in production.",
+                    [firstTaskId],
+                    "high",
+                    PlanTaskStatus.Pending,
+                    Inputs: ["contract-a"]),
+            ],
+            [],
+            new PlanProgress(1, 2),
+            new PlanTimestamps(DateTimeOffset.UtcNow),
             Validations: [validation]);
     }
 

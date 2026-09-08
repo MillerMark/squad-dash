@@ -43,9 +43,9 @@ internal static class PlanValidationRepairPrompt
             missing proof, use outcome needs-human-proof, set passed to false, and return one to seven
             atomic humanProofRequirements using the access and recipe contract from the original
             assignment. Every item must contain requirementId, proofType, description, question, and
-            accessMode. Use verificationRecipe when accessMode is recipe. Use failed only for a genuine
-            implementation, automated-proof, safety, or contract defect. For passed or failed,
-            humanProofRequirements must be empty.
+            accessMode. The requirementId must be lowercase and hyphenated. Use verificationRecipe
+            when accessMode is recipe. Use failed only for a genuine implementation, automated-proof,
+            safety, or contract defect. For passed or failed, humanProofRequirements must be empty.
             """;
     }
 }

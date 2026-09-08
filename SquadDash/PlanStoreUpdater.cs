@@ -14,6 +14,28 @@ internal static class PlanStoreUpdater
 
     internal static Plan ApplyResume(Plan existing) => existing with { IsPaused = false };
 
+    internal static Plan RepairValidationHumanProofGateSchema(Plan plan)
+    {
+        if (plan.ApprovalGates.Count == 0 || plan.Validations is not { Count: > 0 })
+            return plan;
+
+        var validationIds = plan.Validations
+            .Select(validation => validation.ValidationId)
+            .ToHashSet(StringComparer.Ordinal);
+        var changed = false;
+        var gates = plan.ApprovalGates.Select(gate =>
+        {
+            if (!IsValidationHumanProofGate(gate, validationIds))
+                return gate;
+
+            var repaired = NormalizeValidationHumanProofGate(gate, out var gateChanged);
+            changed |= gateChanged;
+            return repaired;
+        }).ToArray();
+
+        return changed ? plan with { ApprovalGates = gates } : plan;
+    }
+
     // ── Public API ────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -842,6 +864,10 @@ internal static class PlanStoreUpdater
         if (validation is null || proofRequirements.Count == 0)
             return existing;
 
+        var normalizedProofRequirements = NormalizeValidationHumanProofRequirements(
+            proofRequirements,
+            out _,
+            out _);
         var baseGateId = $"{validationId}-HUMAN-PROOF";
         var gateId = baseGateId;
         for (var suffix = 2; existing.ApprovalGates.Any(gate =>
@@ -857,9 +883,11 @@ internal static class PlanStoreUpdater
             Status: PlanGateStatus.Pending,
             PlanRevision: existing.Revision,
             PresentationAnchor: $"validation:{validationId}",
-            ProofRequirements: proofRequirements,
+            ProofRequirements: normalizedProofRequirements,
             AfterTaskIdsSpecified: true,
-            BeforeTaskIdsSpecified: true);
+            BeforeTaskIdsSpecified: true,
+            Question: PlanProofCapabilityPolicy.BuildHumanQuestion(normalizedProofRequirements)
+                      ?? $"Does the human-observable evidence for {validation.Title} pass?");
 
         return existing with
         {
@@ -1685,6 +1713,7 @@ internal static class PlanStoreUpdater
     /// </remarks>
     internal static Plan RepairInconsistentState(Plan plan, IReadOnlyList<TaskItem>? currentItems = null)
     {
+        plan = RepairValidationHumanProofGateSchema(plan);
         plan = RepairLegacyAmendmentTopology(plan);
         plan = RepairLegacyAmendmentReviewFrontier(plan);
         plan = RepairLegacyAmendmentDisplayLabels(plan);
@@ -1756,6 +1785,107 @@ internal static class PlanStoreUpdater
         }
 
         return plan;
+    }
+
+    private static bool IsValidationHumanProofGate(
+        PlanApprovalGate gate,
+        IReadOnlySet<string> validationIds)
+    {
+        if (gate.ProofRequirements is not { Count: > 0 })
+            return false;
+        if (gate.PresentationAnchor?.StartsWith("validation:", StringComparison.Ordinal) == true &&
+            validationIds.Contains(gate.PresentationAnchor["validation:".Length..]))
+            return true;
+
+        return validationIds.Any(validationId =>
+            string.Equals(gate.GateId, $"{validationId}-HUMAN-PROOF", StringComparison.Ordinal) ||
+            gate.GateId.StartsWith($"{validationId}-HUMAN-PROOF-", StringComparison.Ordinal));
+    }
+
+    private static PlanApprovalGate NormalizeValidationHumanProofGate(
+        PlanApprovalGate gate,
+        out bool changed)
+    {
+        changed = false;
+        var normalizedRequirements = NormalizeValidationHumanProofRequirements(
+            gate.ProofRequirements ?? [],
+            out var requirementIdMap,
+            out var requirementsChanged);
+        changed |= requirementsChanged;
+
+        var question = gate.Question?.Trim();
+        if (string.IsNullOrWhiteSpace(question))
+        {
+            question = PlanProofCapabilityPolicy.BuildHumanQuestion(normalizedRequirements)
+                       ?? $"Does the human proof checkpoint {gate.GateId} pass?";
+            changed = true;
+        }
+        else if (!string.Equals(question, gate.Question, StringComparison.Ordinal))
+        {
+            changed = true;
+        }
+
+        var proofEvidence = gate.ProofEvidence;
+        if (proofEvidence is { Count: > 0 } && requirementIdMap.Count > 0)
+        {
+            var evidenceChanged = false;
+            proofEvidence = proofEvidence.Select(evidence =>
+            {
+                if (!requirementIdMap.TryGetValue(evidence.RequirementId, out var normalizedId))
+                    return evidence;
+                evidenceChanged = true;
+                return evidence with { RequirementId = normalizedId };
+            }).ToArray();
+            changed |= evidenceChanged;
+        }
+
+        return changed
+            ? gate with
+            {
+                Question = question,
+                ProofRequirements = normalizedRequirements,
+                ProofEvidence = proofEvidence,
+            }
+            : gate;
+    }
+
+    private static IReadOnlyList<PlanTaskProofRequirement> NormalizeValidationHumanProofRequirements(
+        IReadOnlyList<PlanTaskProofRequirement> requirements,
+        out IReadOnlyDictionary<string, string> requirementIdMap,
+        out bool changed)
+    {
+        var anyChanged = false;
+        var idMap = new Dictionary<string, string>(StringComparer.Ordinal);
+        var usedIds = new HashSet<string>(StringComparer.Ordinal);
+        var normalized = requirements.Select((requirement, index) =>
+        {
+            var normalizedId = PlanProofCapabilityPolicy.CanonicalizeRequirementId(
+                requirement.RequirementId,
+                $"human-proof-{index + 1}",
+                usedIds);
+            var description = requirement.Description.Trim();
+            var question = string.IsNullOrWhiteSpace(requirement.Question)
+                ? null
+                : requirement.Question.Trim();
+            if (!string.Equals(normalizedId, requirement.RequirementId, StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(requirement.RequirementId))
+                idMap[requirement.RequirementId] = normalizedId;
+            if (!string.Equals(normalizedId, requirement.RequirementId, StringComparison.Ordinal) ||
+                !string.Equals(description, requirement.Description, StringComparison.Ordinal) ||
+                !string.Equals(question, requirement.Question, StringComparison.Ordinal))
+                anyChanged = true;
+
+            return requirement with
+            {
+                RequirementId = normalizedId,
+                Description = description,
+                Question = question,
+            };
+        }).ToArray();
+
+        changed = anyChanged;
+        requirementIdMap = idMap;
+        return normalized;
     }
 
     private static Plan RepairLegacyImplicitHumanProofApproval(Plan plan)

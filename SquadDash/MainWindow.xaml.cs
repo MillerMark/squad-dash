@@ -9308,6 +9308,8 @@ public partial class MainWindow : Window
             tasksPath);
 
         var durablePlan = _planStore?.Load(groupId);
+        if (durablePlan is not null)
+            durablePlan = RepairPlanSchemaBeforeExecution(durablePlan);
         if (durablePlan is null && group is not null)
         {
             var approvedAt = DateTimeOffset.UtcNow;
@@ -55943,6 +55945,8 @@ public partial class MainWindow : Window
         try
         {
             var existing = _planStore.Load(groupId);
+            if (existing is not null)
+                existing = RepairPlanSchemaBeforeExecution(existing);
             var resolvedGroup = existing is not null
                 ? PendingDecomposePlanAdapter.FromPlan(existing).Group with { HostRevision = existing.Revision }
                 : group;
@@ -55980,6 +55984,29 @@ public partial class MainWindow : Window
             error = ex.Message;
             return false;
         }
+    }
+
+    private Plan RepairPlanSchemaBeforeExecution(Plan plan)
+    {
+        var repaired = PlanStoreUpdater.RepairValidationHumanProofGateSchema(plan);
+        if (ReferenceEquals(repaired, plan))
+            return plan;
+
+        try
+        {
+            _planStore?.Save(repaired);
+            SquadDashTrace.Write(
+                "PlanRepair",
+                $"Repaired execution schema compatibility for plan {plan.PlanId} before start/resume.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            SquadDashTrace.Write(
+                "PlanRepair",
+                $"Could not persist execution schema compatibility repair for plan {plan.PlanId}: {ex.Message}");
+        }
+
+        return repaired;
     }
 
     private void InterruptPlanAfterFailedResume(
@@ -58436,10 +58463,13 @@ public partial class MainWindow : Window
         // only a lossy display projection and cannot participate in execution decisions.
         var durablePlan = _planStore?.Load(group.GroupId);
         if (durablePlan is not null)
+        {
+            durablePlan = RepairPlanSchemaBeforeExecution(durablePlan);
             group = PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with
             {
                 HostRevision = durablePlan.Revision,
             };
+        }
         if (!TryValidateDecomposeGroupForExecution(group, out var validationError))
             throw new InvalidOperationException(validationError);
 
