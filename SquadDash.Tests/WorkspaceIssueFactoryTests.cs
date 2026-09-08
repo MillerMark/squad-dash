@@ -440,7 +440,7 @@ internal sealed class WorkspaceIssueFactoryTests {
         Assume.That(issue!.Title, Does.Not.Contain("Node.js").And.Not.Contain("PowerShell"));
 
         Assert.Multiple(() => {
-            Assert.That(issue.Title, Does.Contain("Squad isn't installed"));
+            Assert.That(issue.Title, Does.Contain("The Squad CLI isn't installed"));
             Assert.That(issue.ShowInstallButton, Is.True);
         });
     }
