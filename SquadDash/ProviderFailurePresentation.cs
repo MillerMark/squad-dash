@@ -118,14 +118,14 @@ internal sealed record ProviderFailurePresentation(
             category = ProviderFailureCategory.DeploymentOrModel;
             title = "Azure deployment not found";
             explanation = BuildDeploymentExplanation(context);
-            guidance = "Set Model to the exact Azure deployment name for this resource, or create that deployment, then retry.";
+            guidance = "Open SquadDash Options > AI > Model, select this profile, and set Model to an Azure deployment name that exists on this resource.";
         }
         else if (ContainsAny(normalized, "model_not_found", "model not found", "model does not exist", "no such model", "unsupported model", "unknown model"))
         {
             category = ProviderFailureCategory.DeploymentOrModel;
             title = "Model not found";
             explanation = BuildModelExplanation(context);
-            guidance = "Choose a model available to this provider account, or correct the model identifier in the profile.";
+            guidance = "Open SquadDash Options > AI > Model, select this profile, and choose a model that is available for this provider account.";
         }
         else if (HasHttpStatus(normalized, 404) ||
                  ContainsAny(normalized, "cannot post", "unsupported protocol", "unsupported wire", "unknown endpoint", "invalid endpoint", "route not found"))
@@ -162,7 +162,7 @@ internal sealed record ProviderFailurePresentation(
             category = ProviderFailureCategory.InvalidRequest;
             title = "Provider rejected the request";
             explanation = "The request format, parameters, or context were not accepted by the selected provider/model.";
-            guidance = "Review the raw error below, then correct the profile protocol/model or reduce unsupported parameters and context.";
+            guidance = "Review the raw error shown above, then correct the profile protocol/model or reduce unsupported parameters and context.";
         }
         else if (HasAnyServerStatus(normalized) ||
                  ContainsAny(normalized, "service unavailable", "bad gateway", "internal server error", "overloaded"))
@@ -177,7 +177,7 @@ internal sealed record ProviderFailurePresentation(
             category = ProviderFailureCategory.Unknown;
             title = "Agent provider failed";
             explanation = "SquadDash received an unclassified provider or agent-launch error.";
-            guidance = "Use the complete raw error below to verify the profile's endpoint, protocol, credential, and model, then retry.";
+            guidance = "Review the complete provider error shown above, then open SquadDash Options > AI > Model and select or verify an available model for this profile before retrying.";
         }
 
         return new ProviderFailurePresentation(
