@@ -37,26 +37,22 @@ internal static class PlanningSpecialistInstructions
 
     internal static string BuildDelegationGuidance()
     {
-        var packagedPath = GetPackagedCharterPath();
-        var charterSource = File.Exists(packagedPath)
-            ? $"Read the shipped fallback charter at `{packagedPath}` and inject its complete contents into the temporary worker prompt."
-            : "Inject the complete shipped fallback charter below into the temporary worker prompt:\n\n" + LoadCharter();
-
         return $$"""
             ## Planning specialist routing
 
             Apply these rules only when creating a new plan, correcting a staged proposal,
             or revising an accepted durable plan.
 
-            1. Read `.squad/team.md` and `.squad/routing.md`. If an active roster member is explicitly
-               assigned plan creation or revision work (for example, a Planning Architect), delegate
-               plan authorship to that member with `delegate_roster_agent`. The member's workspace
-               charter is authoritative so user customizations are preserved. For a small mechanical
-               staged correction whose exact patch is already established by the user, the Coordinator
-               may author the compact delta directly instead of paying for a second planning pass.
-            2. If no active roster planning specialist exists, launch exactly one temporary worker with
-               the generic `task` tool as the planning specialist. Do not give that worker Rory's name or
-               any roster identity. {{charterSource}}
+            1. Delegate every plan creation, staged-plan correction, and accepted-plan revision to the
+               built-in named Planning Architect, `rory`, with `delegate_roster_agent`. Rory is a
+               host-provided permanent specialist and may be absent from the user-editable rows in
+               `.squad/team.md`; the named-agent route and Rory's workspace charter are authoritative.
+               Do not author even a small or mechanical plan delta in the Coordinator voice, and do not
+               replace Rory with a generic `task` worker. This keeps plan authorship on the configured
+               spawned-named-agent model profile.
+            2. Read `.squad/team.md` and `.squad/routing.md` before delegating so Rory receives the current
+               roster, ownership, and workspace customizations. Rory plans work for those specialists but
+               must not be assigned implementation or verification merely because Rory authored the plan.
             3. Give the specialist the user's complete request, the exact live planning or revision
                protocol path, relevant repository and decision context, and the current team and routing
                files. Require the specialist to read the live protocol directly; a Coordinator-authored
@@ -128,6 +124,28 @@ internal static class PlanningSpecialistInstructions
                preparation and evidence packaging while the human owns only irreducible interaction and
                perception. Require exact setup, AI-prepared artifacts, human actions, pass/fail observations,
                cleanup, failure-reporting guidance, and Inbox delivery before accepting the plan.
+               Treat that preparation as a manual test kit. It is not complete until the executor sends a
+               self-contained Inbox message naming an exact reproducible test target. Use branch and commit
+               for committed work; for uncommitted work identify the workspace, current HEAD, dirty state,
+               and applicable build, package, or artifact without requiring a commit merely for identity.
+               Include prerequisites and AI-prepared state, numbered Setup/Open/Act steps, expected pass/fail observations mapped to
+               stable gate proof ID, exact failure-evidence capture and reporting instructions, and Cleanup.
+               Put the full instructions in the Inbox body and embed a descriptive inline link beside each
+               step that needs a runbook, solution, project, sample file, or folder. Use the existing
+               `[Open label](app://open-path:path/from/workspace/root)` Inbox syntax. Attachments may duplicate
+               useful entry points but never replace contextual inline links. Require the
+               Inbox JSON file escape hatch for long or parser-sensitive content. A transcript-only promise,
+               prose-only path, or action that starts another agent is not delivery. The following gate must
+               depend on the preparation task and reuse its proof IDs and fixture outputs.
+               Design every gate recipe for SquadDash's chronological live approval form: Setup the
+               prepared build; Open and perform the exact linked file/folder and interaction; Observe the
+               expected result; place one atomic checkbox question for the stable requirementId immediately
+               after that observation; then Cleanup. SquadDash binds that requirement to one persisted
+               checkbox shown in both the Inbox and transcript. Do not invent a disconnected prose checklist.
+               Prepare fixtures primarily for new behavior or unavailable, fragile, destructive, or costly
+               state. Established regression checks may use the reviewer's familiar existing files and may
+               be grouped into one concise checklist. Prefer separate proof items for distinct new behavior.
+               This is planning judgment, not a deterministic reason to reject or halt a plan.
                Do not merely summarize or paraphrase
                a payload that still requires top-level submission.
                Describe the final handoff as submitting or proposing the plan. Never claim that the plan

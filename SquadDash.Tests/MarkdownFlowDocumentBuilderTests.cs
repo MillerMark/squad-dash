@@ -162,6 +162,30 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
     }
 
     [Test]
+    public void BuildInbox_RendersContextualFileOrFolderLinkAndRoutesItsTarget()
+    {
+        string? clickedTarget = null;
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(
+            "2. Open [the sample solution](app://open-path:samples/manual-test/Sample.sln) and continue.",
+            baseFontSize: 13.0,
+            onLinkClicked: target => clickedTarget = target);
+        var link = doc.Blocks.OfType<List>()
+            .Single()
+            .ListItems.Single()
+            .Blocks.OfType<Paragraph>()
+            .Single()
+            .Inlines.OfType<Hyperlink>()
+            .Single();
+
+        Assert.That(string.Concat(link.Inlines.OfType<Run>().Select(run => run.Text)),
+            Is.EqualTo("the sample solution"));
+
+        link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+
+        Assert.That(clickedTarget, Is.EqualTo("app://open-path:samples/manual-test/Sample.sln"));
+    }
+
+    [Test]
     public void AddInboxInlineText_StylesIdentifiersOnTranscriptCards() {
         var paragraph = new Paragraph();
 

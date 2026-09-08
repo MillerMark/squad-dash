@@ -55,7 +55,19 @@ For the assigned task:
 3. Build must be green when done.
 4. Do NOT emit QUICK_REPLIES_JSON.
 5. Do NOT emit HOST_COMMAND_JSON or change the task marker.
-6. End with exactly one host-owned result payload using the assigned group, task, and revision:
+6. End with exactly one host-owned result payload using the assigned group, task, and revision.
+   If—and only if—the approved task explicitly requires Inbox delivery, also emit exactly one valid
+   `INBOX_MESSAGE_JSON` or `INBOX_MESSAGE_JSON_FILE` block after the step-result payload. That Inbox
+   block is the task deliverable, not a second result payload. Do not claim the task complete unless
+   the message contains the promised material and is actually emitted. A transcript statement that
+   the instructions are ready is not delivery.
+
+Use the manual-test-kit contract from the injected Inbox instructions whenever the assigned task
+prepares human validation. The Inbox body must be usable on its own and must place clickable file or
+folder links beside the steps that need them. Keep the later human gate's
+stable proof IDs visible in the expected-observation checklist.
+
+The required step-result payload is:
 
 ```
 

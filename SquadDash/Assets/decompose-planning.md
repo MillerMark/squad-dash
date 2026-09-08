@@ -219,6 +219,52 @@ not required. Use the exact property names below; do not substitute familiar sho
   outputs and sending the instructions to the Inbox; then place the atomic live observations in the
   following human approval gate.
 
+  A manual-test-kit preparation task is complete only when it creates the promised material **and**
+  sends a self-contained Inbox message that the reviewer can follow without reconstructing context
+  from the transcript. Require the Inbox message to contain:
+  1. **Purpose and test target:** what is being verified and an exact reproducible identity appropriate
+     to its state. Use branch and commit for committed work. For uncommitted work, identify the workspace,
+     current HEAD, dirty state, and applicable build, package, artifact, or version without requiring a
+     commit merely to name the target.
+  2. **Prerequisites and prepared state:** what AI already built or created, what the human still needs,
+     and any install, launch, account, device, or environment assumptions.
+  3. **Setup, Open, and Act:** numbered, literal steps including paths, menus, commands, keyboard,
+     mouse, voice, or device actions. Do not summarize these as "exercise the feature."
+  4. **Observe:** one unambiguous expected pass/fail observation for every human proof requirement,
+     naming the matching stable `requirementId` so the Inbox checklist and approval gate agree.
+  5. **Failure capture:** the exact logs, trace categories, screenshots, recordings, error text, or
+     environment details to collect, where to find them, and how to report a failed check.
+  6. **Cleanup:** how to undo temporary installation, configuration, data, projects, files, or state.
+
+  Put the full usable instructions in the Inbox body. At the exact step where a file or folder is
+  needed, place a descriptive inline Markdown link such as
+  `[Open test instructions](app://open-path:path/to/runbook.md)`,
+  `[Open sample solution](app://open-path:path/to/sample.sln)`, or
+  `[Open fixture folder](app://open-path:path/to/fixture)`. Use workspace-relative targets when the
+  item is in the workspace. Inbox `file` attachments may duplicate the most useful entry points as
+  secondary convenience, but they do not replace links embedded beside the relevant steps. Do not
+  substitute a transcript promise, a non-clickable path mentioned only in prose, or an Inbox action
+  that starts another agent. If long Markdown or complex JSON makes an inline Inbox payload fragile,
+  use the supported
+  `INBOX_MESSAGE_JSON_FILE` escape hatch. The following human gate must depend on this preparation
+  task and reference the same proof requirement IDs and fixture outputs.
+
+  Design each proof recipe for the chronological live form SquadDash renders in the durable approval
+  Inbox message. Example: **Set up** the prepared build; **Open and perform**
+  `[Open sample solution](app://open-path:samples/Feature/Feature.sln)` and invoke the feature;
+  **Observe** the expected new result; answer the immediately following live checkbox question
+  `Does the new result appear?` (`requirementId: "new-result"`); then **Clean up** the temporary
+  state. SquadDash binds that stable requirement to the same persisted checkbox in the Inbox and
+  transcript approval card. Do not add a separate prose checkbox with no durable gate identity.
+
+  Create fixtures, sample projects, and sample files primarily for new behavior or when the required
+  state is unavailable, fragile, destructive, or costly for the reviewer to reproduce. Do not require
+  AI to duplicate familiar projects or fixtures solely to regression-check established behavior. A
+  compact instruction such as “using the existing files you normally use, confirm the listed behavior
+  still works as expected” is acceptable for ordinary regression coverage. Related existing-behavior
+  checks may share one checklist item; prefer separate proof items for distinct new behaviors. Treat
+  this as planning guidance, not a deterministic rejection or plan-execution stop.
+
 - Model validation work in three capability domains based on the tools actually available to the
   executor, not on a generic assumption that "AI can test it":
   1. **AI-reachable:** repository inspection, files, commands, deterministic tests, and browser or

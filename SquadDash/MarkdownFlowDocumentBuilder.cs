@@ -41,22 +41,25 @@ internal static class MarkdownFlowDocumentBuilder {
         Application.Current?.Resources[key] as Brush ?? fallback;
 
     public static FlowDocument Build(string markdown, double baseFontSize = 0) =>
-        BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: false);
+        BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: false, onLinkClicked: null);
 
     /// <summary>
     /// Builds Inbox Markdown and automatically gives camelCase/PascalCase identifiers the same
     /// treatment as explicit backtick code spans. Other Markdown consumers retain their existing
     /// rendering through <see cref="Build"/>.
     /// </summary>
-    public static FlowDocument BuildInbox(string markdown, double baseFontSize = 0) =>
-        BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true);
+    public static FlowDocument BuildInbox(
+        string markdown,
+        double baseFontSize = 0,
+        Action<string>? onLinkClicked = null) =>
+        BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true, onLinkClicked);
 
     /// <summary>
     /// Adds Inbox-style inline content to an existing WPF text surface. Explicit backtick spans
     /// and camelCase/PascalCase identifiers receive the standard code-reference treatment.
     /// </summary>
     internal static void AddInboxInlineText(InlineCollection inlines, string text) =>
-        AddInlineText(inlines, text, styleCodeIdentifiers: true);
+        AddInlineText(inlines, text, styleCodeIdentifiers: true, onLinkClicked: null);
 
     /// <summary>
     /// Builds a <see cref="FlowDocument"/> from <paramref name="markdown"/> and also returns,
@@ -64,13 +67,14 @@ internal static class MarkdownFlowDocumentBuilder {
     /// normalised input that produced it.  Use this to map rendered blocks back to source.
     /// </summary>
     public static FlowDocument BuildWithMap(string markdown, out List<(int StartLine, int EndLine)> blockLineRanges, double baseFontSize = 0) =>
-        BuildWithMapCore(markdown, out blockLineRanges, baseFontSize, styleCodeIdentifiers: false);
+        BuildWithMapCore(markdown, out blockLineRanges, baseFontSize, styleCodeIdentifiers: false, onLinkClicked: null);
 
     private static FlowDocument BuildWithMapCore(
         string markdown,
         out List<(int StartLine, int EndLine)> blockLineRanges,
         double baseFontSize,
-        bool styleCodeIdentifiers) {
+        bool styleCodeIdentifiers,
+        Action<string>? onLinkClicked) {
         blockLineRanges = new List<(int, int)>();
 
         if (baseFontSize <= 0)
@@ -121,19 +125,19 @@ internal static class MarkdownFlowDocumentBuilder {
             }
 
             if (TryReadTable(lines, ref index, out var tableRows)) {
-                document.Blocks.Add(BuildTable(tableRows, tableRule, tableHeader, baseFontSize, styleCodeIdentifiers));
+                document.Blocks.Add(BuildTable(tableRows, tableRule, tableHeader, baseFontSize, styleCodeIdentifiers, onLinkClicked));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
 
             if (trimmed.StartsWith("#", StringComparison.Ordinal)) {
-                document.Blocks.Add(BuildHeading(trimmed, baseFontSize, styleCodeIdentifiers));
+                document.Blocks.Add(BuildHeading(trimmed, baseFontSize, styleCodeIdentifiers, onLinkClicked));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
 
             if (trimmed.StartsWith("> ", StringComparison.Ordinal)) {
-                document.Blocks.Add(BuildQuote(trimmed[2..].Trim(), quoteFill, foreground, styleCodeIdentifiers));
+                document.Blocks.Add(BuildQuote(trimmed[2..].Trim(), quoteFill, foreground, styleCodeIdentifiers, onLinkClicked));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
@@ -161,7 +165,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 }
                 listItems.Add(currentItem.ToString());
 
-                document.Blocks.Add(BuildList(listItems, styleCodeIdentifiers));
+                document.Blocks.Add(BuildList(listItems, styleCodeIdentifiers, onLinkClicked));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
@@ -198,7 +202,7 @@ internal static class MarkdownFlowDocumentBuilder {
                     }
                 }
                 listItems.Add(currentItem.ToString());
-                document.Blocks.Add(BuildOrderedList(listItems, styleCodeIdentifiers));
+                document.Blocks.Add(BuildOrderedList(listItems, styleCodeIdentifiers, onLinkClicked));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
@@ -223,7 +227,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 paraLines.Append(' ').Append(nextTrimmed);
                 index++;
             }
-            document.Blocks.Add(BuildParagraph(paraLines.ToString(), styleCodeIdentifiers));
+            document.Blocks.Add(BuildParagraph(paraLines.ToString(), styleCodeIdentifiers, onLinkClicked));
             blockLineRanges.Add((startIndex, index));
         }
 
@@ -253,7 +257,11 @@ internal static class MarkdownFlowDocumentBuilder {
             .Replace('\r', '\n');
     }
 
-    private static Paragraph BuildHeading(string line, double baseFontSize, bool styleCodeIdentifiers) {
+    private static Paragraph BuildHeading(
+        string line,
+        double baseFontSize,
+        bool styleCodeIdentifiers,
+        Action<string>? onLinkClicked) {
         var level = line.TakeWhile(character => character == '#').Count();
         var text = line[level..].Trim();
         var size = level switch {
@@ -270,7 +278,7 @@ internal static class MarkdownFlowDocumentBuilder {
         {
             paragraph.FontSize = size;
             paragraph.FontWeight = FontWeights.SemiBold;
-            AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers: true);
+            AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers: true, onLinkClicked);
         }
         else
         {
@@ -283,15 +291,23 @@ internal static class MarkdownFlowDocumentBuilder {
         return paragraph;
     }
 
-    private static Paragraph BuildParagraph(string text, bool styleCodeIdentifiers) {
+    private static Paragraph BuildParagraph(
+        string text,
+        bool styleCodeIdentifiers,
+        Action<string>? onLinkClicked) {
         var paragraph = new Paragraph {
             Margin = new Thickness(0, 0, 0, 10)
         };
-        AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers);
+        AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers, onLinkClicked);
         return paragraph;
     }
 
-    private static Block BuildQuote(string text, Brush quoteFill, Brush foreground, bool styleCodeIdentifiers) {
+    private static Block BuildQuote(
+        string text,
+        Brush quoteFill,
+        Brush foreground,
+        bool styleCodeIdentifiers,
+        Action<string>? onLinkClicked) {
         // Use a flow Paragraph (not BlockUIContainer) so the text is included in
         // FlowDocumentScrollViewer selection/copy operations.
         var paragraph = new Paragraph {
@@ -300,11 +316,14 @@ internal static class MarkdownFlowDocumentBuilder {
             Margin     = new Thickness(0, 2, 0, 10),
             Foreground = foreground,
         };
-        AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers);
+        AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers, onLinkClicked);
         return paragraph;
     }
 
-    private static List BuildList(IEnumerable<string> items, bool styleCodeIdentifiers) {
+    private static List BuildList(
+        IEnumerable<string> items,
+        bool styleCodeIdentifiers,
+        Action<string>? onLinkClicked) {
         var list = new List {
             Margin = new Thickness(16, 0, 0, 10),
             MarkerStyle = TextMarkerStyle.Disc
@@ -314,14 +333,17 @@ internal static class MarkdownFlowDocumentBuilder {
             var paragraph = new Paragraph {
                 Margin = new Thickness(0, 0, 0, 4)
             };
-            AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers);
+            AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked);
             list.ListItems.Add(new ListItem(paragraph));
         }
 
         return list;
     }
 
-    private static List BuildOrderedList(IEnumerable<string> items, bool styleCodeIdentifiers) {
+    private static List BuildOrderedList(
+        IEnumerable<string> items,
+        bool styleCodeIdentifiers,
+        Action<string>? onLinkClicked) {
         var list = new List {
             MarkerStyle = TextMarkerStyle.Decimal,
             Margin      = new Thickness(24, 2, 0, 2),
@@ -331,7 +353,7 @@ internal static class MarkdownFlowDocumentBuilder {
             var paragraph = new Paragraph {
                 Margin = new Thickness(0, 1, 0, 1)
             };
-            AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers);
+            AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked);
             list.ListItems.Add(new ListItem(paragraph));
         }
         return list;
@@ -382,7 +404,8 @@ internal static class MarkdownFlowDocumentBuilder {
         Brush tableRule,
         Brush tableHeader,
         double baseFontSize,
-        bool styleCodeIdentifiers) {
+        bool styleCodeIdentifiers,
+        Action<string>? onLinkClicked) {
         var columnCount = rows.Max(row => row.Length);
 
         var foreground = Res("LabelText", DefaultForegroundBrush);
@@ -411,7 +434,7 @@ internal static class MarkdownFlowDocumentBuilder {
                     FontSize          = fontSize,
                 };
                 if (styleCodeIdentifiers)
-                    AddInlineText(tb.Inlines, text, styleCodeIdentifiers: true);
+                    AddInlineText(tb.Inlines, text, styleCodeIdentifiers: true, onLinkClicked);
                 else
                     tb.Text = text;
 
@@ -487,7 +510,8 @@ internal static class MarkdownFlowDocumentBuilder {
     private static void AddInlineText(
         InlineCollection inlines,
         string text,
-        bool styleCodeIdentifiers) {
+        bool styleCodeIdentifiers,
+        Action<string>? onLinkClicked) {
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
         var segments = normalized.Split('`');
 
@@ -501,9 +525,51 @@ internal static class MarkdownFlowDocumentBuilder {
                 continue;
             }
 
-            // Outside code span — split on colored-circle emoji and draw them as Ellipse.
-            AddTextWithCircleEmoji(inlines, segments[index], styleCodeIdentifiers);
+            // Outside code spans, Inbox content may contain deliberate inline navigation links.
+            AddTextWithMarkdownLinks(inlines, segments[index], styleCodeIdentifiers, onLinkClicked);
         }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex MarkdownLinkRegex = new(
+        @"\[([^\]]+)\]\(([^)]+)\)",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static void AddTextWithMarkdownLinks(
+        InlineCollection inlines,
+        string text,
+        bool styleCodeIdentifiers,
+        Action<string>? onLinkClicked) {
+        if (string.IsNullOrEmpty(text)) return;
+
+        var position = 0;
+        foreach (System.Text.RegularExpressions.Match match in MarkdownLinkRegex.Matches(text)) {
+            var target = match.Groups[2].Value.Trim();
+            var canNavigate = onLinkClicked is not null &&
+                (target.StartsWith("app://open-path:", StringComparison.OrdinalIgnoreCase) ||
+                 target.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                 target.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+            if (!canNavigate)
+                continue;
+
+            if (match.Index > position)
+                AddTextWithCircleEmoji(inlines, text[position..match.Index], styleCodeIdentifiers);
+
+            var capturedTarget = target;
+            var hyperlink = new Hyperlink(new Run(match.Groups[1].Value.Trim())) {
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = target.StartsWith("app://open-path:", StringComparison.OrdinalIgnoreCase)
+                    ? "Open file or folder"
+                    : "Open link",
+            };
+            hyperlink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            hyperlink.Click += (_, _) => onLinkClicked!(capturedTarget);
+            inlines.Add(hyperlink);
+            position = match.Index + match.Length;
+        }
+
+        if (position < text.Length)
+            AddTextWithCircleEmoji(inlines, text[position..], styleCodeIdentifiers);
     }
 
     // Matches **bold**, __bold__, *italic*, _italic_ — bold patterns listed first so ** beats *.

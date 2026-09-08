@@ -189,7 +189,7 @@ internal sealed class SquadTeamRosterLoaderTests {
 
         var missing = SquadTeamRosterLoader.GetMissingUtilityAgentNames(workspace.RootPath);
 
-        Assert.That(missing, Is.EqualTo(new[] { "Ralph", "Rai", "Fact Checker" }));
+        Assert.That(missing, Is.EqualTo(new[] { "Ralph", "Rai", "Fact Checker", "Rory" }));
     }
 
     [Test]
@@ -206,6 +206,7 @@ internal sealed class SquadTeamRosterLoaderTests {
             | Scribe | Session Logger | — | Silent |
             | Rai | RAI Reviewer | — | Silent |
             | Fact Checker | Fact Checker | — | Silent |
+            | Rory | Planning Architect | — | Ready |
             """);
 
         var missing = SquadTeamRosterLoader.GetMissingUtilityAgentNames(workspace.RootPath);

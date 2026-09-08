@@ -19,6 +19,8 @@ internal static class AgentRosterVisibilityPolicy {
     internal static bool IsVisibleUtilityAgent(string? name, string? folderPath) =>
         IsScribe(name) ||
         IsScribeFolder(folderPath) ||
+        IsRory(name) ||
+        IsRoryFolder(folderPath) ||
         IsFactChecker(name) ||
         IsFactCheckerFolder(folderPath);
 
@@ -28,6 +30,9 @@ internal static class AgentRosterVisibilityPolicy {
     private static bool IsFactChecker(string? value) =>
         string.Equals(value?.Trim(), "Fact Checker", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsRory(string? value) =>
+        string.Equals(value?.Trim(), "Rory", StringComparison.OrdinalIgnoreCase);
+
     private static bool IsScribeFolder(string? folderPath) {
         return IsUtilityFolder(folderPath, IsScribe);
     }
@@ -35,6 +40,14 @@ internal static class AgentRosterVisibilityPolicy {
     private static bool IsFactCheckerFolder(string? folderPath) {
         return IsUtilityFolder(folderPath, IsFactCheckerFolderName);
     }
+
+    private static bool IsRoryFolder(string? folderPath) {
+        return IsUtilityFolder(folderPath, IsRoryFolderName);
+    }
+
+    private static bool IsRoryFolderName(string? value) =>
+        string.Equals(value?.Trim(), SquadPlanningWorkspaceRepairService.AgentFolderName,
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool IsFactCheckerFolderName(string? value) =>
         string.Equals(value?.Trim(), "fact-checker", StringComparison.OrdinalIgnoreCase);

@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace SquadDash;
 
 internal sealed class SquadTeamRosterLoader {
-    private static readonly string[] UtilityAgentFolderNames = ["ralph", "scribe", "Rai", "fact-checker"];
+    private static readonly string[] UtilityAgentFolderNames = ["ralph", "scribe", "Rai", "fact-checker", "rory"];
 
     internal static bool HasNonUtilityMembers(IEnumerable<SquadTeamMember> members) =>
         members.Any(member => !member.IsUtilityAgent);

@@ -37367,6 +37367,7 @@ public partial class MainWindow : Window
 
         var repairSw = Stopwatch.StartNew();
         SquadScribeWorkspaceRepairService.Repair(_currentWorkspace.FolderPath);
+        SquadPlanningWorkspaceRepairService.Repair(_currentWorkspace.FolderPath);
         var teamRootAssessment = SquadTeamRootRepairService.Assess(_currentWorkspace.FolderPath);
         if (teamRootAssessment.ConfigNeedsRepair)
         {

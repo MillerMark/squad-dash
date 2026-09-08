@@ -75,6 +75,12 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("**AI-reachable:**"));
             Assert.That(instruction, Does.Contain("**Human-only:**"));
             Assert.That(instruction, Does.Contain("**Mixed:**"));
+            Assert.That(instruction, Does.Contain("manual-test-kit preparation task is complete only when"));
+            Assert.That(instruction, Does.Contain("full usable instructions in the Inbox body"));
+            Assert.That(instruction, Does.Contain("[Open fixture folder](app://open-path:"));
+            Assert.That(instruction, Does.Contain("app://open-path:"));
+            Assert.That(instruction, Does.Contain("do not replace links embedded beside the relevant steps"));
+            Assert.That(instruction, Does.Contain("same proof requirement IDs and fixture outputs"));
         });
     }
 
@@ -286,6 +292,43 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("Inbox actions are deferred user choices"));
             Assert.That(instruction, Does.Contain("launch that agent with the native delegation/tool path"));
             Assert.That(instruction, Does.Not.Contain("Strongly encouraged"));
+        });
+    }
+
+    [Test]
+    public void InboxInstruction_DefinesExistingProtocolAsManualTestKitDelivery()
+    {
+        var instruction = new DefaultPromptInstructionProvider().Get().InboxMessage;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("manual test kit"));
+            Assert.That(instruction, Does.Contain("Inbox delivery is required"));
+            Assert.That(instruction, Does.Contain("numbered Setup, Open, and Act steps"));
+            Assert.That(instruction, Does.Contain("stable human-proof requirement ID"));
+            Assert.That(instruction, Does.Contain("exact reproducible target identity"));
+            Assert.That(instruction, Does.Contain("established regression checks may use the user's familiar existing files"));
+            Assert.That(instruction, Does.Contain("At the exact step"));
+            Assert.That(instruction, Does.Contain("app://open-path:path/from/workspace/root"));
+            Assert.That(instruction, Does.Contain("file-or-folder"));
+            Assert.That(instruction, Does.Contain("INBOX_MESSAGE_JSON_FILE"));
+        });
+    }
+
+    [Test]
+    public void PlanExecutionInstruction_AllowsRequiredInboxDeliverableWithoutWeakeningResultProtocol()
+    {
+        var instruction = SquadInstallerService.LoadEmbeddedLoopMarkdownPublic("loop-executing-plan.md");
+
+        Assert.That(instruction, Is.Not.Null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("approved task explicitly requires Inbox delivery"));
+            Assert.That(instruction, Does.Contain("not a second result payload"));
+            Assert.That(instruction, Does.Contain("Do not claim the task complete"));
+            Assert.That(instruction, Does.Contain("stable proof IDs"));
+            Assert.That(instruction, Does.Contain("DECOMPOSE_STEP_RESULT_JSON:"));
         });
     }
 

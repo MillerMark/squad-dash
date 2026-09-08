@@ -28,8 +28,10 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             "- Your response is a detailed report, analysis, or long-form answer that the user might want to refer back to\n" +
             "- You are completing a code health task with a report-only safety level\n" +
             "- The user asked a question during a queued run and may have missed the answer in the transcript\n" +
+            "- An approved plan task requires a manual test kit or other human-test preparation; in that case Inbox delivery is required, not optional\n" +
             "\n" +
             "Only send an inbox message when the content genuinely warrants it — do not send one for every response.\n" +
+            "For a required manual test kit, make the Inbox message self-contained. Include an exact reproducible target identity: use branch and commit for committed work, or workspace path, current HEAD, dirty-state disclosure, and the applicable build/package/artifact for uncommitted work. Include prerequisites and the state AI prepared; numbered Setup, Open, and Act steps; expected pass/fail observations mapped to stable human-proof requirement IDs; exact failure evidence to collect and how to report it; and Cleanup. Prepare fixtures mainly for new behavior or hard-to-recreate state; established regression checks may use the user's familiar existing files and may be grouped concisely. Put the full usable instructions in the body. At the exact step where the user needs a prepared runbook, solution, project, sample file, or folder, embed a descriptive inline link using `[Open label](app://open-path:path/from/workspace/root)`. Inbox opens linked Markdown in its viewer and opens other linked files or folders with the operating system. Attachments may duplicate useful entry points as secondary convenience, but they do not replace contextual inline links. Do not replace delivery with a transcript promise, a non-clickable path only mentioned in prose, or an action that starts another agent. For long or parser-sensitive test kits, use `INBOX_MESSAGE_JSON_FILE`.\n" +
             "\n" +
             "The format is:\n" +
             "INBOX_MESSAGE_JSON:\n" +
@@ -45,7 +47,7 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             "For attachments, each item has a `type` field. Supported types:\n" +
             "- `\"url\"` — `{ \"type\": \"url\", \"label\": \"...\", \"href\": \"https://...\" }`\n" +
             "- `\"task-ref\"` — `{ \"type\": \"task-ref\", \"label\": \"...\", \"taskId\": \"...\" }`\n" +
-            "- `\"file\"` — `{ \"type\": \"file\", \"label\": \"...\", \"path\": \"relative/path/to/file\" }`\n" +
+            "- `\"file\"` — `{ \"type\": \"file\", \"label\": \"...\", \"path\": \"relative/path/to/file-or-folder\" }`; clicking opens Markdown in SquadDash and other files or folders with the operating system\n" +
             "- `\"text\"` — `{ \"type\": \"text\", \"label\": \"...\", \"content\": \"Markdown text content\" }`\n" +
             "\n" +
             "An optional `actions` array adds deferred quick-reply buttons to the message. " +

@@ -191,8 +191,10 @@ internal sealed class SquadInstallerService {
                 "Run Squad Doctor",
                 ["doctor"])
             .ConfigureAwait(false);
-        if (doctorResult.Success)
+        if (doctorResult.Success) {
             SquadScribeWorkspaceRepairService.Repair(activeDirectory);
+            SquadPlanningWorkspaceRepairService.Repair(activeDirectory);
+        }
 
         return doctorResult;
     }
@@ -353,6 +355,7 @@ internal sealed class SquadInstallerService {
 
         WriteSquadDashUniverseFiles(activeDirectory, layout.TeamSquadFolderPath);
         SquadScribeWorkspaceRepairService.Repair(activeDirectory);
+        SquadPlanningWorkspaceRepairService.Repair(activeDirectory);
     }
 
     private static void WriteSquadDashUniverseFiles(string activeDirectory, string? squadFolderPath = null) {

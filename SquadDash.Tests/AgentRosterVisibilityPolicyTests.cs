@@ -59,6 +59,25 @@ public class AgentRosterVisibilityPolicyTests {
     }
 
     [Test]
+    public void ShouldShow_ReturnsTrue_ForBuiltInRoryUtilityAgent() {
+        var agent = new AgentStatusCard(
+            "Rory",
+            "R",
+            "Planning Architect",
+            "Ready",
+            string.Empty,
+            string.Empty,
+            "#FF4472C4",
+            "rory",
+            charterPath: @"C:\Repo\.squad\agents\rory\charter.md",
+            folderPath: @"C:\Repo\.squad\agents\rory",
+            isCompact: true,
+            isUtilityAgent: true);
+
+        Assert.That(AgentRosterVisibilityPolicy.ShouldShow(agent), Is.True);
+    }
+
+    [Test]
     public void ShouldShow_ReturnsFalse_ForOtherUtilityAgents() {
         var agent = new AgentStatusCard(
             "Ralph",

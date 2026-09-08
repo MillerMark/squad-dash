@@ -45,11 +45,13 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("only meaningful outcome is a human observation"));
             Assert.That(charter, Does.Contain("Markdown runbook"));
             Assert.That(charter, Does.Contain("SquadDash Inbox"));
+            Assert.That(charter, Does.Contain("chronologically in\n  the durable approval Inbox message"));
+            Assert.That(charter, Does.Contain("same persisted checkbox is shown in Inbox and transcript"));
         });
     }
 
     [Test]
-    public void BuildDelegationGuidance_PrefersRosterPlannerAndProvidesGenericFallback()
+    public void BuildDelegationGuidance_RequiresBuiltInRoryAndForbidsCoordinatorPlanning()
     {
         var guidance = PlanningSpecialistInstructions.BuildDelegationGuidance()
             .ReplaceLineEndings("\n");
@@ -59,19 +61,18 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("`.squad/team.md`"));
             Assert.That(guidance, Does.Contain("`.squad/routing.md`"));
             Assert.That(guidance, Does.Contain("`delegate_roster_agent`"));
-            Assert.That(guidance, Does.Contain("generic `task` tool"));
-            Assert.That(guidance, Does.Contain("Do not give that worker Rory's name"));
-            Assert.That(guidance, Does.Contain("complete replacement `TASKS_JSON` with the same `groupId`"));
+            Assert.That(guidance, Does.Contain("built-in named Planning Architect, `rory`"));
+            Assert.That(guidance, Does.Contain("Do not author even a small or mechanical plan delta"));
+            Assert.That(guidance, Does.Contain("do not\n   replace Rory with a generic `task` worker"));
             Assert.That(guidance, Does.Contain("STAGED_PLAN_REVISION_REQUEST_JSON routing"));
             Assert.That(guidance, Does.Contain("`staged_plan_revision_request` argument"));
             Assert.That(guidance, Does.Contain("add no\n   invented operation schema"));
-            Assert.That(guidance, Does.Contain("exact-match text-edit operations"));
+            Assert.That(guidance, Does.Match("exact-match text-edit\\s+operations"));
             Assert.That(guidance, Does.Contain("casual references such as \"this plan\""));
             Assert.That(guidance, Does.Contain("short T/G/V references"));
             Assert.That(guidance, Does.Contain("size-aware revisionStrategy"));
             Assert.That(guidance, Does.Contain("`PLAN_REVISION_JSON` only when revising an accepted durable\n   plan"));
             Assert.That(guidance, Does.Contain("Do not substitute one protocol\n   for another"));
-            Assert.That(guidance, Does.Contain("small mechanical\n   staged correction"));
             Assert.That(guidance, Does.Contain("collected, validated, and\n   applied directly by SquadDash"));
             Assert.That(guidance, Does.Contain("do not run shell extraction"));
             Assert.That(guidance, Does.Contain("required marker at the top level"));
@@ -91,6 +92,10 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("only meaningful outcome is a human observation"));
             Assert.That(guidance, Does.Contain("Markdown runbook"));
             Assert.That(guidance, Does.Contain("SquadDash Inbox"));
+            Assert.That(guidance, Does.Contain("Established regression checks may use the reviewer's familiar existing files"));
+            Assert.That(guidance, Does.Contain("not a deterministic reason to reject or halt a plan"));
+            Assert.That(guidance, Does.Contain("chronological live approval form"));
+            Assert.That(guidance, Does.Contain("persisted\n   checkbox shown in both the Inbox and transcript"));
         });
     }
 

@@ -29,6 +29,41 @@ internal sealed class DecomposeStepResultParserTests
     }
 
     [Test]
+    public void CompleteResult_FollowedByRequiredInboxDelivery_ParsesBothProtocols()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId":"PLAN-20260725",
+              "taskId":"PLAN-20260725-001",
+              "revision":"abc123",
+              "status":"complete",
+              "commit":"abcdef1",
+              "summary":"Prepared and delivered the manual test kit.",
+              "remainingWork":[],
+              "verification":{"status":"passed","command":"test -f runbook.md","summary":"Runbook exists."}
+            }
+
+            INBOX_MESSAGE_JSON:
+            {
+              "subject":"Manual test kit",
+              "from":"coordinator",
+              "body":"Open [the fixture](app://open-path:samples/fixture).",
+              "attachments":[]
+            }
+            """;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(DecomposeStepResultParser.TryParse(text, out var result, out var resultError),
+                Is.True, resultError);
+            Assert.That(result!.TaskId, Is.EqualTo("PLAN-20260725-001"));
+            Assert.That(InboxMessageParser.TryExtract(text, out _, out var inbox), Is.True);
+            Assert.That(inbox!.Subject, Is.EqualTo("Manual test kit"));
+        });
+    }
+
+    [Test]
     public void CompleteResult_WithStructuredCompletedWork_PreservesItemBoundariesAndSentences()
     {
         var text = """
