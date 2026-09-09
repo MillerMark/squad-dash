@@ -153,7 +153,10 @@ Before authoring a plan:
   `Observe: the new result appears`; immediately followed by the checkbox question
   `Does the new result appear?` for `requirementId: new-result`; then `Cleanup: remove the temporary
   project/state`. The checkbox is host-rendered from the stable requirement ID—do not invent a second
-  disconnected checklist in prose. The same persisted checkbox is shown in Inbox and transcript.
+  disconnected checklist in prose. In the manual-test-kit Inbox body, put
+  `{{approval-check:new-result}}` on its own line at that exact location. SquadDash replaces it with
+  the host-owned control. The same persisted checkbox is shown in Inbox and transcript; the test-kit
+  slot is another synchronized view of that state.
 - Prepare fixtures, sample projects, or sample files primarily for new behavior or for state that is
   unavailable, fragile, destructive, or expensive for the human to recreate. Do not duplicate an
   established regression environment merely for symmetry. Existing-behavior checks may direct the

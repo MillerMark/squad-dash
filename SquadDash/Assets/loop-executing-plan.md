@@ -69,6 +69,10 @@ stable proof IDs visible in the expected-observation checklist. Resolve relative
 targets from the active SquadDash workspace directory—not the Git repository root or shell directory—
 and verify every target exists before returning the Inbox payload. Use an absolute path for any linked
 artifact outside the active workspace.
+Immediately after each proof's final expected pass/fail observation, put
+`{{approval-check:requirement-id}}` on its own line using that proof's exact stable ID. SquadDash owns
+the resulting live control and synchronizes it with the approval Inbox item and transcript card; do
+not substitute a Markdown checkbox.
 
 The required step-result payload is:
 

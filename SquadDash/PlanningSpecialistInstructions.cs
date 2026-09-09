@@ -146,6 +146,9 @@ internal static class PlanningSpecialistInstructions
                expected result; place one atomic checkbox question for the stable requirementId immediately
                after that observation; then Cleanup. SquadDash binds that requirement to one persisted
                checkbox shown in both the Inbox and transcript. Do not invent a disconnected prose checklist.
+               Require the manual-test-kit Inbox body to mark that exact location with
+               `{{"{{approval-check:requirement-id}}"}}` on its own line, using the real stable requirement ID.
+               SquadDash replaces the marker with its host-owned synchronized checkbox.
                Prepare fixtures primarily for new behavior or unavailable, fragile, destructive, or costly
                state. Established regression checks may use the reviewer's familiar existing files and may
                be grouped into one concise checklist. Prefer separate proof items for distinct new behavior.

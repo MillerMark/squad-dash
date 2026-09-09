@@ -99,6 +99,7 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("not a deterministic reason to reject or halt a plan"));
             Assert.That(guidance, Does.Contain("chronological live approval form"));
             Assert.That(guidance, Does.Contain("persisted\n   checkbox shown in both the Inbox and transcript"));
+            Assert.That(guidance, Does.Contain("{{approval-check:requirement-id}}"));
             Assert.That(guidance, Does.Contain("not from the Git repository root or shell directory"));
             Assert.That(guidance, Does.Contain("verify every\n   resolved target exists before delivery"));
             Assert.That(guidance, Does.Contain("absolute path"));

@@ -259,6 +259,8 @@ not required. Use the exact property names below; do not substitute familiar sho
   `Does the new result appear?` (`requirementId: "new-result"`); then **Clean up** the temporary
   state. SquadDash binds that stable requirement to the same persisted checkbox in the Inbox and
   transcript approval card. Do not add a separate prose checkbox with no durable gate identity.
+  In the manual-test-kit Inbox body, put `{{approval-check:new-result}}` on its own line at that
+  exact location. SquadDash replaces the marker with the host-owned synchronized checkbox.
 
   Create fixtures, sample projects, and sample files primarily for new behavior or when the required
   state is unavailable, fragile, destructive, or costly for the reviewer to reproduce. Do not require

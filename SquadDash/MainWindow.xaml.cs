@@ -15543,12 +15543,31 @@ public partial class MainWindow : Window
         }
 
         await _planApprovalRuntime.RestoreAsync(approvalPlans);
+        BindExistingManualTestKitMessages(_planStore.LoadAll());
         PruneArchivedPlanFamilyArtifacts(approvalPlans);
         PlanRecoveryDecisionHandler.ArchiveObsoleteAppliedNotifications(_inboxStore);
         ReconcileDecomposeRecoveryInboxMessages();
         var messages = _inboxStore.LoadAll();
         _inboxPanel?.Refresh(messages);
         ReconcileOpenInboxWindows(messages);
+    }
+
+    private void BindExistingManualTestKitMessages(IReadOnlyList<Plan> plans)
+    {
+        if (_inboxStore is null || plans.Count == 0)
+            return;
+
+        foreach (var message in _inboxStore.LoadAll())
+        {
+            var bound = ManualTestKitApprovalBinding.TryBindExistingMessage(message, plans);
+            if (ReferenceEquals(bound, message))
+                continue;
+
+            _inboxStore.Save(bound);
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                $"Bound existing manual test kit message={message.Id} plan={bound.ResolvePlanGroupId()}");
+        }
     }
 
     private async Task ProcessPlanApprovalsAfterStepAsync(
@@ -15625,6 +15644,9 @@ public partial class MainWindow : Window
                         AppendInboxReceivedEntry(updatedMessage.Subject, updatedMessage.Id);
                 }
             }
+            RefreshOpenPlanBoundInboxWindows(
+                advance.UpdatedPlan.PlanId,
+                exceptMessageId: advance.MessageId);
             await TryShowApprovalCalloutAsync(advance.UpdatedPlan, primaryGate);
         }
 
@@ -16716,6 +16738,7 @@ public partial class MainWindow : Window
                 if (updatedMessage is not null)
                     RefreshOpenApprovalInboxWindows(messageId, updatedMessage);
             }
+            RefreshOpenPlanBoundInboxWindows(clickToken.PlanId, exceptMessageId: messageId);
 
             AppendLoopOutputLine(
                 $"▶ Approved {gateIdsToResolve?.Count ?? clickToken.GateIds.Count} checkpoint(s) for plan {clickToken.PlanId}.",
@@ -18451,6 +18474,7 @@ public partial class MainWindow : Window
                 _inboxPanel?.Refresh(messages);
                 if (_inboxStore.GetById(messageId) is { } message)
                     RefreshOpenApprovalInboxWindows(messageId, message);
+                RefreshOpenPlanBoundInboxWindows(planId, exceptMessageId: messageId);
             }
 
             if (_openPlanApprovalReviewWindows.ContainsKey(planId) &&
@@ -18471,6 +18495,29 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 "Approval",
                 $"Could not synchronize human-review selection plan={planId} item={item.ItemId}: {ex.Message}");
+        }
+    }
+
+    private void RefreshOpenPlanBoundInboxWindows(string planId, string? exceptMessageId = null)
+    {
+        if (_inboxStore is null)
+            return;
+
+        foreach (var window in _openInboxWindows.Where(candidate =>
+                     candidate.HasManualTestKitApprovalBinding &&
+                     string.Equals(candidate.PlanGroupId, planId, StringComparison.Ordinal) &&
+                     !string.Equals(candidate.MessageId, exceptMessageId, StringComparison.Ordinal)).ToArray())
+        {
+            if (_inboxStore.GetById(window.MessageId) is not { } message)
+                continue;
+            try
+            {
+                window.CompleteApprovalUpdate(message, DispatchInboxAction);
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write("Approval", $"Plan-bound Inbox window refresh failed: {ex.Message}");
+            }
         }
     }
 
@@ -57100,6 +57147,24 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private InboxMessage BindPlanTaskManualTestKitIfApplicable(InboxMessage message)
+    {
+        message = ManualTestKitApprovalBinding.RemoveUntrustedBinding(message);
+        var result = _capturedDecomposeStepResult;
+        if (result is null || _planStore?.Load(result.GroupId) is not { } plan ||
+            !string.Equals(plan.Revision, result.Revision, StringComparison.Ordinal))
+            return message;
+
+        var bound = ManualTestKitApprovalBinding.BindForCompletedTask(message, plan, result.TaskId);
+        if (!ReferenceEquals(bound, message))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                $"INBOX_SAVE: bound manual test kit to plan={plan.PlanId} task={result.TaskId}");
+        }
+        return bound;
+    }
+
     /// <summary>
     /// Saves any INBOX_MESSAGE_JSON block found in <paramref name="rawResponse"/> to the inbox store
     /// and refreshes the panel. No-ops if already saved for this turn, if no block is found, or if
@@ -57312,7 +57377,7 @@ public partial class MainWindow : Window
         if (!TryValidatePlanTaskInboxBeforeSave(dto, responseForParsing, out _))
             return null;
 
-        var message = new InboxMessage
+        var message = BindPlanTaskManualTestKitIfApplicable(new InboxMessage
         {
             Id          = Guid.NewGuid().ToString("N"),
             Subject     = dto.Subject,
@@ -57323,7 +57388,7 @@ public partial class MainWindow : Window
             GitSha      = null,   // populated asynchronously after save (see below)
             Attachments = dto.Attachments,
             Actions     = dto.Actions,
-        };
+        });
 
         if (_inboxStore.FindRecentSimilarMessage(message, TimeSpan.FromMinutes(5)) is { } existing)
         {
@@ -57409,7 +57474,7 @@ public partial class MainWindow : Window
                 $"Bytes: {artifact.ByteLength}"
         });
 
-        var message = new InboxMessage
+        var message = BindPlanTaskManualTestKitIfApplicable(new InboxMessage
         {
             Id          = Guid.NewGuid().ToString("N"),
             Subject     = dto.Subject,
@@ -57420,7 +57485,7 @@ public partial class MainWindow : Window
             GitSha      = null,
             Attachments = attachments,
             Actions     = dto.Actions,
-        };
+        });
 
         if (_inboxStore.FindRecentSimilarMessage(message, TimeSpan.FromMinutes(5)) is { } existing)
         {

@@ -306,6 +306,8 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("Inbox delivery is required"));
             Assert.That(instruction, Does.Contain("numbered Setup, Open, and Act steps"));
             Assert.That(instruction, Does.Contain("stable human-proof requirement ID"));
+            Assert.That(instruction, Does.Contain("{{approval-check:requirement-id}}"));
+            Assert.That(instruction, Does.Contain("live checkbox shared with the approval Inbox item and transcript card"));
             Assert.That(instruction, Does.Contain("exact reproducible target identity"));
             Assert.That(instruction, Does.Contain("established regression checks may use the user's familiar existing files"));
             Assert.That(instruction, Does.Contain("At the exact step"));
@@ -335,6 +337,7 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("active SquadDash workspace directory"));
             Assert.That(instruction, Does.Contain("verify every target exists"));
             Assert.That(instruction, Does.Contain("absolute path"));
+            Assert.That(instruction, Does.Contain("{{approval-check:requirement-id}}"));
             Assert.That(instruction, Does.Contain("DECOMPOSE_STEP_RESULT_JSON:"));
         });
     }

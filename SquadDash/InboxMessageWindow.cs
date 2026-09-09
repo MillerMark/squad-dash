@@ -22,6 +22,8 @@ namespace SquadDash;
 internal sealed class InboxMessageWindow : ChromedWindow
 {
     public string MessageId { get; }
+    public string? PlanGroupId => _message.ResolvePlanGroupId();
+    public bool HasManualTestKitApprovalBinding => ManualTestKitApprovalBinding.Read(_message) is not null;
 
     private readonly Func<string, TaskItem?>? _lookupTask;
     private readonly Action<string, InboxMessage>? _attachSelectedTextToChat;
@@ -794,26 +796,38 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     private FlowDocument BuildBodyDocument(InboxMessage message)
     {
+        var body = message.Body ?? string.Empty;
+        var binding = ManualTestKitApprovalBinding.Read(message);
+        var planId = message.ResolvePlanGroupId();
+        var plan = string.IsNullOrWhiteSpace(planId) ? null : _loadPlan?.Invoke(planId);
+        var gateIds = DurableApprovalRequestManager.ReadState(message)?.ActiveGateIds
+            ?? binding?.GateIds
+            ?? [];
+        var gates = plan?.ApprovalGates
+            .Where(gate => gateIds.Contains(gate.GateId, StringComparer.Ordinal))
+            .ToArray()
+            ?? [];
+        IReadOnlyList<PlanHumanReviewChecklistItem> checklist = plan is null
+            ? []
+            : PlanHumanReviewChecklist.Build(plan, gates);
+        if (binding is not null)
+            body = ManualTestKitChecklistComposer.Compose(body, checklist);
+
         var document = MarkdownFlowDocumentBuilder.BuildInbox(
-            message.Body ?? string.Empty,
+            body,
             _bodyFontSize,
             OpenInlineBodyLink);
         InboxCommitLinkPresenter.Attach(document, _openCommit);
         InboxPlanLinkPresenter.Attach(document, message, _openDecomposePlan);
 
-        var planId = message.ResolvePlanGroupId();
-        var plan = string.IsNullOrWhiteSpace(planId) ? null : _loadPlan?.Invoke(planId);
         if (plan is not null && _onHumanReviewSelectionChanged is not null)
         {
-            var activeGateIds = DurableApprovalRequestManager.ReadState(message)?.ActiveGateIds ?? [];
-            var activeGates = plan.ApprovalGates
-                .Where(gate => activeGateIds.Contains(gate.GateId, StringComparer.Ordinal))
-                .ToArray();
-            var checklist = PlanHumanReviewChecklist.Build(plan, activeGates);
             InboxApprovalChecklistPresenter.Attach(
                 document,
                 checklist,
-                (item, isChecked) => _onHumanReviewSelectionChanged(plan.PlanId, item, isChecked));
+                (item, isChecked) => _onHumanReviewSelectionChanged(plan.PlanId, item, isChecked),
+                _bodyFontSize,
+                isEnabled: gates.All(gate => gate.Status == PlanGateStatus.AwaitingApproval));
         }
 
         AttachBodyLinkCopyMenus(document, _workspaceFolder);

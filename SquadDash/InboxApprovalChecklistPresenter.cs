@@ -17,7 +17,9 @@ internal static class InboxApprovalChecklistPresenter
     internal static int Attach(
         FlowDocument document,
         IReadOnlyList<PlanHumanReviewChecklistItem> items,
-        Action<PlanHumanReviewChecklistItem, bool> onSelectionChanged)
+        Action<PlanHumanReviewChecklistItem, bool> onSelectionChanged,
+        double fontSize,
+        bool isEnabled = true)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(items);
@@ -41,9 +43,10 @@ internal static class InboxApprovalChecklistPresenter
                 Tag = item,
                 Margin = new Thickness(0, 2, 0, 2),
                 VerticalContentAlignment = VerticalAlignment.Top,
+                FontSize = fontSize,
+                IsEnabled = isEnabled,
             };
             checkBox.SetResourceReference(Control.ForegroundProperty, "ImportantText");
-            checkBox.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
             checkBox.Checked += (_, _) => onSelectionChanged(item, true);
             checkBox.Unchecked += (_, _) => onSelectionChanged(item, false);
 

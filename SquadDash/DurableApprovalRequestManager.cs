@@ -556,7 +556,8 @@ internal sealed class DurableApprovalRequestManager
     /// <summary>True for attachments intended for people rather than approval persistence.</summary>
     internal static bool IsPresentationAttachment(InboxAttachment attachment) =>
         !string.Equals(attachment.Type, AttachmentType, StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(attachment.Type, "approval-snapshot", StringComparison.OrdinalIgnoreCase);
+        !string.Equals(attachment.Type, "approval-snapshot", StringComparison.OrdinalIgnoreCase) &&
+        !ManualTestKitApprovalBinding.IsBindingAttachment(attachment);
 
     internal static string BuildBody(
         Plan plan,

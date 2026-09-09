@@ -31,7 +31,8 @@ internal sealed class InboxApprovalChecklistPresenterTests
         var attached = InboxApprovalChecklistPresenter.Attach(
             document,
             [item],
-            (changed, value) => { changedItem = changed; changedValue = value; });
+            (changed, value) => { changedItem = changed; changedValue = value; },
+            fontSize: 19);
         var checkbox = FindCheckBox(document.Blocks);
         checkbox!.IsChecked = true;
 
@@ -39,6 +40,7 @@ internal sealed class InboxApprovalChecklistPresenterTests
         {
             Assert.That(attached, Is.EqualTo(1));
             Assert.That(checkbox.Content, Is.EqualTo(item.Text));
+            Assert.That(checkbox.FontSize, Is.EqualTo(19));
             Assert.That(changedItem, Is.EqualTo(item));
             Assert.That(changedValue, Is.True);
         });
