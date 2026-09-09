@@ -105,9 +105,13 @@ internal static class MarkdownHtmlBuilder {
     padding: 0;
     font: inherit;
   }
-  ul {
+  ul, ol {
     margin: 0 0 1em 1.2em;
     padding: 0;
+  }
+  li > ul, li > ol {
+    margin-top: 0.18em;
+    margin-bottom: 0.18em;
   }
   li { margin: 0.18em 0; }
   hr {
@@ -300,42 +304,9 @@ document.addEventListener('click', function(e) {
                 continue;
             }
 
-            if (trimmed.StartsWith("- ", StringComparison.Ordinal) || trimmed.StartsWith("* ", StringComparison.Ordinal)) {
-                var ulClass = currentPrioClass is not null ? $" class=\"{currentPrioClass}-list\"" : string.Empty;
-                builder.AppendLine($"<ul{ulClass} data-source-line=\"{lineNum}\">");
-                while (index < lines.Length) {
-                    var listLine = lines[index].Trim();
-                    if (!listLine.StartsWith("- ", StringComparison.Ordinal) &&
-                        !listLine.StartsWith("* ", StringComparison.Ordinal)) {
-                        index--;
-                        break;
-                    }
-
-                    var itemLineNum = index + 1; // 1-based line number for this specific item
-                    builder.Append($"<li data-source-line=\"{itemLineNum}\">")
-                        .Append(RenderInline(listLine[2..].Trim()))
-                        .AppendLine("</li>");
-                    index++;
-                }
-                builder.AppendLine("</ul>");
-                continue;
-            }
-
-            if (IsOrderedListItem(trimmed, out var olText)) {
-                builder.AppendLine($"<ol data-source-line=\"{lineNum}\">");
-                while (index < lines.Length) {
-                    var listLine = lines[index].Trim();
-                    if (!IsOrderedListItem(listLine, out var itemText)) {
-                        index--;
-                        break;
-                    }
-                    var itemLineNum = index + 1; // 1-based line number for this specific item
-                    builder.Append($"<li data-source-line=\"{itemLineNum}\">")
-                        .Append(RenderInline(itemText))
-                        .AppendLine("</li>");
-                    index++;
-                }
-                builder.AppendLine("</ol>");
+            if (TryParseListItem(lines[index], out var listItem)) {
+                RenderList(lines, ref index, builder, listItem.Indent, listItem.Kind, currentPrioClass);
+                index--; // RenderList leaves index at the first line after the complete list tree.
                 continue;
             }
 
@@ -350,12 +321,12 @@ document.addEventListener('click', function(e) {
 
             var paragraphLines = new List<string> { trimmed };
             while (index + 1 < lines.Length) {
-                var next = lines[index + 1].Trim();
+                var nextRaw = lines[index + 1];
+                var next = nextRaw.Trim();
                 if (next.Length == 0 ||
                     next.StartsWith("#", StringComparison.Ordinal) ||
                     next.StartsWith("> ", StringComparison.Ordinal) ||
-                    next.StartsWith("- ", StringComparison.Ordinal) ||
-                    next.StartsWith("* ", StringComparison.Ordinal) ||
+                    TryParseListItem(nextRaw, out _) ||
                     next.StartsWith("```", StringComparison.Ordinal) ||
                     IsHorizontalRule(next) ||
                     (IsTableRow(next) && index + 2 < lines.Length && IsTableSeparator(lines[index + 2]))) {
@@ -372,6 +343,73 @@ document.addEventListener('click', function(e) {
         }
 
         return builder.ToString();
+    }
+
+    private static void RenderList(
+        IReadOnlyList<string> lines,
+        ref int index,
+        StringBuilder builder,
+        int listIndent,
+        MarkdownListKind listKind,
+        string? currentPrioClass) {
+        if (!TryParseListItem(lines[index], out var firstItem))
+            return;
+
+        var tag = listKind == MarkdownListKind.Ordered ? "ol" : "ul";
+        var classAttribute = listKind == MarkdownListKind.Unordered && currentPrioClass is not null
+            ? $" class=\"{currentPrioClass}-list\""
+            : string.Empty;
+        var startAttribute = listKind == MarkdownListKind.Ordered && firstItem.Ordinal != 1
+            ? $" start=\"{firstItem.Ordinal}\""
+            : string.Empty;
+        builder.Append('<').Append(tag).Append(classAttribute).Append(startAttribute)
+            .Append(" data-source-line=\"").Append(index + 1).AppendLine("\">");
+
+        var itemOpen = false;
+        while (index < lines.Count) {
+            if (string.IsNullOrWhiteSpace(lines[index])) {
+                var nextIndex = index + 1;
+                while (nextIndex < lines.Count && string.IsNullOrWhiteSpace(lines[nextIndex]))
+                    nextIndex++;
+
+                if (nextIndex < lines.Count &&
+                    TryParseListItem(lines[nextIndex], out var itemAfterBlank) &&
+                    (itemAfterBlank.Indent > listIndent ||
+                     (itemAfterBlank.Indent == listIndent && itemAfterBlank.Kind == listKind))) {
+                    index = nextIndex;
+                    continue;
+                }
+
+                break;
+            }
+
+            if (!TryParseListItem(lines[index], out var item) || item.Indent < listIndent)
+                break;
+
+            if (item.Indent > listIndent) {
+                if (!itemOpen)
+                    break;
+
+                builder.AppendLine();
+                RenderList(lines, ref index, builder, item.Indent, item.Kind, currentPrioClass);
+                continue;
+            }
+
+            if (item.Kind != listKind)
+                break;
+
+            if (itemOpen)
+                builder.AppendLine("</li>");
+
+            builder.Append("<li data-source-line=\"").Append(index + 1).Append("\">")
+                .Append(RenderInline(item.Text));
+            itemOpen = true;
+            index++;
+        }
+
+        if (itemOpen)
+            builder.AppendLine("</li>");
+        builder.Append("</").Append(tag).AppendLine(">");
     }
 
     private static string RenderInline(string text) {
@@ -506,15 +544,78 @@ document.addEventListener('click', function(e) {
         return line.Length >= 3 && line.All(character => character is '-' or '_' or '*');
     }
 
-    private static bool IsOrderedListItem(string line, out string text) {
-        var dotIdx = line.IndexOf(". ", StringComparison.Ordinal);
-        if (dotIdx > 0 && line[..dotIdx].All(char.IsDigit)) {
-            text = line[(dotIdx + 2)..].Trim();
+    private static bool TryParseListItem(string line, out MarkdownListItem item) {
+        var position = 0;
+        var indent = 0;
+        while (position < line.Length) {
+            if (line[position] == ' ') {
+                indent++;
+                position++;
+                continue;
+            }
+
+            if (line[position] == '\t') {
+                indent += 4 - indent % 4;
+                position++;
+                continue;
+            }
+
+            break;
+        }
+
+        if (position >= line.Length) {
+            item = default;
+            return false;
+        }
+
+        var markerStart = position;
+        if (line[position] is '-' or '*' or '+') {
+            position++;
+            if (position >= line.Length || !char.IsWhiteSpace(line[position])) {
+                item = default;
+                return false;
+            }
+
+            while (position < line.Length && char.IsWhiteSpace(line[position]))
+                position++;
+            item = new MarkdownListItem(indent, MarkdownListKind.Unordered, 1, line[position..].TrimEnd());
             return true;
         }
-        text = string.Empty;
-        return false;
+
+        while (position < line.Length && char.IsAsciiDigit(line[position]))
+            position++;
+        if (position == markerStart || position >= line.Length || line[position] != '.') {
+            item = default;
+            return false;
+        }
+
+        if (!int.TryParse(line[markerStart..position], out var ordinal)) {
+            item = default;
+            return false;
+        }
+
+        position++;
+        if (position >= line.Length || !char.IsWhiteSpace(line[position])) {
+            item = default;
+            return false;
+        }
+
+        while (position < line.Length && char.IsWhiteSpace(line[position]))
+            position++;
+        item = new MarkdownListItem(indent, MarkdownListKind.Ordered, ordinal, line[position..].TrimEnd());
+        return true;
     }
+
+    private enum MarkdownListKind {
+        Unordered,
+        Ordered
+    }
+
+    private readonly record struct MarkdownListItem(
+        int Indent,
+        MarkdownListKind Kind,
+        int Ordinal,
+        string Text);
 
     private static string EscapeHtml(string text) {
         return text
