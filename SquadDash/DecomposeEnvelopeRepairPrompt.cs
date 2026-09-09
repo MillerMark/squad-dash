@@ -277,4 +277,22 @@ internal static class DecomposeEnvelopeRepairPrompt
                "`summary` is required; do not substitute `description`, `detail`, or `passed`.\n" +
                "\"proofEvidence\": " + JsonSerializer.Serialize(evidenceTemplate);
     }
+
+    internal static string BuildInboxLinkCorrection(string validationError) =>
+        $$"""
+
+
+        The task's required Inbox delivery was withheld because at least one contextual link was broken:
+        {{validationError}}
+
+        This delivery correction is the sole exception to the instruction above to return only the
+        result envelope. After the corrected DECOMPOSE_STEP_RESULT_JSON, re-emit exactly one complete
+        INBOX_MESSAGE_JSON or INBOX_MESSAGE_JSON_FILE block containing the same useful manual-test
+        instructions with corrected links. Do not repeat implementation work. You may inspect only the
+        promised link targets needed to correct the message. Resolve every relative `app://open-path:`
+        target from the active SquadDash workspace directory, not from the Git repository root or the
+        shell's current directory, and confirm each resolved file or folder exists before returning it.
+        If a target is outside the active workspace, use its absolute path. Preserve the rest of the
+        valid Inbox content.
+        """;
 }

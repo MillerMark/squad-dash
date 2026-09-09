@@ -65,7 +65,10 @@ For the assigned task:
 Use the manual-test-kit contract from the injected Inbox instructions whenever the assigned task
 prepares human validation. The Inbox body must be usable on its own and must place clickable file or
 folder links beside the steps that need them. Keep the later human gate's
-stable proof IDs visible in the expected-observation checklist.
+stable proof IDs visible in the expected-observation checklist. Resolve relative `app://open-path:`
+targets from the active SquadDash workspace directory—not the Git repository root or shell directory—
+and verify every target exists before returning the Inbox payload. Use an absolute path for any linked
+artifact outside the active workspace.
 
 The required step-result payload is:
 

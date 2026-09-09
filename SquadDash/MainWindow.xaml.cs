@@ -414,6 +414,7 @@ public partial class MainWindow : Window
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
     private DecomposeStepResult?    _capturedDecomposeStepResult;
     private string?                 _capturedDecomposeStepResultError;
+    private string?                 _capturedPlanInboxOpenPathError;
     private string?                 _capturedDecomposeTranscriptCommit;
     private PlanValidationResultPayload? _capturedValidationResult;
     private string?                 _capturedValidationResultError;
@@ -13129,6 +13130,23 @@ public partial class MainWindow : Window
 
         _capturedTaskVerificationRawResponse = rawResponse;
 
+        var inboxDelivery = ValidateDeliveredPlanInboxOpenPaths(rawResponse);
+        var inboxDecision = PlanInboxLinkRepairPolicy.Evaluate(
+            activeExecution?.PendingInboxLinkRepairError,
+            inboxDelivery.HasInboxDelivery,
+            inboxDelivery.Error);
+        _capturedPlanInboxOpenPathError = inboxDecision.ResultError;
+        if (activeExecution is not null &&
+            !string.Equals(
+                activeExecution.PendingInboxLinkRepairError,
+                inboxDecision.PendingRepairError,
+                StringComparison.Ordinal))
+        {
+            _conversationManager.UpdateActiveLoopExecutionState(
+                activeExecution with { PendingInboxLinkRepairError = inboxDecision.PendingRepairError });
+            activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        }
+
         if (PlanTaskVerificationResultParser.TryParse(rawResponse, out var verificationResult, out var verificationError))
         {
             _capturedTaskVerificationResult = verificationResult;
@@ -13200,6 +13218,7 @@ public partial class MainWindow : Window
 
         _capturedDecomposeStepResult = null;
         _capturedDecomposeStepResultError = null;
+        _capturedPlanInboxOpenPathError = null;
         _capturedDecomposeTranscriptCommit = null;
         _capturedValidationResult = null;
         _capturedValidationResultError = null;
@@ -13892,6 +13911,8 @@ public partial class MainWindow : Window
                 result, groupId, taskId, revision));
         if (result is not null && persistedTask is not null)
             resultDiagnostics.Add(PlanStepProofPolicy.Validate(persistedTask, result));
+        resultDiagnostics.Add(
+            _capturedPlanInboxOpenPathError ?? activeExecution.PendingInboxLinkRepairError);
         error = DecomposeStepResultContractDiagnostics.Combine(resultDiagnostics);
 
         if (canonicalPlan is not null)
@@ -14211,8 +14232,10 @@ public partial class MainWindow : Window
                           $"Technical detail: {repairError}"
                         : $"{stepIdentity} is not yet accepted. " +
                           "SquadDash is requesting the missing result envelope without repeating the task. " +
-                          $"Technical detail: {repairError}");
+                           $"Technical detail: {repairError}");
                 }
+                if (activeExecution.PendingInboxLinkRepairError is { } inboxLinkError)
+                    repairPrompt += DecomposeEnvelopeRepairPrompt.BuildInboxLinkCorrection(inboxLinkError);
                 EnqueuePrompt(
                     repairPrompt,
                     isSystemInjected: true,
@@ -57008,6 +57031,75 @@ public partial class MainWindow : Window
         return builder.ToString().TrimEnd();
     }
 
+    private (bool HasInboxDelivery, string? Error) ValidateDeliveredPlanInboxOpenPaths(string? rawResponse)
+    {
+        if (string.IsNullOrWhiteSpace(rawResponse) || _currentWorkspace is null)
+            return (false, null);
+
+        var workspaceRoot = GetActiveArtifactWorkspaceRoot();
+        var errors = new List<string>();
+        var hasInboxDelivery = false;
+
+        foreach (var extraction in InboxMessageFileReferenceParser.ExtractAll(rawResponse, out _))
+        {
+            hasInboxDelivery = true;
+            if (!AgentArtifactStore.TryMaterialize(
+                    workspaceRoot,
+                    extraction.Reference,
+                    AgentArtifactStore.DefaultMaxInboxBytes,
+                    archive: false,
+                    out var artifact,
+                    out var artifactError) ||
+                artifact is null)
+            {
+                errors.Add("The delivered INBOX_MESSAGE_JSON_FILE could not be validated: " + artifactError);
+                continue;
+            }
+
+            if (!InboxMessageParser.TryParseJsonObject(artifact.Content, out var fileDto) || fileDto is null)
+            {
+                errors.Add("The delivered INBOX_MESSAGE_JSON_FILE did not contain a parseable Inbox message.");
+                continue;
+            }
+
+            if (InboxOpenPathValidator.Validate(fileDto.Body, workspaceRoot) is { } fileLinkError)
+                errors.Add(fileLinkError);
+        }
+
+        if (InboxMessageParser.TryExtract(rawResponse, out var inlineExtraction) &&
+            inlineExtraction?.Message is { } inlineDto)
+        {
+            hasInboxDelivery = true;
+            if (InboxOpenPathValidator.Validate(inlineDto.Body, workspaceRoot) is { } inlineLinkError)
+                errors.Add(inlineLinkError);
+        }
+
+        return (hasInboxDelivery, DecomposeStepResultContractDiagnostics.Combine(errors));
+    }
+
+    private bool ShouldValidatePlanTaskInbox(string rawResponse) =>
+        _conversationManager.ConversationState.ActiveLoopExecution?.IsExecutingPlan == true &&
+        rawResponse.Contains(DecomposeStepResultParser.Marker, StringComparison.Ordinal);
+
+    private bool TryValidatePlanTaskInboxBeforeSave(
+        InboxMessageDto message,
+        string rawResponse,
+        out string? error)
+    {
+        error = null;
+        if (!ShouldValidatePlanTaskInbox(rawResponse))
+            return true;
+
+        error = InboxOpenPathValidator.Validate(message.Body, GetActiveArtifactWorkspaceRoot());
+        if (error is null)
+            return true;
+
+        SquadDashTrace.Write(
+            TraceCategory.Inbox,
+            "INBOX_SAVE: deferred invalid plan-task Inbox delivery for result repair — " + error);
+        return false;
+    }
+
     /// <summary>
     /// Saves any INBOX_MESSAGE_JSON block found in <paramref name="rawResponse"/> to the inbox store
     /// and refreshes the panel. No-ops if already saved for this turn, if no block is found, or if
@@ -57217,6 +57309,9 @@ public partial class MainWindow : Window
             return null;
         }
 
+        if (!TryValidatePlanTaskInboxBeforeSave(dto, responseForParsing, out _))
+            return null;
+
         var message = new InboxMessage
         {
             Id          = Guid.NewGuid().ToString("N"),
@@ -57298,6 +57393,9 @@ public partial class MainWindow : Window
                 $"INBOX_SAVE: skipped file inbox — subject is empty (from={dto.From})");
             return null;
         }
+
+        if (!TryValidatePlanTaskInboxBeforeSave(dto, responseForParsing, out _))
+            return null;
 
         var attachments = dto.Attachments.ToList();
         attachments.Add(new InboxAttachment

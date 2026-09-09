@@ -430,4 +430,21 @@ public class DecomposeEnvelopeRepairTests
             Assert.That(prompt, Does.Not.Contain("\"passed\":"));
         });
     }
+
+    [Test]
+    public void InboxLinkCorrection_ReEmitsDeliveryWithoutRepeatingImplementation()
+    {
+        var prompt = DecomposeEnvelopeRepairPrompt.BuildInboxLinkCorrection(
+            "Resolved path did not exist: C:\\repo\\Package\\Plugins\\Sample.sln");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("INBOX_MESSAGE_JSON or INBOX_MESSAGE_JSON_FILE"));
+            Assert.That(prompt, Does.Contain("active SquadDash workspace directory"));
+            Assert.That(prompt, Does.Contain("not from the Git repository root"));
+            Assert.That(prompt, Does.Contain("use its absolute path"));
+            Assert.That(prompt, Does.Contain("confirm each resolved file or folder exists"));
+            Assert.That(prompt, Does.Contain("Do not repeat implementation work"));
+        });
+    }
 }

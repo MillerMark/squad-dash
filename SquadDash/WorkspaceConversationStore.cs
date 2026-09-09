@@ -954,7 +954,8 @@ internal sealed record ActiveLoopExecutionState(
     [property: JsonPropertyName("scrutinyEnvelopeRepairCount")] int VerificationEnvelopeRepairCount = 0,
     AssessedRecoveryContinuationState? AssessedRecoveryContinuation = null,
     string? PendingDecomposeRevision = null,
-    PlanBranchLease? BranchLease = null)
+    PlanBranchLease? BranchLease = null,
+    string? PendingInboxLinkRepairError = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -1091,7 +1092,10 @@ internal sealed record ActiveLoopExecutionState(
             Math.Max(0, state.VerificationEnvelopeRepairCount),
             assessedRecovery,
             pendingRevision,
-            branchLease);
+            branchLease,
+            string.IsNullOrWhiteSpace(state.PendingInboxLinkRepairError)
+                ? null
+                : state.PendingInboxLinkRepairError.Trim());
     }
 }
 

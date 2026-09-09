@@ -975,7 +975,8 @@ internal sealed class WorkspaceConversationStoreTests {
                     RecoveryAttemptId: $" {attempt.AttemptId} ",
                     RepairRequestCount: 1,
                     FreshAttemptCount: 1,
-                    TaskBaselineCommit: " abc1234 ")
+                    TaskBaselineCommit: " abc1234 ",
+                    PendingInboxLinkRepairError: " broken Inbox link ")
             });
 
         var restored = _store.Load(_workspacePath).ActiveLoopExecution;
@@ -987,6 +988,7 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(restored?.RepairRequestCount, Is.EqualTo(1));
             Assert.That(restored?.FreshAttemptCount, Is.EqualTo(1));
             Assert.That(restored?.TaskBaselineCommit, Is.EqualTo("abc1234"));
+            Assert.That(restored?.PendingInboxLinkRepairError, Is.EqualTo("broken Inbox link"));
         });
     }
 

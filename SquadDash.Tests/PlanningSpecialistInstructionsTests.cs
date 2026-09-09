@@ -47,6 +47,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("SquadDash Inbox"));
             Assert.That(charter, Does.Contain("chronologically in\n  the durable approval Inbox message"));
             Assert.That(charter, Does.Contain("same persisted checkbox is shown in Inbox and transcript"));
+            Assert.That(charter, Does.Contain("not from the Git repository root or shell directory"));
+            Assert.That(charter, Does.Contain("verify every link target before delivery"));
+            Assert.That(charter, Does.Contain("absolute path"));
         });
     }
 
@@ -96,6 +99,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("not a deterministic reason to reject or halt a plan"));
             Assert.That(guidance, Does.Contain("chronological live approval form"));
             Assert.That(guidance, Does.Contain("persisted\n   checkbox shown in both the Inbox and transcript"));
+            Assert.That(guidance, Does.Contain("not from the Git repository root or shell directory"));
+            Assert.That(guidance, Does.Contain("verify every\n   resolved target exists before delivery"));
+            Assert.That(guidance, Does.Contain("absolute path"));
         });
     }
 

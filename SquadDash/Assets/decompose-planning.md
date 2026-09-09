@@ -240,8 +240,11 @@ not required. Use the exact property names below; do not substitute familiar sho
   needed, place a descriptive inline Markdown link such as
   `[Open test instructions](app://open-path:path/to/runbook.md)`,
   `[Open sample solution](app://open-path:path/to/sample.sln)`, or
-  `[Open fixture folder](app://open-path:path/to/fixture)`. Use workspace-relative targets when the
-  item is in the workspace. Inbox `file` attachments may duplicate the most useful entry points as
+  `[Open fixture folder](app://open-path:path/to/fixture)`. A relative target is resolved from the
+  active SquadDash workspace directory supplied for the task—not from the Git repository root or the
+  shell's current directory. Require the executor to resolve and verify every target using that exact
+  rule before Inbox delivery. Use an absolute path when an artifact is outside the active workspace.
+  Inbox `file` attachments may duplicate the most useful entry points as
   secondary convenience, but they do not replace links embedded beside the relevant steps. Do not
   substitute a transcript promise, a non-clickable path mentioned only in prose, or an Inbox action
   that starts another agent. If long Markdown or complex JSON makes an inline Inbox payload fragile,

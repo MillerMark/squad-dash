@@ -132,7 +132,11 @@ internal static class PlanningSpecialistInstructions
                stable gate proof ID, exact failure-evidence capture and reporting instructions, and Cleanup.
                Put the full instructions in the Inbox body and embed a descriptive inline link beside each
                step that needs a runbook, solution, project, sample file, or folder. Use the existing
-               `[Open label](app://open-path:path/from/workspace/root)` Inbox syntax. Attachments may duplicate
+               `[Open label](app://open-path:path/from/workspace/root)` Inbox syntax. State explicitly in the
+               preparation task that a relative target is resolved from the active SquadDash workspace
+               directory, not from the Git repository root or shell directory; the executor must verify every
+               resolved target exists before delivery and must use an absolute path for an artifact outside the
+               active workspace. Attachments may duplicate
                useful entry points but never replace contextual inline links. Require the
                Inbox JSON file escape hatch for long or parser-sensitive content. A transcript-only promise,
                prose-only path, or action that starts another agent is not delivery. The following gate must

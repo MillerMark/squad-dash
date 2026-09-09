@@ -310,6 +310,10 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("established regression checks may use the user's familiar existing files"));
             Assert.That(instruction, Does.Contain("At the exact step"));
             Assert.That(instruction, Does.Contain("app://open-path:path/from/workspace/root"));
+            Assert.That(instruction, Does.Contain("active SquadDash workspace directory"));
+            Assert.That(instruction, Does.Contain("not from the Git repository root"));
+            Assert.That(instruction, Does.Contain("resolve and verify every linked file or folder"));
+            Assert.That(instruction, Does.Contain("use an absolute path"));
             Assert.That(instruction, Does.Contain("file-or-folder"));
             Assert.That(instruction, Does.Contain("INBOX_MESSAGE_JSON_FILE"));
         });
@@ -328,6 +332,9 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("not a second result payload"));
             Assert.That(instruction, Does.Contain("Do not claim the task complete"));
             Assert.That(instruction, Does.Contain("stable proof IDs"));
+            Assert.That(instruction, Does.Contain("active SquadDash workspace directory"));
+            Assert.That(instruction, Does.Contain("verify every target exists"));
+            Assert.That(instruction, Does.Contain("absolute path"));
             Assert.That(instruction, Does.Contain("DECOMPOSE_STEP_RESULT_JSON:"));
         });
     }

@@ -139,8 +139,10 @@ Before authoring a plan:
   mapped to the gate's stable proof requirement IDs, failure-evidence collection and reporting steps,
   and cleanup. Put the full instructions in the Inbox body. Beside each relevant step, embed a
   descriptive inline link such as `[Open sample solution](app://open-path:path/to/sample.sln)` or
-  `[Open fixture folder](app://open-path:path/to/fixture)`; use workspace-relative targets for
-  workspace items. Attachments may duplicate useful entry points but never replace contextual inline
+  `[Open fixture folder](app://open-path:path/to/fixture)`. A relative target is resolved from the active
+  SquadDash workspace directory, not from the Git repository root or shell directory. Require the
+  executor to resolve and verify every link target before delivery, and require an absolute path for an
+  artifact outside the active workspace. Attachments may duplicate useful entry points but never replace contextual inline
   links. Require
   `INBOX_MESSAGE_JSON_FILE` when long or parser-sensitive content makes inline Inbox JSON fragile.
   A transcript-only promise, a prose-only path, or an action that starts another agent is not Inbox
