@@ -49293,7 +49293,25 @@ public partial class MainWindow : Window
             !string.Equals(current.Revision, latest.Payload.BaseRevision, StringComparison.Ordinal))
             throw new InvalidOperationException("The pending revision changed. Reopen its latest preview.");
 
-        if (!StagedPlanEditor.TryValidateUnlockedChanges(current, editedGroup, out var lockError))
+        if (!PlanRevisionDeltaApplier.TryMaterialize(
+                current, latest.Payload, out var proposedGroup, out var reopened, out var materializationError) ||
+            proposedGroup is null)
+            throw new InvalidOperationException(
+                materializationError ?? "The pending revision is no longer valid.");
+        var proposedPreview = PlanRevisionApplier.Apply(
+            current,
+            proposedGroup,
+            current.Revision,
+            latest.CreatedAt,
+            reopened);
+        if (proposedPreview.Outcome != PlanRevisionApplyOutcome.Applied || proposedPreview.UpdatedPlan is null)
+            throw new InvalidOperationException(
+                proposedPreview.Error ?? "The pending revision can no longer be previewed.");
+
+        // The proposal itself may intentionally revise or reopen work. Validate the user's local
+        // edit against that already-validated proposal, not against the older accepted definition.
+        if (!StagedPlanEditor.TryValidateUnlockedChanges(
+                proposedPreview.UpdatedPlan, editedGroup, out var lockError))
             throw new InvalidOperationException(lockError ?? "The edit would change work that has already started.");
         var routingPolicy = PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy);
         if (!PlanAgentAssignmentCatalogValidator.TryValidate(
@@ -49304,11 +49322,6 @@ public partial class MainWindow : Window
                 enforceAssignments: routingPolicy != PlanAgentRoutingPolicy.Off))
             throw new InvalidOperationException(
                 assignmentError ?? "The edited plan has invalid agent assignments.");
-
-        if (!PlanRevisionDeltaApplier.TryMaterialize(
-                current, latest.Payload, out _, out var reopened, out var materializationError))
-            throw new InvalidOperationException(
-                materializationError ?? "The pending revision is no longer valid.");
 
         var preview = PlanRevisionApplier.Apply(
             current,

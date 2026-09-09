@@ -459,6 +459,30 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void ProposedPlanEditor_ValidatesUserEditAgainstMaterializedProposalBaseline()
+    {
+        var sourcePath = Path.Combine(
+            TestContext.CurrentContext.TestDirectory,
+            "..", "..", "..", "..", "SquadDash", "MainWindow.xaml.cs");
+        var source = File.ReadAllText(Path.GetFullPath(sourcePath));
+        var methodStart = source.IndexOf(
+            "private PlanDefinitionEditResult SavePendingPlanRevisionEdit(",
+            StringComparison.Ordinal);
+        var methodEnd = source.IndexOf(
+            "private bool RefreshBridgeModelSettingsBeforeDispatch()",
+            methodStart,
+            StringComparison.Ordinal);
+        Assert.That(methodStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(methodEnd, Is.GreaterThan(methodStart));
+        var method = source[methodStart..methodEnd];
+
+        Assert.That(method, Does.Contain(
+            "proposedPreview.UpdatedPlan, editedGroup, out var lockError"));
+        Assert.That(method, Does.Not.Contain(
+            "TryValidateUnlockedChanges(current, editedGroup"));
+    }
+
+    [Test]
     public void ProposalStore_ReplacePreservesProposalIdentityForUserEdits()
     {
         using var workspace = new TestWorkspace();

@@ -514,6 +514,45 @@ internal sealed class StagedPlanEditorTests
     }
 
     [Test]
+    public void UnlockedChangeValidation_IgnoresHostManagedAnchorOnResolvedGate()
+    {
+        var gateId = GroupId + "-VAL-001-HUMAN-PROOF";
+        var group = MakeGroup() with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    gateId,
+                    "Approved build review",
+                    [Id(1)],
+                    [Id(2)],
+                    PresentationAnchor: "validation:" + GroupId + "-VAL-001"),
+            ],
+        };
+        var projected = MakeDurablePlan(group);
+        var current = projected with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            ApprovalGates = projected.ApprovalGates.Select(gate => gate with
+                { Status = PlanGateStatus.Approved }).ToArray(),
+            Tasks = projected.Tasks.Select(task => task.TaskId == Id(1)
+                ? task with { Status = PlanTaskStatus.Complete }
+                : task).ToArray(),
+        };
+        var candidate = group with
+        {
+            Tasks = group.Tasks.Select(task => task.Id == Id(3)
+                ? task with { Description = "Revised future work" }
+                : task).ToArray(),
+            ApprovalGates = group.ApprovalGates!.Select(gate => gate with
+                { PresentationAnchor = "task-before:" + Id(2) }).ToArray(),
+        };
+
+        Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+            current, candidate, out var error), Is.True, error);
+    }
+
+    [Test]
     public void DeleteTask_AuditValidationBoundaryReconciled_WhenDeletionChangesLeafSet()
     {
         // Diamond: 1 at top, 2 and 3 in the middle, 4 at the bottom.

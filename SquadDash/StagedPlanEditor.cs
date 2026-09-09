@@ -48,7 +48,7 @@ internal static class StagedPlanEditor
             .FirstOrDefault(gateId =>
                 !currentGates.TryGetValue(gateId, out var before) ||
                 !candidateGates.TryGetValue(gateId, out var after) ||
-                !Same(before, after));
+                !SameGateDefinition(before, after));
         if (changedLockedGate is not null)
         {
             error = $"Approval gate '{changedLockedGate}' has already been reached and is frozen.";
@@ -499,6 +499,11 @@ internal static class StagedPlanEditor
 
     private static bool Same<T>(T left, T right) =>
         string.Equals(JsonSerializer.Serialize(left), JsonSerializer.Serialize(right), StringComparison.Ordinal);
+
+    private static bool SameGateDefinition(DecomposedGate left, DecomposedGate right) =>
+        Same(
+            left with { PresentationAnchor = null },
+            right with { PresentationAnchor = null });
 }
 
 internal sealed class StagedPlanEditHistory(DecomposedTaskGroup initial)
