@@ -165,6 +165,24 @@ internal sealed class InboxMessageWindow : ChromedWindow
         DockPanel.SetDock(replyInChatBtn, Dock.Right);
         headerDock.Children.Add(replyInChatBtn);
 
+        var copyMessageBtn = new CopyButton
+        {
+            CopyTooltip      = "Copy message",
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin            = new Thickness(0, 0, 8, 0),
+        };
+        copyMessageBtn.SetResourceReference(CopyButton.FontSizeProperty, "FontSizeSmall");
+        System.Windows.Automation.AutomationProperties.SetName(copyMessageBtn, "Copy message");
+        WindowChrome.SetIsHitTestVisibleInChrome(copyMessageBtn, true);
+        copyMessageBtn.Click += (_, _) =>
+        {
+            var clipboardText = BuildMessageClipboardText(_message);
+            if (!string.IsNullOrEmpty(clipboardText))
+                Clipboard.SetText(clipboardText);
+        };
+        DockPanel.SetDock(copyMessageBtn, Dock.Right);
+        headerDock.Children.Add(copyMessageBtn);
+
         var headerPanel = new StackPanel
         {
             Orientation = Orientation.Vertical,
@@ -463,7 +481,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 _bodyViewer.ContextMenu = contextMenu;
                 _bodyViewer.ContextMenuOpening += (_, e) =>
                 {
-                    if (_bodyViewer.Selection.IsEmpty)
+                    if (_bodyViewer.Selection.IsEmpty && !IsHyperlinkContextMenuSource(e.OriginalSource))
                         e.Handled = true;
                 };
             }
@@ -798,7 +816,105 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 (item, isChecked) => _onHumanReviewSelectionChanged(plan.PlanId, item, isChecked));
         }
 
+        AttachBodyLinkCopyMenus(document, _workspaceFolder);
+
         return document;
+    }
+
+    internal static string BuildMessageClipboardText(InboxMessage message) =>
+        !string.IsNullOrWhiteSpace(message.Body)
+            ? message.Body
+            : message.Subject;
+
+    internal static void AttachBodyLinkCopyMenus(FlowDocument document, string? workspaceFolder)
+    {
+        foreach (var hyperlink in EnumerateHyperlinks(document))
+        {
+            if (hyperlink.Tag is not string target ||
+                InboxLinkCopyTargetResolver.Resolve(target, workspaceFolder) is not { } copyTarget)
+                continue;
+
+            var contextMenu = new ContextMenu();
+            contextMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+            var copyItem = new MenuItem { Header = copyTarget.MenuLabel };
+            copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            copyItem.Click += (_, _) => Clipboard.SetText(copyTarget.ClipboardText);
+            contextMenu.Items.Add(copyItem);
+            hyperlink.ContextMenu = contextMenu;
+        }
+    }
+
+    private static bool IsHyperlinkContextMenuSource(object? source)
+    {
+        var current = source as DependencyObject;
+        while (current is not null)
+        {
+            if (current is Hyperlink { ContextMenu: not null })
+                return true;
+            current = LogicalTreeHelper.GetParent(current);
+        }
+        return false;
+    }
+
+    private static IEnumerable<Hyperlink> EnumerateHyperlinks(FlowDocument document)
+    {
+        foreach (var block in document.Blocks)
+            foreach (var link in EnumerateHyperlinks(block))
+                yield return link;
+    }
+
+    private static IEnumerable<Hyperlink> EnumerateHyperlinks(Block block)
+    {
+        switch (block)
+        {
+            case Paragraph paragraph:
+                foreach (var inline in paragraph.Inlines)
+                    foreach (var link in EnumerateHyperlinks(inline))
+                        yield return link;
+                break;
+            case Section section:
+                foreach (var child in section.Blocks)
+                    foreach (var link in EnumerateHyperlinks(child))
+                        yield return link;
+                break;
+            case List list:
+                foreach (var item in list.ListItems)
+                    foreach (var child in item.Blocks)
+                        foreach (var link in EnumerateHyperlinks(child))
+                            yield return link;
+                break;
+            case Table table:
+                foreach (var group in table.RowGroups)
+                    foreach (var row in group.Rows)
+                        foreach (var cell in row.Cells)
+                            foreach (var child in cell.Blocks)
+                                foreach (var link in EnumerateHyperlinks(child))
+                                    yield return link;
+                break;
+        }
+    }
+
+    private static IEnumerable<Hyperlink> EnumerateHyperlinks(Inline inline)
+    {
+        if (inline is Hyperlink hyperlink)
+        {
+            yield return hyperlink;
+            yield break;
+        }
+
+        if (inline is AnchoredBlock anchoredBlock)
+        {
+            foreach (var child in anchoredBlock.Blocks)
+                foreach (var link in EnumerateHyperlinks(child))
+                    yield return link;
+            yield break;
+        }
+
+        if (inline is not Span span)
+            yield break;
+        foreach (var child in span.Inlines)
+            foreach (var link in EnumerateHyperlinks(child))
+                yield return link;
     }
 
     private void OpenInlineBodyLink(string target)

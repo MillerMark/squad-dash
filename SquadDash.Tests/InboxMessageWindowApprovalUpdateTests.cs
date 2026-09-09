@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -7,6 +8,55 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class InboxMessageWindowApprovalUpdateTests
 {
+    [Test]
+    public void BuildMessageClipboardText_CopiesTheCompleteBody()
+    {
+        var message = new InboxMessage
+        {
+            Id = "copy-1",
+            Subject = "Subject",
+            Body = "Message body.  \r\n",
+            Actions = [],
+        };
+
+        Assert.That(InboxMessageWindow.BuildMessageClipboardText(message), Is.EqualTo("Message body.  \r\n"));
+    }
+
+    [Test]
+    public void AttachBodyLinkCopyMenus_LabelsExistingFileAndTargetsItsAbsolutePath() =>
+        WpfTestContext.Run(() =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), "SquadDash-InboxMenu", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
+            {
+                var file = Path.Combine(root, "runbook.md");
+                File.WriteAllText(file, "test");
+                var document = MarkdownFlowDocumentBuilder.BuildInbox(
+                    "[Open runbook](app://open-path:runbook.md)",
+                    13,
+                    _ => { });
+
+                InboxMessageWindow.AttachBodyLinkCopyMenus(document, root);
+
+                var link = document.Blocks.OfType<Paragraph>()
+                    .Single()
+                    .Inlines.OfType<Hyperlink>()
+                    .Single();
+                var item = link.ContextMenu!.Items.OfType<MenuItem>().Single();
+                Assert.Multiple(() =>
+                {
+                    Assert.That(item.Header, Is.EqualTo("Copy File Path"));
+                    Assert.That(InboxLinkCopyTargetResolver.Resolve((string)link.Tag, root)?.ClipboardText,
+                        Is.EqualTo(file));
+                });
+            }
+            finally
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        });
+
     [Test]
     public void ApplyInteractiveFontSize_UsesBodySizeForActionsAndAttachments() =>
         WpfTestContext.Run(() =>

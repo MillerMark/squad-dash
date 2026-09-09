@@ -558,6 +558,7 @@ internal static class MarkdownFlowDocumentBuilder {
             var capturedTarget = target;
             var hyperlink = new Hyperlink(new Run(match.Groups[1].Value.Trim())) {
                 Cursor = System.Windows.Input.Cursors.Hand,
+                Tag = capturedTarget,
                 ToolTip = target.StartsWith("app://open-path:", StringComparison.OrdinalIgnoreCase)
                     ? "Open file or folder"
                     : "Open link",

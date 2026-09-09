@@ -179,6 +179,7 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
 
         Assert.That(string.Concat(link.Inlines.OfType<Run>().Select(run => run.Text)),
             Is.EqualTo("the sample solution"));
+        Assert.That(link.Tag, Is.EqualTo("app://open-path:samples/manual-test/Sample.sln"));
 
         link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
 

@@ -208,6 +208,21 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             TextWrapping = TextWrapping.Wrap
         };
         _statusTextBlock.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        var statusContextMenu = new ContextMenu();
+        statusContextMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        var copyFilePathItem = new MenuItem { Header = "Copy" };
+        copyFilePathItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        copyFilePathItem.Click += (_, _) => {
+            var filePath = _activeDocument?.FilePath;
+            if (!string.IsNullOrWhiteSpace(filePath))
+                Clipboard.SetText(filePath);
+        };
+        statusContextMenu.Items.Add(copyFilePathItem);
+        _statusTextBlock.ContextMenu = statusContextMenu;
+        _statusTextBlock.ContextMenuOpening += (_, e) => {
+            if (string.IsNullOrWhiteSpace(_activeDocument?.FilePath))
+                e.Handled = true;
+        };
         toolBar.Children.Add(_statusTextBlock);
 
         // ── Note title row (only in Edit Note mode) ──────────────────────────
