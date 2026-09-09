@@ -45321,9 +45321,66 @@ public partial class MainWindow : Window
                 }, System.Windows.Threading.DispatcherPriority.Render);
             };
         }
+        else
+        {
+            AttachToolTimingTooltip(headerPanel, entry);
+        }
 
         block.ContentPanel.Children.Add(expander);
         return entry;
+    }
+
+    private void AttachToolTimingTooltip(FrameworkElement headerPanel, ToolTranscriptEntry entry)
+    {
+        var toolTip = MakeThemedToolTip(string.Empty);
+        if (toolTip.Content is not TextBlock toolTipTextBlock)
+            return;
+
+        DispatcherTimer? timer = null;
+
+        void UpdateTooltipText()
+        {
+            var now = DateTimeOffset.UtcNow;
+            toolTipTextBlock.Text = entry.IsCompleted
+                ? ToolCallElapsedTimePresenter.BuildCompletedMessage(entry.StartedAt, entry.FinishedAt, now)
+                : ToolCallElapsedTimePresenter.BuildRunningMessage(entry.StartedAt, now);
+        }
+
+        toolTip.Opened += (_, _) =>
+        {
+            UpdateTooltipText();
+
+            if (entry.IsCompleted)
+                return;
+
+            timer ??= new DispatcherTimer(
+                TimeSpan.FromSeconds(1),
+                DispatcherPriority.Normal,
+                (_, _) =>
+                {
+                    UpdateTooltipText();
+                    if (entry.IsCompleted)
+                        timer?.Stop();
+                },
+                Dispatcher);
+
+            if (!timer.IsEnabled)
+                timer.Start();
+        };
+
+        toolTip.Closed += (_, _) =>
+        {
+            if (timer?.IsEnabled == true)
+                timer.Stop();
+        };
+
+        headerPanel.Unloaded += (_, _) =>
+        {
+            if (timer?.IsEnabled == true)
+                timer.Stop();
+        };
+
+        headerPanel.ToolTip = toolTip;
     }
 
     private void RenderPersistedTool(TranscriptThinkingBlockView block, TranscriptToolRecord tool)
