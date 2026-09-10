@@ -7,20 +7,25 @@ internal static class ToolCallElapsedTimePresenter
     public static string BuildRunningMessage(DateTimeOffset startedAt, DateTimeOffset now)
     {
         var elapsed = now - startedAt;
-        return $"This tool has been running for {FormatDuration(elapsed)}.";
+        return $"Running for {FormatDuration(elapsed)}.";
     }
 
     public static string BuildCompletedMessage(DateTimeOffset startedAt, DateTimeOffset? finishedAt, DateTimeOffset now)
     {
         var completedAt = finishedAt ?? now;
         var elapsed = completedAt - startedAt;
-        return $"A tool ran for {FormatDuration(elapsed)}.";
+        return $"Ran for {FormatDuration(elapsed)}.";
     }
 
     public static string FormatDuration(TimeSpan elapsed)
     {
-        var clamped = Clamp(elapsed);
-        var totalSeconds = (long)clamped.TotalSeconds;
+        if (elapsed < TimeSpan.Zero)
+            elapsed = TimeSpan.Zero;
+
+        if (elapsed < TimeSpan.FromSeconds(1))
+            return BuildUnit((long)Math.Floor(elapsed.TotalMilliseconds), "millisecond");
+
+        var totalSeconds = (long)Math.Floor(elapsed.TotalSeconds);
 
         if (totalSeconds < 60)
             return BuildUnit(totalSeconds, "second");
@@ -46,12 +51,5 @@ internal static class ToolCallElapsedTimePresenter
         return value == 1
             ? $"1 {unit}"
             : $"{value} {unit}s";
-    }
-
-    private static TimeSpan Clamp(TimeSpan elapsed)
-    {
-        return elapsed < TimeSpan.Zero
-            ? TimeSpan.Zero
-            : TimeSpan.FromSeconds(Math.Floor(elapsed.TotalSeconds));
     }
 }

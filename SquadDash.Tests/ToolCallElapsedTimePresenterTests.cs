@@ -4,8 +4,8 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class ToolCallElapsedTimePresenterTests
 {
-    [TestCase(-1, "0 seconds")]
-    [TestCase(0, "0 seconds")]
+    [TestCase(-1, "0 milliseconds")]
+    [TestCase(0, "0 milliseconds")]
     [TestCase(1, "1 second")]
     [TestCase(59, "59 seconds")]
     [TestCase(60, "1 minute 0 seconds")]
@@ -23,6 +23,17 @@ internal sealed class ToolCallElapsedTimePresenterTests
         Assert.That(formatted, Is.EqualTo(expected));
     }
 
+    [TestCase(1, "1 millisecond")]
+    [TestCase(2, "2 milliseconds")]
+    [TestCase(250, "250 milliseconds")]
+    [TestCase(999, "999 milliseconds")]
+    public void FormatDuration_UsesMillisecondsBelowOneSecond(int elapsedMilliseconds, string expected)
+    {
+        var formatted = ToolCallElapsedTimePresenter.FormatDuration(TimeSpan.FromMilliseconds(elapsedMilliseconds));
+
+        Assert.That(formatted, Is.EqualTo(expected));
+    }
+
     [Test]
     public void BuildRunningMessage_UsesRunningPhrasing()
     {
@@ -31,7 +42,7 @@ internal sealed class ToolCallElapsedTimePresenterTests
 
         var message = ToolCallElapsedTimePresenter.BuildRunningMessage(startedAt, now);
 
-        Assert.That(message, Is.EqualTo("This tool has been running for 1 minute 5 seconds."));
+        Assert.That(message, Is.EqualTo("Running for 1 minute 5 seconds."));
     }
 
     [Test]
@@ -42,6 +53,6 @@ internal sealed class ToolCallElapsedTimePresenterTests
 
         var message = ToolCallElapsedTimePresenter.BuildCompletedMessage(startedAt, finishedAt, now: finishedAt);
 
-        Assert.That(message, Is.EqualTo("A tool ran for 2 hours 3 minutes 4 seconds."));
+        Assert.That(message, Is.EqualTo("Ran for 2 hours 3 minutes 4 seconds."));
     }
 }
