@@ -10,6 +10,13 @@ using System.Threading.Tasks;
 
 namespace SquadDash;
 
+internal sealed record SquadSdkProcessResetEventArgs(
+    int ProcessGeneration,
+    bool HadActiveProcess,
+    int PendingPromptCount,
+    int PendingCancelCount,
+    string Reason);
+
 public sealed class SquadSdkProcess : IAsyncDisposable {
     private static readonly TimeSpan DefaultPromptInactivityTimeout = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan DefaultPromptTimeoutPollInterval = TimeSpan.FromMilliseconds(250);
@@ -20,6 +27,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
     public event EventHandler<SquadSdkEvent>? EventReceived;
     public event EventHandler<string>? ErrorReceived;
+    internal event EventHandler<SquadSdkProcessResetEventArgs>? ProcessReset;
 
     private readonly SemaphoreSlim _promptLock = new(1, 1);
     private readonly SemaphoreSlim _stdinWriteLock = new(1, 1);
@@ -1232,11 +1240,24 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         if (processToKill is not null)
             TryKill(processToKill);
 
-        return new SquadSdkForceStopResult(
+        var result = new SquadSdkForceStopResult(
             processGeneration,
             processToKill is not null,
             pendingRequests.Length,
             pendingCancels.Length);
+        try {
+            ProcessReset?.Invoke(this, new SquadSdkProcessResetEventArgs(
+                result.ProcessGeneration,
+                result.HadActiveProcess,
+                result.PendingPromptCount,
+                result.PendingCancelCount,
+                pendingPromptException?.Message ?? "Bridge process reset."));
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write("Bridge", $"ProcessReset observer failed: {ex.Message}");
+        }
+
+        return result;
     }
 
     private static void TryKill(Process process) {

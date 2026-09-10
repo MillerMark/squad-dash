@@ -25,6 +25,17 @@ internal sealed class RuntimeSlotDeploymentPolicyTests {
         });
     }
 
+    [Test]
+    public void Launcher_CoalescesDeferredBuildsAndGuardsCoordinatorGeneration() {
+        var source = File.ReadAllText(FindRepoFile("SquadDashLauncher", "Program.cs"));
+
+        Assert.Multiple(() => {
+            Assert.That(source, Does.Contain("TryCoalesceDeferredDeployment("));
+            Assert.That(source, Does.Contain("IsCurrentRestartRequest(restartStateStore, appRoot, requestId)"));
+            Assert.That(source, Does.Contain("ClearRequestIfMatches(appRoot, requestId)"));
+        });
+    }
+
     [TestCase(RuntimeSlotNames.SlotA, ExpectedResult = RuntimeSlotNames.SlotB)]
     [TestCase(RuntimeSlotNames.SlotB, ExpectedResult = RuntimeSlotNames.SlotA)]
     public string GetInactiveSlot_ReturnsOnlyOppositeSlot(string activeSlot) {

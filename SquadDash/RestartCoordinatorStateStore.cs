@@ -44,6 +44,26 @@ internal sealed class RestartCoordinatorStateStore {
         DeleteIfExists(GetRequestPath(normalizedRoot));
     }
 
+    public bool ClearRequestIfMatches(string applicationRoot, string requestId) {
+        var normalizedRoot = NormalizePath(applicationRoot);
+        var normalizedRequestId = NormalizeRequestId(requestId);
+        if (normalizedRequestId is null)
+            return false;
+
+        using var mutex = AcquireMutex(normalizedRoot);
+        var requestPath = GetRequestPath(normalizedRoot);
+        var current = NormalizeRequest(
+            JsonFileStorage.ReadOrDefault<RestartRequestState>(requestPath, null!));
+        if (current is null ||
+            !string.Equals(current.RequestId, normalizedRequestId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        DeleteIfExists(requestPath);
+        return true;
+    }
+
     public void SavePlan(RestartPlanState state) {
         var normalized = NormalizePlan(state)
             ?? throw new ArgumentException("Restart plan state is invalid.", nameof(state));

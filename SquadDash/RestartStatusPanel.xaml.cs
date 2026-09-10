@@ -15,6 +15,11 @@ public partial class RestartStatusPanel : UserControl
         InitializeComponent();
     }
 
+    public void SetStatus(string message)
+    {
+        StatusTextBlock.Text = message;
+    }
+
     /// <summary>
     /// Handles the close button click event. Hides the panel but does not cancel the restart.
     /// </summary>

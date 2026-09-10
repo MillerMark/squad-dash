@@ -48,14 +48,24 @@ internal static class Program {
         var instances = registry.LoadLiveInstances(appRoot);
         var restartRequestId = instances.Count > 0 ? Guid.NewGuid().ToString("N") : null;
         var restartRequestSaved = false;
-        var restartCoordinatorLauncherPath = instances.Count > 0
-            ? CreateDetachedRestartCoordinatorLauncher(restartRequestId!)
-            : null;
+        string? restartCoordinatorLauncherPath = null;
 
         var activeState = slotStore.Load();
         string nextSlot;
 
         WaitForBuildOutputCompleteness(buildOutputDirectory, TimeSpan.FromSeconds(10));
+
+        if (instances.Count > 0 &&
+            TryCoalesceDeferredDeployment(restartStateStore, appRoot, buildOutputDirectory, instances))
+        {
+            RequestCloseRegisteredInstances(instances);
+            return 0;
+        }
+
+        // The inactive slot may contain this launcher. Preserve a detached copy before
+        // PrepareNextSlot is allowed to reset that slot.
+        if (instances.Count > 0)
+            restartCoordinatorLauncherPath = CreateDetachedRestartCoordinatorLauncher(restartRequestId!);
 
         try {
             try {
@@ -91,7 +101,7 @@ internal static class Program {
         }
         catch {
             if (restartRequestSaved && restartRequestId is not null) {
-                restartStateStore.ClearRequest(appRoot);
+                restartStateStore.ClearRequestIfMatches(appRoot, restartRequestId);
                 restartStateStore.ClearPlan(appRoot, restartRequestId);
             }
 
@@ -113,6 +123,9 @@ internal static class Program {
         try {
             WaitForRegisteredInstancesToExit(plan.Instances);
 
+            if (!IsCurrentRestartRequest(restartStateStore, appRoot, requestId))
+                return 0;
+
             var activeState = slotStore.Load();
             var nextSlot = PrepareNextSlot(slotStore, activeState.ActiveSlot);
             var nextSlotDirectory = slotStore.GetSlotDirectory(nextSlot);
@@ -124,14 +137,20 @@ internal static class Program {
             if (!IsPayloadDeploymentComplete(nextSlotPayloadPath))
                 throw new InvalidOperationException("Deferred deployment did not produce a complete SquadDash payload.");
 
+            if (!IsCurrentRestartRequest(restartStateStore, appRoot, requestId))
+                return 0;
+
             slotStore.Save(new RuntimeSlotState(nextSlot, DateTimeOffset.UtcNow));
-            WaitAndRelaunchInstances(plan.Instances);
-            relaunched = true;
+            relaunched = WaitAndRelaunchInstances(
+                plan.Instances,
+                () => IsCurrentRestartRequest(restartStateStore, appRoot, requestId));
         }
         catch {
-            if (!relaunched) {
+            if (!relaunched && IsCurrentRestartRequest(restartStateStore, appRoot, requestId)) {
                 try {
-                    WaitAndRelaunchInstances(plan.Instances);
+                    WaitAndRelaunchInstances(
+                        plan.Instances,
+                        () => IsCurrentRestartRequest(restartStateStore, appRoot, requestId));
                 }
                 catch {
                 }
@@ -140,7 +159,7 @@ internal static class Program {
             throw;
         }
         finally {
-            restartStateStore.ClearRequest(appRoot);
+            restartStateStore.ClearRequestIfMatches(appRoot, requestId);
             restartStateStore.ClearPlan(appRoot, requestId);
             TryDeleteDirectory(GetDeferredDeploymentRoot(requestId));
         }
@@ -165,6 +184,43 @@ internal static class Program {
             requestedAt));
     }
 
+    private static bool TryCoalesceDeferredDeployment(
+        RestartCoordinatorStateStore restartStateStore,
+        string appRoot,
+        string buildOutputDirectory,
+        IReadOnlyList<RunningInstanceRecord> liveInstances) {
+        var current = restartStateStore.LoadRequest(appRoot);
+        if (current is null)
+            return false;
+
+        var plan = restartStateStore.LoadPlan(appRoot, current.RequestId);
+        var stagedPayloadDirectory = GetDeferredDeploymentPayloadDirectory(current.RequestId);
+        if (plan is null ||
+            !Directory.Exists(stagedPayloadDirectory) ||
+            !plan.Instances.Any(IsProcessAlive) ||
+            !liveInstances.Any(instance => plan.Instances.Any(planned =>
+                planned.ProcessId == instance.ProcessId &&
+                planned.ProcessStartedAtUtcTicks == instance.ProcessStartedAtUtcTicks)))
+        {
+            return false;
+        }
+
+        // The existing coordinator is still waiting for at least one registered
+        // instance, so it has not begun deployment. Replace its staged payload and
+        // keep the same request generation instead of spawning another coordinator.
+        StageBuildOutputForDeferredDeployment(current.RequestId, buildOutputDirectory);
+        return true;
+    }
+
+    private static bool IsCurrentRestartRequest(
+        RestartCoordinatorStateStore restartStateStore,
+        string appRoot,
+        string requestId) {
+        var current = restartStateStore.LoadRequest(appRoot);
+        return current is not null &&
+               string.Equals(current.RequestId, requestId, StringComparison.Ordinal);
+    }
+
     private static int CompleteRestart(string requestId) {
         var appRoot = _workspacePaths.ApplicationRoot;
         var restartStateStore = new RestartCoordinatorStateStore();
@@ -173,10 +229,12 @@ internal static class Program {
             return 0;
 
         try {
-            WaitAndRelaunchInstances(plan.Instances);
+            WaitAndRelaunchInstances(
+                plan.Instances,
+                () => IsCurrentRestartRequest(restartStateStore, appRoot, requestId));
         }
         finally {
-            restartStateStore.ClearRequest(appRoot);
+            restartStateStore.ClearRequestIfMatches(appRoot, requestId);
             restartStateStore.ClearPlan(appRoot, requestId);
         }
 
@@ -244,12 +302,16 @@ internal static class Program {
     /// workspaces that were not busy) come back immediately while a busy instance
     /// finishes its current turn.
     /// </summary>
-    private static void WaitAndRelaunchInstances(IReadOnlyList<RunningInstanceRecord> instances) {
+    private static bool WaitAndRelaunchInstances(
+        IReadOnlyList<RunningInstanceRecord> instances,
+        Func<bool>? isRequestCurrent = null) {
         var pending = DeduplicateRelaunchInstances(instances);
 
         while (pending.Count > 0) {
             for (var i = pending.Count - 1; i >= 0; i--) {
                 if (!IsProcessAlive(pending[i])) {
+                    if (isRequestCurrent?.Invoke() == false)
+                        return false;
                     RelaunchInstance(pending[i]);
                     pending.RemoveAt(i);
                 }
@@ -258,6 +320,8 @@ internal static class Program {
             if (pending.Count > 0)
                 Thread.Sleep(250);
         }
+
+        return true;
     }
 
     private static void RelaunchInstance(RunningInstanceRecord instance) {

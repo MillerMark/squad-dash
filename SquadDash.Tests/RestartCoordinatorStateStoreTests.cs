@@ -108,6 +108,38 @@ internal sealed class RestartCoordinatorStateStoreTests {
     }
 
     [Test]
+    public void ClearRequestIfMatches_DoesNotEraseNewerRequest() {
+        const string applicationRoot = @"D:\Drive\Source\SquadUI";
+        _store.SaveRequest(new RestartRequestState(
+            applicationRoot,
+            "new-request",
+            DateTimeOffset.UtcNow));
+
+        var cleared = _store.ClearRequestIfMatches(applicationRoot, "old-request");
+
+        Assert.Multiple(() => {
+            Assert.That(cleared, Is.False);
+            Assert.That(_store.LoadRequest(applicationRoot)?.RequestId, Is.EqualTo("new-request"));
+        });
+    }
+
+    [Test]
+    public void ClearRequestIfMatches_RemovesMatchingRequest() {
+        const string applicationRoot = @"D:\Drive\Source\SquadUI";
+        _store.SaveRequest(new RestartRequestState(
+            applicationRoot,
+            "current-request",
+            DateTimeOffset.UtcNow));
+
+        var cleared = _store.ClearRequestIfMatches(applicationRoot, "current-request");
+
+        Assert.Multiple(() => {
+            Assert.That(cleared, Is.True);
+            Assert.That(_store.LoadRequest(applicationRoot), Is.Null);
+        });
+    }
+
+    [Test]
     public void LoadPlan_ReleasesMutexBeforeReturning() {
         const string applicationRoot = @"D:\Drive\Source\SquadUI";
         const string requestId = "request-789";

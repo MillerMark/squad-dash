@@ -169,6 +169,7 @@
     <Compile Include="..\SquadDash\PromptTraceMetrics.cs" Link="Source\PromptTraceMetrics.cs" />
     <Compile Include="..\SquadDash\PromptDispatchDiagnosticsStore.cs" Link="Source\PromptDispatchDiagnosticsStore.cs" />
     <Compile Include="..\SquadDash\RestartDeferralPolicy.cs" Link="Source\RestartDeferralPolicy.cs" />
+    <Compile Include="..\SquadDash\WorkspaceIdentityPresentation.cs" Link="Source\WorkspaceIdentityPresentation.cs" />
     <Compile Include="..\SquadDash\QuickReplyRoutePresentation.cs" Link="Source\QuickReplyRoutePresentation.cs" />
     <Compile Include="..\SquadDash\QuickReplyAgentLaunchPolicy.cs" Link="Source\QuickReplyAgentLaunchPolicy.cs" />
     <Compile Include="..\SquadDash\DirectQuickReplyCompletionPolicy.cs" Link="Source\DirectQuickReplyCompletionPolicy.cs" />

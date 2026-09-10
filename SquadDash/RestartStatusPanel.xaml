@@ -42,7 +42,8 @@
         </Grid.ColumnDefinitions>
 
         <!-- Message Text -->
-        <TextBlock Grid.Column="0"
+        <TextBlock x:Name="StatusTextBlock"
+                   Grid.Column="0"
                    Text="Restart requested, waiting for current turn to complete before shutting down"
                    Foreground="{DynamicResource AlertBodyText}"
                    FontSize="{DynamicResource FontSizeBody}"

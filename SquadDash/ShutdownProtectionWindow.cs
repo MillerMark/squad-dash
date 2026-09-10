@@ -15,7 +15,11 @@ internal enum ShutdownChoice { None, CloseNow, AfterCurrentTurn, AfterAllQueued 
 internal sealed class ShutdownProtectionWindow : ChromedWindow {
     public ShutdownChoice Choice { get; private set; } = ShutdownChoice.None;
 
-    public ShutdownProtectionWindow(bool isRunning, bool hasQueue, bool isLoopRunning)
+    public ShutdownProtectionWindow(
+        bool isRunning,
+        bool hasQueue,
+        bool isLoopRunning,
+        RestartDeferralReason blocker = RestartDeferralReason.None)
         : base(captionHeight: 28, resizeMode: ResizeMode.NoResize) {
         Title = "Close SquadDash?";
         Width = 440;
@@ -33,7 +37,9 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
 
         // Header
         root.Children.Add(new TextBlock {
-            Text = "SquadDash is busy",
+            Text = blocker == RestartDeferralReason.DirectQuickReplyHandoff
+                ? "SquadDash is waiting for an agent handoff"
+                : "SquadDash is busy",
             FontSize = (double)Application.Current.Resources["FontSizeSubtitle"],
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 10),
@@ -46,6 +52,12 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
             AddStatus(root, "The Coordinator is working on a turn.");
         if (hasQueue)
             AddStatus(root, "There are queued prompts waiting to run.");
+        if (!isLoopRunning && !isRunning)
+        {
+            var blockerStatus = BuildBlockerStatus(blocker);
+            if (!string.IsNullOrWhiteSpace(blockerStatus))
+                AddStatus(root, blockerStatus);
+        }
 
         root.Children.Add(new Border { Height = 16 });
 
@@ -177,6 +189,17 @@ internal sealed class ShutdownProtectionWindow : ChromedWindow {
             Margin = new Thickness(0, 0, 0, 4),
         });
     }
+
+    private static string? BuildBlockerStatus(RestartDeferralReason blocker) =>
+        blocker switch {
+            RestartDeferralReason.BackgroundWork => "Background agents are still working.",
+            RestartDeferralReason.DirectQuickReplyHandoff => "A direct agent handoff is awaiting completion or recovery.",
+            RestartDeferralReason.VoiceInput => "Voice recording is active or still being processed.",
+            RestartDeferralReason.DocRevision => "An AI document revision is still in progress.",
+            RestartDeferralReason.CommitHistoryCategorization => "Commit history categorization is still in progress.",
+            RestartDeferralReason.PlanRecoveryAssessment => "Plan recovery evidence is still being applied.",
+            _ => null
+        };
 
     /// <summary>Builds the content panel for the Close Now button: red circle with white ! + label.</summary>
     private static StackPanel BuildCloseNowContent(double fontSize) {
