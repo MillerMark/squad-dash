@@ -801,6 +801,16 @@ internal sealed class PreferencesWindow : Window {
         _profileListBox.SetResourceReference(ListBox.ForegroundProperty, "LabelText");
         _profileListBox.SetResourceReference(Control.FontSizeProperty, "FontSizeSmall");
         _profileListBox.SelectionChanged += ProfileListBox_SelectionChanged;
+        _profileListBox.PreviewMouseRightButtonDown += ProfileListBox_PreviewMouseRightButtonDown;
+
+        var duplicateProfileMenuItem = new MenuItem { Header = "Duplicate" };
+        duplicateProfileMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        duplicateProfileMenuItem.Click += DuplicateProfile_Click;
+
+        var profileListContextMenu = new ContextMenu();
+        profileListContextMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        profileListContextMenu.Items.Add(duplicateProfileMenuItem);
+        _profileListBox.ContextMenu = profileListContextMenu;
 
         _profileAliasBox = new TextBox {
             Padding = new Thickness(6, 4, 6, 4),
@@ -3261,6 +3271,46 @@ internal sealed class PreferencesWindow : Window {
         return _profiles.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
     }
 
+    private static ListBoxItem? FindAncestorListBoxItem(DependencyObject? start) {
+        var current = start;
+        while (current is not null) {
+            if (current is ListBoxItem item)
+                return item;
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
+    private bool SelectProfileById(string profileId) {
+        foreach (ListBoxItem item in _profileListBox.Items) {
+            if (!string.Equals(item.Tag as string, profileId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            _profileListBox.SelectedItem = item;
+            return true;
+        }
+
+        return false;
+    }
+
+    private void FocusProfileAliasForRename() {
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => {
+            _profileAliasBox.Focus();
+            Keyboard.Focus(_profileAliasBox);
+            _profileAliasBox.SelectAll();
+        }));
+    }
+
+    private void ProfileListBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e) {
+        var listBoxItem = FindAncestorListBoxItem(e.OriginalSource as DependencyObject);
+        if (listBoxItem is null)
+            return;
+
+        if (!ReferenceEquals(_profileListBox.SelectedItem, listBoxItem))
+            _profileListBox.SelectedItem = listBoxItem;
+    }
+
     private void ProfileListBox_SelectionChanged(object sender, SelectionChangedEventArgs e) {
         if (_suppressProfileSave) return;
         
@@ -3353,12 +3403,23 @@ internal sealed class PreferencesWindow : Window {
         _profiles.Add(profile);
         _profilesDirty = true;
         RefreshProfileListBox();
-        // Select the new profile
-        foreach (ListBoxItem item in _profileListBox.Items)
-            if (string.Equals(item.Tag as string, newId, StringComparison.OrdinalIgnoreCase)) {
-                _profileListBox.SelectedItem = item;
-                break;
-            }
+        SelectProfileById(newId);
+    }
+
+    private void DuplicateProfile_Click(object sender, RoutedEventArgs e) {
+        var profile = GetSelectedProfile();
+        if (profile is null)
+            return;
+
+        PushUndoSnapshot();
+
+        var duplicate = ModelProfile.CreateDuplicate(profile, _profiles);
+        _profiles.Add(duplicate);
+        _profilesDirty = true;
+
+        RefreshProfileListBox();
+        SelectProfileById(duplicate.Id);
+        FocusProfileAliasForRename();
     }
 
     private void RemoveProfile_Click(object sender, RoutedEventArgs e) {
