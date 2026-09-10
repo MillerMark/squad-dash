@@ -1378,6 +1378,10 @@ public partial class MainWindow : Window
             onFeatureCategoryChanged:   () => Dispatcher.BeginInvoke(RefreshFeatureCategoryViewsFromStore));
 
         _bridge.EventReceived += (_, evt) => _broker.Publish(new BridgeEventReceivedMessage(evt));
+        _bridge.ProcessReset += (_, evt) =>
+            _ = Dispatcher.InvokeAsync(
+                () => ReconcileBridgeReset(evt),
+                System.Windows.Threading.DispatcherPriority.ContextIdle);
         _onBridgeEventReceived = msg => QueueBridgeEventForUi(msg.SdkEvent);
         _broker.Subscribe(_onBridgeEventReceived);
 
@@ -43325,6 +43329,35 @@ public partial class MainWindow : Window
     private bool HasPendingDirectQuickReplyAgentFollowUp() =>
         _directQuickReplyAgentThreadIds.Count > 0;
 
+    private int RetireDirectQuickReplyHandoffBlockers(string reason)
+    {
+        if (_directQuickReplyAgentThreadIds.Count == 0)
+            return 0;
+
+        var interruptedHandoffs = _directQuickReplyAgentThreadIds.ToArray();
+        _directQuickReplyAgentThreadIds.Clear();
+        SquadDashTrace.Write(
+            "Recovery",
+            $"Retired {interruptedHandoffs.Length} direct quick-reply handoff blocker(s) reason={reason} threads={string.Join(",", interruptedHandoffs)}.");
+        return interruptedHandoffs.Length;
+    }
+
+    private void ReconcileBridgeReset(SquadSdkProcessResetEventArgs reset)
+    {
+        if (_isClosing || _mainWindowClosingInProgress)
+            return;
+
+        if (RetireDirectQuickReplyHandoffBlockers($"bridge-reset:{reset.Reason}") == 0)
+            return;
+
+        SyncQueuePanel();
+        UpdateRestartStatusPanelVisibility();
+        if (_restartPending)
+            TryCompletePendingRestart("bridge-reset", emergencySaveBeforeClose: true);
+        else if (!_isPromptRunning && _interruptedPromptRecoveryHold is null)
+            _ = DrainQueueIfNeededAsync();
+    }
+
     private void TrackDirectQuickReplyAgentThread(TranscriptThreadState thread)
     {
         if (string.IsNullOrWhiteSpace(thread.ThreadId))
@@ -43673,6 +43706,12 @@ public partial class MainWindow : Window
     {
         _interruptedPromptRecoveryHold = recovery;
         ClearRuntimeIssue();
+
+        // A bridge inactivity timeout is terminal for every direct handoff owned by
+        // that bridge process. Keep the durable recovery checkpoint as the only gate;
+        // otherwise an orphaned thread id can block restart and shutdown forever even
+        // though there is no process left that could complete the handoff.
+        RetireDirectQuickReplyHandoffBlockers("bridge-inactivity-timeout");
 
         if (IsNativeLoopRunning)
         {
@@ -48360,7 +48399,8 @@ public partial class MainWindow : Window
                 var dialog = new ShutdownProtectionWindow(
                     isRunning: _isPromptRunning,
                     hasQueue: queueBlocking,
-                    isLoopRunning: IsNativeLoopRunning)
+                    isLoopRunning: IsNativeLoopRunning,
+                    blocker: GetRestartDeferralReason())
                 {
                     Owner = this
                 };
@@ -49453,11 +49493,16 @@ public partial class MainWindow : Window
         {
             BranchIndicatorStrip.Visibility = Visibility.Collapsed;
             NoRepoPromptStrip.Visibility = Visibility.Collapsed;
+            WorkspaceTitleText.ToolTip = null;
             return;
         }
 
-        var branch = ReadGitBranch(_currentWorkspace.FolderPath);
+        var workspaceFolder = _currentWorkspace.FolderPath;
+        var branch = ReadGitBranch(workspaceFolder);
         _currentBranch = branch;
+        var identity = WorkspaceIdentityPresentation.Resolve(workspaceFolder, branch);
+        WorkspaceTitleText.ToolTip = MakeThemedToolTip(identity.BuildTooltip(includeRevealHint: true));
+        BranchIndicatorStrip.ToolTip = MakeThemedToolTip(identity.BuildTooltip(includeRevealHint: false));
 
         if (string.IsNullOrEmpty(branch))
         {
@@ -50111,9 +50156,12 @@ public partial class MainWindow : Window
     {
         if (_restartStatusPanelControl == null) return;
 
-        var shouldShow = _restartPending &&
-                         (_isPromptRunning || _pendingPlanRecoveryAssessment is not null ||
-                          _planRecoveryAssessmentApplying);
+        var blocker = _restartPending
+            ? GetRestartDeferralReason()
+            : RestartDeferralReason.None;
+        var shouldShow = _restartPending && blocker != RestartDeferralReason.None;
+        if (shouldShow)
+            _restartStatusPanelControl.SetStatus(RestartDeferralPolicy.BuildStatusMessage(blocker));
         _restartStatusPanelControl.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
     }
 

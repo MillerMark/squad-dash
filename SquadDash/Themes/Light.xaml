@@ -127,6 +127,8 @@
     <SolidColorBrush x:Key="TableHeaderSurface" Color="#EDE8E0"/>
     <!-- Text Tokens -->
     <SolidColorBrush x:Key="ImportantText" Color="#53371E"/>
+    <!-- Halfway from ImportantText to the light theme's AntiPolarity (black). -->
+    <SolidColorBrush x:Key="ControlText" Color="#2A1C0F"/>
     <SolidColorBrush x:Key="LabelText" Color="#3C2B1E"/>
     <SolidColorBrush x:Key="BodyText" Color="#7C6653"/>
     <SolidColorBrush x:Key="ToolTipForeground" Color="#1A1A1A"/><!-- near-black for high contrast on light tooltip background -->

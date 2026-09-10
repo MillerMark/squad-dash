@@ -1,6 +1,8 @@
 using System.Threading;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Media;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -35,14 +37,81 @@ internal sealed class InboxApprovalChecklistPresenterTests
             fontSize: 19);
         var checkbox = FindCheckBox(document.Blocks);
         checkbox!.IsChecked = true;
+        var expectedFontSize = 19 * InboxApprovalChecklistPresenter.ChecklistFontScale;
 
         Assert.Multiple(() =>
         {
             Assert.That(attached, Is.EqualTo(1));
-            Assert.That(checkbox.Content, Is.EqualTo(item.Text));
-            Assert.That(checkbox.FontSize, Is.EqualTo(19));
+            Assert.That(checkbox.FontSize, Is.EqualTo(expectedFontSize));
+            Assert.That(checkbox.Content, Is.TypeOf<Grid>());
             Assert.That(changedItem, Is.EqualTo(item));
             Assert.That(changedValue, Is.True);
+        });
+
+        var content = (Grid)checkbox.Content;
+        var border = content.Children.OfType<Border>().Single();
+        var label = content.Children.OfType<TextBlock>().Single();
+        var list = document.Blocks.OfType<List>()
+            .Single(candidate => candidate.MarkerStyle == TextMarkerStyle.None);
+        Assert.Multiple(() =>
+        {
+            Assert.That(label.Text, Is.EqualTo(item.Text));
+            Assert.That(label.TextWrapping, Is.EqualTo(TextWrapping.Wrap));
+            Assert.That(label.FontSize, Is.EqualTo(expectedFontSize));
+            Assert.That(border.Width, Is.EqualTo(Math.Round(expectedFontSize * 1.2)));
+            Assert.That(border.Height, Is.EqualTo(Math.Round(expectedFontSize * 1.2)));
+            Assert.That(border.BorderThickness, Is.EqualTo(new Thickness(1.5)));
+            Assert.That(border.CornerRadius, Is.EqualTo(new CornerRadius(2)));
+            Assert.That(((Viewbox)border.Child).Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Attach_LongChecklistTextWrapsWithinTheAvailableWidth()
+    {
+        const string question =
+            "Does the intentionally long review question wrap inside a narrow Inbox message instead of forcing it wider?";
+        var document = MarkdownFlowDocumentBuilder.BuildInbox($"- ☐ {question}", 14);
+        var item = new PlanHumanReviewChecklistItem(
+            "gate-1", "wrap", "wrap", question,
+            PlanHumanReviewChecklist.UncommittedCandidate, false, false, null);
+
+        InboxApprovalChecklistPresenter.Attach(document, [item], (_, _) => { }, fontSize: 14);
+        var checkbox = FindCheckBox(document.Blocks)!;
+        var expectedFontSize = 14 * InboxApprovalChecklistPresenter.ChecklistFontScale;
+
+        checkbox.Measure(new Size(180, double.PositiveInfinity));
+        var label = ((Grid)checkbox.Content).Children.OfType<TextBlock>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(checkbox.DesiredSize.Width, Is.LessThanOrEqualTo(180));
+            Assert.That(label.FontSize, Is.EqualTo(expectedFontSize));
+            Assert.That(label.DesiredSize.Height, Is.GreaterThan(expectedFontSize * 2));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Attach_MixedMarkdownListKeepsOrdinaryBulletButNotCheckboxBullet()
+    {
+        const string question = "Does the result appear?";
+        var document = MarkdownFlowDocumentBuilder.BuildInbox(
+            $"- Supporting instruction\n- ☐ {question}", 14);
+        var item = new PlanHumanReviewChecklistItem(
+            "gate-1", "mixed-list", "mixed-list", question,
+            PlanHumanReviewChecklist.UncommittedCandidate, false, false, null);
+
+        InboxApprovalChecklistPresenter.Attach(document, [item], (_, _) => { }, fontSize: 14);
+
+        var list = document.Blocks.OfType<List>().Single();
+        var ordinaryParagraph = (Paragraph)list.ListItems.First().Blocks.FirstBlock;
+        var checkboxParagraph = (Paragraph)list.ListItems.Last().Blocks.FirstBlock;
+        Assert.Multiple(() =>
+        {
+            Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
+            Assert.That(new TextRange(ordinaryParagraph.ContentStart, ordinaryParagraph.ContentEnd).Text.TrimStart(),
+                Does.StartWith("• Supporting instruction"));
+            Assert.That(checkboxParagraph.Inlines.FirstInline, Is.TypeOf<InlineUIContainer>());
         });
     }
 
