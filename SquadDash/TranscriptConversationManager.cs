@@ -1678,6 +1678,13 @@ internal sealed class TranscriptConversationManager {
         }
     }
 
+    internal void RestorePromptDraft(string text, IReadOnlyList<FollowUpAttachment> attachments) {
+        ResetHistoryNavigation();
+        ApplyPromptText(text);
+        _applyDraftAttachments(attachments ?? Array.Empty<FollowUpAttachment>());
+        _setPromptIsDictated?.Invoke(false);
+    }
+
     private void SetCurrentSessionId(string? sessionId) {
         _currentSessionId = NormalizeSessionId(sessionId);
         _conversationState = _conversationState with {

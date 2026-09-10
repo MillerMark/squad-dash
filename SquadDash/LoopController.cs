@@ -30,6 +30,7 @@ internal sealed class LoopController {
     private readonly ILoopClock                  _clock;
 
     private volatile bool         _stopRequested;
+    private volatile bool         _recoveryHoldRequested;
     private CancellationTokenSource? _cts;
     private CancellationTokenSource? _waitCts;
     private string? _workspacePath;
@@ -103,6 +104,7 @@ internal sealed class LoopController {
             return Task.CompletedTask;
 
         _stopRequested = false;
+        _recoveryHoldRequested = false;
         LastTerminalException = null;
         _workspacePath = workspacePath;
         _filterText    = filterText;
@@ -119,6 +121,15 @@ internal sealed class LoopController {
         _stopRequested = true;
         if (StopState == LoopStopState.None)
             StopState = LoopStopState.StopRequested;
+    }
+
+    /// <summary>
+    /// Stops after the active prompt settles without reporting that interrupted iteration as
+    /// completed. The host preserves the execution envelope and decides when it may resume.
+    /// </summary>
+    internal void RequestRecoveryHold() {
+        _recoveryHoldRequested = true;
+        RequestStop();
     }
 
     /// <summary>
@@ -202,6 +213,9 @@ internal sealed class LoopController {
                 }
 
                 await promptTask; // propagate any exception thrown by the prompt itself
+
+                if (_recoveryHoldRequested)
+                    break;
 
                 _onIterationCompleted(iteration);
 

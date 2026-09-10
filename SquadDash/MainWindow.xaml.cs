@@ -460,6 +460,8 @@ public partial class MainWindow : Window
     private bool _codeHealthPendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
     private QueueRecoveryHoldState? _queueRecoveryHold;
+    private InterruptedPromptRecoveryState? _interruptedPromptRecoveryHold;
+    private bool _loopStoppedForInterruptedPromptRecovery;
     private bool _planQueueDrainPauseAnnounced;
     private bool _pendingPromptIsSystemInjected; // set for silent-completion follow-up prompts; consumed by CreateTranscriptTurnView
     private bool _pendingPromptSuppressTranscript;
@@ -1758,7 +1760,9 @@ public partial class MainWindow : Window
             getSubmittedAttachments: () => _pendingTranscriptAttachments ?? Array.Empty<FollowUpAttachment>(),
             promptBuilder: serviceProvider?.GetRequiredService<ISquadBridgePromptBuilder>(),
             consumeInterruptedPromptFreshnessInstructionAsync: ConsumeInterruptedPromptFreshnessInstructionAsync,
-            prepareBridgeForTurn: RefreshBridgeModelSettingsBeforeDispatch);
+            prepareBridgeForTurn: RefreshBridgeModelSettingsBeforeDispatch,
+            onInterruptedPromptRecoverySaved: EnterInterruptedPromptRecoveryHold,
+            onInterruptedPromptRecoveryCleared: ReleaseInterruptedPromptRecoveryHold);
         _pec.TryHandlePlanRuntimeFailure = error =>
             TryHandleActivePlanValidationProviderFailure(error, confirmedProviderEvent: false);
 
@@ -2718,6 +2722,21 @@ public partial class MainWindow : Window
                 await _pec.ExecutePromptAsync(prompt, addToHistory: true, clearPromptBox: true);
                 SyncPromptTextBoxSimBorder();
                 return;
+            }
+
+            if (_interruptedPromptRecoveryHold is not null)
+            {
+                var supersededRecovery = _interruptedPromptRecoveryHold;
+                GetInterruptedPromptRecoveryStore()?.Clear("superseded-by-submitted-prompt");
+                ReleaseInterruptedPromptRecoveryHold("submitted-edited-or-new-prompt", resumePendingWork: false);
+                if (_lastQuickReplyEntry?.AllowQuickReplies == true)
+                {
+                    _pec.DisableQuickReplies(_lastQuickReplyEntry);
+                    ClearActiveQuickReplyState(_lastQuickReplyEntry);
+                }
+                SquadDashTrace.Write(
+                    "Recovery",
+                    $"User submission superseded recovery id={supersededRecovery.RecoveryId}; existing queue and loop ordering remain preserved.");
             }
 
             if (_isPromptRunning || IsNativeLoopRunning || IsQueueDispatchHeld || HasPendingDirectQuickReplyAgentFollowUp())
@@ -3739,6 +3758,14 @@ public partial class MainWindow : Window
 
     private async Task MaybeFireQueuedLoopAsync()
     {
+        if (_interruptedPromptRecoveryHold is not null)
+        {
+            SquadDashTrace.Write(
+                "Loop",
+                $"Loop resume deferred by interrupted-prompt recovery id={_interruptedPromptRecoveryHold.RecoveryId}.");
+            return;
+        }
+
         if (_pendingDecomposeRecoveryResponse is not null || _pendingDecomposeRecoveryDispatchScheduled)
         {
             SquadDashTrace.Write(
@@ -3906,6 +3933,8 @@ public partial class MainWindow : Window
         _queuePreEditDraftSelectionLength = 0;
         _queueManuallyPaused = false;
         _queueRecoveryHold = null;
+        _interruptedPromptRecoveryHold = null;
+        _loopStoppedForInterruptedPromptRecovery = false;
         _queuePausePending = false;
         _rightmostTabHoldNotificationFired = false;
         _loopQueued = false;
@@ -4044,7 +4073,7 @@ public partial class MainWindow : Window
     private void SetQueuePaused(bool paused)
     {
         _queueManuallyPaused = paused;
-        if (!paused && _queueRecoveryHold is null)
+        if (!paused && _queueRecoveryHold is null && _interruptedPromptRecoveryHold is null)
             _queueStopPauseState.RecordQueueResumed();
         var dispatchHeld = IsQueueDispatchHeld;
         EditPauseQueueDrainMenuItem.Visibility  = dispatchHeld ? Visibility.Collapsed : Visibility.Visible;
@@ -4086,6 +4115,14 @@ public partial class MainWindow : Window
                 QueueStatusLabel.Text = $"Queue is paused{qrbSuffix}";
                 QueueStatusLabel.SetResourceReference(TextBlock.BackgroundProperty, "ToastSurface");
                 QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "ToastText");
+            }
+            else if (_interruptedPromptRecoveryHold is not null)
+            {
+                QueueStatusLabel.Text = "Queue is held for interrupted work recovery";
+                QueueStatusLabel.SetResourceReference(TextBlock.BackgroundProperty, "ToastSurface");
+                QueueStatusLabel.SetResourceReference(TextBlock.ForegroundProperty, "ToastText");
+                QueuePlayPauseButton.ToolTip = MakeThemedToolTip(
+                    "Use the recovery card in the transcript before queued prompts can continue.");
             }
             else if (_queueRecoveryHold is not null)
             {
@@ -4176,6 +4213,13 @@ public partial class MainWindow : Window
 
     private void ToggleQueueDrain()
     {
+        if (_interruptedPromptRecoveryHold is not null)
+        {
+            ShowSystemTranscriptEntry(
+                "Queued prompts remain paused until you Continue, edit and submit, or dismiss the interrupted-work recovery card.");
+            return;
+        }
+
         if (_queuePausePending)
         {
             // Case 3: Cancel the pending pause — turn is still running but we resume.
@@ -4218,7 +4262,10 @@ public partial class MainWindow : Window
 
     private void QueuePlayPauseButton_Click(object sender, RoutedEventArgs e) => ToggleQueueDrain();
 
-    private bool IsQueueDispatchHeld => _queueManuallyPaused || _queueRecoveryHold is not null;
+    private bool IsQueueDispatchHeld =>
+        _queueManuallyPaused ||
+        _queueRecoveryHold is not null ||
+        _interruptedPromptRecoveryHold is not null;
 
     private void SetQueueRecoveryHoldForRequiredPlan(
         TranscriptThreadState thread,
@@ -7239,6 +7286,9 @@ public partial class MainWindow : Window
             }
         }
 
+        if (_interruptedPromptRecoveryHold is not null || _loopStoppedForInterruptedPromptRecovery)
+            return;
+
         if (isExecutingPlan)
             await FinalizeExecutingPlanIterationAsync();
     }
@@ -7302,6 +7352,10 @@ public partial class MainWindow : Window
         _promptQueue.RemoveByTag(PlanContinuationQueueTag);
         SyncQueuePanel();
         int stoppedIteration = _loopCurrentIteration;
+        int resumeFromIteration = _loopStoppedForInterruptedPromptRecovery
+            ? _conversationManager.ConversationState.ActiveLoopExecution?.LastCompletedIteration
+              ?? Math.Max(0, stoppedIteration - 1)
+            : stoppedIteration;
         var stoppedExecution = _loopRoundExecutionIdentity;
         var stoppedPlanId = _activeDecomposeGroupId ?? stoppedExecution?.PlanId;
         bool hasInterrupt = _loopInterruptedByQueue;
@@ -7419,7 +7473,7 @@ public partial class MainWindow : Window
             TryCompletePendingRestart("native-loop-stopped", emergencySaveBeforeClose: true))
         {
             if (shouldPreserveForRestart)
-                _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, stoppedIteration);
+                _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, resumeFromIteration);
             SquadDashTrace.Write("Loop", $"OnNativeLoopStopped: restart pending preserve={shouldPreserveForRestart} resumeSuppressed={_loopResumeSuppressed} resumeFromIteration={_loopQueuedResumeFromIteration} group={_activeDecomposeGroupId ?? "(none)"} queueCount={_promptQueue.Count}");
             SyncLoopPanel();
             return;
@@ -7431,10 +7485,11 @@ public partial class MainWindow : Window
         SquadDashTrace.Write("Queue", $"OnNativeLoopStopped: hasInterrupt={hasInterrupt} hasReadyItems={_promptQueue.HasReadyItems} loopQueued={_loopQueued}.");
         if (shouldResumeAfterQueue && !_loopQueued)
         {
-            QueueLoopResumeAfterQueueDrain(stoppedIteration, "native-loop-stopped", updateUi: false);
+            QueueLoopResumeAfterQueueDrain(resumeFromIteration, "native-loop-stopped", updateUi: false);
             AppendLoopOutputLine("🔁 Queue items pending — loop will resume after queue drains.", LoopLifecycleBrush);
         }
 
+        _loopStoppedForInterruptedPromptRecovery = false;
         _loopResumeSuppressed = false;
         _pausePlanAfterCurrentStepRequested = false;
         _planAbortRequestedByUser = false;
@@ -37562,6 +37617,7 @@ public partial class MainWindow : Window
         // document replacement above will silently erase them during every restart.
         RestoreInterruptedPlanRecoverySurfaces();
         RestoreFailedPlanValidationRecoverySurface();
+        RestoreInterruptedPromptRecoverySurface();
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
         _ = Dispatcher.BeginInvoke(
@@ -37715,13 +37771,13 @@ public partial class MainWindow : Window
                 // OnQueueTabClicked → SyncQueuePanel renders "Queue is draining (active tab pausing
                 // dispatch)". If the queue was ALSO manually paused at shutdown, re-apply the pause
                 // styling at a lower priority so it wins over the tab-derived label.
-                if (savedQueuePaused || _queueRecoveryHold is not null)
+                if (savedQueuePaused || _queueRecoveryHold is not null || _interruptedPromptRecoveryHold is not null)
                     _ = Dispatcher.InvokeAsync(() => SetQueuePaused(savedQueuePaused),
                         System.Windows.Threading.DispatcherPriority.ContextIdle);
             }
             else
             {
-                if (savedQueuePaused || _queueRecoveryHold is not null)
+                if (savedQueuePaused || _queueRecoveryHold is not null || _interruptedPromptRecoveryHold is not null)
                 {
                     SquadDashTrace.Write(
                         "Queue",
@@ -37785,14 +37841,14 @@ public partial class MainWindow : Window
                 // item's tab so the user must explicitly Send or switch away before it dispatches.
                 OnQueueTabClicked(_promptQueue.Items[0].Id);
                 // Re-apply manual pause label after tab-derived "Queue is draining" label fires.
-                if (savedQueuePaused || _queueRecoveryHold is not null)
+                if (savedQueuePaused || _queueRecoveryHold is not null || _interruptedPromptRecoveryHold is not null)
                     _ = Dispatcher.InvokeAsync(() => SetQueuePaused(savedQueuePaused),
                         System.Windows.Threading.DispatcherPriority.ContextIdle);
             }
             else
             {
                 // Auto-dispatch restored queue items once the UI is fully initialised.
-                if (savedQueuePaused || _queueRecoveryHold is not null)
+                if (savedQueuePaused || _queueRecoveryHold is not null || _interruptedPromptRecoveryHold is not null)
                 {
                     SquadDashTrace.Write(
                         "Queue",
@@ -43600,6 +43656,205 @@ public partial class MainWindow : Window
         await _pec.ExecutePromptAsync(lastPrompt, addToHistory: false, clearPromptBox: false);
     }
 
+    private InterruptedPromptRecoveryStore? GetInterruptedPromptRecoveryStore()
+    {
+        if (_currentWorkspace is null)
+            return null;
+
+        var stateDirectory = _conversationManager.ConversationStore
+            .GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
+        return new InterruptedPromptRecoveryStore(stateDirectory);
+    }
+
+    private InterruptedPromptRecoveryState? LoadInterruptedPromptRecovery() =>
+        GetInterruptedPromptRecoveryStore()?.Load();
+
+    private void EnterInterruptedPromptRecoveryHold(InterruptedPromptRecoveryState recovery)
+    {
+        _interruptedPromptRecoveryHold = recovery;
+        ClearRuntimeIssue();
+
+        if (IsNativeLoopRunning)
+        {
+            _loopStoppedForInterruptedPromptRecovery = true;
+            _loopInterruptedByQueue = true;
+            var lastCompletedIteration = _conversationManager.ConversationState.ActiveLoopExecution?.LastCompletedIteration
+                                         ?? Math.Max(0, _loopCurrentIteration - 1);
+            _loopQueuedResumeFromIteration = Math.Max(_loopQueuedResumeFromIteration, lastCompletedIteration);
+            _loopController.RequestRecoveryHold();
+            _loopFollowUpTcs?.TrySetResult(false);
+            AppendLoopOutputLine(
+                "⏸ Loop held — interrupted work requires a recovery choice in the transcript.",
+                LoopLifecycleBrush);
+        }
+        else if (IsLoopRunning)
+        {
+            _ = _bridge.StopLoopAsync();
+        }
+
+        SquadDashTrace.Write(
+            "Recovery",
+            $"Execution hold entered id={recovery.RecoveryId} queueCount={_promptQueue.Count} loopRunning={IsLoopRunning} loopIteration={_loopCurrentIteration}.");
+        SyncQueuePanel();
+        SyncLoopPanel();
+    }
+
+    private void ReleaseInterruptedPromptRecoveryHold(string reason) =>
+        ReleaseInterruptedPromptRecoveryHold(reason, resumePendingWork: true);
+
+    private void ReleaseInterruptedPromptRecoveryHold(string reason, bool resumePendingWork)
+    {
+        if (_interruptedPromptRecoveryHold is null)
+            return;
+
+        var released = _interruptedPromptRecoveryHold;
+        _interruptedPromptRecoveryHold = null;
+        SquadDashTrace.Write(
+            "Recovery",
+            $"Execution hold released reason={reason} id={released.RecoveryId} queueCount={_promptQueue.Count} loopQueued={_loopQueued}.");
+        SyncQueuePanel();
+        SyncLoopPanel();
+
+        if (!resumePendingWork || _isPromptRunning)
+            return;
+
+        if (_promptQueue.Count > 0)
+            _ = DrainQueueIfNeededAsync();
+        else
+            _ = MaybeFireQueuedLoopAsync();
+    }
+
+    private void RestoreInterruptedPromptRecoverySurface()
+    {
+        var store = GetInterruptedPromptRecoveryStore();
+        var recovery = store?.Load();
+        if (recovery is null && store is not null)
+        {
+            recovery = InterruptedPromptRecoveryDetector.TryDetect(
+                _conversationManager.ConversationState,
+                _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace!.FolderPath));
+            if (recovery is not null)
+            {
+                store.Save(recovery);
+                SquadDashTrace.Write(
+                    "Recovery",
+                    $"Detected legacy interrupted prompt from persisted turn and trace id={recovery.RecoveryId} target={recovery.TargetAgentHandle ?? "(coordinator)"}");
+            }
+        }
+        if (recovery is null)
+            return;
+
+        if (!InterruptedPromptRecoveryPresentation.IsStillLatestUnresolved(
+                recovery,
+                _conversationManager.ConversationState))
+        {
+            store?.Clear("superseded-by-newer-transcript-turn");
+            SquadDashTrace.Write(
+                "Recovery",
+                $"Skipped stale interrupted prompt recovery id={recovery.RecoveryId}; a newer transcript turn exists.");
+            return;
+        }
+
+        EnterInterruptedPromptRecoveryHold(recovery);
+
+        var primaryAction = InterruptedPromptRecoveryPresentation.BuildPrimaryActionLabel(recovery);
+        var existingCardRestored = _lastQuickReplyEntry?.AllowQuickReplies == true &&
+            _lastQuickReplyEntry.RawTextBuilder.ToString().Contains(
+                $"[{primaryAction}]",
+                StringComparison.OrdinalIgnoreCase);
+        if (!existingCardRestored)
+        {
+            ShowSystemTranscriptEntry(
+                InterruptedPromptRecoveryPresentation.BuildCardText(
+                    recovery,
+                    restoredAfterRestart: true));
+        }
+        SquadDashTrace.Write(
+            "Recovery",
+            $"Restored interrupted prompt recovery id={recovery.RecoveryId} existingCard={existingCardRestored} action='{primaryAction}'");
+    }
+
+    private async Task ContinueInterruptedPromptAsync(InterruptedPromptRecoveryState recovery)
+    {
+        // The user's primary action resolves the blocking checkpoint. The durable envelope
+        // remains until the continuation succeeds, so a crash or repeated timeout can restore it.
+        ReleaseInterruptedPromptRecoveryHold("continue-action", resumePendingWork: false);
+        ResumeQueueAfterStoppedWorkResponseIfNeeded();
+        ResetQueuePausedState();
+        ClearRuntimeIssue();
+
+        var continuationPrompt = InterruptedPromptRecoveryPresentation.BuildContinuationPrompt(recovery);
+        _pendingTranscriptAttachments = recovery.Attachments.ToArray();
+        SquadDashTrace.Write(
+            "Recovery",
+            $"Continuing interrupted prompt id={recovery.RecoveryId} kind={recovery.ExecutionKind} target={recovery.TargetAgentHandle ?? "(coordinator)"}");
+
+        switch (recovery.ExecutionKind)
+        {
+            case InterruptedPromptExecutionKind.NamedAgentDirect when !string.IsNullOrWhiteSpace(recovery.TargetAgentHandle):
+                await _pec.ExecuteNamedAgentDirectAsync(
+                    recovery.TargetAgentHandle,
+                    continuationPrompt,
+                    recovery.HandoffContext,
+                    addToHistory: false,
+                    clearPromptBox: false,
+                    sessionIdOverride: recovery.SessionId,
+                    preserveExistingRecovery: true);
+                break;
+
+            case InterruptedPromptExecutionKind.NamedAgentDelegation when !string.IsNullOrWhiteSpace(recovery.TargetAgentHandle):
+                await _pec.ExecuteNamedAgentDelegationAsync(
+                    continuationPrompt,
+                    recovery.TargetAgentHandle,
+                    addToHistory: false,
+                    clearPromptBox: false,
+                    sessionIdOverride: recovery.SessionId,
+                    preserveExistingRecovery: true);
+                break;
+
+            default:
+                await _pec.ExecutePromptAsync(
+                    continuationPrompt,
+                    addToHistory: false,
+                    clearPromptBox: false,
+                    sessionIdOverride: recovery.SessionId,
+                    displayPrompt: $"Continue interrupted work from {recovery.InterruptedAt.ToLocalTime():g}",
+                    preserveExistingRecovery: true);
+                break;
+        }
+    }
+
+    private void EditInterruptedPrompt(InterruptedPromptRecoveryState recovery)
+    {
+        _conversationManager.RestorePromptDraft(
+            InterruptedPromptRecoveryPresentation.BuildEditablePrompt(recovery),
+            recovery.Attachments);
+        PromptTextBox.Focus();
+        PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
+        SquadDashTrace.Write("Recovery", $"Restored interrupted prompt to editor id={recovery.RecoveryId}");
+    }
+
+    private void ShowInterruptedPromptDiagnostics(InterruptedPromptRecoveryState recovery)
+    {
+        ShowTextWindow(
+            "Squad Runtime Diagnostics",
+            InterruptedPromptRecoveryPresentation.BuildDiagnosticsText(
+                recovery,
+                GetInterruptedPromptRecoveryStore()?.PathForDiagnostics));
+    }
+
+    private void DismissInterruptedPromptRecovery(
+        InterruptedPromptRecoveryState recovery,
+        TranscriptResponseEntry entry)
+    {
+        _pec.DisableQuickReplies(entry);
+        ClearActiveQuickReplyState(entry);
+        GetInterruptedPromptRecoveryStore()?.Clear("user-dismissed");
+        ReleaseInterruptedPromptRecoveryHold("dismiss-action", resumePendingWork: true);
+        ShowSystemTranscriptEntry(
+            "Interrupted work recovery dismissed. Queued prompts and any preserved loop may continue.");
+    }
+
     private async Task HandleCheckGitDiffAsync()
     {
         var workspacePath = _currentWorkspace?.FolderPath;
@@ -43736,6 +43991,45 @@ public partial class MainWindow : Window
                 if (string.Equals(option, SquadTeamRootRepairWorkflow.IgnoreQuickReply, StringComparison.OrdinalIgnoreCase))
                 {
                     HandleTeamRootIgnoreQuickReply(payload.Entry);
+                    return;
+                }
+            }
+
+            var interruptedRecovery = LoadInterruptedPromptRecovery();
+            if (interruptedRecovery is not null)
+            {
+                var recoveryOption = payload.Option.Trim();
+                var primaryRecoveryAction = InterruptedPromptRecoveryPresentation.BuildPrimaryActionLabel(interruptedRecovery);
+                if (string.Equals(recoveryOption, primaryRecoveryAction, StringComparison.OrdinalIgnoreCase))
+                {
+                    _pec.DisableQuickReplies(payload.Entry);
+                    ClearActiveQuickReplyState(payload.Entry);
+                    await ContinueInterruptedPromptAsync(interruptedRecovery);
+                    return;
+                }
+
+                if (string.Equals(recoveryOption, InterruptedPromptRecoveryPresentation.EditPromptAction, StringComparison.OrdinalIgnoreCase))
+                {
+                    EditInterruptedPrompt(interruptedRecovery);
+                    return;
+                }
+
+                if (string.Equals(recoveryOption, InterruptedPromptRecoveryPresentation.ViewDiagnosticsAction, StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowInterruptedPromptDiagnostics(interruptedRecovery);
+                    return;
+                }
+
+                if (string.Equals(recoveryOption, InterruptedPromptRecoveryPresentation.DismissAction, StringComparison.OrdinalIgnoreCase))
+                {
+                    DismissInterruptedPromptRecovery(interruptedRecovery, payload.Entry);
+                    return;
+                }
+
+                if (interruptedRecovery.FailureCount > 1 &&
+                    string.Equals(recoveryOption, InterruptedPromptRecoveryPresentation.RunDoctorAction, StringComparison.OrdinalIgnoreCase))
+                {
+                    RunDoctorButton_Click(null!, null!);
                     return;
                 }
             }

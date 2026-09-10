@@ -86,6 +86,36 @@ internal sealed class LoopControllerTests {
         Assert.That(controller.IsRunning, Is.False);
     }
 
+    [Test]
+    public async Task RequestRecoveryHold_StopsWithoutCompletingInterruptedIteration() {
+        var iterStartedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var promptTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stoppedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completedCount = 0;
+
+        var controller = new LoopController(
+            executePromptAsync: (_, _) => { iterStartedTcs.TrySetResult(); return promptTcs.Task; },
+            abortPrompt: () => { },
+            onIterationStarted: _ => { },
+            onStopped: () => stoppedTcs.TrySetResult(),
+            onError: _ => stoppedTcs.TrySetResult(),
+            onIterationCompleted: _ => completedCount++,
+            onWaiting: _ => { });
+
+        await controller.StartAsync(MakeConfig(), continuousContext: true);
+        await iterStartedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        controller.RequestRecoveryHold();
+        promptTcs.SetResult();
+        await stoppedTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Multiple(() => {
+            Assert.That(completedCount, Is.Zero);
+            Assert.That(controller.StopState, Is.EqualTo(LoopStopState.StopRequested));
+            Assert.That(controller.IsRunning, Is.False);
+        });
+    }
+
     // ── RequestAbort ──────────────────────────────────────────────────────────
 
     [Test]

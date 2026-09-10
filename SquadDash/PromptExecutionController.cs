@@ -172,6 +172,8 @@ internal sealed class PromptExecutionController {
     private readonly Func<bool>   _getIsClosing;
     private readonly Func<bool>   _getRestartPending;
     private readonly Func<bool>   _prepareBridgeForTurn;
+    private readonly Action<InterruptedPromptRecoveryState>? _onInterruptedPromptRecoverySaved;
+    private readonly Action<string>? _onInterruptedPromptRecoveryCleared;
     private readonly Action       _close;
 
     // ── Injected — Routing Flags ──────────────────────────────────────────
@@ -423,7 +425,9 @@ internal sealed class PromptExecutionController {
         Func<IReadOnlyList<FollowUpAttachment>>? getSubmittedAttachments = null,
         ISquadBridgePromptBuilder? promptBuilder = null,
         Func<Task<string?>>? consumeInterruptedPromptFreshnessInstructionAsync = null,
-        Func<bool>? prepareBridgeForTurn = null) {
+        Func<bool>? prepareBridgeForTurn = null,
+        Action<InterruptedPromptRecoveryState>? onInterruptedPromptRecoverySaved = null,
+        Action<string>? onInterruptedPromptRecoveryCleared = null) {
 
         _runPromptAsync                        = runPromptAsync;
         _runNamedAgentDelegationAsync          = runNamedAgentDelegationAsync;
@@ -440,6 +444,8 @@ internal sealed class PromptExecutionController {
         _getIsClosing                          = getIsClosing;
         _getRestartPending                     = getRestartPending;
         _prepareBridgeForTurn                  = prepareBridgeForTurn ?? (() => false);
+        _onInterruptedPromptRecoverySaved      = onInterruptedPromptRecoverySaved;
+        _onInterruptedPromptRecoveryCleared    = onInterruptedPromptRecoveryCleared;
         _close                                 = close;
         _getPendingRoutingRepairRecheck        = getPendingRoutingRepairRecheck;
         _setPendingRoutingRepairRecheck        = setPendingRoutingRepairRecheck;
@@ -1955,12 +1961,19 @@ internal sealed class PromptExecutionController {
         bool addToHistory,
         bool clearPromptBox,
         string? sessionIdOverride = null,
-        string? displayPrompt = null) {
+        string? displayPrompt = null,
+        bool preserveExistingRecovery = false) {
         await ExecuteCoordinatorTurnAsync(
             displayPrompt ?? prompt,
             addToHistory,
             clearPromptBox,
             allowLocalCommandHandling: true,
+            new InterruptedPromptDispatch(
+                InterruptedPromptExecutionKind.Coordinator,
+                prompt,
+                displayPrompt ?? prompt,
+                SessionId: sessionIdOverride ?? _conversationManager.CurrentSessionId,
+                PreserveExistingRecovery: preserveExistingRecovery),
             async (workspace, configDirectory, forceFreshSession) => {
                 var freshnessInstruction = _consumeInterruptedPromptFreshnessInstructionAsync is null
                     ? null
@@ -1989,7 +2002,9 @@ internal sealed class PromptExecutionController {
         string selectedOption,
         string targetAgentHandle,
         bool addToHistory,
-        bool clearPromptBox) {
+        bool clearPromptBox,
+        string? sessionIdOverride = null,
+        bool preserveExistingRecovery = false) {
         if (string.IsNullOrWhiteSpace(targetAgentHandle))
             throw new ArgumentException("Target agent handle cannot be empty.", nameof(targetAgentHandle));
 
@@ -1998,8 +2013,15 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             allowLocalCommandHandling: false,
+            new InterruptedPromptDispatch(
+                InterruptedPromptExecutionKind.NamedAgentDelegation,
+                selectedOption,
+                selectedOption,
+                targetAgentHandle,
+                SessionId: sessionIdOverride ?? _conversationManager.CurrentSessionId,
+                PreserveExistingRecovery: preserveExistingRecovery),
             async (workspace, configDirectory, _) => {
-                var currentSessionId = _conversationManager.CurrentSessionId;
+                var currentSessionId = sessionIdOverride ?? _conversationManager.CurrentSessionId;
                 if (string.IsNullOrWhiteSpace(currentSessionId))
                     throw new InvalidOperationException(
                         "Named-agent quick replies require the active coordinator session so Squad can delegate in-place.");
@@ -2018,7 +2040,9 @@ internal sealed class PromptExecutionController {
         string selectedOption,
         string? handoffContext,
         bool addToHistory,
-        bool clearPromptBox) {
+        bool clearPromptBox,
+        string? sessionIdOverride = null,
+        bool preserveExistingRecovery = false) {
         if (string.IsNullOrWhiteSpace(targetAgentHandle))
             throw new ArgumentException("Target agent handle cannot be empty.", nameof(targetAgentHandle));
 
@@ -2027,8 +2051,16 @@ internal sealed class PromptExecutionController {
             addToHistory,
             clearPromptBox,
             allowLocalCommandHandling: false,
+            new InterruptedPromptDispatch(
+                InterruptedPromptExecutionKind.NamedAgentDirect,
+                selectedOption,
+                selectedOption,
+                targetAgentHandle,
+                handoffContext,
+                sessionIdOverride ?? _conversationManager.CurrentSessionId,
+                preserveExistingRecovery),
             async (workspace, configDirectory, _) => {
-                var currentSessionId = _conversationManager.CurrentSessionId;
+                var currentSessionId = sessionIdOverride ?? _conversationManager.CurrentSessionId;
                 await _runNamedAgentDirectAsync(
                     targetAgentHandle,
                     selectedOption,
@@ -2092,6 +2124,7 @@ internal sealed class PromptExecutionController {
         bool addToHistory,
         bool clearPromptBox,
         bool allowLocalCommandHandling,
+        InterruptedPromptDispatch recoveryDispatch,
         Func<SessionWorkspace, string?, bool, Task> runBridgeTurnAsync) {
         if (_workspaceContext.GetCurrentWorkspace() is null)
             return;
@@ -2119,6 +2152,7 @@ internal sealed class PromptExecutionController {
         }
 
         SessionWorkspace? workspace = null;
+        var submittedAttachments = _getSubmittedAttachments().ToArray();
         try {
             DisableTranscriptQuickReplies(_transcriptSink.CoordinatorThread);
 
@@ -2132,6 +2166,8 @@ internal sealed class PromptExecutionController {
 
             var forceFreshSession = _prepareBridgeForTurn();
             _setIsPromptRunning(true);
+            if (!recoveryDispatch.PreserveExistingRecovery)
+                ClearInterruptedPromptRecovery(workspace, "superseded-by-new-prompt");
             _conversationManager.ResetHistoryNavigation();
             _updateInteractiveControlState();
 
@@ -2142,7 +2178,7 @@ internal sealed class PromptExecutionController {
                 var historyText = visiblePrompt;
                 var bodyStart = AttachmentBlockFormatter.StripTypedAttachmentHeaders(visiblePrompt);
                 if (bodyStart >= 0) historyText = visiblePrompt[bodyStart..];
-                _conversationManager.AddPromptToHistory(historyText, _getSubmittedAttachments());
+                _conversationManager.AddPromptToHistory(historyText, submittedAttachments);
             }
 
             _transcriptSink.SelectTranscriptThread(_transcriptSink.CoordinatorThread);
@@ -2190,6 +2226,7 @@ internal sealed class PromptExecutionController {
                 _refreshAgentCards();
                 _refreshSidebar();
             }
+            ClearInterruptedPromptRecovery(workspace, "prompt-completed");
             SquadDashTrace.Write("UI", "ExecutePromptAsync completed successfully.");
         }
         catch (OperationCanceledException ex) {
@@ -2219,6 +2256,22 @@ internal sealed class PromptExecutionController {
         catch (Exception ex) {
             SquadDashTrace.Write("UI", $"ExecutePromptAsync failed: {ex}");
             StopPromptHealthMonitoring("error");
+            if (workspace is not null && InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(ex)) {
+                var recovery = SaveInterruptedPromptRecovery(
+                    workspace,
+                    recoveryDispatch,
+                    submittedAttachments,
+                    ex.Message);
+                _clearRuntimeIssue();
+                MarkActiveToolsAsFailed("Runtime inactivity timeout; continuation is available.");
+                _transcriptSink.AppendLine(
+                    InterruptedPromptRecoveryPresentation.BuildCardText(recovery),
+                    ThemeBrush("SystemWarningText"));
+                _updateLeadAgent("Waiting", string.Empty, "The runtime restarted. Continue the interrupted work when ready.");
+                _updateSessionState("Waiting");
+                _setInstallStatus("Runtime restarted. Continuation is available in the transcript.");
+                return;
+            }
             if (TryHandlePlanRuntimeFailure?.Invoke(ex.Message) == true) {
                 MarkActiveToolsAsFailed("Provider stopped before this plan phase completed.");
                 _updateLeadAgent("Waiting", string.Empty, "The plan phase is being recovered safely.");
@@ -2288,6 +2341,75 @@ internal sealed class PromptExecutionController {
             }
         }
     }
+
+    private InterruptedPromptRecoveryState SaveInterruptedPromptRecovery(
+        SessionWorkspace workspace,
+        InterruptedPromptDispatch dispatch,
+        IReadOnlyList<FollowUpAttachment> attachments,
+        string errorMessage) {
+        var agents = _agentRosterView.GetAgents();
+        var targetCard = string.IsNullOrWhiteSpace(dispatch.TargetAgentHandle)
+            ? null
+            : agents.FirstOrDefault(card =>
+                string.Equals(card.Name.TrimStart('@'), dispatch.TargetAgentHandle.Trim().TrimStart('@'), StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(card.DisplayName.TrimStart('@'), dispatch.TargetAgentHandle.Trim().TrimStart('@'), StringComparison.OrdinalIgnoreCase));
+        var activeAgentLabels = agents
+            .Where(card => !card.IsLeadAgent)
+            .Where(card => card.Threads.Any(thread => thread.IsCurrentBackgroundRun && thread.CompletedAt is null))
+            .Select(card => string.IsNullOrWhiteSpace(card.DisplayName) ? card.Name : card.DisplayName)
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var coordinator = agents.FirstOrDefault(card => card.IsLeadAgent);
+        var recoveryStore = GetInterruptedPromptRecoveryStore(workspace);
+        var priorRecovery = recoveryStore.Load();
+        var queueItem = CurrentDispatchedItem;
+        var queueContext = queueItem is null
+            ? null
+            : new InterruptedPromptQueueContext(
+                queueItem.Id,
+                queueItem.QueueNumber,
+                queueItem.SourceTag,
+                queueItem.IsSystemInjected,
+                queueItem.DisplayLabel);
+        var state = new InterruptedPromptRecoveryState(
+            InterruptedPromptRecoveryState.CurrentSchemaVersion,
+            Guid.NewGuid().ToString("N"),
+            DateTimeOffset.UtcNow,
+            dispatch.ExecutionKind,
+            dispatch.Prompt,
+            dispatch.DisplayPrompt,
+            attachments.ToArray(),
+            dispatch.TargetAgentHandle,
+            targetCard is null
+                ? (string.IsNullOrWhiteSpace(dispatch.TargetAgentHandle)
+                    ? null
+                    : AgentNameHumanizer.Humanize(dispatch.TargetAgentHandle.Trim().TrimStart('@')))
+                : (string.IsNullOrWhiteSpace(targetCard.DisplayName) ? targetCard.Name : targetCard.DisplayName),
+            dispatch.HandoffContext,
+            dispatch.SessionId ?? _conversationManager.CurrentSessionId,
+            activeAgentLabels,
+            coordinator is null
+                ? null
+                : (string.IsNullOrWhiteSpace(coordinator.DisplayName) ? coordinator.Name : coordinator.DisplayName),
+            queueContext,
+            Math.Max(1, (priorRecovery?.FailureCount ?? 0) + 1),
+            errorMessage,
+            InterruptedPromptRecoveryPresentation.ExtractInactivitySeconds(errorMessage));
+        recoveryStore.Save(state);
+        _onInterruptedPromptRecoverySaved?.Invoke(state);
+        return state;
+    }
+
+    private void ClearInterruptedPromptRecovery(SessionWorkspace? workspace, string reason) {
+        if (workspace is null)
+            return;
+        if (GetInterruptedPromptRecoveryStore(workspace).Clear(reason))
+            _onInterruptedPromptRecoveryCleared?.Invoke(reason);
+    }
+
+    private InterruptedPromptRecoveryStore GetInterruptedPromptRecoveryStore(SessionWorkspace workspace) =>
+        new(_conversationManager.ConversationStore.GetWorkspaceStateDirectory(workspace.FolderPath));
 
     private string FormatCurrentDispatchedItemForTrace()
     {
