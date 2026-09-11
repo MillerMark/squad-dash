@@ -62,6 +62,12 @@ For the assigned task:
    the message contains the promised material and is actually emitted. A transcript statement that
    the instructions are ready is not delivery.
 
+When the approved task includes contract examples, treat deterministic examples as strong candidates
+for focused regression tests. Where the repository has an appropriate automated test seam, include the
+example inputs and expected behaviors in existing or parameterized coverage. Do not create a ceremonial
+test or separate test class for every example, and do not pretend that human-only, environment-specific,
+or nondeterministic behavior is automated; satisfy those examples through the task's declared proof path.
+
 Use the manual-test-kit contract from the injected Inbox instructions whenever the assigned task
 prepares human validation. The Inbox body must be usable on its own and must place clickable file or
 folder links beside the steps that need them. Keep the later human gate's

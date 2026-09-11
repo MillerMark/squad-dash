@@ -46,6 +46,8 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("plausible wrong interpretation"));
             Assert.That(charter, Does.Contain("not reserved only for strict syntax contracts"));
             Assert.That(charter, Does.Contain("absence alone is never a reason to reject or"));
+            Assert.That(charter, Does.Contain("strong candidate for focused regression coverage"));
+            Assert.That(charter, Does.Contain("does not itself justify another"));
             Assert.That(charter, Does.Contain("only meaningful outcome is a human observation"));
             Assert.That(charter, Does.Contain("Markdown runbook"));
             Assert.That(charter, Does.Contain("SquadDash Inbox"));
@@ -99,6 +101,8 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("optional `contractExamples` field"));
             Assert.That(guidance, Does.Contain("Examples\n   are welcome even when the user did not supply them"));
             Assert.That(guidance, Does.Contain("absence\n   alone must not reject or halt an otherwise clear plan"));
+            Assert.That(guidance, Does.Contain("strong candidates for focused regression coverage"));
+            Assert.That(guidance, Does.Contain("extra task, validation node, approval gate, or planning halt"));
             Assert.That(guidance, Does.Contain("only meaningful outcome is a human observation"));
             Assert.That(guidance, Does.Contain("Markdown runbook"));
             Assert.That(guidance, Does.Contain("SquadDash Inbox"));

@@ -119,6 +119,14 @@ the plan. Keep the set minimal and representative rather than exhaustive. Every 
 part of the sealed task contract when the user approves the plan, so derive it only from verified
 requirements and decisions; do not use an example to invent a product decision.
 
+Treat deterministic contract examples as high-value candidates for focused automated test coverage.
+When the responsible task can exercise the example through an existing or appropriate test seam, plan
+for its input and expected behavior to be included in that task's regression coverage. Prefer reusing or
+parameterizing the project's established tests over creating a separate test class or one test per example.
+Do not mechanically demand automation for a human-only, environment-specific, nondeterministic, or purely
+explanatory example; route that behavior through the task's appropriate proof contract instead. This is
+planning guidance, not an additional validation node, approval gate, or reason to halt an otherwise sound plan.
+
 When the user provides or approves a concrete syntax, transformation, before/after example, or failure
 case that materially defines correctness, preserve it as a minimal normative example inside the
 responsible task's `contractExamples` field. Clarity of the contract is essential. Never refer to content
@@ -174,7 +182,9 @@ not required. Use the exact property names below; do not substitute familiar sho
   it need not originate with the user. Keep examples representative, not exhaustive. Copy user-provided or
   approved examples into this field instead of referring to a transcript, another conversation, an unstaged
   draft, or an unavailable document. Once the plan is approved, every included example is part of the sealed
-  task contract and is injected into the executing worker's context.
+  task contract and is injected into the executing worker's context. A deterministic example should normally
+  seed focused regression coverage when the task has an appropriate automated test seam, without requiring a
+  separate test or validation for every example.
 - `tasks[].contractExamples[].exampleId`: required unique lowercase kebab-case identifier within the task.
 - `tasks[].contractExamples[].title`: required concise description of the contract boundary demonstrated.
 - `tasks[].contractExamples[].input`: required exact input, before-state, syntax, or failure-triggering case.

@@ -110,6 +110,12 @@ Before authoring a plan:
   to example content that will be unavailable to the executing worker. Included examples become part of
   the sealed task contract when the plan is approved. Their absence alone is never a reason to reject or
   halt an otherwise clear plan.
+- Treat each deterministic contract example as a strong candidate for focused regression coverage in the
+  responsible task. When an appropriate automated test seam exists, have the task include the example's
+  input and expected behavior in established or parameterized tests. Do not require a separate test per
+  example, and do not force automation for human-only, environment-specific, nondeterministic, or purely
+  explanatory examples; use the appropriate proof contract. This guidance does not itself justify another
+  task, validation node, approval gate, or planning halt.
 - Use dependencies only for real prerequisites. Mark parallel work only when it can safely proceed
   without unproduced inputs or conflicting ownership.
 - Give every implementation task an observable outcome and a production consumer or integration

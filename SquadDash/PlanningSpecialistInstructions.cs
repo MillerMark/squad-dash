@@ -83,6 +83,12 @@ internal static class PlanningSpecialistInstructions
                product decision, and never reference content unavailable to the executing worker. Once the
                user approves the plan, included examples are normative task-contract data. Their absence
                alone must not reject or halt an otherwise clear plan.
+               Treat deterministic contract examples as strong candidates for focused regression coverage
+               in the responsible task. When an appropriate automated test seam exists, include the example's
+               input and expected behavior in established or parameterized tests. Do not require a separate
+               test per example or force automation for human-only, environment-specific, nondeterministic,
+               or explanatory examples; use the appropriate proof contract. This guidance must not create an
+               extra task, validation node, approval gate, or planning halt by itself.
                Require `STAGED_PLAN_REVISION_JSON` for a targeted correction to an unapproved staged
                proposal. Apply the injected size-aware revisionStrategy: a small plan may be replaced for
                a broad rewrite affecting most of its graph, while medium and large plans strongly prefer

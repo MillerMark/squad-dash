@@ -43,6 +43,8 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("Use `contractExamples` proactively"));
         Assert.That(instruction, Does.Contain("by all means author a grounded example"));
         Assert.That(instruction, Does.Contain("plausible wrong interpretation"));
+        Assert.That(instruction, Does.Contain("high-value candidates for focused automated test coverage"));
+        Assert.That(instruction, Does.Contain("not an additional validation node, approval gate"));
         Assert.That(instruction.ReplaceLineEndings(" "),
             Does.Contain("Never refer to content that is nonexistent or otherwise unavailable"));
         Assert.That(instruction, Does.Contain("prefer one focused clarifying question"));
@@ -348,6 +350,10 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("verify every target exists"));
             Assert.That(instruction, Does.Contain("absolute path"));
             Assert.That(instruction, Does.Contain("{{approval-check:requirement-id}}"));
+            Assert.That(instruction, Does.Contain("contract examples"));
+            Assert.That(instruction.ReplaceLineEndings(" "),
+                Does.Contain("strong candidates for focused regression tests"));
+            Assert.That(instruction, Does.Contain("Do not create a ceremonial"));
             Assert.That(instruction, Does.Contain("DECOMPOSE_STEP_RESULT_JSON:"));
         });
     }

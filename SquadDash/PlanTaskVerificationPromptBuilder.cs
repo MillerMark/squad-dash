@@ -41,6 +41,8 @@ internal static class PlanTaskVerificationPromptBuilder
         AppendVerificationLevelInstructions(builder, task);
         builder.AppendLine("Your job is to find missing or overstated work, unsupported claims, disconnected production wiring, " +
                            "and tests that pass without proving the behavior requested by the task.");
+        if (task.ContractExamples is { Count: > 0 })
+            builder.AppendLine("For deterministic contract examples with an appropriate automated test seam, assess whether focused coverage exercises their input and expected behavior. Do not demand one test per example or treat human-only, environment-specific, nondeterministic, or explanatory examples as automatable.");
         builder.AppendLine();
         builder.AppendLine(PlanExecutionContextBuilder.Build(plan, task));
         builder.AppendLine();

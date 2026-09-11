@@ -86,6 +86,7 @@ internal static class PlanExecutionContextBuilder
             builder.AppendLine();
             builder.AppendLine("#### Normative contract examples");
             builder.AppendLine("These examples materially define correctness. Preserve their behavior; do not treat them as illustrative suggestions.");
+            builder.AppendLine("Treat each deterministic example as a strong candidate for focused regression coverage when an appropriate automated test seam exists. Prefer established or parameterized tests; do not require a separate test per example or fabricate automation for human-only or nondeterministic behavior.");
             foreach (var example in contractExamples)
             {
                 builder.AppendLine();

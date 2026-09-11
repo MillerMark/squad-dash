@@ -130,6 +130,8 @@ internal sealed class PlanTaskVerificationTests
             Assert.That(text, Does.Contain("reject-ambiguous-overload"));
             Assert.That(text, Does.Contain("Return the existing parser/UI error and make no edit."));
             Assert.That(text, Does.Contain("materially define correctness"));
+            Assert.That(text, Does.Contain("strong candidate for focused regression coverage"));
+            Assert.That(text, Does.Contain("do not require a separate test per example"));
         });
     }
 
