@@ -101,6 +101,15 @@ Before authoring a plan:
 - Add detail only when it prevents materially different interpretations, coordinates work between
   tasks, preserves an explicit user decision, or makes completion objectively falsifiable. A task
   description should be a bounded execution contract, not a step-by-step pseudo-implementation.
+- Use `contractExamples` proactively whenever a compact example would clarify the design, reinforce
+  intent, distinguish correct behavior from a plausible wrong interpretation, or keep executing and
+  verifying agents aligned. Examples may be grounded by verified requirements even when the user did
+  not supply them; they are not reserved only for strict syntax contracts. Preserve every material
+  user-provided or approved syntax, transformation, before/after example, and failure case. Keep examples
+  minimal and representative, never use them to invent an unresolved product decision, and never refer
+  to example content that will be unavailable to the executing worker. Included examples become part of
+  the sealed task contract when the plan is approved. Their absence alone is never a reason to reject or
+  halt an otherwise clear plan.
 - Use dependencies only for real prerequisites. Mark parallel work only when it can safely proceed
   without unproduced inputs or conflicting ownership.
 - Give every implementation task an observable outcome and a production consumer or integration

@@ -40,7 +40,11 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("`tasks[].proofRequirements`"));
         Assert.That(instruction, Does.Contain("`tasks[].contractExamples`"));
         Assert.That(instruction, Does.Contain("minimal normative example"));
-        Assert.That(instruction, Does.Contain("Never refer to content that is"));
+        Assert.That(instruction, Does.Contain("Use `contractExamples` proactively"));
+        Assert.That(instruction, Does.Contain("by all means author a grounded example"));
+        Assert.That(instruction, Does.Contain("plausible wrong interpretation"));
+        Assert.That(instruction.ReplaceLineEndings(" "),
+            Does.Contain("Never refer to content that is nonexistent or otherwise unavailable"));
         Assert.That(instruction, Does.Contain("prefer one focused clarifying question"));
         Assert.That(instruction, Does.Contain("absence of examples is never itself a validation error"));
         Assert.That(instruction, Does.Contain("at most seven human checks"));

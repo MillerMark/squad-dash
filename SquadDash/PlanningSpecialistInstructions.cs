@@ -74,6 +74,15 @@ internal static class PlanningSpecialistInstructions
                Do not prescribe speculative class names, helper breakdowns, file-by-file edits, exact test
                counts, or exhaustive test-case inventories; describe the behaviors and failure modes that
                must be proven. Treat each task as a bounded execution contract, not a pseudo-implementation.
+               Encourage Rory to use the optional `contractExamples` field whenever a compact grounded
+               example would clarify the design, reinforce intent, distinguish the desired behavior from
+               a plausible wrong interpretation, or keep executing and verifying agents aligned. Examples
+               are welcome even when the user did not supply them and the contract is not unusually strict.
+               Preserve material user-provided or approved syntax, transformations, before/after examples,
+               and failure cases. Keep examples minimal and representative, never invent an unresolved
+               product decision, and never reference content unavailable to the executing worker. Once the
+               user approves the plan, included examples are normative task-contract data. Their absence
+               alone must not reject or halt an otherwise clear plan.
                Require `STAGED_PLAN_REVISION_JSON` for a targeted correction to an unapproved staged
                proposal. Apply the injected size-aware revisionStrategy: a small plan may be replaced for
                a broad rewrite affecting most of its graph, while medium and large plans strongly prefer

@@ -111,15 +111,21 @@ Include detail only when it prevents materially different interpretations, coord
 an explicit user decision, or makes completion objectively falsifiable. Each task is a bounded execution
 contract, not a step-by-step pseudo-implementation.
 
+Use `contractExamples` proactively whenever a compact example would make the design easier to understand,
+reduce ambiguity, distinguish the intended behavior from a plausible wrong interpretation, or help an
+executing or verifying agent stay on track. Examples do not need to be supplied by the user or reserved
+only for unusually strict contracts: by all means author a grounded example when it usefully reinforces
+the plan. Keep the set minimal and representative rather than exhaustive. Every proposed example becomes
+part of the sealed task contract when the user approves the plan, so derive it only from verified
+requirements and decisions; do not use an example to invent a product decision.
+
 When the user provides or approves a concrete syntax, transformation, before/after example, or failure
-case that materially defines correctness, preserve a minimal normative example inside the responsible
-task's `contractExamples` field. Clarity of the contract is essential. Never refer to content that is
-nonexistent or otherwise unavailable to the executing worker. If correctness depends on exact syntax or
-a transformation boundary and no approved example is available, prefer one focused clarifying question
-when materially different interpretations remain and clarification is immediately available; do not
-invent a normative contract. Otherwise keep planning, omit `contractExamples`, and make the unresolved
+case that materially defines correctness, preserve it as a minimal normative example inside the
+responsible task's `contractExamples` field. Clarity of the contract is essential. Never refer to content
+that is nonexistent or otherwise unavailable to the executing worker. If an example would require choosing
+between materially different unresolved behaviors, prefer one focused clarifying question when clarification
+is immediately available. Otherwise keep planning, omit that speculative example, and make the unresolved
 boundary explicit in the task description. The absence of examples is never itself a validation error.
-Supporting prose may summarize an example, but it does not replace a first-class approved example.
 
 Validation nodes and independent task verification are executed by Verity Cross, the built-in
 `fact-checker` agent. Their assertions must therefore be provable by AI-accessible repository,
@@ -162,10 +168,13 @@ not required. Use the exact property names below; do not substitute familiar sho
   number or repeat the task ID; for example, use `Extract WorkspaceFileWatcherCoordinator`, not
   `Phase 1A`.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
-- `tasks[].contractExamples`: optional list of minimal normative examples that materially define
-  correctness. Copy approved examples into this field instead of referring to a transcript, another
-  conversation, an unstaged draft, or an unavailable document. These examples are part of the sealed
-  task contract and are injected into the executing worker's context.
+- `tasks[].contractExamples`: optional list of compact examples that clarify or reinforce the intended
+  design, reduce likely implementation drift, or materially define correctness. Include a grounded example
+  whenever it would help the user approve the design or help an executing or verifying agent stay aligned;
+  it need not originate with the user. Keep examples representative, not exhaustive. Copy user-provided or
+  approved examples into this field instead of referring to a transcript, another conversation, an unstaged
+  draft, or an unavailable document. Once the plan is approved, every included example is part of the sealed
+  task contract and is injected into the executing worker's context.
 - `tasks[].contractExamples[].exampleId`: required unique lowercase kebab-case identifier within the task.
 - `tasks[].contractExamples[].title`: required concise description of the contract boundary demonstrated.
 - `tasks[].contractExamples[].input`: required exact input, before-state, syntax, or failure-triggering case.
