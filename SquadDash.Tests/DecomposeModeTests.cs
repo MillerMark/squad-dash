@@ -910,6 +910,35 @@ internal sealed class DecomposedTasksWriterTests
     }
 
     [Test]
+    public void WriteGroup_ContractExamplesRoundTripThroughTasksCompatibilityProjection()
+    {
+        var example = new DecomposedTaskContractExample(
+            "razor-transform",
+            "Preserve markup while replacing code",
+            "@code { int before; }\n<h1>@Title</h1>",
+            "@code { int after; }\n<h1>@Title</h1>",
+            "razor");
+        var task = new DecomposedSubTask(
+            "PROJ-20240101-001",
+            "Apply the exact Razor transformation.",
+            [],
+            "high",
+            "Transform Razor",
+            ContractExamples: [example]);
+        var group = MakeGroup(tasks: [task]);
+
+        new DecomposedTasksWriter().WriteGroup(_tasksFile, group);
+        var restored = TasksPanelParser.Parse(File.ReadAllLines(_tasksFile))
+            .DecomposeGroups[group.GroupId].Tasks.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored.ContractExamples, Has.Count.EqualTo(1));
+            Assert.That(restored.ContractExamples![0], Is.EqualTo(example));
+        });
+    }
+
+    [Test]
     public void WriteGroup_PrependsToExistingContent()
     {
         const string existing = "# existing content\n\nsome task\n";

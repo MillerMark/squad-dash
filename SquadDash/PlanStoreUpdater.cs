@@ -2412,7 +2412,8 @@ internal static class PlanStoreUpdater
                 ProofRequirements: MapProofRequirements(sub.ProofRequirements),
                 DisplayStepLabel: (index + 1).ToString(),
                 ExecutionMode: sub.ExecutionMode,
-                VerificationLevel: sub.VerificationLevel);
+                VerificationLevel: sub.VerificationLevel,
+                ContractExamples: MapContractExamples(sub.ContractExamples));
         }).ToList();
     }
 
@@ -2451,6 +2452,7 @@ internal static class PlanStoreUpdater
                 Outputs            = MapOutputs(sub.Outputs),
                 Inputs             = sub.Inputs,
                 ProofRequirements  = MapProofRequirements(sub.ProofRequirements),
+                ContractExamples   = MapContractExamples(sub.ContractExamples),
                 VerificationLevel = sub.VerificationLevel,
                 DisplayStepLabel   = durable.DisplayStepLabel ?? (index + 1).ToString(),
             };
@@ -2589,7 +2591,17 @@ internal static class PlanStoreUpdater
             Inputs:             sub.Inputs,
             ProofRequirements:  MapProofRequirements(sub.ProofRequirements),
             ExecutionMode:      sub.ExecutionMode,
-            VerificationLevel:  sub.VerificationLevel);
+            VerificationLevel:  sub.VerificationLevel,
+            ContractExamples:   MapContractExamples(sub.ContractExamples));
+
+    private static IReadOnlyList<PlanTaskContractExample>? MapContractExamples(
+        IReadOnlyList<DecomposedTaskContractExample>? examples) =>
+        examples?.Select(example => new PlanTaskContractExample(
+            example.ExampleId,
+            example.Title,
+            example.Input,
+            example.ExpectedBehavior,
+            example.Language)).ToArray();
 
     private static IReadOnlyList<PlanTaskOutput>? MapOutputs(
         IReadOnlyList<DecomposedTaskOutput>? outputs) =>

@@ -65,6 +65,77 @@ internal sealed class TasksJsonParserGateTests
     }
 
     [Test]
+    public void TaskContractExamples_ParseAsFirstClassNormativeContract()
+    {
+        var json = """
+            TASKS_JSON:
+            {
+              "groupId": "EXAMPLES-20260911",
+              "groupTitle": "Contract examples",
+              "branch": "feature/contract-examples",
+              "summary": "Preserve an exact transformation contract.",
+              "tasks": [{
+                "id": "EXAMPLES-20260911-001",
+                "title": "Transform Razor source",
+                "description": "Apply the approved transformation.",
+                "contractExamples": [{
+                  "exampleId": "replace-code-block",
+                  "title": "Replace the first code block",
+                  "input": "@code { private int oldCount; }",
+                  "expectedBehavior": "@code { private int newCount; }",
+                  "language": "razor"
+                }],
+                "dependsOn": [],
+                "priority": "high"
+              }]
+            }
+            """;
+
+        Assert.That(TasksJsonParser.TryParse(json, out var group, out var diagnostic),
+            Is.True, diagnostic?.Message);
+        Assert.Multiple(() =>
+        {
+            Assert.That(group!.Tasks[0].ContractExamples, Has.Count.EqualTo(1));
+            Assert.That(group.Tasks[0].ContractExamples![0].ExpectedBehavior,
+                Is.EqualTo("@code { private int newCount; }"));
+        });
+    }
+
+    [Test]
+    public void TaskContractExamples_ReportAllDefectsInTheAggregateRepairDiagnostic()
+    {
+        var json = """
+            TASKS_JSON:
+            {
+              "groupId": "EXAMPLES-20260911",
+              "groupTitle": "Contract examples",
+              "branch": "feature/contract-examples",
+              "summary": "Reject incomplete normative examples.",
+              "tasks": [{
+                "id": "EXAMPLES-20260911-001",
+                "title": "Transform Razor source",
+                "description": "Apply the approved transformation.",
+                "contractExamples": [{
+                  "exampleId": "replace-code-block",
+                  "input": "before"
+                }],
+                "dependsOn": [],
+                "priority": "high"
+              }]
+            }
+            """;
+
+        Assert.That(TasksJsonParser.TryParse(json, out _, out var diagnostic), Is.False);
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostic?.Code, Is.EqualTo("missing-contract-example-title"));
+            Assert.That(diagnostic?.Message, Does.Contain("missing-contract-example-title"));
+            Assert.That(diagnostic?.Message, Does.Contain("missing-contract-example-expected-behavior"));
+            Assert.That(diagnostic?.Message, Does.Contain("2 independent schema problems were found"));
+        });
+    }
+
+    [Test]
     public void GateWithEmptyGateId_Fails()
     {
         var json = """

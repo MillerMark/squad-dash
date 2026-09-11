@@ -777,6 +777,31 @@ internal static class TasksJsonParser
                 Add("missing-task-title", $"task '{taskId}' has an empty title");
             if (string.IsNullOrWhiteSpace(task.Description))
                 Add("missing-task-description", $"task '{taskId}' has an empty description");
+            var contractExampleIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var example in task.ContractExamples ?? [])
+            {
+                var exampleId = example?.ExampleId ?? string.Empty;
+                if (example is null)
+                {
+                    Add("null-contract-example", $"task '{taskId}' has a null contract example");
+                    continue;
+                }
+                if (!OutputIdPattern.IsMatch(exampleId))
+                    Add("invalid-contract-example-id",
+                        $"task '{taskId}' contract example '{exampleId}' requires a lowercase kebab-case exampleId");
+                else if (!contractExampleIds.Add(exampleId))
+                    Add("duplicate-contract-example-id",
+                        $"task '{taskId}' repeats contract example id '{exampleId}'");
+                if (string.IsNullOrWhiteSpace(example.Title))
+                    Add("missing-contract-example-title",
+                        $"task '{taskId}' contract example '{exampleId}' has an empty title");
+                if (string.IsNullOrWhiteSpace(example.Input))
+                    Add("missing-contract-example-input",
+                        $"task '{taskId}' contract example '{exampleId}' has an empty input");
+                if (string.IsNullOrWhiteSpace(example.ExpectedBehavior))
+                    Add("missing-contract-example-expected-behavior",
+                        $"task '{taskId}' contract example '{exampleId}' has an empty expectedBehavior");
+            }
             if (task.Priority is not ("critical" or "high" or "mid" or "medium" or "low"))
                 Add("invalid-task-priority", $"task '{taskId}' priority must be critical, high, mid, or low");
             if (task.AgentAssignments is { Count: > 1 })

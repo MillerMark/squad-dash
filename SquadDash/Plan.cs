@@ -127,6 +127,15 @@ internal sealed record PlanTaskOutput(
     [property: JsonPropertyName("outputId")] string OutputId,
     [property: JsonPropertyName("description")] string Description);
 
+internal sealed record PlanTaskContractExample(
+    [property: JsonPropertyName("exampleId")] string ExampleId,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("input")] string Input,
+    [property: JsonPropertyName("expectedBehavior")] string ExpectedBehavior,
+    [property: JsonPropertyName("language")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? Language = null);
+
 internal sealed record PlanTaskProofRequirement(
     [property: JsonPropertyName("requirementId")] string RequirementId,
     [property: JsonPropertyName("proofType")] string ProofType,
@@ -347,7 +356,10 @@ internal sealed record PlanTask(
                                                 string? EvaluatedCommit = null,
     [property: JsonPropertyName("noOpEvidence")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null);
+                                                IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null,
+    [property: JsonPropertyName("contractExamples")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<PlanTaskContractExample>? ContractExamples = null);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.

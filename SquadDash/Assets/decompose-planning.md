@@ -1,5 +1,5 @@
 ---
-schema-version: 8
+schema-version: 9
 host-owned: true
 ---
 
@@ -111,6 +111,16 @@ Include detail only when it prevents materially different interpretations, coord
 an explicit user decision, or makes completion objectively falsifiable. Each task is a bounded execution
 contract, not a step-by-step pseudo-implementation.
 
+When the user provides or approves a concrete syntax, transformation, before/after example, or failure
+case that materially defines correctness, preserve a minimal normative example inside the responsible
+task's `contractExamples` field. Clarity of the contract is essential. Never refer to content that is
+nonexistent or otherwise unavailable to the executing worker. If correctness depends on exact syntax or
+a transformation boundary and no approved example is available, prefer one focused clarifying question
+when materially different interpretations remain and clarification is immediately available; do not
+invent a normative contract. Otherwise keep planning, omit `contractExamples`, and make the unresolved
+boundary explicit in the task description. The absence of examples is never itself a validation error.
+Supporting prose may summarize an example, but it does not replace a first-class approved example.
+
 Validation nodes and independent task verification are executed by Verity Cross, the built-in
 `fact-checker` agent. Their assertions must therefore be provable by AI-accessible repository,
 command, artifact, or previously approved evidence. Never put a requirement for a person to look at
@@ -152,6 +162,17 @@ not required. Use the exact property names below; do not substitute familiar sho
   number or repeat the task ID; for example, use `Extract WorkspaceFileWatcherCoordinator`, not
   `Phase 1A`.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
+- `tasks[].contractExamples`: optional list of minimal normative examples that materially define
+  correctness. Copy approved examples into this field instead of referring to a transcript, another
+  conversation, an unstaged draft, or an unavailable document. These examples are part of the sealed
+  task contract and are injected into the executing worker's context.
+- `tasks[].contractExamples[].exampleId`: required unique lowercase kebab-case identifier within the task.
+- `tasks[].contractExamples[].title`: required concise description of the contract boundary demonstrated.
+- `tasks[].contractExamples[].input`: required exact input, before-state, syntax, or failure-triggering case.
+- `tasks[].contractExamples[].expectedBehavior`: required exact output/after-state or precise expected
+  rejection, error, or no-change behavior.
+- `tasks[].contractExamples[].language`: optional code-fence language such as `razor`, `csharp`, `json`,
+  or `text`; omit it when the example is plain prose or mixes formats.
 - `tasks[].dependsOn`: array of sibling task IDs; use `[]` for root tasks.
 - `tasks[].priority`: one of `critical`, `high`, `mid`, or `low`.
 - `tasks[].executionMode`: required for new plans; either `"implementation"` for source-producing
@@ -406,6 +427,15 @@ TASKS_JSON:
       "id": "SEARCH-20260725-002",
       "title": "Move document indexing behind ISearchIndex",
       "description": "Replace the direct indexing call in DocumentIndexer.IndexAll with ISearchIndex.Add, and add integration tests proving existing indexing behavior is preserved. Observable outcome: the integration test suite passes and DocumentIndexer no longer references the old IndexWriter directly. Production consumer: SearchPanel.Query (wired in task 003) will read from ISearchIndex.",
+      "contractExamples": [
+        {
+          "exampleId": "index-through-contract",
+          "title": "Index through the abstraction",
+          "input": "indexWriter.Add(document);",
+          "expectedBehavior": "searchIndex.Add(document);",
+          "language": "csharp"
+        }
+      ],
       "dependsOn": ["SEARCH-20260725-001"],
       "priority": "high",
       "executionMode": "implementation",

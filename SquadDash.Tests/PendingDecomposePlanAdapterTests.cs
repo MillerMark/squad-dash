@@ -424,6 +424,52 @@ internal sealed class PendingDecomposePlanAdapterTests
     }
 
     [Test]
+    public void ContractExamples_RoundTripAndRemainRevisionSealed()
+    {
+        var basePending = MakePending("EXAMPLES-20260911");
+        var group = basePending.Group with
+        {
+            Tasks =
+            [
+                basePending.Group.Tasks[0] with
+                {
+                    ContractExamples =
+                    [
+                        new DecomposedTaskContractExample(
+                            "rename-member",
+                            "Rename a referenced member",
+                            "private int oldCount; <p>@oldCount</p>",
+                            "private int newCount; <p>@newCount</p>",
+                            "razor"),
+                    ],
+                },
+                basePending.Group.Tasks[1],
+            ],
+        };
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var plan = PendingDecomposePlanAdapter.ToPlan(
+            new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
+        var restored = PendingDecomposePlanAdapter.FromPlan(plan);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.Tasks[0].ContractExamples![0].ExampleId, Is.EqualTo("rename-member"));
+            Assert.That(restored.Group.Tasks[0].ContractExamples![0].ExpectedBehavior,
+                Does.Contain("@newCount"));
+            Assert.That(PendingDecomposePlanStore.ComputeRevision(restored.Group), Is.EqualTo(revision));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(plan), Is.True);
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(plan with
+            {
+                Tasks =
+                [
+                    plan.Tasks[0] with { ContractExamples = null },
+                    plan.Tasks[1],
+                ],
+            }), Is.False);
+        });
+    }
+
+    [Test]
     public void ToPlan_ThenFromPlan_RevisionMatchesPendingDecomposePlanStore()
     {
         // Full compatibility test: PendingDecomposePlanStore.ComputeRevision should agree

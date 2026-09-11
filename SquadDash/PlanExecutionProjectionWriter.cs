@@ -44,6 +44,16 @@ internal static class PlanExecutionProjectionWriter
             if (task.DependsOn.Count > 0)
                 builder.AppendLine($"- Depends on: {string.Join(", ", task.DependsOn.Select(id => $"`{id}`"))}");
             builder.AppendLine($"- Contract: {task.Description}");
+            if (task.ContractExamples is { Count: > 0 })
+            {
+                builder.AppendLine("- Normative examples:");
+                foreach (var example in task.ContractExamples)
+                {
+                    builder.AppendLine($"  - {example.Title} (`{example.ExampleId}`)");
+                    AppendExampleValue(builder, "Input", example.Input, example.Language);
+                    AppendExampleValue(builder, "Expected behavior", example.ExpectedBehavior, example.Language);
+                }
+            }
             if (task.Handoff is { } handoff)
             {
                 if (string.Equals(handoff.CompletionKind, DecomposeStepCompletionKind.VerifiedNoOp, StringComparison.Ordinal))
@@ -67,5 +77,31 @@ internal static class PlanExecutionProjectionWriter
             }
         }
         return builder.ToString();
+    }
+
+    private static void AppendExampleValue(
+        StringBuilder builder,
+        string label,
+        string value,
+        string? language)
+    {
+        builder.AppendLine($"    - {label}:");
+        var longestRun = 0;
+        var currentRun = 0;
+        foreach (var character in value)
+        {
+            currentRun = character == '`' ? currentRun + 1 : 0;
+            longestRun = Math.Max(longestRun, currentRun);
+        }
+        var fence = new string('`', Math.Max(3, longestRun + 1));
+        var safeLanguage = string.IsNullOrWhiteSpace(language) ||
+                           language.Any(character => !char.IsLetterOrDigit(character) &&
+                                                     character is not ('#' or '+' or '-' or '.'))
+            ? string.Empty
+            : language.Trim();
+        builder.AppendLine("      " + fence + safeLanguage);
+        foreach (var line in value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n'))
+            builder.AppendLine("      " + line);
+        builder.AppendLine("      " + fence);
     }
 }

@@ -120,7 +120,8 @@ internal static class StagedPlanEditor
         string title,
         string description,
         string priority,
-        IReadOnlyList<string> dependsOn)
+        IReadOnlyList<string> dependsOn,
+        IReadOnlyList<DecomposedTaskContractExample>? contractExamples = null)
     {
         var tasks = group.Tasks.Select(task =>
             string.Equals(task.Id, taskId, StringComparison.Ordinal)
@@ -130,6 +131,9 @@ internal static class StagedPlanEditor
                     Description = description.Trim(),
                     Priority = priority.Trim(),
                     DependsOn = dependsOn.Distinct(StringComparer.Ordinal).ToArray(),
+                    ContractExamples = contractExamples is null
+                        ? task.ContractExamples
+                        : contractExamples.Count > 0 ? contractExamples : null,
                 }
                 : task).ToArray();
         var updated = DependencyEditRecomputer.SynchronizeTaskValidationBoundaries(

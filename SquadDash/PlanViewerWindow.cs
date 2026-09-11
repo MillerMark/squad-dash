@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -19,6 +20,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private const double BaseRowSpacing = 152;
     private const string VerityCrossHandle = "verity-cross";
     private const string SquadCoordinatorHandle = "Squad";
+    private static readonly JsonSerializerOptions ContractExampleEditorJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true,
+    };
 
     private double _scaleFactor;
     private double NodeWidth;
@@ -6120,7 +6126,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         subTask.Priority,
                         PlanTaskStatus.Pending,
                         AgentAssignments: subTask.AgentAssignments?.Select(a =>
-                            new PlanAgentAssignment(a.AgentHandle, a.Role, a.AllowGenericChildren)).ToList());
+                            new PlanAgentAssignment(a.AgentHandle, a.Role, a.AllowGenericChildren)).ToList(),
+                        ContractExamples: subTask.ContractExamples?.Select(example =>
+                            new PlanTaskContractExample(
+                                example.ExampleId,
+                                example.Title,
+                                example.Input,
+                                example.ExpectedBehavior,
+                                example.Language)).ToArray());
                     PopulateTaskDetail(minimalTask, null!);
                 }
             }
@@ -6651,6 +6664,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var title = AddEditorField(panel, "Title", task.Title, 34);
         _inspectorPrimaryEditor = title;
         var description = AddEditorField(panel, "Description", task.Description, 170);
+        var contractExamples = AddEditorField(
+            panel,
+            "Contract examples (optional JSON array)",
+            task.ContractExamples is { Count: > 0 }
+                ? JsonSerializer.Serialize(task.ContractExamples, ContractExampleEditorJsonOptions)
+                : string.Empty,
+            180);
         var priority = AddEditorField(panel, "Priority", task.Priority, 34);
         var dependencies = AddEditorField(
             panel, "Dependencies (IDs separated by commas or lines)",
@@ -6677,11 +6697,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(description.Text))
                 return "Title and description are required.";
+            if (!TryParseContractExamples(contractExamples.Text, out var parsedExamples, out var exampleError))
+                return exampleError;
             if (!TryParseAgentAssignments(assignments.Text, out var parsedAssignments, out var assignmentError))
                 return assignmentError;
             var ids = ParseEditorList(dependencies.Text);
             var updated = StagedPlanEditor.UpdateTask(
-                _plan!.Group, taskId, title.Text, description.Text, priority.Text, ids);
+                _plan!.Group, taskId, title.Text, description.Text, priority.Text, ids, parsedExamples);
             updated = StagedPlanEditor.UpdateTaskAdvanced(
                 updated, taskId, parsedAssignments, routingMode.Text, parallel.IsChecked,
                 genericReason.Text, executionMode.Text);
@@ -6879,6 +6901,35 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return true;
     }
 
+    private static bool TryParseContractExamples(
+        string value,
+        out IReadOnlyList<DecomposedTaskContractExample> examples,
+        out string? error)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            examples = [];
+            error = null;
+            return true;
+        }
+
+        try
+        {
+            examples = JsonSerializer.Deserialize<DecomposedTaskContractExample[]>(
+                value,
+                ContractExampleEditorJsonOptions) ?? [];
+            error = null;
+            return true;
+        }
+        catch (JsonException exception)
+        {
+            examples = [];
+            error = "Contract examples must be a JSON array containing exampleId, title, input, " +
+                    $"expectedBehavior, and optional language. {exception.Message}";
+            return false;
+        }
+    }
+
     private static bool TryParseProofRequirements(
         string value,
         out IReadOnlyList<DecomposedTaskProofRequirement> requirements,
@@ -6942,6 +6993,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
             descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             descPara.Margin = new Thickness(0, 0, 0, 12);
             _detailDocument.Blocks.Add(descPara);
+        }
+
+        if (task.ContractExamples is { Count: > 0 } contractExamples)
+        {
+            AddSectionHeader("Normative Contract Examples");
+            foreach (var example in contractExamples)
+            {
+                var exampleTitle = new Paragraph(new Run(example.Title)
+                {
+                    FontWeight = FontWeights.SemiBold,
+                });
+                exampleTitle.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                exampleTitle.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                exampleTitle.Margin = new Thickness(0, 0, 0, 3);
+                if (!string.IsNullOrWhiteSpace(example.Language))
+                    exampleTitle.Inlines.Add(new Run($" ({example.Language})"));
+                _detailDocument.Blocks.Add(exampleTitle);
+
+                AppendContractExampleValue("Input", example.Input);
+                AppendContractExampleValue("Expected behavior", example.ExpectedBehavior);
+            }
         }
 
         // 4. Human approval follows the work description because it is performed after that work.
@@ -7222,6 +7294,28 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             _detailDocument.Blocks.Add(agentList);
         }
+    }
+
+    private void AppendContractExampleValue(string label, string value)
+    {
+        if (_detailDocument is null) return;
+
+        var labelParagraph = new Paragraph(new Run(label) { FontWeight = FontWeights.SemiBold });
+        labelParagraph.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+        labelParagraph.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        labelParagraph.Margin = new Thickness(0, 0, 0, 2);
+        _detailDocument.Blocks.Add(labelParagraph);
+
+        var valueParagraph = new Paragraph(new Run(value))
+        {
+            FontFamily = new FontFamily("Consolas"),
+            Margin = new Thickness(0, 0, 0, 8),
+            Padding = new Thickness(7, 5, 7, 5),
+        };
+        valueParagraph.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        valueParagraph.SetResourceReference(TextElement.BackgroundProperty, "PanelBackground");
+        valueParagraph.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        _detailDocument.Blocks.Add(valueParagraph);
     }
 
     private void AppendTaskActivitySummary(PlanTaskInspectorActivitySummary? summary)

@@ -114,6 +114,30 @@ internal sealed class StagedPlanEditorTests
     }
 
     [Test]
+    public void UpdateTask_PreservesExamplesWhenCallerDoesNotEditThemAndClearsOnlyExplicitly()
+    {
+        var example = new DecomposedTaskContractExample(
+            "before-after", "Before and after", "before", "after", "text");
+        var original = MakeGroup() with
+        {
+            Tasks = MakeGroup().Tasks.Select((task, index) => index == 0
+                ? task with { ContractExamples = [example] }
+                : task).ToArray(),
+        };
+
+        var ordinaryEdit = StagedPlanEditor.UpdateTask(
+            original, Id(1), "Renamed", "Updated description", "high", []);
+        var explicitClear = StagedPlanEditor.UpdateTask(
+            ordinaryEdit, Id(1), "Renamed", "Updated description", "high", [], []);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ordinaryEdit.Tasks[0].ContractExamples, Is.EqualTo(new[] { example }));
+            Assert.That(explicitClear.Tasks[0].ContractExamples, Is.Null);
+        });
+    }
+
+    [Test]
     public void AssignTaskToAgent_ReplacesPrimaryAndPreservesTheWorkRole()
     {
         var original = MakeGroup();

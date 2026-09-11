@@ -124,6 +124,29 @@ internal sealed class PlanLifecycleContractTests
         Assert.That(completed.Timestamps.CompletedAt,   Is.GreaterThanOrEqualTo(before));
     }
 
+    [Test]
+    public void ExecutionStarted_PreservesFirstClassContractExamples()
+    {
+        var example = new DecomposedTaskContractExample(
+            "exact-signature", "Exact signature", "Save(string)",
+            "Change Save(string), not Save().", "text");
+        var baseGroup = MakeGroup(1);
+        var group = baseGroup with
+        {
+            Tasks = [baseGroup.Tasks[0] with { ContractExamples = [example] }],
+        };
+
+        var started = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, "rev1", [MakeItem("CTR-001-001")], "CTR-001-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(started.Tasks[0].ContractExamples, Has.Count.EqualTo(1));
+            Assert.That(started.Tasks[0].ContractExamples![0].ExampleId,
+                Is.EqualTo("exact-signature"));
+        });
+    }
+
     // ── 2. Gate pause/resume sequence ─────────────────────────────────────────
 
     [Test]

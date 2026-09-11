@@ -106,6 +106,34 @@ internal sealed class PlanTaskVerificationTests
     }
 
     [Test]
+    public void Context_IncludesNormativeContractExamplesForExecutingWorker()
+    {
+        var task = MakePlan().Tasks[1] with
+        {
+            ContractExamples =
+            [
+                new PlanTaskContractExample(
+                    "reject-ambiguous-overload",
+                    "Reject an ambiguous signature",
+                    "Save",
+                    "Return the existing parser/UI error and make no edit.",
+                    "text"),
+            ],
+        };
+        var plan = MakePlan() with { Tasks = [MakePlan().Tasks[0], task] };
+
+        var text = PlanExecutionContextBuilder.Build(plan, task);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(text, Does.Contain("#### Normative contract examples"));
+            Assert.That(text, Does.Contain("reject-ambiguous-overload"));
+            Assert.That(text, Does.Contain("Return the existing parser/UI error and make no edit."));
+            Assert.That(text, Does.Contain("materially define correctness"));
+        });
+    }
+
+    [Test]
     public void ExecutionJournal_PersistsExactSentAndReturnedPayloadsOutsidePlanState()
     {
         var directory = Path.Combine(Path.GetTempPath(), "SquadDashJournalTests", Guid.NewGuid().ToString("N"));
@@ -595,6 +623,29 @@ internal sealed class PlanTaskVerificationTests
         Assert.That(markdown, Does.Contain("Guiding intent"));
         Assert.That(markdown, Does.Contain("Created the production source"));
         Assert.That(markdown, Does.Not.Contain("tasks.md"));
+    }
+
+    [Test]
+    public void ExecutionProjection_ContainsNormativeContractExamples()
+    {
+        var task = MakePlan().Tasks[1] with
+        {
+            ContractExamples =
+            [
+                new PlanTaskContractExample(
+                    "exact-overload", "Use the exact signature", "Save(string)",
+                    "Change Save(string), not Save().", "text"),
+            ],
+        };
+        var markdown = PlanExecutionProjectionWriter.Build(
+            MakePlan() with { Tasks = [MakePlan().Tasks[0], task] });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(markdown, Does.Contain("Normative examples:"));
+            Assert.That(markdown, Does.Contain("exact-overload"));
+            Assert.That(markdown, Does.Contain("Change Save(string), not Save()."));
+        });
     }
 
     [Test]

@@ -273,6 +273,8 @@ internal sealed class DecomposedTasksWriter
             sb.AppendLine(
                 $"  Group: {group.GroupId} | Branch: {group.Branch} | Priority: {task.Priority}");
             sb.AppendLine($"  description: {task.Description}");
+            if (task.ContractExamples is { Count: > 0 })
+                sb.AppendLine($"  contractExamples: {System.Text.Json.JsonSerializer.Serialize(task.ContractExamples)}");
             sb.AppendLine($"  dependsOn: {depsDisplay}");
             if (task.AgentAssignments is { Count: > 0 })
                 sb.AppendLine($"  agentAssignments: {System.Text.Json.JsonSerializer.Serialize(task.AgentAssignments)}");
@@ -313,6 +315,8 @@ internal sealed class DecomposedTasksWriter
         yield return $"- [ ] **[{task.Id}]** {task.Title ?? task.Description}";
         yield return $"  Group: {groupId} | Branch: {branch} | Priority: {task.Priority}";
         yield return $"  description: {task.Description}";
+        if (task.ContractExamples is { Count: > 0 })
+            yield return $"  contractExamples: {System.Text.Json.JsonSerializer.Serialize(task.ContractExamples)}";
         yield return $"  dependsOn: {depsDisplay}";
         if (task.AgentAssignments is { Count: > 0 })
             yield return $"  agentAssignments: {System.Text.Json.JsonSerializer.Serialize(task.AgentAssignments)}";

@@ -249,6 +249,7 @@ internal static class TasksPanelParser {
                 string? amendmentGateId = null;
                 string? executionMode = null;
                 string? verificationLevel = null;
+                IReadOnlyList<DecomposedTaskContractExample>? contractExamples = null;
 
                 int metadataEnd = i + 1;
                 while (metadataEnd < end &&
@@ -266,6 +267,19 @@ internal static class TasksPanelParser {
                                     rawDependencies.Length == 0
                             ? []
                             : rawDependencies.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    }
+                    else if (metadata.StartsWith("contractExamples:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var json = metadata["contractExamples:".Length..].Trim();
+                        try
+                        {
+                            contractExamples = System.Text.Json.JsonSerializer.Deserialize<DecomposedTaskContractExample[]>(json);
+                        }
+                        catch (System.Text.Json.JsonException)
+                        {
+                            contractExamples = null;
+                            errors.Add($"Task {taskId} has malformed contractExamples JSON.");
+                        }
                     }
                     else if (metadata.StartsWith("parentTaskId:", StringComparison.OrdinalIgnoreCase))
                         parentTaskId = metadata["parentTaskId:".Length..].Trim();
@@ -357,7 +371,8 @@ internal static class TasksPanelParser {
                     agentAssignments, parallelEligible, agentRoutingMode, genericAgentReason,
                     AmendmentGateId: amendmentGateId,
                     ExecutionMode: executionMode,
-                    VerificationLevel: verificationLevel));
+                    VerificationLevel: verificationLevel,
+                    ContractExamples: contractExamples));
                 items.Add(item);
                 i = metadataEnd - 1;
             }

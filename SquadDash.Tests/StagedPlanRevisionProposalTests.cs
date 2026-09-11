@@ -154,6 +154,35 @@ internal sealed class StagedPlanRevisionProposalTests
     }
 
     [Test]
+    public void Apply_AddsContractExamplesWithoutReplacingTheTask()
+    {
+        var pending = MakePending();
+        var patch = Patch("""
+            {
+              "contractExamples": [{
+                "exampleId": "exact-signature",
+                "title": "Match an exact overload",
+                "input": "Save(string)",
+                "expectedBehavior": "Only Save(string) is changed.",
+                "language": "text"
+              }]
+            }
+            """);
+
+        var result = Apply(pending, new PlanRevisionOperation("updateTask", Id("003"), patch));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Applied), result.Error);
+            var task = result.RevisedGroup!.Tasks.Single(candidate => candidate.Id == Id("003"));
+            Assert.That(task.ContractExamples, Has.Count.EqualTo(1));
+            Assert.That(task.ContractExamples![0].ExpectedBehavior,
+                Is.EqualTo("Only Save(string) is changed."));
+            Assert.That(task.Description, Is.EqualTo(pending.Group.Tasks[2].Description));
+        });
+    }
+
+    [Test]
     public void Apply_UpdatesAssignedRoutingPropertiesTogether()
     {
         var pending = MakePending();

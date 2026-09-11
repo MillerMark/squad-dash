@@ -27,6 +27,7 @@ internal sealed record StagedPlanTaskOutline(
     [property: JsonPropertyName("relatedValidations")] IReadOnlyList<string> RelatedValidations,
     [property: JsonPropertyName("outputIds")] IReadOnlyList<string> OutputIds,
     [property: JsonPropertyName("inputIds")] IReadOnlyList<string> InputIds,
+    [property: JsonPropertyName("contractExampleIds")] IReadOnlyList<string> ContractExampleIds,
     [property: JsonPropertyName("descriptionChars")] int DescriptionChars,
     [property: JsonPropertyName("source")] string Source);
 
@@ -114,6 +115,7 @@ internal static class StagedPlanRevisionOutlineStore
                 .ToArray(),
             (task.Outputs ?? []).Select(output => output.OutputId).ToArray(),
             (task.Inputs ?? []).ToArray(),
+            (task.ContractExamples ?? []).Select(example => example.ExampleId).ToArray(),
             task.Description?.Length ?? 0,
             $"Group.tasks[{index}]"
         )).ToArray();

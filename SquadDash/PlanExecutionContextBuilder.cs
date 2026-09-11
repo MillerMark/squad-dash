@@ -81,6 +81,21 @@ internal static class PlanExecutionContextBuilder
         builder.AppendLine("### Current step contract");
         builder.AppendLine($"Current step: **{stepLabel} — {currentTask.Title ?? currentTask.TaskId}** (task ID `{currentTask.TaskId}`)");
         builder.AppendLine(currentTask.Description);
+        if (currentTask.ContractExamples is { Count: > 0 } contractExamples)
+        {
+            builder.AppendLine();
+            builder.AppendLine("#### Normative contract examples");
+            builder.AppendLine("These examples materially define correctness. Preserve their behavior; do not treat them as illustrative suggestions.");
+            foreach (var example in contractExamples)
+            {
+                builder.AppendLine();
+                builder.AppendLine($"##### {example.Title} (`{example.ExampleId}`)");
+                builder.AppendLine("Input:");
+                AppendCodeFence(builder, example.Input, example.Language);
+                builder.AppendLine("Expected behavior:");
+                AppendCodeFence(builder, example.ExpectedBehavior, example.Language);
+            }
+        }
         builder.AppendLine();
         builder.AppendLine("Implement this task as part of that larger intent. Preserve accepted upstream contracts, " +
                            "integrate with their actual production surfaces, and do not claim work that the repository evidence does not support.");
@@ -89,6 +104,26 @@ internal static class PlanExecutionContextBuilder
                            "array with the exact requirement, reason, and downstream `ownerTaskIds`. Otherwise return `deferredWork: []`. " +
                            "Never silently omit a requirement or assume a later task will absorb it.");
         return builder.ToString().TrimEnd();
+    }
+
+    private static void AppendCodeFence(StringBuilder builder, string value, string? language)
+    {
+        var longestRun = 0;
+        var currentRun = 0;
+        foreach (var character in value)
+        {
+            currentRun = character == '`' ? currentRun + 1 : 0;
+            longestRun = Math.Max(longestRun, currentRun);
+        }
+        var fence = new string('`', Math.Max(3, longestRun + 1));
+        var safeLanguage = string.IsNullOrWhiteSpace(language) ||
+                           language.Any(character => !char.IsLetterOrDigit(character) &&
+                                                     character is not ('#' or '+' or '-' or '.'))
+            ? string.Empty
+            : language.Trim();
+        builder.AppendLine(fence + safeLanguage);
+        builder.AppendLine(value);
+        builder.AppendLine(fence);
     }
 
     internal static IReadOnlyList<PlanTask> GetAncestors(Plan plan, PlanTask task)

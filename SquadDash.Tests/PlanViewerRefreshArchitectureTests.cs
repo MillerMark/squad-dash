@@ -105,6 +105,25 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
+    public void TaskContractExamples_AreEditableAndRenderedAsNormativeCodeBlocks()
+    {
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer, Does.Contain("Contract examples (optional JSON array)")
+                .And.Contain("TryParseContractExamples(contractExamples.Text")
+                .And.Contain("parsedExamples"),
+                "The staged task editor must preserve multiline first-class examples.");
+            Assert.That(viewer, Does.Contain("Normative Contract Examples")
+                .And.Contain("AppendContractExampleValue(\"Input\"")
+                .And.Contain("AppendContractExampleValue(\"Expected behavior\"")
+                .And.Contain("new FontFamily(\"Consolas\")"),
+                "The inspector must distinguish normative input and expected behavior from prose.");
+        });
+    }
+
+    [Test]
     public void InsertAndAssignmentInteractions_UpdateTheVisiblePlanImmediately()
     {
         var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));

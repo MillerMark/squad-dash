@@ -48,6 +48,19 @@ internal sealed record DecomposedTaskOutput(
     [property: JsonPropertyName("description")] string Description);
 
 /// <summary>
+/// A minimal normative example that removes ambiguity from a task contract. ExpectedBehavior may
+/// contain exact output text/code or a precise failure/rejection outcome.
+/// </summary>
+internal sealed record DecomposedTaskContractExample(
+    [property: JsonPropertyName("exampleId")] string ExampleId,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("input")] string Input,
+    [property: JsonPropertyName("expectedBehavior")] string ExpectedBehavior,
+    [property: JsonPropertyName("language")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? Language = null);
+
+/// <summary>
 /// Declarative evidence contract for a plan task. The host matches returned evidence by stable
 /// identifier and proof type; it never infers a live demonstration from filenames or test names.
 /// </summary>
@@ -130,4 +143,7 @@ internal sealed record DecomposedSubTask(
                                                 string? ExecutionMode = null,
     [property: JsonPropertyName("verificationLevel")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? VerificationLevel = null);
+                                                string? VerificationLevel = null,
+    [property: JsonPropertyName("contractExamples")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                IReadOnlyList<DecomposedTaskContractExample>? ContractExamples = null);

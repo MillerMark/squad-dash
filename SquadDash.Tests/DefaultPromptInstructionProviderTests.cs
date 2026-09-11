@@ -26,7 +26,7 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("DECOMPOSE_RECOVERY_JSON:"));
         Assert.That(instruction, Does.Contain("DECOMPOSE_STEP_RESULT_JSON"));
         Assert.That(instruction, Does.Contain("SEARCH-20260725-003"));
-        Assert.That(instruction, Does.Contain("schema-version: 8"));
+        Assert.That(instruction, Does.Contain("schema-version: 9"));
         Assert.That(instruction, Does.Contain("1–25 task objects"));
         Assert.That(instruction, Does.Contain("TASKS_JSON_FILE:"));
         Assert.That(instruction, Does.Contain("Never use `SQUADDASH_ARTIFACT_JSON` for a plan"));
@@ -38,6 +38,11 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].role`"));
         Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].allowGenericChildren`"));
         Assert.That(instruction, Does.Contain("`tasks[].proofRequirements`"));
+        Assert.That(instruction, Does.Contain("`tasks[].contractExamples`"));
+        Assert.That(instruction, Does.Contain("minimal normative example"));
+        Assert.That(instruction, Does.Contain("Never refer to content that is"));
+        Assert.That(instruction, Does.Contain("prefer one focused clarifying question"));
+        Assert.That(instruction, Does.Contain("absence of examples is never itself a validation error"));
         Assert.That(instruction, Does.Contain("at most seven human checks"));
         Assert.That(instruction, Does.Contain("An `audit` is optional"));
         Assert.That(instruction, Does.Contain("does **not** need a separate final"));
@@ -93,6 +98,7 @@ internal sealed class DefaultPromptInstructionProviderTests
         AssertSerializedProperties<DecomposedSubTask>(instruction, "tasks[]");
         AssertSerializedProperties<DecomposedAgentAssignment>(instruction, "tasks[].agentAssignments[]");
         AssertSerializedProperties<DecomposedTaskOutput>(instruction, "tasks[].outputs[]");
+        AssertSerializedProperties<DecomposedTaskContractExample>(instruction, "tasks[].contractExamples[]");
         AssertSerializedProperties<DecomposedTaskProofRequirement>(instruction, "tasks[].proofRequirements[]");
         AssertSerializedProperties<HumanVerificationRecipe>(
             instruction,
@@ -264,7 +270,7 @@ internal sealed class DefaultPromptInstructionProviderTests
         {
             var path = DecomposePlanningInstructions.EnsureMaterialized(configuredSquadFolder);
             Assert.That(path, Is.EqualTo(Path.Combine(configuredSquadFolder, "instructions", "decompose-planning.md")));
-            Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 8"));
+            Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 9"));
             var decisionsPath = Path.Combine(configuredSquadFolder, "decisions.md");
             var pointer = DecomposePlanningInstructions.BuildOrdinaryPromptPointer(
                 path,
