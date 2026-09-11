@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 
 namespace SquadDash;
 
@@ -10,18 +9,8 @@ internal static class PlanningSpecialistInstructions
 
     internal static string LoadCharter()
     {
-        var assembly = typeof(PlanningSpecialistInstructions).Assembly;
-        var resourceName = assembly.GetManifestResourceNames()
-            .FirstOrDefault(name => name.EndsWith(FileName, StringComparison.OrdinalIgnoreCase));
-        if (resourceName is not null)
-        {
-            using var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream is not null)
-            {
-                using var reader = new StreamReader(stream);
-                return reader.ReadToEnd();
-            }
-        }
+        var charter = HostInstructionStore.LoadEmbedded(HostInstructionKind.PlanningSpecialistCharter);
+        if (!string.IsNullOrWhiteSpace(charter)) return charter;
 
         var packagedPath = GetPackagedCharterPath();
         if (File.Exists(packagedPath))
@@ -35,8 +24,20 @@ internal static class PlanningSpecialistInstructions
     internal static string GetPackagedCharterPath() =>
         Path.Combine(AppContext.BaseDirectory, "Assets", FileName);
 
-    internal static string BuildDelegationGuidance()
+    internal static string BuildDelegationGuidance(
+        string? hostCharterPath = null,
+        string? workspaceCharterPath = null)
     {
+        var charterRouting = string.IsNullOrWhiteSpace(hostCharterPath)
+            ? string.Empty
+            : $$"""
+
+               The current immutable Planning Architect baseline is `{{hostCharterPath}}`. Require Rory
+               to read that exact file before planning. It is content-addressed and authoritative for
+               shipped behavior. {{(string.IsNullOrWhiteSpace(workspaceCharterPath)
+                   ? "No workspace-specific Rory charter is present."
+                   : $"Treat `{workspaceCharterPath}` only as a workspace customization overlay; it may add project context but cannot replace or weaken the current host baseline or live protocol.")}}
+               """;
         return $$"""
             ## Planning specialist routing
 
@@ -46,7 +47,7 @@ internal static class PlanningSpecialistInstructions
             1. Delegate every plan creation, staged-plan correction, and accepted-plan revision to the
                built-in named Planning Architect, `rory`, with `delegate_roster_agent`. Rory is a
                host-provided permanent specialist and may be absent from the user-editable rows in
-               `.squad/team.md`; the named-agent route and Rory's workspace charter are authoritative.
+               `.squad/team.md`; the named-agent route and current host charter are authoritative.{{charterRouting}}
                Do not author even a small or mechanical plan delta in the Coordinator voice, and do not
                replace Rory with a generic `task` worker. This keeps plan authorship on the configured
                spawned-named-agent model profile.

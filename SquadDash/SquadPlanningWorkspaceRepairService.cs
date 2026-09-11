@@ -42,10 +42,6 @@ internal static class SquadPlanningWorkspaceRepairService
         if (File.Exists(charterPath))
             return false;
 
-        var shipped = PlanningSpecialistInstructions.LoadCharter().Trim();
-        if (shipped.StartsWith("# Planning Architect", StringComparison.Ordinal))
-            shipped = shipped["# Planning Architect".Length..].TrimStart();
-
         var content = $"""
                       # Rory — Planning Architect
 
@@ -53,7 +49,14 @@ internal static class SquadPlanningWorkspaceRepairService
                       - **Role:** Planning Architect
                       - **Mode:** Built-in named planning specialist
 
-                      {shipped}
+                      SquadDash supplies Rory's current immutable Planning Architect baseline and live
+                      planning protocol at dispatch time. This workspace file is an optional customization
+                      overlay only. Add project-specific planning context below; do not copy or replace the
+                      shipped protocol here.
+
+                      ## Workspace Customizations
+
+                      <!-- Add durable project-specific planning guidance here. -->
                       """;
         File.WriteAllText(charterPath, NormalizeDocument(content), Encoding.UTF8);
         return true;

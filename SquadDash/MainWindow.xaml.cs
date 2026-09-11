@@ -7195,7 +7195,11 @@ public partial class MainWindow : Window
             }
         }
         var loopMdPath = isExecutingPlan
-            ? Path.Combine(_currentWorkspace?.SquadFolderPath ?? "", "loop-executing-plan.md")
+            ? _currentWorkspace is null
+                ? string.Empty
+                : HostInstructionStore.GetLegacyWorkspacePath(
+                      _currentWorkspace.SquadFolderPath,
+                      HostInstructionKind.PlanExecutionLoop) ?? string.Empty
             : GetEffectiveLoopMdPath();
         var displayPrompt = $"🔁 Loop · Iteration {_loopCurrentIteration}  [View {Path.GetFileName(loopMdPath)}](app://open-loop-md:{loopMdPath})";
         if (isExecutingPlan && _planStore?.Load(_activeDecomposeGroupId!) is { } executingPlan)
@@ -9352,7 +9356,22 @@ public partial class MainWindow : Window
                 $"Reclaiming persisted terminal result before mutation preflight plan={groupId} " +
                 $"task={priorExecution!.RecoveryTaskId} revision={priorExecution.DecomposeRevision}.");
 
-        var loopPath = Path.Combine(_currentWorkspace.SquadFolderPath, "loop-executing-plan.md");
+        string loopPath;
+        try
+        {
+            loopPath = HostInstructionStore.EnsureAvailable(
+                _currentWorkspace.SquadFolderPath,
+                HostInstructionKind.PlanExecutionLoop).LegacyWorkspacePath!;
+        }
+        catch (Exception ex)
+        {
+            loopPath = HostInstructionStore.GetLegacyWorkspacePath(
+                           _currentWorkspace.SquadFolderPath,
+                           HostInstructionKind.PlanExecutionLoop) ?? string.Empty;
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Executing Plan instruction refresh failed; using the available compatibility or embedded instruction: {ex.Message}");
+        }
         LoopMdConfig? config = File.Exists(loopPath) ? LoopMdParser.Parse(loopPath) : null;
         if (config is null)
         {
@@ -37600,6 +37619,16 @@ public partial class MainWindow : Window
         ClearRuntimeIssue();
 
         var repairSw = Stopwatch.StartNew();
+        try
+        {
+            HostInstructionStore.EnsureWorkspaceBundle(_currentWorkspace.SquadFolderPath);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Host instruction refresh failed for '{_currentWorkspace.SquadFolderPath}': {ex.Message}");
+        }
         SquadScribeWorkspaceRepairService.Repair(_currentWorkspace.FolderPath);
         SquadPlanningWorkspaceRepairService.Repair(_currentWorkspace.FolderPath);
         var teamRootAssessment = SquadTeamRootRepairService.Assess(_currentWorkspace.FolderPath);

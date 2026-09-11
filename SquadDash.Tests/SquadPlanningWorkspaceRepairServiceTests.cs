@@ -22,6 +22,8 @@ internal sealed class SquadPlanningWorkspaceRepairServiceTests
             Assert.That(result.CreatedHistory, Is.True);
             Assert.That(File.ReadAllText(charterPath), Does.Contain("# Rory — Planning Architect"));
             Assert.That(File.ReadAllText(charterPath), Does.Contain("- **Name:** Rory"));
+            Assert.That(File.ReadAllText(charterPath), Does.Contain("optional customization"));
+            Assert.That(File.ReadAllText(charterPath), Does.Contain("overlay only"));
             Assert.That(File.ReadAllText(historyPath), Does.Contain("- **Role:** Planning Architect"));
             Assert.That(File.ReadAllText(workspace.GetPath(".squad", "team.md")),
                 Is.EqualTo("# Squad Team\n\n## Members\n"));

@@ -118,6 +118,24 @@ internal sealed class PlanningSpecialistInstructionsTests
     }
 
     [Test]
+    public void BuildDelegationGuidance_MakesCurrentBaselineAuthoritativeAndWorkspaceCharterAnOverlay()
+    {
+        const string hostPath = @"C:\host\hash\planning-specialist-charter.md";
+        const string workspacePath = @"D:\repo\.squad\agents\rory\charter.md";
+
+        var guidance = PlanningSpecialistInstructions.BuildDelegationGuidance(hostPath, workspacePath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(guidance, Does.Contain(hostPath));
+            Assert.That(guidance, Does.Contain(workspacePath));
+            Assert.That(guidance, Does.Contain("current immutable Planning Architect baseline"));
+            Assert.That(guidance, Does.Contain("workspace customization overlay"));
+            Assert.That(guidance, Does.Contain("cannot replace or weaken"));
+        });
+    }
+
+    [Test]
     public void BuildHireCharterGuidance_AppliesOnlyToSquadDashRory()
     {
         var rory = PlanningSpecialistInstructions.BuildHireCharterGuidance(

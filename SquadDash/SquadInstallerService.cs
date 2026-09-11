@@ -420,16 +420,9 @@ internal sealed class SquadInstallerService {
     }
 
     private static void UpdateHostOwnedLoopFile(string squadDir, string fileName) {
-        var content = LoadEmbeddedMarkdown(fileName);
-        if (content is null)
+        if (!string.Equals(fileName, "loop-executing-plan.md", StringComparison.OrdinalIgnoreCase))
             return;
-
-        var destPath = Path.Combine(squadDir, fileName);
-        if (File.Exists(destPath) &&
-            string.Equals(File.ReadAllText(destPath), content, StringComparison.Ordinal))
-            return;
-
-        File.WriteAllText(destPath, content, Encoding.UTF8);
+        HostInstructionStore.EnsureAvailable(squadDir, HostInstructionKind.PlanExecutionLoop);
     }
 
     public static string? LoadEmbeddedSquadDashMdPublic() => LoadEmbeddedSquadDashMd();

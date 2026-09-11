@@ -153,7 +153,8 @@ internal sealed class DefaultPromptInstructionProviderTests
                 Assert.That(context, Does.Contain("STAGED_PLAN_REVISION_REQUEST_JSON:"));
                 Assert.That(context, Does.Contain(pending.Revision));
                 Assert.That(context, Does.Contain(".squad/tmp/decompose/CONTEXT-20260814.json"));
-                Assert.That(context, Does.Contain(".squad/instructions/decompose-planning.md"));
+                Assert.That(context, Does.Contain("tmp\\host-instructions\\decompose-planning"));
+                Assert.That(context, Does.Contain("decompose-planning.md"));
                 Assert.That(context, Does.Contain("The envelope is not an"));
                 Assert.That(context, Does.Contain("output protocol"));
                 Assert.That(context, Does.Contain("must not appear in the final response"));
@@ -163,6 +164,9 @@ internal sealed class DefaultPromptInstructionProviderTests
                 Assert.That(context, Does.Contain("first-class tool metadata"));
                 Assert.That(context, Does.Contain("small mechanical change"));
                 Assert.That(context, Does.Contain("The user may refer conversationally"));
+                Assert.That(context, Does.Contain("brand-new, independent, fresh, from-scratch"));
+                Assert.That(context, Does.Contain("do not inspect or reuse a"));
+                Assert.That(context, Does.Contain("derive the new proposal only from the current request"));
                 Assert.That(context, Does.Contain("Never require the user to provide a groupId"));
                 Assert.That(context, Does.Contain("T1`, `T2`, `G1`, and `V1"));
                 Assert.That(context, Does.Contain("sizeClass=small"));
@@ -272,11 +276,21 @@ internal sealed class DefaultPromptInstructionProviderTests
         var configuredSquadFolder = Path.Combine(
             TestContext.CurrentContext.WorkDirectory,
             "external-squad-" + Guid.NewGuid().ToString("N"));
+        var centralRoot = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            "central-instructions-" + Guid.NewGuid().ToString("N"));
         try
         {
-            var path = DecomposePlanningInstructions.EnsureMaterialized(configuredSquadFolder);
-            Assert.That(path, Is.EqualTo(Path.Combine(configuredSquadFolder, "instructions", "decompose-planning.md")));
+            var path = DecomposePlanningInstructions.EnsureMaterialized(configuredSquadFolder, centralRoot);
+            Assert.That(path, Does.StartWith(Path.Combine(
+                configuredSquadFolder,
+                "tmp",
+                "host-instructions",
+                "decompose-planning")));
             Assert.That(File.ReadAllText(path), Does.Contain("schema-version: 9"));
+            Assert.That(
+                File.ReadAllText(Path.Combine(configuredSquadFolder, "instructions", "decompose-planning.md")),
+                Does.Contain("schema-version: 9"));
             var decisionsPath = Path.Combine(configuredSquadFolder, "decisions.md");
             var pointer = DecomposePlanningInstructions.BuildOrdinaryPromptPointer(
                 path,
@@ -291,6 +305,7 @@ internal sealed class DefaultPromptInstructionProviderTests
         finally
         {
             if (Directory.Exists(configuredSquadFolder)) Directory.Delete(configuredSquadFolder, recursive: true);
+            if (Directory.Exists(centralRoot)) Directory.Delete(centralRoot, recursive: true);
         }
     }
 

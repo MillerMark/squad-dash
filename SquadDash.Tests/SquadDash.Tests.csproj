@@ -261,6 +261,7 @@
     <Compile Include="..\SquadDash\WorkspacePendingUpgradeStore.cs" Link="Source\WorkspacePendingUpgradeStore.cs" />
     <Compile Include="..\SquadDash\SquadScribeWorkspaceRepairService.cs" Link="Source\SquadScribeWorkspaceRepairService.cs" />
     <Compile Include="..\SquadDash\SquadPlanningWorkspaceRepairService.cs" Link="Source\SquadPlanningWorkspaceRepairService.cs" />
+    <Compile Include="..\SquadDash\HostInstructionStore.cs" Link="Source\HostInstructionStore.cs" />
     <Compile Include="..\SquadDash\SquadTeamRootRepairService.cs" Link="Source\SquadTeamRootRepairService.cs" />
     <Compile Include="..\SquadDash\SquadTeamRootRepairWorkflow.cs" Link="Source\SquadTeamRootRepairWorkflow.cs" />
     <Compile Include="..\SquadDash\SquadBridgePromptBuilder.cs" Link="Source\SquadBridgePromptBuilder.cs" />

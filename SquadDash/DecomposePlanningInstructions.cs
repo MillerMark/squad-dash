@@ -10,46 +10,23 @@ namespace SquadDash;
 internal static class DecomposePlanningInstructions
 {
     internal const string FileName = "decompose-planning.md";
-    private static readonly HashSet<string> MaterializedPaths = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly object MaterializeGate = new();
 
     internal static string LoadSpecification()
     {
-        var assembly = typeof(DecomposePlanningInstructions).Assembly;
-        var name = assembly.GetManifestResourceNames()
-            .FirstOrDefault(n => n.EndsWith(FileName, StringComparison.OrdinalIgnoreCase));
-        if (name is null)
+        var specification = HostInstructionStore.LoadEmbedded(HostInstructionKind.DecomposePlanning);
+        if (string.IsNullOrWhiteSpace(specification))
         {
             SquadDashTrace.Write(TraceCategory.General,
                 "Embedded decompose-planning.md resource was not found.");
-            return string.Empty;
         }
-        using var stream = assembly.GetManifestResourceStream(name);
-        using var reader = new StreamReader(stream!);
-        return reader.ReadToEnd();
+        return specification;
     }
 
-    internal static string EnsureMaterialized(string squadFolderPath)
-    {
-        var directory = Path.Combine(squadFolderPath, "instructions");
-        var path = Path.Combine(directory, FileName);
-        lock (MaterializeGate)
-        {
-            if (MaterializedPaths.Contains(path)) return path;
-            var expected = LoadSpecification();
-            if (string.IsNullOrWhiteSpace(expected))
-                throw new InvalidOperationException("The embedded decomposition specification is unavailable.");
-            Directory.CreateDirectory(directory);
-            if (!File.Exists(path) || !string.Equals(File.ReadAllText(path), expected, StringComparison.Ordinal))
-            {
-                var tempPath = path + ".tmp";
-                File.WriteAllText(tempPath, expected);
-                File.Move(tempPath, path, overwrite: true);
-            }
-            MaterializedPaths.Add(path);
-        }
-        return path;
-    }
+    internal static string EnsureMaterialized(string squadFolderPath, string? centralRoot = null) =>
+        HostInstructionStore.EnsureAvailable(
+            squadFolderPath,
+            HostInstructionKind.DecomposePlanning,
+            centralRoot).WorkspaceProjectionPath;
 
     internal static string BuildOrdinaryPromptPointer(
         string specificationPath,
@@ -89,6 +66,7 @@ internal static class DecomposePlanningInstructions
         string squadFolderPath,
         bool includePlanReviewActivityProtocol = true)
     {
+        var liveProtocolPath = EnsureMaterialized(squadFolderPath);
         var plans = new PendingDecomposePlanStore(squadFolderPath).LoadAll();
         var sections = new List<string>();
         if (plans.Count > 0)
@@ -115,13 +93,16 @@ internal static class DecomposePlanningInstructions
                 When exactly one pending proposal exists, treat it as the referenced plan unless the
                 user clearly means something else. When several exist, use the conversation and the
                 most-recent-first list below; ask for clarification only when the target is genuinely
-                ambiguous. Never require the user to provide a groupId, revision, protocol marker, or
-                instructions such as "do not implement".
+                ambiguous. An explicit request for a brand-new, independent, fresh, from-scratch, or
+                comparison plan clearly means something else. In that case, do not inspect or reuse a
+                pending definition or outline; derive the new proposal only from the current request.
+                Never require the user to provide a groupId, revision, protocol marker, or instructions
+                such as "do not implement".
 
                 For approval or an execution choice, use the exact groupId and revision in
                 DECOMPOSE_DECISION_JSON. For a targeted correction to an unapproved proposal, read its
                 compact outline first and the host-owned protocol at
-                `.squad/instructions/decompose-planning.md`. The outline uses revision-local references
+                `{{liveProtocolPath}}`. The outline uses revision-local references
                 `T1`, `T2`, `G1`, and `V1`, shows dependencies and downstream boundaries with those short
                 references, and supplies a `source` selector for each exact entity. Use narrowly scoped
                 tooling queries against the definition to retrieve only the selected entities; do not
@@ -153,7 +134,7 @@ internal static class DecomposePlanningInstructions
                   "groupId": "exact pending group ID",
                   "baseRevision": "exact current pending revision",
                   "definition": ".squad/tmp/decompose/GROUP-YYYYMMDD.json",
-                  "protocol": ".squad/instructions/decompose-planning.md",
+                  "protocol": "{{liveProtocolPath.Replace("\\", "\\\\", StringComparison.Ordinal)}}",
                   "outline": ".squad/tmp/decompose/outlines/GROUP-YYYYMMDD.json",
                   "sizeClass": "small | medium | large"
                 }
@@ -491,13 +472,23 @@ internal static class DecomposePlanningInstructions
         try
         {
             var path = EnsureMaterialized(squadFolderPath);
+            var charter = HostInstructionStore.EnsureAvailable(
+                squadFolderPath,
+                HostInstructionKind.PlanningSpecialistCharter);
+            var workspaceCharterPath = Path.Combine(
+                squadFolderPath,
+                "agents",
+                SquadPlanningWorkspaceRepairService.AgentFolderName,
+                "charter.md");
             var decisionsPath = Path.Combine(squadFolderPath, "decisions.md");
             var context = BuildOrdinaryPromptPointer(
                               path,
                               includePlanReviewActivityProtocol,
                               decisionsPath) +
                           BuildPendingPlanContext(squadFolderPath, includePlanReviewActivityProtocol) +
-                          "\n\n" + PlanningSpecialistInstructions.BuildDelegationGuidance();
+                          "\n\n" + PlanningSpecialistInstructions.BuildDelegationGuidance(
+                              charter.WorkspaceProjectionPath,
+                              File.Exists(workspaceCharterPath) ? workspaceCharterPath : null);
             var continuationContext = PlanContinuationPromptContext.Build(
                 userPrompt,
                 new PlanStore(squadFolderPath).LoadAll());

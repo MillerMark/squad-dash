@@ -398,6 +398,7 @@ Squad.SDK/tsconfig.tsbuildinfo
 /.squad/archive/agent-artifacts/
 /.squad/tmp/agent-artifacts
 /.squad/tmp/decompose
+/.squad/tmp/host-instructions
 /.squad/instructions/decompose-planning.md
 /.squad/loop-executing-plan.md
 
