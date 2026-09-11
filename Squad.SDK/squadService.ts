@@ -578,7 +578,7 @@ function parseStagedPlanRevisionEnvelope(
     const normalizedDefinition = definition.replaceAll("\\", "/").toLowerCase();
     const normalizedProtocol = protocol.replaceAll("\\", "/").toLowerCase();
     if (normalizedDefinition !== `.squad/tmp/decompose/${groupId.toLowerCase()}.json` ||
-        normalizedProtocol !== ".squad/instructions/decompose-planning.md") {
+        !isRecognizedDecomposePlanningProtocolPath(normalizedProtocol)) {
         return undefined;
     }
     if (outline) {
@@ -587,6 +587,17 @@ function parseStagedPlanRevisionEnvelope(
             return undefined;
     }
     return { groupId, baseRevision, definition, protocol, outline, sizeClass };
+}
+
+function isRecognizedDecomposePlanningProtocolPath(normalizedPath: string): boolean {
+    if (normalizedPath === ".squad/instructions/decompose-planning.md")
+        return true;
+
+    // Current hosts project the content-addressed shared instruction into the workspace so
+    // sandboxed agents can read it. The tool receives an absolute path to that projection.
+    // Keep accepting the legacy workspace instruction above for older hosts and saved turns.
+    return /(?:^|\/)\.squad\/tmp\/host-instructions\/decompose-planning\/[a-f0-9]{64}\/decompose-planning\.md$/.test(
+        normalizedPath);
 }
 
 function resolveStagedPlanRevisionCorrelation(

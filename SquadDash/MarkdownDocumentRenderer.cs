@@ -24,6 +24,7 @@ internal sealed class MarkdownDocumentRenderer {
     // ── Injected dependencies ──────────────────────────────────────────────
     private readonly Func<double>                                           _getFontSize;
     private readonly Func<string?>                                          _getWorkspaceGitHubUrl;
+    private readonly Func<string, bool>                                     _resolvesToCommit;
     private readonly Func<string, string?>                                  _resolvePlanDisplayName;
     private readonly Action<string>                                         _onLinkClicked;
     private readonly Action<string, Exception>                              _onException;
@@ -58,10 +59,12 @@ internal sealed class MarkdownDocumentRenderer {
         Action<TranscriptThreadState, string, bool>            appendResponseSegment,
         Action<TranscriptThreadState>                          scrollToEndIfAtBottom,
         Func<TranscriptThreadState>                            getCoordinatorThread,
-        Func<string, string?>?                                 resolvePlanDisplayName = null) {
+        Func<string, string?>?                                 resolvePlanDisplayName = null,
+        Func<string, bool>?                                    resolvesToCommit = null) {
         _getFontSize               = getFontSize;
         _getWorkspaceGitHubUrl     = getWorkspaceGitHubUrl;
         _resolvePlanDisplayName    = resolvePlanDisplayName ?? (_ => null);
+        _resolvesToCommit          = resolvesToCommit ?? (_ => false);
         _onLinkClicked             = onLinkClicked;
         _onException               = onException;
         _resolveContinuationThread = resolveContinuationThread;
@@ -631,7 +634,8 @@ internal sealed class MarkdownDocumentRenderer {
 
             var workspaceGitHubUrl = _getWorkspaceGitHubUrl();
             if (!string.IsNullOrWhiteSpace(workspaceGitHubUrl) &&
-                TryReadCommitHash(text, i, out var hashEnd, out var hash)) {
+                TryReadCommitHash(text, i, out var hashEnd, out var hash) &&
+                _resolvesToCommit(hash)) {
                 flush(buffer.ToString());
                 buffer.Clear();
                 var commitUrl = $"{workspaceGitHubUrl}/commit/{hash}";
@@ -668,7 +672,9 @@ internal sealed class MarkdownDocumentRenderer {
                 var codeText = text[i..end];
                 var codeGitHubUrl = _getWorkspaceGitHubUrl();
                 if (!string.IsNullOrWhiteSpace(codeGitHubUrl) &&
-                    TryReadCommitHash(codeText, 0, out var codeHashEnd, out var codeHash) && codeHashEnd == codeText.Length) {
+                    TryReadCommitHash(codeText, 0, out var codeHashEnd, out var codeHash) &&
+                    codeHashEnd == codeText.Length &&
+                    _resolvesToCommit(codeHash)) {
                     var commitUrl = $"{codeGitHubUrl}/commit/{codeHash}";
                     var commitLink = new Hyperlink(new Run(codeHash)) {
                         Tag = commitUrl,

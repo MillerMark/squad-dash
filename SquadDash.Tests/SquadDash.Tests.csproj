@@ -63,6 +63,7 @@
     <Compile Include="..\SquadDash\InboxLinkCopyTargetResolver.cs" Link="Source\InboxLinkCopyTargetResolver.cs" />
     <Compile Include="..\SquadDash\PlanInboxLinkRepairPolicy.cs" Link="Source\PlanInboxLinkRepairPolicy.cs" />
     <Compile Include="..\SquadDash\CommitReferenceText.cs" Link="Source\CommitReferenceText.cs" />
+    <Compile Include="..\SquadDash\GitCommitReferenceResolver.cs" Link="Source\GitCommitReferenceResolver.cs" />
     <Compile Include="..\SquadDash\InboxAttentionTargetPolicy.cs" Link="Source\InboxAttentionTargetPolicy.cs" />
     <Compile Include="..\SquadDash\PlanValidationRepairPrompt.cs" Link="Source\PlanValidationRepairPrompt.cs" />
     <Compile Include="..\SquadDash\ApprovalGateReadinessEvaluator.cs" Link="Source\ApprovalGateReadinessEvaluator.cs" />

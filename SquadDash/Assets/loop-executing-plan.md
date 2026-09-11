@@ -67,6 +67,12 @@ for focused regression tests. Where the repository has an appropriate automated 
 example inputs and expected behaviors in existing or parameterized coverage. Do not create a ceremonial
 test or separate test class for every example, and do not pretend that human-only, environment-specific,
 or nondeterministic behavior is automated; satisfy those examples through the task's declared proof path.
+If an approved example is conceptual or omits incidental executable setup, supply the smallest
+repository-grounded fixture, source, or test arrangement needed to exercise it without changing its intended
+behavior. Record any harmless implementation assumption in the result evidence; do not stop merely because
+fixture boilerplate was omitted. If making the example executable instead requires choosing between materially
+different product behaviors, do not guess: preserve safe completed work and report the unresolved choice in
+the host-owned partial or failed task result so SquadDash can surface recovery.
 
 Use the manual-test-kit contract from the injected Inbox instructions whenever the assigned task
 prepares human validation. The Inbox body must be usable on its own and must place clickable file or

@@ -1797,6 +1797,8 @@ public partial class MainWindow : Window
                 Dispatcher.InvokeAsync(() => DrainQueueIfNeededAsync())
                           .Task.Unwrap());
 
+        var transcriptCommitResolver = new GitCommitReferenceResolver(
+            () => _currentWorkspace?.FolderPath);
         _markdownRenderer = new MarkdownDocumentRenderer(
             getFontSize: () => _transcriptFontSize,
             getWorkspaceGitHubUrl: () => _workspaceGitHubUrl,
@@ -1810,8 +1812,14 @@ public partial class MainWindow : Window
             resolvePlanDisplayName: referenceId =>
             {
                 var title = _planStore?.LoadByPlanOrTaskReference(referenceId)?.Title?.Trim();
+                if (string.IsNullOrWhiteSpace(title) && _currentWorkspace is not null)
+                {
+                    title = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+                        .LoadByPlanOrTaskReference(referenceId)?.Group.GroupTitle?.Trim();
+                }
                 return string.IsNullOrWhiteSpace(title) ? null : title;
-            });
+            },
+            resolvesToCommit: transcriptCommitResolver.ResolvesToCommit);
 
         RegisterUiReplayActions();
         RegisterFixtureLoaders();
@@ -41797,11 +41805,22 @@ public partial class MainWindow : Window
             var encodedPlanId = target["app://open-plan:".Length..];
             var planId = Uri.UnescapeDataString(encodedPlanId);
             var plan = _planStore?.LoadByPlanOrTaskReference(planId);
+            PendingDecomposePlan? pendingPlan = null;
+            if (plan is null && _currentWorkspace is not null)
+            {
+                pendingPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+                    .LoadByPlanOrTaskReference(planId);
+            }
             var missingReferenceKey = $"{_currentWorkspace?.FolderPath}\0{planId}";
             if (plan is not null)
             {
                 _reportedMissingPlanReferences.Remove(missingReferenceKey);
                 OpenPlanFromStore(plan);
+            }
+            else if (pendingPlan is not null)
+            {
+                _reportedMissingPlanReferences.Remove(missingReferenceKey);
+                OpenDecomposePlanViewer(pendingPlan);
             }
             else if (_reportedMissingPlanReferences.Add(missingReferenceKey))
                 ShowSystemTranscriptEntry("That plan is no longer available in this workspace.");

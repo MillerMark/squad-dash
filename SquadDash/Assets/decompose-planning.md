@@ -118,6 +118,9 @@ only for unusually strict contracts: by all means author a grounded example when
 the plan. Keep the set minimal and representative rather than exhaustive. Every proposed example becomes
 part of the sealed task contract when the user approves the plan, so derive it only from verified
 requirements and decisions; do not use an example to invent a product decision.
+Before describing an example as exact or test-ready, verify its syntax, markers, coordinates, and response
+envelopes against the repository's current implementation or tests. Do not invent an exact-looking convention
+that the executing worker would have to reinterpret or undo.
 
 Treat deterministic contract examples as high-value candidates for focused automated test coverage.
 When the responsible task can exercise the example through an existing or appropriate test seam, plan

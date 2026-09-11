@@ -873,6 +873,30 @@ test("verified roster revisions use structural or tool-metadata correlation and 
     assert.equal(completed[1].agent.hostProtocolVerified, true);
     assert.equal(completed[1].agent.hostProtocolCorrelationSource, "tool_metadata");
     assert.equal(completed[1].agent.latestResponse, revision);
+
+    const projectedProtocolReceipt = await rosterTool.handler({
+        agent_handle: "rory",
+        prompt: "Apply the requested staged-plan changes.",
+        staged_plan_revision_request: {
+            groupId: "CLIDETECT-20260814",
+            baseRevision: "base-1",
+            definition: ".squad/tmp/decompose/CLIDETECT-20260814.json",
+            protocol: "C:\\Source\\Package\\.squad\\tmp\\host-instructions\\decompose-planning\\" +
+                "370ed642e6edceebd8c43d09b22b66ddd8ac561afac53af45b0544ca05a8c8ba\\decompose-planning.md",
+            outline: ".squad/tmp/decompose/outlines/CLIDETECT-20260814.json",
+            sizeClass: "medium"
+        }
+    }, {
+        sessionId: "session-1",
+        toolCallId: "tool-rory-projected-protocol-revision",
+        toolName: "delegate_roster_agent",
+        arguments: {}
+    });
+
+    assert.match(projectedProtocolReceipt, /received @rory's staged-plan revision candidate/);
+    assert.equal(completed[2].agent.hostProtocolVerified, true);
+    assert.equal(completed[2].agent.hostProtocolCorrelationSource, "tool_metadata");
+    assert.equal(completed[2].agent.latestResponse, revision);
 });
 
 test("counterfeit roster detection rejects roster-like and plan-bearing generic tasks", () => {

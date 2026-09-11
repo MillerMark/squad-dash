@@ -17,7 +17,8 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
 
     private static MarkdownDocumentRenderer MakeRenderer(
         string? gitHubUrl = "https://github.com/owner/repo",
-        Func<string, string?>? resolvePlanDisplayName = null) =>
+        Func<string, string?>? resolvePlanDisplayName = null,
+        Func<string, bool>? resolvesToCommit = null) =>
         new(
             getFontSize:               () => 14.0,
             getWorkspaceGitHubUrl:     () => gitHubUrl,
@@ -28,7 +29,8 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
             appendResponseSegment:     (_, _, _) => { },
             scrollToEndIfAtBottom:     _ => { },
             getCoordinatorThread:      () => null!,
-            resolvePlanDisplayName:    resolvePlanDisplayName);
+            resolvePlanDisplayName:    resolvePlanDisplayName,
+            resolvesToCommit:          resolvesToCommit ?? (_ => true));
 
     private static IEnumerable<Inline> FlattenInlines(IEnumerable<Inline> inlines) {
         foreach (var inline in inlines) {
@@ -42,9 +44,10 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
     private static List<Block> BuildHeadingBlocks(
         string markdownLine,
         string? gitHubUrl = "https://github.com/owner/repo",
-        Func<string, string?>? resolvePlanDisplayName = null) {
+        Func<string, string?>? resolvePlanDisplayName = null,
+        Func<string, bool>? resolvesToCommit = null) {
         EnsureApplicationResources();
-        var renderer = MakeRenderer(gitHubUrl, resolvePlanDisplayName);
+        var renderer = MakeRenderer(gitHubUrl, resolvePlanDisplayName, resolvesToCommit);
         var thread   = new TranscriptThreadState("t1", TranscriptThreadKind.Coordinator, "Test", DateTimeOffset.Now);
         var section  = new Section();
         var turn     = new TranscriptTurnView(thread, "prompt", DateTimeOffset.Now, section, []);
@@ -151,6 +154,17 @@ internal sealed class MarkdownDocumentRendererHeadingTests {
 
         Assert.That(allInlines.OfType<Hyperlink>(), Is.Empty,
             "No Hyperlink should be created when GitHub URL is not configured");
+    }
+
+    [TestCase("Revision d695fe71913f1ec3 was inspected.")]
+    [TestCase("Revision `d695fe71913f1ec3` was inspected.")]
+    public void UnresolvedHexRevision_DoesNotRenderAsCommitHyperlink(string markdown) {
+        var blocks = BuildHeadingBlocks(markdown, resolvesToCommit: _ => false);
+
+        var allInlines = blocks.OfType<Paragraph>()
+            .SelectMany(paragraph => FlattenInlines(paragraph.Inlines));
+
+        Assert.That(allInlines.OfType<Hyperlink>(), Is.Empty);
     }
 
     // ── Heading still bold ────────────────────────────────────────────────

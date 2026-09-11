@@ -910,6 +910,29 @@ internal sealed class DecomposedTasksWriterTests
     }
 
     [Test]
+    public void LoadByPlanOrTaskReference_FindsPendingPlanFromTaskId()
+    {
+        var squadFolder = Path.Combine(
+            TestContext.CurrentContext.WorkDirectory,
+            "pending-plan-reference-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var group = new DecomposedTaskGroup("PLAN-20260725", "Plan", "feature/plan", "Summary",
+                [new DecomposedSubTask("PLAN-20260725-001", "First", [], "high")]);
+            var store = new PendingDecomposePlanStore(squadFolder);
+            store.Save(group);
+
+            var loaded = store.LoadByPlanOrTaskReference("PLAN-20260725-001");
+
+            Assert.That(loaded?.Group.GroupId, Is.EqualTo(group.GroupId));
+        }
+        finally
+        {
+            if (Directory.Exists(squadFolder)) Directory.Delete(squadFolder, recursive: true);
+        }
+    }
+
+    [Test]
     public void WriteGroup_ContractExamplesRoundTripThroughTasksCompatibilityProjection()
     {
         var example = new DecomposedTaskContractExample(

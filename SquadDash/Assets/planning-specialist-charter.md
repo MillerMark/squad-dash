@@ -110,6 +110,9 @@ Before authoring a plan:
   to example content that will be unavailable to the executing worker. Included examples become part of
   the sealed task contract when the plan is approved. Their absence alone is never a reason to reject or
   halt an otherwise clear plan.
+- Before calling an example exact or test-ready, verify its syntax, markers, coordinates, and response
+  envelopes against the repository's current implementation or tests. Do not manufacture an exact-looking
+  convention that an executing worker would have to reinterpret or undo.
 - Treat each deterministic contract example as a strong candidate for focused regression coverage in the
   responsible task. When an appropriate automated test seam exists, have the task include the example's
   input and expected behavior in established or parameterized tests. Do not require a separate test per

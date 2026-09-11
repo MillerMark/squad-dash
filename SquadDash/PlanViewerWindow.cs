@@ -6725,7 +6725,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var help = new TextBlock
         {
             Text = "Add compact, normative examples when they clarify the task contract. " +
-                   "Input and expected behavior preserve multiline code exactly.",
+                   "Include enough literal source, operation, and outcome to turn into a test without inventing behavior.",
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 4),
         };
@@ -6794,10 +6794,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             example?.ExampleId ?? NextContractExampleId(rows),
             34);
         var title = AddEditorField(content, "Title", example?.Title, 34);
-        var input = AddEditorField(content, "Input", example?.Input, 90);
+        var input = AddEditorField(content, "Exact input / setup", example?.Input, 90);
         var expectedBehavior = AddEditorField(
             content,
-            "Expected behavior",
+            "Exact expected result / error",
             example?.ExpectedBehavior,
             90);
         var language = AddEditorField(content, "Language (optional)", example?.Language, 34);

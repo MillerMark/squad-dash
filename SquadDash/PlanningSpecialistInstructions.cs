@@ -84,6 +84,9 @@ internal static class PlanningSpecialistInstructions
                product decision, and never reference content unavailable to the executing worker. Once the
                user approves the plan, included examples are normative task-contract data. Their absence
                alone must not reject or halt an otherwise clear plan.
+               Before labeling an example exact or test-ready, verify its syntax, markers, coordinates,
+               and response envelopes against the repository's current implementation or tests. Do not
+               make an example look executable by inventing a convention the executing worker must undo.
                Treat deterministic contract examples as strong candidates for focused regression coverage
                in the responsible task. When an appropriate automated test seam exists, include the example's
                input and expected behavior in established or parameterized tests. Do not require a separate

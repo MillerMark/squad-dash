@@ -64,6 +64,16 @@ internal sealed class PendingDecomposePlanStore(string squadFolderPath)
         }
     }
 
+    internal PendingDecomposePlan? LoadByPlanOrTaskReference(string referenceId)
+    {
+        var exact = Load(referenceId);
+        if (exact is not null)
+            return exact;
+
+        return LoadAll().FirstOrDefault(plan =>
+            plan.Group.Tasks.Any(task => string.Equals(task.Id, referenceId, StringComparison.Ordinal)));
+    }
+
     internal void Delete(string groupId)
     {
         var path = Path.Combine(_folder, groupId + ".json");
