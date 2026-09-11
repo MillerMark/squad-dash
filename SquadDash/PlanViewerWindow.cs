@@ -71,6 +71,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onRetryValidation;
     private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
     private readonly Func<IReadOnlyList<RosterAgent>>? _getAssignableAgents;
+    private readonly Action<int>? _onFontScaleDelta;
     private PttTextBoxAttachment? _pttAttachment;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
@@ -231,6 +232,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan, string>? onRetryValidation = null,
         Func<ApplicationSettingsSnapshot>? getSettings = null,
         Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
+        Action<int>? onFontScaleDelta = null,
         double lineThicknessMultiplier = 1.0)
         : base(
             captionHeight: CloseButtonHeight,
@@ -285,6 +287,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onRetryValidation = onRetryValidation;
         _getSettings = getSettings;
         _getAssignableAgents = getAssignableAgents;
+        _onFontScaleDelta = onFontScaleDelta;
         _graphEdgeRenderingContract = new PlanGraphEdgeRenderingContract(lineThicknessMultiplier);
         if (_getSettings is not null)
             _pttAttachment = new PttTextBoxAttachment(_getSettings, this, Dispatcher);
@@ -429,6 +432,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void OnGraphScrollPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            if (_onFontScaleDelta is null) return;
+            _onFontScaleDelta(e.Delta > 0 ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
         if (Keyboard.Modifiers != ModifierKeys.Shift) return;
         if (_graphScroll is null) return;
         var delta = e.Delta > 0 ? -SystemParameters.WheelScrollLines * 16.0 : SystemParameters.WheelScrollLines * 16.0;
@@ -6797,11 +6807,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Padding = new Thickness(6, 4, 6, 4),
         };
-        editor.SetResourceReference(TextBox.ForegroundProperty, "BodyText");
+        editor.SetResourceReference(TextBox.ForegroundProperty, "ImportantText");
         editor.SetResourceReference(TextBox.BackgroundProperty, "PanelBackground");
         editor.SetResourceReference(TextBox.BorderBrushProperty, "LineColor");
         editor.SetResourceReference(TextBox.FontSizeProperty, "FontSizeBody");
-        editor.SetResourceReference(TextBox.CaretBrushProperty, "BodyText");
+        editor.SetResourceReference(TextBox.CaretBrushProperty, "ImportantText");
         panel.Children.Add(label);
         panel.Children.Add(editor);
         return editor;

@@ -127,7 +127,7 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
-    public void SanitizeResponseText_TasksJsonBlock_StripsPayloadButPreservesVisibleText()
+    public void SanitizeResponseText_TasksJsonBlock_DefersAllNarrationToValidatedHostSummary()
     {
         const string text = """
             Here is the proposed plan.
@@ -149,18 +149,14 @@ internal sealed class TranscriptTextUtilitiesTests {
 
         var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
 
-        Assert.That(sanitized.ReplaceLineEndings("\n"), Is.EqualTo("""
-            Here is the proposed plan.
-
-            This trailing explanation remains visible.
-            """.ReplaceLineEndings("\n")));
+        Assert.That(sanitized, Is.Empty);
     }
 
     [Test]
     public void SanitizeResponseText_PartialTopLevelTasksJson_StripsWhileStreaming()
     {
         const string text = "Plan ready.\n\nTASKS_JSON:\n{\n  \"groupId\": \"PLAN-20260725\",";
-        Assert.That(TranscriptTextUtilities.SanitizeResponseText(text), Is.EqualTo("Plan ready."));
+        Assert.That(TranscriptTextUtilities.SanitizeResponseText(text), Is.Empty);
     }
 
     [Test]
@@ -301,6 +297,61 @@ internal sealed class TranscriptTextUtilitiesTests {
         var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
 
         Assert.That(sanitized, Is.EqualTo("Validation complete."));
+    }
+
+    [Test]
+    public void SanitizeResponseText_HumanProofCoverageEnvelope_IsHiddenWithTrailingProse()
+    {
+        const string text = """
+            Internal assessment complete.
+
+            PLAN_HUMAN_PROOF_COVERAGE_JSON:
+            {"checkId":"check-1","candidateHash":"abc","status":"ready","summary":"Ready.","issues":[]}
+
+            The host will present the validated plan.
+            """;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                TranscriptTextUtilities.SanitizeResponseText(text).ReplaceLineEndings("\n"),
+                Is.EqualTo("Internal assessment complete.\n\nThe host will present the validated plan."));
+            Assert.That(TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(text), Is.Empty);
+            Assert.That(
+                TranscriptTextUtilities.ShouldRenderProtocolJsonIndicator(
+                    "PLAN_HUMAN_PROOF_COVERAGE_JSON"),
+                Is.False,
+                "Persisted proof-coverage envelopes must remain hidden after restart.");
+        });
+    }
+
+    [Test]
+    public void SanitizeResponseText_PartialHumanProofCoverageEnvelope_HidesStreamingPayload()
+    {
+        const string text = "Checking coverage.\n\nPLAN_HUMAN_PROOF_COVERAGE_JSON:\n{\n  \"checkId\": \"check-1\",";
+
+        Assert.That(
+            TranscriptTextUtilities.SanitizeResponseText(text),
+            Is.EqualTo("Checking coverage."));
+    }
+
+    [Test]
+    public void SanitizeResponseText_FencedHumanProofCoverageEnvelope_RemovesFenceAndPayload()
+    {
+        const string text = """
+            Checking coverage.
+
+            ```json
+            PLAN_HUMAN_PROOF_COVERAGE_JSON:
+            {"checkId":"check-1","candidateHash":"abc","status":"ready","summary":"Ready.","issues":[]}
+            ```
+
+            Finished.
+            """;
+
+        Assert.That(
+            TranscriptTextUtilities.SanitizeResponseText(text).ReplaceLineEndings("\n"),
+            Is.EqualTo("Checking coverage.\n\nFinished."));
     }
 
     [Test]
@@ -463,10 +514,8 @@ internal sealed class TranscriptTextUtilitiesTests {
 
         Assert.Multiple(() =>
         {
-            Assert.That(TranscriptTextUtilities.SanitizeResponseText(complete),
-                Is.EqualTo("Submitting the plan proposal now."));
-            Assert.That(TranscriptTextUtilities.SanitizeResponseText(streaming),
-                Is.EqualTo("Submitting the plan proposal now."));
+            Assert.That(TranscriptTextUtilities.SanitizeResponseText(complete), Is.Empty);
+            Assert.That(TranscriptTextUtilities.SanitizeResponseText(streaming), Is.Empty);
         });
     }
 

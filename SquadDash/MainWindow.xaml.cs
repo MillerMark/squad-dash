@@ -431,6 +431,7 @@ public partial class MainWindow : Window
     private bool                    _planBranchLeasePausePending;
     private bool                    _decomposeRepairPending;
     private PendingPlanHumanProofCoverageReview? _pendingPlanHumanProofCoverageReview;
+    private Paragraph? _planValidationStatusParagraph;
     private string?                 _activePlanAwaitingGateApproval;
     private IReadOnlyList<PendingDecomposePlan> _pendingPlansAtCoordinatorTurnStart = [];
     private readonly HashSet<string> _decomposeInboxActionsInProgress = new(StringComparer.Ordinal);
@@ -3055,8 +3056,7 @@ public partial class MainWindow : Window
             _pec.PendingQueueItemCount = _promptQueue.Count;
             _pec.CurrentDispatchedItem = item;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
-            _pendingPromptSuppressTranscript = string.Equals(
-                item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
+            _pendingPromptSuppressTranscript = ShouldSuppressQueuedPromptTranscript(item);
             await _pec.ExecutePromptAsync(
                 ApplyFollowUpHeader(ApplyDictationAnnotation(item), id),
                 addToHistory: !item.IsSystemInjected,
@@ -3113,8 +3113,7 @@ public partial class MainWindow : Window
             _pec.PendingQueueItemCount = _promptQueue.Count;
             _pec.CurrentDispatchedItem = item;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
-            _pendingPromptSuppressTranscript = string.Equals(
-                item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
+            _pendingPromptSuppressTranscript = ShouldSuppressQueuedPromptTranscript(item);
             await _pec.ExecutePromptAsync(
                 ApplyFollowUpHeader(ApplyDictationAnnotation(item), id),
                 addToHistory: !item.IsSystemInjected,
@@ -3259,8 +3258,7 @@ public partial class MainWindow : Window
             AutoActivateCoordinatorTranscriptOnPromptSubmit();
             _queueDrainActive = true;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
-            _pendingPromptSuppressTranscript = string.Equals(
-                item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
+            _pendingPromptSuppressTranscript = ShouldSuppressQueuedPromptTranscript(item);
             await _pec.ExecutePromptAsync(
                 ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
                 addToHistory: !item.IsSystemInjected,
@@ -3289,6 +3287,9 @@ public partial class MainWindow : Window
 
     private static string ApplyDictationAnnotation(PromptQueueItem item) =>
         item.IsDictated ? item.Text + "\n(some or all of this prompt was dictated by voice)" : item.Text;
+
+    private static bool ShouldSuppressQueuedPromptTranscript(PromptQueueItem item) =>
+        PlanProposalTranscriptPolicy.ShouldSuppressInternalTurn(item.SourceTag);
 
     private static string? BuildQueuedPromptDisplayText(PromptQueueItem item)
     {
@@ -3436,8 +3437,7 @@ public partial class MainWindow : Window
                 _pec.CurrentDispatchedItem = item;
                 _queueDrainActive = true;
                 _pendingPromptIsSystemInjected = item.IsSystemInjected;
-                _pendingPromptSuppressTranscript = string.Equals(
-                    item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
+                _pendingPromptSuppressTranscript = ShouldSuppressQueuedPromptTranscript(item);
                 await _pec.ExecutePromptAsync(
                     ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
                     addToHistory: !item.IsSystemInjected,
@@ -3555,8 +3555,7 @@ public partial class MainWindow : Window
                 _pec.CurrentDispatchedItem = item;
                 _queueDrainActive = true;
                 _pendingPromptIsSystemInjected = item.IsSystemInjected;
-                _pendingPromptSuppressTranscript = string.Equals(
-                    item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
+                _pendingPromptSuppressTranscript = ShouldSuppressQueuedPromptTranscript(item);
                 await _pec.ExecutePromptAsync(
                     ApplyFollowUpHeader(ApplyDictationAnnotation(item), item.Id),
                     addToHistory: !item.IsSystemInjected,
@@ -6037,7 +6036,10 @@ public partial class MainWindow : Window
                         handledHumanProofCoverageReview = HandleMissingPlanHumanProofCoverageReview();
                     }
                     var handledVisualizerReview = TryHandlePlanVisualizerReviewFromResponse(rawResponse);
-                    if (doneCurrentTurn?.SuppressTranscript == true && !handledVisualizerReview)
+                    if (doneCurrentTurn?.SuppressTranscript == true &&
+                        string.Equals(_pec.CurrentDispatchedItem?.SourceTag,
+                            "plan-visualizer-review", StringComparison.Ordinal) &&
+                        !handledVisualizerReview)
                     {
                         const string missingReview =
                             "The AI review finished without returning plan-review annotations. Try Review with AI again.";
@@ -7270,8 +7272,7 @@ public partial class MainWindow : Window
             _pec.CurrentDispatchedItem = item;
             _queueDrainActive = true;
             _pendingPromptIsSystemInjected = item.IsSystemInjected;
-            _pendingPromptSuppressTranscript = string.Equals(
-                item.SourceTag, "plan-visualizer-review", StringComparison.Ordinal);
+            _pendingPromptSuppressTranscript = ShouldSuppressQueuedPromptTranscript(item);
             try
             {
                 await ExecuteWithTaskContextPolicyAsync(() => _pec.ExecutePromptAsync(
@@ -9676,6 +9677,10 @@ public partial class MainWindow : Window
                 ownerView: null);
             return false;
         }
+        UpdatePlanValidationStatus(
+            _decomposeRepairPending
+                ? "Plan corrections received. SquadDash is rechecking structure and human-proof coverage…"
+                : "Validating plan structure and human-proof coverage…");
         var checkId = Guid.NewGuid().ToString("N");
         var candidateHash = PlanHumanProofCoverageReview.ComputeCandidateHash(rejectedCandidate);
         try
@@ -9686,6 +9691,7 @@ public partial class MainWindow : Window
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
                                       or InvalidOperationException)
         {
+            RemovePlanValidationStatus();
             AppendPlanStagingFailure(
                 $"The plan candidate could not be prepared for semantic preflight: {ex.Message}",
                 rejectedCandidate,
@@ -9816,8 +9822,38 @@ public partial class MainWindow : Window
         if (pending is null) return;
         new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
             .Delete(pending.CheckId);
+        RemovePlanValidationStatus();
         AppendPlanStagingFailure(reason, pending.RejectedCandidate, ownerView: null);
         SquadDashTrace.Write("PlanPreflight", reason);
+    }
+
+    private void UpdatePlanValidationStatus(string status)
+    {
+        if (_planValidationStatusParagraph is null ||
+            !CoordinatorThread.Document.Blocks.Contains(_planValidationStatusParagraph))
+        {
+            _planValidationStatusParagraph = CreateTranscriptParagraph(bottomMargin: 6);
+            CoordinatorThread.Document.Blocks.Add(_planValidationStatusParagraph);
+        }
+
+        _planValidationStatusParagraph.Inlines.Clear();
+        var prefix = new Run("Plan validation: ") { FontWeight = FontWeights.SemiBold };
+        prefix.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        _planValidationStatusParagraph.Inlines.Add(prefix);
+        var detail = new Run(status);
+        detail.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        _planValidationStatusParagraph.Inlines.Add(detail);
+        ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    private void RemovePlanValidationStatus()
+    {
+        if (_planValidationStatusParagraph is not null &&
+            CoordinatorThread.Document.Blocks.Contains(_planValidationStatusParagraph))
+        {
+            CoordinatorThread.Document.Blocks.Remove(_planValidationStatusParagraph);
+        }
+        _planValidationStatusParagraph = null;
     }
 
     private sealed record PendingPlanHumanProofCoverageReview(
@@ -10301,7 +10337,8 @@ public partial class MainWindow : Window
                     getSettings: () => _settingsSnapshot,
                     resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
                     saveDefinitionEdit: edited => SavePendingPlanRevisionEdit(pending, edited),
-                    getAssignableAgents: GetAssignablePlanAgentsForViewer)
+                    getAssignableAgents: GetAssignablePlanAgentsForViewer,
+                    onFontScaleDelta: delta => SetFontSizeScale(_fontScaleLevel + delta))
                 {
                     Owner = CanShowOwnedWindow() ? this : null,
                     Title = $"Proposed Plan — {latestProposedPlan.DisplayName} — Revision {latestProposedPlan.RevisionNumber}",
@@ -10544,6 +10581,7 @@ public partial class MainWindow : Window
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             var reason = $"Plan {group.GroupId} was validated but could not be persisted: {ex.Message}";
+            RemovePlanValidationStatus();
             AppendPlanStagingFailure(reason, retryResponse, ownerView);
             SquadDashTrace.Write(TraceCategory.General, reason);
             return false;
@@ -10551,6 +10589,7 @@ public partial class MainWindow : Window
 
         if (previousPlan is not null && !string.Equals(previousPlan.Revision, plan.Revision, StringComparison.Ordinal))
             ArchiveDecomposePlanInboxReminder(previousPlan);
+        RemovePlanValidationStatus();
         try
         {
             if (DecomposePlanInbox.RequestsInboxDelivery(group))
@@ -10781,6 +10820,7 @@ public partial class MainWindow : Window
         if (_decomposeRepairPending)
         {
             _decomposeRepairPending = false;
+            RemovePlanValidationStatus();
             AppendLine("⚠ The automatic task-plan repair attempt was still invalid. " +
                        "SquadDash stopped retrying; the plan was not staged." +
                        (string.IsNullOrWhiteSpace(validationError)
@@ -10794,6 +10834,8 @@ public partial class MainWindow : Window
         }
 
         _decomposeRepairPending = true;
+        UpdatePlanValidationStatus(
+            "SquadDash found plan-contract issues and asked AI to correct them automatically…");
         var prompt = TaskPlanRepairPromptBuilder.Build(
             rejectedCandidate,
             validationError,
@@ -11012,20 +11054,27 @@ public partial class MainWindow : Window
 
     private Paragraph CreatePendingDecomposePlanLinkParagraph(PendingDecomposePlan plan)
     {
+        var presentation = PlanProposalTranscriptPolicy.BuildValidatedSummary(plan);
         var intro = CreateTranscriptParagraph(bottomMargin: 4);
         intro.Tag = new PendingDecomposePlanLinkTag(plan.Group.GroupId, plan.Revision);
-        var receipt = new Run($"✓ Plan {plan.Group.GroupId} staged for approval.")
+        var receipt = new Run(presentation.Heading)
         {
             FontWeight = FontWeights.SemiBold,
         };
         receipt.SetResourceReference(TextElement.ForegroundProperty, "TaskSuccessText");
         intro.Inlines.Add(receipt);
         intro.Inlines.Add(new LineBreak());
+        intro.Inlines.Add(new Run(presentation.Summary));
+        intro.Inlines.Add(new LineBreak());
+        var counts = new Run(presentation.Counts);
+        counts.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        intro.Inlines.Add(counts);
+        intro.Inlines.Add(new LineBreak());
         intro.Inlines.Add(new Run("If this plan is executed in a new branch, that branch will be:"));
         intro.Inlines.Add(new LineBreak());
-        intro.Inlines.Add(new Run(plan.Group.Branch) { FontWeight = FontWeights.SemiBold });
+        intro.Inlines.Add(new Run(presentation.Branch) { FontWeight = FontWeights.SemiBold });
         intro.Inlines.Add(new LineBreak());
-        var revision = new Run($"Plan revision: {plan.Revision}");
+        var revision = new Run(presentation.Identity);
         revision.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
         intro.Inlines.Add(revision);
         intro.Inlines.Add(new LineBreak());
@@ -12634,6 +12683,25 @@ public partial class MainWindow : Window
     private void OpenDecomposePlanViewer(PendingDecomposePlan plan, Plan? durablePlan = null)
     {
         var groupId = plan.Group.GroupId;
+        PendingDecomposePlan? livePlan = null;
+        if (_currentWorkspace is not null)
+        {
+            var candidate = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+                .Load(groupId);
+            if (candidate is not null && durablePlan is null)
+            {
+                // Transcript links retain the proposal revision they originally rendered. Once an
+                // edit advances that revision, opening the old link must still show/reuse the live
+                // editable proposal rather than constructing a stale read-only preview.
+                plan = candidate;
+                livePlan = candidate;
+            }
+            else if (candidate is not null &&
+                     string.Equals(candidate.Revision, plan.Revision, StringComparison.Ordinal))
+            {
+                livePlan = candidate;
+            }
+        }
         var isInteractiveVisualizationFixture = groupId is
             "VIZLINEAR-20260729" or
             "VIZDIAMOND-20260729" or
@@ -12685,16 +12753,6 @@ public partial class MainWindow : Window
                     Summary = "INTERACTIVE PREVIEW — approval-stop changes are temporary and reset when this window closes. " +
                               plan.Group.Summary,
                 };
-        }
-
-        PendingDecomposePlan? livePlan = null;
-        if (_currentWorkspace is not null)
-        {
-            var candidate = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
-                .Load(plan.Group.GroupId);
-            if (candidate is not null &&
-                string.Equals(candidate.Revision, plan.Revision, StringComparison.Ordinal))
-                livePlan = candidate;
         }
 
         // Enable gate editing for pending inbox plans that have not yet started executing.
@@ -13088,7 +13146,8 @@ public partial class MainWindow : Window
             onRetryValidation: (current, validationId) =>
                 _ = RetryFailedPlanValidationAsync(current.PlanId, validationId),
             getSettings: () => _settingsSnapshot,
-            getAssignableAgents: GetAssignablePlanAgentsForViewer)
+            getAssignableAgents: GetAssignablePlanAgentsForViewer,
+            onFontScaleDelta: delta => SetFontSizeScale(_fontScaleLevel + delta))
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };

@@ -62,6 +62,49 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
+    public void PendingTranscriptLink_ResolvesLatestRevisionBeforeViewerReuse()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var methodStart = source.IndexOf(
+            "private void OpenDecomposePlanViewer", StringComparison.Ordinal);
+        var reuseLookup = source.IndexOf(
+            "_openPlanViewerWindows.FirstOrDefault", methodStart, StringComparison.Ordinal);
+        var latestAssignment = source.IndexOf(
+            "plan = candidate;", methodStart, StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(methodStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(latestAssignment, Is.GreaterThan(methodStart).And.LessThan(reuseLookup),
+                "A stale transcript snapshot must be replaced before matching an open viewer by revision.");
+            Assert.That(source[methodStart..reuseLookup], Does.Contain("livePlan = candidate;")
+                .And.Contain("durablePlan is null"),
+                "The latest pending proposal must remain editable when opened through an older transcript link.");
+        });
+    }
+
+    [Test]
+    public void PlanEditor_UsesImportantTextAndRoutesCtrlWheelToEnvironmentZoom()
+    {
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer, Does.Contain(
+                    "editor.SetResourceReference(TextBox.ForegroundProperty, \"ImportantText\");")
+                .And.Contain(
+                    "editor.SetResourceReference(TextBox.CaretBrushProperty, \"ImportantText\");"),
+                "All staged-plan text editors should use the high-contrast important-text theme brush.");
+            Assert.That(viewer, Does.Contain("_onFontScaleDelta(e.Delta > 0 ? 1 : -1);")
+                .And.Contain("(Keyboard.Modifiers & ModifierKeys.Control) != 0"));
+            Assert.That(main, Does.Contain(
+                    "onFontScaleDelta: delta => SetFontSizeScale(_fontScaleLevel + delta)"),
+                "Plan-viewer Ctrl+wheel must use the persisted environment font-scale path.");
+        });
+    }
+
+    [Test]
     public void InsertAndAssignmentInteractions_UpdateTheVisiblePlanImmediately()
     {
         var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));

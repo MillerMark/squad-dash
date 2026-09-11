@@ -30,6 +30,7 @@ internal static class TranscriptTextUtilities
         PlanTaskVerificationResultParser.Marker,
         PlanTaskVerificationResultParser.LegacyMarker,
         PlanHumanReviewClarificationResponseParser.Marker,
+        PlanHumanProofCoverageReview.Marker,
     ];
 
     private static readonly Regex HorizontalWhitespaceNormRegex = new(
@@ -44,7 +45,7 @@ internal static class TranscriptTextUtilities
     private static readonly Regex SpaceAfterOpenRegex = new(
         @"([\(\[\{])\s+", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     internal static string SanitizeResponseText(string? text) =>
-        RepairFusedProseBoundaries(StripHostOwnedJsonBlocks(StripTaskPlanFileBlock(StripTasksJsonBlock(StripInboxMessageBlock(StripInboxMessageFileBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text)))))))))).TrimEnd();
+        RepairFusedProseBoundaries(StripHostOwnedJsonBlocks(StripTaskPlanResponse(StripInboxMessageBlock(StripInboxMessageFileBlock(StripHostCommandBlock(StripApprovalGroupBlock(StripAwaitInputSentinel(ToolTranscriptFormatter.StripSystemNotifications(text))))))))).TrimEnd();
 
     internal static string? SanitizeResponseTextOrNull(string? text)
     {
@@ -373,16 +374,29 @@ internal static class TranscriptTextUtilities
         return text;
     }
 
-    private static string StripTasksJsonBlock(string text)
-        => StripTopLevelJsonBlock(text, "TASKS_JSON:");
-
-    private static string StripTaskPlanFileBlock(string text)
-        => StripInspectableJsonBlock(text, TaskPlanResponseResolver.FileMarker);
+    private static string StripTaskPlanResponse(string text)
+    {
+        // A task-plan response is only a candidate until SquadDash has completed structural and
+        // semantic preflight. Hiding the model-authored narration prevents premature claims such
+        // as "the plan conforms" from appearing as authoritative. The host renders a summary from
+        // the validated, persisted plan after preflight succeeds.
+        return FindInspectableSentinelIndex(text, "TASKS_JSON:") >= 0 ||
+               FindInspectableSentinelIndex(text, TaskPlanResponseResolver.FileMarker) >= 0
+            ? string.Empty
+            : text;
+    }
 
     private static string StripHostOwnedJsonBlocks(string text)
     {
-        foreach (var marker in InspectableProtocolMarkers.Concat(HiddenProtocolMarkers))
+        foreach (var marker in InspectableProtocolMarkers)
             text = StripInspectableJsonBlock(text, marker);
+        foreach (var marker in HiddenProtocolMarkers)
+        {
+            // Hidden envelopes are never user-facing content. Accept the same fenced variation as
+            // the protocol parser so a successfully consumed payload cannot leak after streaming
+            // or transcript hydration merely because the model wrapped it in Markdown.
+            text = StripJsonBlockAt(text, marker, text.LastIndexOf(marker, StringComparison.Ordinal));
+        }
         return text;
     }
 
@@ -403,11 +417,13 @@ internal static class TranscriptTextUtilities
         if (sentinelIdx < 0)
             return text;
 
+        var markerInsideFence = IsInsideMarkdownFence(text, sentinelIdx);
+
         // Hide an incomplete payload while it streams. Once the object closes, preserve any
         // accidental visible prose that follows it and consume an optional Markdown fence.
         var braceStart = text.IndexOf('{', sentinelIdx + sentinel.Length);
         if (braceStart < 0 || !TryFindBalancedJsonObjectEnd(text, braceStart, out var braceEnd))
-            return text[..sentinelIdx].TrimEnd();
+            return StripTrailingOpeningFence(text[..sentinelIdx].TrimEnd(), markerInsideFence);
 
         var payloadEnd = braceEnd + 1;
         var cursor = payloadEnd;
@@ -418,18 +434,30 @@ internal static class TranscriptTextUtilities
         var hasOpeningFence = betweenMarkerAndJson
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Any(line => line.TrimStart().StartsWith("```", StringComparison.Ordinal));
-        if (hasOpeningFence && cursor < text.Length &&
+        if ((hasOpeningFence || markerInsideFence) && cursor < text.Length &&
             text.AsSpan(cursor).StartsWith("```".AsSpan(), StringComparison.Ordinal))
         {
             var fenceLineEnd = text.IndexOf('\n', cursor);
             payloadEnd = fenceLineEnd < 0 ? text.Length : fenceLineEnd + 1;
         }
 
-        var before = text[..sentinelIdx].TrimEnd();
+        var before = StripTrailingOpeningFence(text[..sentinelIdx].TrimEnd(), markerInsideFence);
         var after = text[payloadEnd..].TrimStart();
         if (before.Length == 0) return after;
         if (after.Length == 0) return before;
         return before + "\n\n" + after;
+    }
+
+    private static string StripTrailingOpeningFence(string text, bool markerInsideFence)
+    {
+        if (!markerInsideFence)
+            return text;
+
+        var openingFenceStart = text.LastIndexOf('\n');
+        var openingFenceLine = openingFenceStart < 0 ? text : text[(openingFenceStart + 1)..];
+        return openingFenceLine.TrimStart().StartsWith("```", StringComparison.Ordinal)
+            ? openingFenceStart < 0 ? string.Empty : text[..openingFenceStart].TrimEnd()
+            : text;
     }
 
     private static int FindInspectableSentinelIndex(string text, string sentinel)
@@ -547,6 +575,23 @@ internal static class TranscriptTextUtilities
         }
 
         return -1;
+    }
+
+    private static bool IsInsideMarkdownFence(string text, int index)
+    {
+        var inFence = false;
+        var offset = 0;
+        while (offset < index)
+        {
+            var lineEnd = text.IndexOf('\n', offset);
+            if (lineEnd < 0 || lineEnd > index)
+                lineEnd = index;
+            var line = text[offset..lineEnd].TrimStart();
+            if (line.StartsWith("```", StringComparison.Ordinal))
+                inFence = !inFence;
+            offset = lineEnd < index ? lineEnd + 1 : index;
+        }
+        return inFence;
     }
 
     private static string StripAwaitInputSentinel(string text) =>
