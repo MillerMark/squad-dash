@@ -49520,8 +49520,10 @@ public partial class MainWindow : Window
             UpdateBranchIndicator();
             return;
         }
-        var gitDir = Path.Combine(_currentWorkspace.FolderPath, ".git");
-        if (!Directory.Exists(gitDir))
+        var gitDir = WorkspaceIdentityPresentation
+            .Resolve(_currentWorkspace.FolderPath, branch: null)
+            .GitDirectory;
+        if (string.IsNullOrWhiteSpace(gitDir) || !Directory.Exists(gitDir))
         {
             UpdateBranchIndicator();
             return;
@@ -49534,19 +49536,14 @@ public partial class MainWindow : Window
     {
         try
         {
-            var dir = workspaceFolder;
-            while (!string.IsNullOrEmpty(dir))
-            {
-                var gitConfigPath = Path.Combine(dir, ".git", "config");
-                if (File.Exists(gitConfigPath))
-                {
-                    var config = File.ReadAllText(gitConfigPath);
-                    return config.Contains("[remote \"origin\"]", StringComparison.Ordinal)
-                        || config.Contains("[remote 'origin']", StringComparison.Ordinal);
-                }
-                dir = Path.GetDirectoryName(dir)!;
-            }
-            return false;
+            var gitConfigPath = WorkspaceIdentityPresentation
+                .Resolve(workspaceFolder, branch: null)
+                .GitConfigPath;
+            if (string.IsNullOrWhiteSpace(gitConfigPath) || !File.Exists(gitConfigPath))
+                return false;
+            var config = File.ReadAllText(gitConfigPath);
+            return config.Contains("[remote \"origin\"]", StringComparison.Ordinal)
+                || config.Contains("[remote 'origin']", StringComparison.Ordinal);
         }
         catch
         {
@@ -49558,23 +49555,8 @@ public partial class MainWindow : Window
     {
         try
         {
-            // Walk up the directory tree to find .git/HEAD — handles workspaces that
-            // are subdirectories of the actual repository root (e.g. C:\Repo\Package).
-            var dir = workspaceFolder;
-            while (!string.IsNullOrEmpty(dir))
-            {
-                var headPath = Path.Combine(dir, ".git", "HEAD");
-                if (File.Exists(headPath))
-                {
-                    var content = File.ReadAllText(headPath).Trim();
-                    const string prefix = "ref: refs/heads/";
-                    if (content.StartsWith(prefix, StringComparison.Ordinal))
-                        return content[prefix.Length..].Trim();
-                    return content.Length >= 7 ? $"(detached {content[..7]})" : "(detached)";
-                }
-                dir = Path.GetDirectoryName(dir)!;
-            }
-            return string.Empty;
+            return WorkspaceIdentityPresentation.Resolve(workspaceFolder, branch: null).Branch
+                ?? string.Empty;
         }
         catch
         {
@@ -60462,7 +60444,9 @@ public partial class MainWindow : Window
         // Fallback: read the remote URL directly from .git/config
         try
         {
-            var gitConfigPath = Path.Combine(workspaceFolderPath, ".git", "config");
+            var gitConfigPath = WorkspaceIdentityPresentation
+                .Resolve(workspaceFolderPath, branch: null)
+                .GitConfigPath;
             if (File.Exists(gitConfigPath))
             {
                 var inOriginSection = false;

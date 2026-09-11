@@ -42,6 +42,31 @@ internal sealed class WorkspaceIdentityPresentationTests
         Assert.Multiple(() => {
             Assert.That(presentation.RepositoryRoot, Is.EqualTo(worktree));
             Assert.That(presentation.Branch, Is.EqualTo("codex/blazor-aigen-master"));
+            Assert.That(presentation.GitDirectory, Is.EqualTo(gitDirectory));
+        });
+    }
+
+    [Test]
+    public void Resolve_LinkedWorktree_UsesCommonRepositoryConfig()
+    {
+        using var workspace = new TestWorkspace();
+        var worktree = Path.Combine(workspace.RootPath, "linked-worktree");
+        var commonGitDirectory = Path.Combine(workspace.RootPath, "repo", ".git");
+        var gitDirectory = Path.Combine(commonGitDirectory, "worktrees", "linked-worktree");
+        Directory.CreateDirectory(worktree);
+        Directory.CreateDirectory(gitDirectory);
+        File.WriteAllText(Path.Combine(gitDirectory, "HEAD"), "ref: refs/heads/feature/worktree");
+        File.WriteAllText(Path.Combine(gitDirectory, "commondir"), "../..");
+        File.WriteAllText(Path.Combine(commonGitDirectory, "config"), "[remote \"origin\"]");
+        File.WriteAllText(Path.Combine(worktree, ".git"), $"gitdir: {gitDirectory}");
+
+        var presentation = WorkspaceIdentityPresentation.Resolve(worktree, branch: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Branch, Is.EqualTo("feature/worktree"));
+            Assert.That(presentation.GitDirectory, Is.EqualTo(gitDirectory));
+            Assert.That(presentation.GitConfigPath, Is.EqualTo(Path.Combine(commonGitDirectory, "config")));
         });
     }
 }

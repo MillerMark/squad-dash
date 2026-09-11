@@ -8,6 +8,9 @@ internal sealed record WorkspaceIdentityPresentation(
     string? RepositoryRoot,
     string? Branch)
 {
+    internal string? GitDirectory { get; init; }
+    internal string? GitConfigPath { get; init; }
+
     internal static WorkspaceIdentityPresentation Resolve(string workspaceFolder, string? branch)
     {
         var normalizedWorkspace = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workspaceFolder));
@@ -17,7 +20,13 @@ internal sealed record WorkspaceIdentityPresentation(
             repository?.Root,
             string.IsNullOrWhiteSpace(branch)
                 ? ReadBranch(repository?.GitDirectory)
-                : branch.Trim());
+                : branch.Trim())
+        {
+            GitDirectory = repository?.GitDirectory,
+            GitConfigPath = repository?.CommonGitDirectory is null
+                ? null
+                : Path.Combine(repository.CommonGitDirectory, "config"),
+        };
     }
 
     internal string BuildTooltip(bool includeRevealHint)
@@ -39,7 +48,7 @@ internal sealed record WorkspaceIdentityPresentation(
             {
                 var gitMarker = Path.Combine(directory.FullName, ".git");
                 if (Directory.Exists(gitMarker))
-                    return new RepositoryLocation(directory.FullName, gitMarker);
+                    return new RepositoryLocation(directory.FullName, gitMarker, ResolveCommonGitDirectory(gitMarker));
                 if (File.Exists(gitMarker))
                 {
                     var marker = File.ReadAllText(gitMarker).Trim();
@@ -49,10 +58,13 @@ internal sealed record WorkspaceIdentityPresentation(
                         var gitDirectory = marker[gitDirPrefix.Length..].Trim();
                         if (!Path.IsPathRooted(gitDirectory))
                             gitDirectory = Path.GetFullPath(Path.Combine(directory.FullName, gitDirectory));
-                        return new RepositoryLocation(directory.FullName, gitDirectory);
+                        return new RepositoryLocation(
+                            directory.FullName,
+                            gitDirectory,
+                            ResolveCommonGitDirectory(gitDirectory));
                     }
 
-                    return new RepositoryLocation(directory.FullName, null);
+                    return new RepositoryLocation(directory.FullName, null, null);
                 }
                 directory = directory.Parent;
             }
@@ -62,6 +74,27 @@ internal sealed record WorkspaceIdentityPresentation(
         }
 
         return null;
+    }
+
+    private static string? ResolveCommonGitDirectory(string gitDirectory)
+    {
+        try
+        {
+            var commonDirectoryFile = Path.Combine(gitDirectory, "commondir");
+            if (!File.Exists(commonDirectoryFile))
+                return gitDirectory;
+
+            var commonDirectory = File.ReadAllText(commonDirectoryFile).Trim();
+            if (string.IsNullOrWhiteSpace(commonDirectory))
+                return gitDirectory;
+            return Path.IsPathRooted(commonDirectory)
+                ? Path.GetFullPath(commonDirectory)
+                : Path.GetFullPath(Path.Combine(gitDirectory, commonDirectory));
+        }
+        catch
+        {
+            return gitDirectory;
+        }
     }
 
     private static string? ReadBranch(string? gitDirectory)
@@ -87,5 +120,8 @@ internal sealed record WorkspaceIdentityPresentation(
         }
     }
 
-    private sealed record RepositoryLocation(string Root, string? GitDirectory);
+    private sealed record RepositoryLocation(
+        string Root,
+        string? GitDirectory,
+        string? CommonGitDirectory);
 }
