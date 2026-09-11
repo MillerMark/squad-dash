@@ -105,16 +105,22 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
-    public void TaskContractExamples_AreEditableAndRenderedAsNormativeCodeBlocks()
+    public void TaskContractExamples_UseFirstClassEditorCardsAndRenderAsNormativeCodeBlocks()
     {
         var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(viewer, Does.Contain("Contract examples (optional JSON array)")
-                .And.Contain("TryParseContractExamples(contractExamples.Text")
-                .And.Contain("parsedExamples"),
-                "The staged task editor must preserve multiline first-class examples.");
+            Assert.That(viewer, Does.Contain("Contract examples (optional)")
+                .And.Contain("CreateContractExampleEditor(panel, task.ContractExamples)")
+                .And.Contain("AddContractExampleCard(cardHost, rows)")
+                .And.Contain("\"Add example\"")
+                .And.Contain("\"Delete\"")
+                .And.Contain("BuildContractExamples(contractExamples)"),
+                "The staged task editor must provide first-class Add/Delete example cards.");
+            Assert.That(viewer, Does.Not.Contain("Contract examples (optional JSON array)")
+                .And.Not.Contain("TryParseContractExamples"),
+                "Users should never need to author the example schema as raw JSON.");
             Assert.That(viewer, Does.Contain("Normative Contract Examples")
                 .And.Contain("AppendContractExampleValue(\"Input\"")
                 .And.Contain("AppendContractExampleValue(\"Expected behavior\"")

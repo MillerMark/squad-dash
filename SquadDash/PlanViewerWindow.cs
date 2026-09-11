@@ -1,5 +1,4 @@
 using System.Linq;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -20,12 +19,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private const double BaseRowSpacing = 152;
     private const string VerityCrossHandle = "verity-cross";
     private const string SquadCoordinatorHandle = "Squad";
-    private static readonly JsonSerializerOptions ContractExampleEditorJsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        WriteIndented = true,
-    };
-
     private double _scaleFactor;
     private double NodeWidth;
     private double NodeHeight;
@@ -137,6 +130,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private record SelectedElementIdentity(string Kind, string Id);
     private record CommittedColumnReorder(string ColumnTaskId, IReadOnlyList<string> NewTaskOrder);
+    private sealed record ContractExampleEditorRow(
+        Border Card,
+        TextBlock Heading,
+        TextBox ExampleId,
+        TextBox Title,
+        TextBox Input,
+        TextBox ExpectedBehavior,
+        TextBox Language);
     private sealed class DragConnectorState
     {
         public PlanGraphConnectorGroup Group { get; set; } = null!;
@@ -6664,13 +6665,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var title = AddEditorField(panel, "Title", task.Title, 34);
         _inspectorPrimaryEditor = title;
         var description = AddEditorField(panel, "Description", task.Description, 170);
-        var contractExamples = AddEditorField(
-            panel,
-            "Contract examples (optional JSON array)",
-            task.ContractExamples is { Count: > 0 }
-                ? JsonSerializer.Serialize(task.ContractExamples, ContractExampleEditorJsonOptions)
-                : string.Empty,
-            180);
+        var contractExamples = CreateContractExampleEditor(panel, task.ContractExamples);
         var priority = AddEditorField(panel, "Priority", task.Priority, 34);
         var dependencies = AddEditorField(
             panel, "Dependencies (IDs separated by commas or lines)",
@@ -6697,13 +6692,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(description.Text))
                 return "Title and description are required.";
-            if (!TryParseContractExamples(contractExamples.Text, out var parsedExamples, out var exampleError))
-                return exampleError;
             if (!TryParseAgentAssignments(assignments.Text, out var parsedAssignments, out var assignmentError))
                 return assignmentError;
             var ids = ParseEditorList(dependencies.Text);
             var updated = StagedPlanEditor.UpdateTask(
-                _plan!.Group, taskId, title.Text, description.Text, priority.Text, ids, parsedExamples);
+                _plan!.Group, taskId, title.Text, description.Text, priority.Text, ids,
+                BuildContractExamples(contractExamples));
             updated = StagedPlanEditor.UpdateTaskAdvanced(
                 updated, taskId, parsedAssignments, routingMode.Text, parallel.IsChecked,
                 genericReason.Text, executionMode.Text);
@@ -6713,6 +6707,153 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Add(new BlockUIContainer(panel));
         return true;
     }
+
+    private List<ContractExampleEditorRow> CreateContractExampleEditor(
+        StackPanel panel,
+        IReadOnlyList<DecomposedTaskContractExample>? examples)
+    {
+        var heading = new TextBlock
+        {
+            Text = "Contract examples (optional)",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 12, 0, 3),
+        };
+        heading.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        heading.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        panel.Children.Add(heading);
+
+        var help = new TextBlock
+        {
+            Text = "Add compact, normative examples when they clarify the task contract. " +
+                   "Input and expected behavior preserve multiline code exactly.",
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 4),
+        };
+        help.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        help.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        panel.Children.Add(help);
+
+        var cardHost = new StackPanel();
+        panel.Children.Add(cardHost);
+        var rows = new List<ContractExampleEditorRow>();
+        foreach (var example in examples ?? [])
+            AddContractExampleCard(cardHost, rows, example);
+
+        var addButton = TranscriptQuickReplyFactory.CreateButton(
+            "Add example",
+            _quickReplyFontSize,
+            toolTip: ToolTipHelper.MakeThemedToolTip(
+                "Add an input and expected-behavior example to this task."));
+        addButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+        addButton.HorizontalAlignment = HorizontalAlignment.Left;
+        addButton.Margin = new Thickness(0, 6, 0, 2);
+        addButton.Click += (_, _) =>
+        {
+            var row = AddContractExampleCard(cardHost, rows);
+            row.Card.BringIntoView();
+            row.Title.Focus();
+            Keyboard.Focus(row.Title);
+        };
+        panel.Children.Add(addButton);
+        return rows;
+    }
+
+    private ContractExampleEditorRow AddContractExampleCard(
+        StackPanel cardHost,
+        List<ContractExampleEditorRow> rows,
+        DecomposedTaskContractExample? example = null)
+    {
+        var content = new StackPanel();
+        var cardHeader = new DockPanel { LastChildFill = true };
+        var deleteButton = TranscriptQuickReplyFactory.CreateButton(
+            "Delete",
+            _quickReplyFontSize,
+            toolTip: ToolTipHelper.MakeThemedToolTip(
+                "Remove this example from the draft. Save changes to apply the removal."),
+            tone: QuickReplyTone.Destructive);
+        deleteButton.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+        deleteButton.Margin = new Thickness(8, 0, 0, 0);
+        deleteButton.Padding = new Thickness(8, 2, 8, 2);
+        deleteButton.MinHeight = 24;
+        DockPanel.SetDock(deleteButton, Dock.Right);
+        cardHeader.Children.Add(deleteButton);
+
+        var cardHeading = new TextBlock
+        {
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        cardHeading.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        cardHeading.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        cardHeader.Children.Add(cardHeading);
+        content.Children.Add(cardHeader);
+
+        var exampleId = AddEditorField(
+            content,
+            "Example ID",
+            example?.ExampleId ?? NextContractExampleId(rows),
+            34);
+        var title = AddEditorField(content, "Title", example?.Title, 34);
+        var input = AddEditorField(content, "Input", example?.Input, 90);
+        var expectedBehavior = AddEditorField(
+            content,
+            "Expected behavior",
+            example?.ExpectedBehavior,
+            90);
+        var language = AddEditorField(content, "Language (optional)", example?.Language, 34);
+        input.FontFamily = new FontFamily("Consolas");
+        expectedBehavior.FontFamily = new FontFamily("Consolas");
+
+        var card = new Border
+        {
+            Child = content,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(8),
+            Margin = new Thickness(0, 4, 0, 4),
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "PanelBackground");
+        card.SetResourceReference(Border.BorderBrushProperty, "LineColor");
+
+        var row = new ContractExampleEditorRow(
+            card, cardHeading, exampleId, title, input, expectedBehavior, language);
+        rows.Add(row);
+        cardHost.Children.Add(card);
+        RenumberContractExampleCards(rows);
+        deleteButton.Click += (_, _) =>
+        {
+            rows.Remove(row);
+            cardHost.Children.Remove(card);
+            RenumberContractExampleCards(rows);
+        };
+        return row;
+    }
+
+    private static string NextContractExampleId(IReadOnlyList<ContractExampleEditorRow> rows)
+    {
+        var existing = rows.Select(row => row.ExampleId.Text.Trim()).ToHashSet(StringComparer.Ordinal);
+        for (var number = 1;; number++)
+        {
+            var candidate = $"example-{number}";
+            if (!existing.Contains(candidate)) return candidate;
+        }
+    }
+
+    private static void RenumberContractExampleCards(IReadOnlyList<ContractExampleEditorRow> rows)
+    {
+        for (var index = 0; index < rows.Count; index++)
+            rows[index].Heading.Text = $"Example {index + 1}";
+    }
+
+    private static IReadOnlyList<DecomposedTaskContractExample> BuildContractExamples(
+        IReadOnlyList<ContractExampleEditorRow> rows) =>
+        rows.Select(row => new DecomposedTaskContractExample(
+            row.ExampleId.Text.Trim(),
+            row.Title.Text.Trim(),
+            row.Input.Text,
+            row.ExpectedBehavior.Text,
+            string.IsNullOrWhiteSpace(row.Language.Text) ? null : row.Language.Text.Trim()))
+            .ToArray();
 
     private bool PopulateValidationEditor(string validationId)
     {
@@ -6899,35 +7040,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         assignments = result;
         error = null;
         return true;
-    }
-
-    private static bool TryParseContractExamples(
-        string value,
-        out IReadOnlyList<DecomposedTaskContractExample> examples,
-        out string? error)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            examples = [];
-            error = null;
-            return true;
-        }
-
-        try
-        {
-            examples = JsonSerializer.Deserialize<DecomposedTaskContractExample[]>(
-                value,
-                ContractExampleEditorJsonOptions) ?? [];
-            error = null;
-            return true;
-        }
-        catch (JsonException exception)
-        {
-            examples = [];
-            error = "Contract examples must be a JSON array containing exampleId, title, input, " +
-                    $"expectedBehavior, and optional language. {exception.Message}";
-            return false;
-        }
     }
 
     private static bool TryParseProofRequirements(
