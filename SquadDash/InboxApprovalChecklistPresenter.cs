@@ -16,7 +16,7 @@ namespace SquadDash;
 /// </summary>
 internal static class InboxApprovalChecklistPresenter
 {
-    internal const double ChecklistFontScale = 1.25;
+    internal const double ChecklistFontScale = 1.10;
 
     internal static int Attach(
         FlowDocument document,
