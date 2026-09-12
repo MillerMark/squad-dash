@@ -336,7 +336,7 @@ internal sealed class PlanRecoveryPresentationTests
             DisplayStepLabel: "7");
         var plan = TestPlan(evidence) with { Tasks = [task] };
 
-        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId, currentHead: commit);
 
         Assert.Multiple(() =>
         {
@@ -344,6 +344,80 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(action.Label, Is.EqualTo("Step 7 Is Complete & Continue"));
             Assert.That(action.ProtocolAction, Is.EqualTo("accept-step-complete"));
             Assert.That(action.Hint, Does.Contain("No additional AI assessment"));
+        });
+    }
+
+    [Test]
+    public void CardContentReflectsLatestTaskEvidenceAfterRefresh()
+    {
+        const string latestCommit = "f8f3dd89b9";
+        var latestEvidence = new PlanTaskCommitEvidence(
+            "PLAN-001",
+            "attempt-2",
+            "baseline",
+            latestCommit,
+            "Retry completed with refreshed evidence.",
+            new DecomposeStepVerification("passed", "dotnet test", "98/98 tests passed"));
+        var plan = TestPlan(latestEvidence) with
+        {
+            Tasks =
+            [
+                new PlanTask("PLAN-001", "Footer", "Work", [], "high", PlanTaskStatus.HumanReviewRequired),
+            ],
+        };
+
+        var recovery = PlanRecoveryPresentationBuilder.Build(plan, "PLAN-001", hasPreservedWork: false);
+        var completedWorkReview = CompletedWorkReviewPresentationBuilder.Build(plan, "PLAN-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(recovery.CommitEvidence, Is.Not.Null);
+            Assert.That(recovery.CommitEvidence!.Commit, Is.EqualTo(latestCommit));
+            Assert.That(recovery.CommitEvidence.Commit, Is.Not.EqualTo("ddc9136669"));
+            Assert.That(recovery.CommitEvidence.Verification!.Summary, Does.Contain("98/98"));
+            Assert.That(recovery.CommitEvidence.Verification!.Summary, Does.Not.Contain("93/93"));
+            Assert.That(completedWorkReview, Is.Not.Null);
+            Assert.That(completedWorkReview!.Commit!.Sha, Is.EqualTo(latestCommit));
+            Assert.That(completedWorkReview.Commit.ShortSha, Is.EqualTo("f8f3dd8"));
+            Assert.That(completedWorkReview.TestSummary, Does.Contain("98/98"));
+        });
+    }
+
+    [Test]
+    public void RecoveryAction_WithStaleEvidenceAndAdvancedHead_RequiresUnattributedAcceptance()
+    {
+        const string recordedCommit = "ddc9136669";
+        const string currentHead = "f8f3dd89b9";
+        var evidence = new PlanTaskCommitEvidence(
+            "PLAN-001",
+            "attempt-1",
+            "baseline",
+            recordedCommit,
+            "Older evidence.",
+            new DecomposeStepVerification("passed", "dotnet test", "93/93 tests passed"));
+        var task = new PlanTask(
+            "PLAN-001",
+            "Review me",
+            "Work",
+            [],
+            "high",
+            PlanTaskStatus.HumanReviewRequired,
+            DisplayStepLabel: "1");
+        var plan = TestPlan(evidence) with { Tasks = [task] };
+
+        var action = PlanRecoveryActionPresentationBuilder.Build(
+            plan,
+            task.TaskId,
+            currentHead,
+            (ancestor, descendant) =>
+                string.Equals(ancestor, recordedCommit, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(descendant, currentHead, StringComparison.OrdinalIgnoreCase));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptUnattributedStep));
+            Assert.That(action.Kind, Is.Not.EqualTo(PlanRecoveryPrimaryActionKind.AcceptStep));
+            Assert.That(action.Hint, Does.Contain("Newer commits are on this branch"));
         });
     }
 
@@ -369,7 +443,7 @@ internal sealed class PlanRecoveryPresentationTests
             ]);
         var plan = TestPlan(evidence) with { Tasks = [task], ApprovalGates = [gate] };
 
-        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId, currentHead: commit);
 
         Assert.Multiple(() =>
         {
@@ -394,7 +468,7 @@ internal sealed class PlanRecoveryPresentationTests
             "GATE-PLAIN", "Approve the amendment.", [task.TaskId], [], PlanGateStatus.Pending);
         var plan = TestPlan(evidence) with { Tasks = [task], ApprovalGates = [gate] };
 
-        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId, currentHead: evidence.Commit);
 
         Assert.Multiple(() =>
         {
@@ -422,7 +496,7 @@ internal sealed class PlanRecoveryPresentationTests
             DisplayStepLabel: "7");
         var plan = TestPlan(evidence) with { Tasks = [task], IsPaused = true };
 
-        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId);
+        var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId, currentHead: commit);
 
         Assert.Multiple(() =>
         {

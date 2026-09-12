@@ -55,4 +55,51 @@ internal sealed class InterruptedStepResultRecoveryPolicyTests
             InterruptedStepResultRecoveryPolicy.CanRouteToCommitReview(MakePlan(), MakeResult("PLAN-1-002")),
             Is.False);
     }
+
+    [Test]
+    public void NewerDescendantCommitRefreshesTaskEvidence()
+    {
+        var existingEvidence = new PlanTaskCommitEvidence(
+            "PLAN-1-001",
+            "attempt-1",
+            "base",
+            "ddc9136669",
+            "Original run summary.",
+            new DecomposeStepVerification("passed", "dotnet test", "93/93 tests passed"));
+        var candidate = new PlanTaskCommitEvidence(
+            "PLAN-1-001",
+            "attempt-2",
+            "base",
+            "f8f3dd89b9",
+            "Retry run summary.",
+            new DecomposeStepVerification("passed", "dotnet test", "98/98 tests passed"));
+
+        var replacement = global::SquadDash.InterruptedPlanEvidenceRefresher.SelectReplacement(
+            existingEvidence,
+            candidate,
+            (ancestor, descendant) =>
+                string.Equals(ancestor, "ddc9136669", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(descendant, "f8f3dd89b9", StringComparison.OrdinalIgnoreCase));
+        var nonDescendant = global::SquadDash.InterruptedPlanEvidenceRefresher.SelectReplacement(
+            existingEvidence,
+            candidate,
+            (_, _) => false);
+        var whenMissingExisting = global::SquadDash.InterruptedPlanEvidenceRefresher.SelectReplacement(
+            null,
+            candidate,
+            (_, _) => false);
+        var sameCommit = global::SquadDash.InterruptedPlanEvidenceRefresher.SelectReplacement(
+            existingEvidence,
+            candidate with { Commit = "ddc9136669" },
+            (_, _) => true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(replacement, Is.EqualTo(candidate));
+            Assert.That(replacement!.Verification!.Summary, Does.Contain("98/98"));
+            Assert.That(nonDescendant, Is.Null);
+            Assert.That(whenMissingExisting, Is.EqualTo(candidate));
+            Assert.That(sameCommit, Is.Null);
+        });
+    }
 }

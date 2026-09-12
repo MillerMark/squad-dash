@@ -90,9 +90,11 @@ internal static class PlanHumanReviewStepAcceptance
 {
     internal static Plan ApplyTasks(
         Plan plan,
-        IReadOnlyList<PlanReviewAttentionPresentation> reviewAttentions)
+        IReadOnlyList<PlanReviewAttentionPresentation> reviewAttentions,
+        string? currentHead = null)
     {
         var updated = plan;
+        var recordedCommit = plan.InterruptionData?.TaskCommitEvidence?.Commit;
         foreach (var reviewAttention in reviewAttentions)
         {
             var handoff = reviewAttention.Task.Handoff ??
@@ -103,6 +105,15 @@ internal static class PlanHumanReviewStepAcceptance
                 StringComparison.Ordinal);
             if (!isVerifiedNoOp && string.IsNullOrWhiteSpace(handoff.Commit))
                 throw new InvalidOperationException("The reviewed task handoff has no commit.");
+            if (!isVerifiedNoOp &&
+                !string.IsNullOrWhiteSpace(currentHead) &&
+                (string.IsNullOrWhiteSpace(recordedCommit) ||
+                 !string.Equals(handoff.Commit, recordedCommit, StringComparison.OrdinalIgnoreCase) ||
+                 !string.Equals(handoff.Commit, currentHead, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException(
+                    "Reviewed evidence is stale: task tip has advanced past the reviewed commit. Refresh the review card.");
+            }
             var commits = isVerifiedNoOp
                 ? Array.Empty<PlanEvidenceCommit>()
                 : reviewAttention.Task.Commits ??

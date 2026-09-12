@@ -318,6 +318,51 @@ internal sealed class PlanReviewActivityResponseTests
     }
 
     [Test]
+    public void StaleEvidenceAcceptanceIsRejected()
+    {
+        const string reviewedCommit = "ddc913";
+        var plan = MakeInterruptedReviewPlan(reviewedCommit, reviewedCommit);
+        var attention = PlanReviewAttentionPresentationResolver.Resolve(plan, "TASK-1");
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            PlanHumanReviewStepAcceptance.ApplyTasks(
+                plan,
+                [attention!],
+                currentHead: "f8f3dd"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(attention, Is.Not.Null);
+            Assert.That(exception, Is.Not.Null);
+            Assert.That(exception!.Message, Does.Contain("stale"));
+            Assert.That(plan.Tasks.Single(task => task.TaskId == "TASK-1").Status,
+                Is.EqualTo(PlanTaskStatus.HumanReviewRequired));
+            Assert.That(plan.InterruptionData, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public void StaleEvidenceAcceptance_AllMatchingCommitsCompletesNormally()
+    {
+        const string reviewedCommit = "ddc913";
+        var plan = MakeInterruptedReviewPlan(reviewedCommit, reviewedCommit);
+        var attention = PlanReviewAttentionPresentationResolver.Resolve(plan, "TASK-1");
+
+        var updated = PlanHumanReviewStepAcceptance.ApplyTasks(
+            plan,
+            [attention!],
+            currentHead: reviewedCommit);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(attention, Is.Not.Null);
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "TASK-1").Status,
+                Is.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(updated.InterruptionData, Is.Null);
+        });
+    }
+
+    [Test]
     public void RepairInstruction_DoesNotRepeatManualWorkOrAdvancePlan()
     {
         var instruction = PlanReviewActivityResponseParser.BuildRepairInstruction([MakeInterruptedPlan()]);
@@ -328,6 +373,63 @@ internal sealed class PlanReviewActivityResponseTests
             Assert.That(instruction, Does.Contain("do not continue any plan"));
             Assert.That(instruction, Does.Contain("PLAN_REVIEW_ACTIVITY_JSON"));
         });
+    }
+
+    private static Plan MakeInterruptedReviewPlan(string handoffCommit, string evidenceCommit)
+    {
+        var verification = new DecomposeStepVerification("passed", "dotnet test", "93/93 tests passed");
+        var task = new PlanTask(
+            "TASK-1",
+            "Footer",
+            "Work",
+            [],
+            "high",
+            PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff(
+                handoffCommit,
+                "Implemented footer behavior.",
+                ["MainWindow.xaml.cs"],
+                verification,
+                DateTimeOffset.Parse("2026-08-13T10:58:00Z")));
+        var gate = new PlanApprovalGate(
+            "GATE-1",
+            "Review footer behavior",
+            [task.TaskId],
+            [],
+            PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "proof-1",
+                    "live-ui-observation",
+                    "Observe footer behavior.",
+                    "Does the footer render correctly?"),
+            ]);
+        var now = DateTimeOffset.Parse("2026-08-13T11:00:00Z");
+        return new Plan(
+            "PLAN-1",
+            "rev",
+            PlanSource.Manual,
+            PlanLifecycleStatus.Interrupted,
+            "Plan",
+            "feature/plan",
+            "Summary",
+            [task],
+            [gate],
+            new PlanProgress(0, 1, "TASK-1"),
+            new PlanTimestamps(now),
+            new PlanInterruptionData(
+                "Human review required",
+                PlanRecoveryState.PendingRecovery,
+                1,
+                InterruptedTaskId: "TASK-1",
+                TaskCommitEvidence: new PlanTaskCommitEvidence(
+                    "TASK-1",
+                    "attempt-1",
+                    "baseline-1",
+                    evidenceCommit,
+                    "Implemented footer behavior.",
+                    verification)));
     }
 
     private static Plan MakeInterruptedPlan()

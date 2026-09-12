@@ -426,7 +426,8 @@ internal static class PlanStoreUpdater
             PartialWorkEvidence: partialWorkEvidence ?? existingData?.PartialWorkEvidence ?? interruptedTask?.Handoff?.Summary,
             TaskCommitEvidence:  taskCommitEvidence ?? existingData?.TaskCommitEvidence,
             RecoveryAssessment:  existingData?.RecoveryAssessment,
-            RecoveryCorrection:  existingData?.RecoveryCorrection);
+            RecoveryCorrection:  existingData?.RecoveryCorrection,
+            LastCorrectionError: existingData?.LastCorrectionError);
         return existing with
         {
             LifecycleStatus  = PlanLifecycleStatus.Interrupted,

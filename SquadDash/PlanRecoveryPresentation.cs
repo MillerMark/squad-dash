@@ -77,7 +77,11 @@ internal static class PlanAmendmentGateAcceptancePolicy
 /// </summary>
 internal static class PlanRecoveryActionPresentationBuilder
 {
-    internal static PlanRecoveryPrimaryActionPresentation Build(Plan plan, string taskId)
+    internal static PlanRecoveryPrimaryActionPresentation Build(
+        Plan plan,
+        string taskId,
+        string? currentHead = null,
+        Func<string, string, bool>? isAncestor = null)
     {
         var task = plan.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
@@ -88,9 +92,18 @@ internal static class PlanRecoveryActionPresentationBuilder
             task?.Title ?? task?.Description ?? taskId);
         var evidence = plan.InterruptionData?.TaskCommitEvidence;
         var hasExactTaskEvidence = evidence is not null &&
-                                   string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
-                                   !string.IsNullOrWhiteSpace(evidence.Commit) &&
-                                   !string.IsNullOrWhiteSpace(evidence.BaselineCommit);
+                                    string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
+                                    !string.IsNullOrWhiteSpace(evidence.Commit) &&
+                                    !string.IsNullOrWhiteSpace(evidence.BaselineCommit) &&
+                                    !string.IsNullOrWhiteSpace(currentHead) &&
+                                    string.Equals(evidence.Commit, currentHead, StringComparison.OrdinalIgnoreCase);
+        var hasAdvancedSinceEvidence = evidence is not null &&
+                                       string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal) &&
+                                       !string.IsNullOrWhiteSpace(evidence.Commit) &&
+                                       !string.IsNullOrWhiteSpace(currentHead) &&
+                                       !string.Equals(evidence.Commit, currentHead, StringComparison.OrdinalIgnoreCase) &&
+                                       isAncestor is not null &&
+                                       isAncestor(evidence.Commit, currentHead);
 
         if (hasExactTaskEvidence)
         {
@@ -112,6 +125,17 @@ internal static class PlanRecoveryActionPresentationBuilder
                 plan.IsPaused
                     ? $"Accept the host-recorded commit, mark only {stepLabel} complete, and keep the plan paused."
                     : $"Accept the host-recorded commit shown on this card, mark only {stepLabel} complete, and continue. No additional AI assessment runs.",
+                "accept-step-complete");
+        }
+
+        if (hasAdvancedSinceEvidence)
+        {
+            return new PlanRecoveryPrimaryActionPresentation(
+                PlanRecoveryPrimaryActionKind.AcceptUnattributedStep,
+                plan.IsPaused ? $"{stepLabel} Is Complete" : $"{stepLabel} Is Complete & Continue",
+                plan.IsPaused
+                    ? $"After reviewing the repository changes, explicitly mark {stepLabel} complete while keeping the plan paused. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result. Refresh the card before accepting."
+                    : $"After reviewing the repository changes, explicitly mark {stepLabel} complete and continue. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result. Refresh the card before accepting.",
                 "accept-step-complete");
         }
 

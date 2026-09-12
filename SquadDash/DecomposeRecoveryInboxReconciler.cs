@@ -22,7 +22,11 @@ internal static class DecomposeRecoveryInboxReconciler
 
     internal static string? GetPlanId(InboxMessage message) => message.ResolvePlanGroupId();
 
-    internal static Result Reconcile(InboxMessage message, Plan? plan)
+    internal static Result Reconcile(
+        InboxMessage message,
+        Plan? plan,
+        string? currentHead = null,
+        Func<string, string, bool>? isAncestor = null)
     {
         if (!IsRecoveryMessage(message))
             return new Result(message, IsActionable: true, ShouldArchive: false);
@@ -52,7 +56,9 @@ internal static class DecomposeRecoveryInboxReconciler
                 plan!.InterruptionData?.Reason ?? "Plan execution stopped unexpectedly.",
                 message.Timestamp,
                 plan.InterruptionData?.TaskCommitEvidence,
-                plan) with
+                plan,
+                currentHead,
+                isAncestor) with
             {
                 Read = message.Read,
                 Priority = "critical",

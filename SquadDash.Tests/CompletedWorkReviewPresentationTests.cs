@@ -361,12 +361,13 @@ internal sealed class CompletedWorkReviewPresentationTests
         {
             Assert.That(result.IsActionable, Is.True);
             Assert.That(result.ShouldArchive, Is.False);
-            Assert.That(result.Message.Actions, Has.Count.EqualTo(3));
+            Assert.That(result.Message.Actions, Has.Count.EqualTo(4));
             Assert.That(result.Message.Actions.Select(a => a.Label),
                 Is.EqualTo(new[]
                 {
+                    "Review repository changes not attributed to Step 1",
                     "Step 1 Is Complete & Continue",
-                    "✎ Continue Working on Step 1…",
+                    "Continue Working on Step 1",
                     "✎ Revise Remaining Plan…",
                 }));
         });

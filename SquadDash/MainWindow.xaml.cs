@@ -12880,20 +12880,25 @@ public partial class MainWindow : Window
               }
             : null;
         Action<Plan>? onPausePlan = durablePlan is not null &&
-                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
+                                     !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
             ? p =>
               {
                   var current = _planStore?.Load(p.PlanId) ?? p;
                   var paused = PlanStoreUpdater.ApplyPause(current);
                   PublishPlanProgress(paused);
-                  if (current.LifecycleStatus == PlanLifecycleStatus.Executing)
-                      RequestPlanPauseAfterCurrentStep(paused);
-              }
+                   if (current.LifecycleStatus == PlanLifecycleStatus.Executing)
+                       RequestPlanPauseAfterCurrentStep(paused);
+               }
             : null;
+        var currentHead = TryReadCurrentHeadCommit();
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
         var interruptedRecoveryAction = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
                                         !string.IsNullOrWhiteSpace(interruptedTaskId)
-            ? PlanRecoveryActionPresentationBuilder.Build(durablePlan, interruptedTaskId!)
+            ? PlanRecoveryActionPresentationBuilder.Build(
+                durablePlan,
+                interruptedTaskId!,
+                currentHead,
+                (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant))
             : null;
         var hasRecoveryAssessment = durablePlan?.InterruptionData?.RecoveryAssessment is not null &&
                                     !string.IsNullOrWhiteSpace(interruptedTaskId);
@@ -15524,6 +15529,7 @@ public partial class MainWindow : Window
         if (_planStore is null || _currentWorkspace is null)
             return;
 
+        var workspace = _currentWorkspace.FolderPath;
         var turns = _conversationManager.ConversationState.Turns;
         foreach (var plan in _planStore.LoadAll())
         {
@@ -15531,12 +15537,13 @@ public partial class MainWindow : Window
             var taskId = interruption?.InterruptedTaskId;
             var baseline = interruption?.LastCommit;
             if (plan.LifecycleStatus != PlanLifecycleStatus.Interrupted ||
-                interruption?.TaskCommitEvidence is not null ||
                 string.IsNullOrWhiteSpace(taskId) ||
                 string.IsNullOrWhiteSpace(baseline))
                 continue;
 
             var stableInterruption = interruption!;
+            var selectedEvidence = stableInterruption.TaskCommitEvidence;
+            var evidenceChanged = false;
             var candidates = InterruptedPlanEvidenceResolver.FindTaskResults(
                 turns, plan.PlanId, plan.Revision, taskId);
             foreach (var candidate in candidates)
@@ -15546,13 +15553,13 @@ public partial class MainWindow : Window
                 try
                 {
                     taskBaseline = (await RunGitAsync(
-                        _currentWorkspace.FolderPath,
+                        workspace,
                         $"rev-parse --verify \"{baseline}^{{commit}}\"")).Trim();
                     candidateCommit = (await RunGitAsync(
-                        _currentWorkspace.FolderPath,
+                        workspace,
                         $"rev-parse --verify \"{candidate.Commit}^{{commit}}\"")).Trim();
                     await RunGitAsync(
-                        _currentWorkspace.FolderPath,
+                        workspace,
                         $"merge-base --is-ancestor \"{taskBaseline}\" \"{candidateCommit}\"");
                 }
                 catch (Exception ex)
@@ -15583,26 +15590,118 @@ public partial class MainWindow : Window
                     candidate.Summary,
                     candidate.Verification,
                     validation.Commits);
-                var reconciled = plan with
+                var replacement = InterruptedPlanEvidenceRefresher.SelectReplacement(
+                    selectedEvidence,
+                    evidence,
+                    (ancestor, descendant) => IsGitAncestor(workspace, ancestor, descendant));
+                if (replacement is null)
                 {
-                    InterruptionData = stableInterruption with { TaskCommitEvidence = evidence },
-                };
-                if (TryPublishPlanProgress(reconciled, out var saveError))
+                    if (selectedEvidence is not null)
+                    {
+                        if (!string.Equals(selectedEvidence.TaskId, evidence.TaskId, StringComparison.Ordinal))
+                        {
+                            SquadDashTrace.Write(
+                                "PlanRecovery",
+                                $"Skipped captured task evidence refresh task={taskId} existingTask={selectedEvidence.TaskId} candidateTask={evidence.TaskId}.");
+                        }
+                        else if (string.Equals(selectedEvidence.Commit, evidence.Commit, StringComparison.OrdinalIgnoreCase))
+                        {
+                            SquadDashTrace.Write(
+                                "PlanRecovery",
+                                $"Skipped captured task evidence refresh task={taskId} commit={evidence.Commit}: candidate commit matches recorded evidence.");
+                        }
+                        else
+                        {
+                            SquadDashTrace.Write(
+                                "PlanRecovery",
+                                $"Skipped captured task evidence refresh task={taskId} existing={selectedEvidence.Commit} candidate={evidence.Commit}: candidate is not a strict descendant.");
+                        }
+                    }
+                    continue;
+                }
+
+                var merged = replacement with { Commits = MergeRecoveryEvidenceCommits(selectedEvidence, replacement) };
+                if (selectedEvidence is null)
                 {
                     SquadDashTrace.Write(
                         "PlanRecovery",
-                        $"Restored captured task evidence plan={plan.PlanId} task={taskId} commit={validation.EffectiveCommit}.");
+                        $"Restored captured task evidence plan={plan.PlanId} task={taskId} commit={merged.Commit}.");
                 }
                 else
                 {
                     SquadDashTrace.Write(
                         "PlanRecovery",
-                        $"Could not persist restored task evidence plan={plan.PlanId} task={taskId}: {saveError}");
+                        $"Refreshed captured task evidence task={taskId} from={selectedEvidence.Commit} to={merged.Commit}");
                 }
+                selectedEvidence = merged;
+                evidenceChanged = true;
+            }
 
-                break;
+            if (!evidenceChanged)
+                continue;
+
+            var reconciled = plan with
+            {
+                InterruptionData = stableInterruption with
+                {
+                    TaskCommitEvidence = selectedEvidence,
+                    LastCorrectionError = null,
+                },
+            };
+            if (TryPublishPlanProgress(reconciled, out var saveError))
+            {
+                SquadDashTrace.Write(
+                    "PlanRecovery",
+                    $"Persisted captured task evidence refresh plan={plan.PlanId} task={taskId} commit={selectedEvidence?.Commit}.");
+            }
+            else
+            {
+                SquadDashTrace.Write(
+                    "PlanRecovery",
+                    $"Could not persist refreshed task evidence plan={plan.PlanId} task={taskId}: {saveError}");
             }
         }
+    }
+
+    private static IReadOnlyList<PlanEvidenceCommit> MergeRecoveryEvidenceCommits(
+        PlanTaskCommitEvidence? existingEvidence,
+        PlanTaskCommitEvidence replacementEvidence)
+    {
+        var merged = new List<PlanEvidenceCommit>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddCommit(PlanEvidenceCommit commit)
+        {
+            if (string.IsNullOrWhiteSpace(commit.Commit) || !seen.Add(commit.Commit))
+                return;
+            merged.Add(commit);
+        }
+
+        if (existingEvidence is not null)
+        {
+            foreach (var commit in existingEvidence.Commits ?? [])
+                AddCommit(commit);
+            if ((existingEvidence.Commits?.Count ?? 0) == 0 &&
+                !string.IsNullOrWhiteSpace(existingEvidence.Commit))
+            {
+                AddCommit(new PlanEvidenceCommit(
+                    existingEvidence.Commit,
+                    PlanRecoveryCommitRelation.Task,
+                    "Original host-recorded task result."));
+            }
+        }
+
+        foreach (var commit in replacementEvidence.Commits ?? [])
+            AddCommit(commit);
+        if ((replacementEvidence.Commits?.Count ?? 0) == 0 &&
+            !string.IsNullOrWhiteSpace(replacementEvidence.Commit))
+        {
+            AddCommit(new PlanEvidenceCommit(
+                replacementEvidence.Commit,
+                PlanRecoveryCommitRelation.Task,
+                "Recovered host-validated task result."));
+        }
+
+        return merged;
     }
 
     private async Task InitializeApprovalRuntimeAsync()
@@ -16831,12 +16930,16 @@ public partial class MainWindow : Window
             plan,
             gateIdsToResolve ?? clickToken.GateIds);
         Func<Plan, Plan>? prepareResolution = null;
+        string? currentHead = null;
         if (primaryAction is
             {
                 Kind: PlanCheckpointPrimaryActionKind.CompleteHumanReviewTasks,
                 ReviewAttentions.Count: > 0,
             })
         {
+            if (_currentWorkspace is null)
+                throw new InvalidOperationException("Cannot validate reviewed evidence because the active workspace is unavailable.");
+            currentHead = (await RunGitAsync(_currentWorkspace.FolderPath, "rev-parse HEAD")).Trim();
             foreach (var reviewAttention in primaryAction.ReviewAttentions)
             {
                 if (await ValidateHumanReviewStepAcceptanceAsync(plan, reviewAttention)) continue;
@@ -16851,7 +16954,7 @@ public partial class MainWindow : Window
                 return;
             }
             prepareResolution = current =>
-                PlanHumanReviewStepAcceptance.ApplyTasks(current, primaryAction.ReviewAttentions);
+                PlanHumanReviewStepAcceptance.ApplyTasks(current, primaryAction.ReviewAttentions, currentHead);
         }
         var resolution = await _planApprovalRuntime.ApproveAsync(
             clickToken,
@@ -17646,6 +17749,7 @@ public partial class MainWindow : Window
         var messageId = DecomposePlanInbox.BuildRecoveryMessageId(pendingPlan, taskId);
         var existing = _inboxStore.GetById(messageId);
         if (existing is null) return;
+        var currentHead = TryReadCurrentHeadCommit();
 
         var refreshed = DecomposePlanInbox.BuildRecoveryMessage(
             pendingPlan,
@@ -17653,7 +17757,9 @@ public partial class MainWindow : Window
             plan.InterruptionData?.Reason ?? "Plan recovery is waiting for a decision.",
             existing.Timestamp,
             plan.InterruptionData?.TaskCommitEvidence,
-            plan) with
+            plan,
+            currentHead,
+            (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant)) with
         {
             Read = existing.Read,
         };
@@ -17802,11 +17908,22 @@ public partial class MainWindow : Window
                             Commits = combinedCommits,
                         },
                         RecoveryCorrection = null,
+                        LastCorrectionError = null,
                     },
                 };
             }
             catch (Exception ex)
             {
+                SquadDashTrace.Write(
+                    "PlanRecovery",
+                    $"Could not extend correction evidence plan={updated.PlanId} task={response.TaskIds[0]}: {ex.Message}");
+                updated = updated with
+                {
+                    InterruptionData = updated.InterruptionData! with
+                    {
+                        LastCorrectionError = ex.Message,
+                    },
+                };
                 AppendLine(
                     "⚠ The correction completed, but SquadDash could not safely extend the task's commit evidence: " +
                     ex.Message + " The plan remains paused and no work will be rerun automatically.");
@@ -17820,6 +17937,8 @@ public partial class MainWindow : Window
             ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
             return;
         }
+        await ReconcileInterruptedPlanTaskEvidenceAsync();
+        updated = _planStore.Load(updated.PlanId) ?? updated;
 
         var labels = response.TaskIds
             .Select(taskId => PlanRecoveryPresentationBuilder.FormatStepLabel(
@@ -18340,8 +18459,16 @@ public partial class MainWindow : Window
         if (plan is null) return;
         var durablePlan = _planStore?.Load(groupId);
         var evidence = durablePlan?.InterruptionData?.TaskCommitEvidence;
+        var currentHead = TryReadCurrentHeadCommit();
         var message = DecomposePlanInbox.BuildRecoveryMessage(
-            plan, taskId, reason, DateTimeOffset.Now, evidence, durablePlan);
+            plan,
+            taskId,
+            reason,
+            DateTimeOffset.Now,
+            evidence,
+            durablePlan,
+            currentHead,
+            (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
         var existing = _inboxStore.GetById(message.Id);
         if (existing is not null)
         {
@@ -19051,9 +19178,14 @@ public partial class MainWindow : Window
         var presentation = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.Build(durablePlan, taskId, hasPreservedWork);
+        var recoveryHead = TryReadCurrentHeadCommit();
         var primaryRecoveryAction = durablePlan is null
             ? null
-            : PlanRecoveryActionPresentationBuilder.Build(durablePlan, taskId);
+            : PlanRecoveryActionPresentationBuilder.Build(
+                durablePlan,
+                taskId,
+                recoveryHead,
+                (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
 
         if (isBranchLeaseRecovery && durablePlan is not null)
         {
@@ -19768,7 +19900,14 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var action = PlanRecoveryActionPresentationBuilder.Build(durable, taskId);
+            var currentHead = _currentWorkspace is null
+                ? null
+                : (await RunGitAsync(_currentWorkspace.FolderPath, "rev-parse HEAD")).Trim();
+            var action = PlanRecoveryActionPresentationBuilder.Build(
+                durable,
+                taskId,
+                currentHead,
+                (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
             switch (action.Kind)
             {
                 case PlanRecoveryPrimaryActionKind.AcceptStep:
@@ -21677,6 +21816,7 @@ public partial class MainWindow : Window
     {
         if (_inboxStore is null || _planStore is null) return;
 
+        var currentHead = TryReadCurrentHeadCommit();
         var changed = false;
         foreach (var message in _inboxStore.LoadAll()
                      .Where(DecomposeRecoveryInboxReconciler.IsRecoveryMessage)
@@ -21689,7 +21829,11 @@ public partial class MainWindow : Window
             var plan = string.IsNullOrWhiteSpace(referencedPlanId)
                 ? null
                 : _planStore.Load(referencedPlanId);
-            var result = DecomposeRecoveryInboxReconciler.Reconcile(message, plan);
+            var result = DecomposeRecoveryInboxReconciler.Reconcile(
+                message,
+                plan,
+                currentHead,
+                (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
             if (!Equals(result.Message, message))
             {
                 _inboxStore.Save(result.Message);
@@ -21732,7 +21876,12 @@ public partial class MainWindow : Window
         var plan = _planStore is null || string.IsNullOrWhiteSpace(planId)
             ? null
             : _planStore.Load(planId);
-        var result = DecomposeRecoveryInboxReconciler.Reconcile(message, plan);
+        var currentHead = TryReadCurrentHeadCommit();
+        var result = DecomposeRecoveryInboxReconciler.Reconcile(
+            message,
+            plan,
+            currentHead,
+            (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
         if (!Equals(result.Message, message))
             _inboxStore.Save(result.Message);
         if (result.ShouldArchive)
@@ -49561,6 +49710,50 @@ public partial class MainWindow : Window
         catch
         {
             return string.Empty;
+        }
+    }
+
+    private string? TryReadCurrentHeadCommit()
+    {
+        if (_currentWorkspace is null)
+            return null;
+        try
+        {
+            return RunGitAsync(_currentWorkspace.FolderPath, "rev-parse HEAD").GetAwaiter().GetResult().Trim();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private bool IsCurrentWorkspaceAncestor(string ancestor, string descendant) =>
+        _currentWorkspace is not null &&
+        IsGitAncestor(_currentWorkspace.FolderPath, ancestor, descendant);
+
+    private static bool IsGitAncestor(string workspace, string ancestor, string descendant)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(
+                "git",
+                $"merge-base --is-ancestor \"{ancestor}\" \"{descendant}\"")
+            {
+                WorkingDirectory = workspace,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc is null)
+                return false;
+            proc.WaitForExit();
+            return proc.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
         }
     }
 

@@ -139,7 +139,9 @@ internal static class DecomposePlanInbox
         string reason,
         DateTimeOffset timestamp,
         PlanTaskCommitEvidence? taskCommitEvidence = null,
-        Plan? durablePlan = null)
+        Plan? durablePlan = null,
+        string? currentHead = null,
+        Func<string, string, bool>? isAncestor = null)
     {
         InboxAction BuildAction(string label, string action, string hint) => new()
         {
@@ -173,7 +175,11 @@ internal static class DecomposePlanInbox
             Hint = PlanRecoveryPresentationBuilder.UnattributedReviewHint(stepLabel),
         };
         var primary = durablePlan is not null
-            ? PlanRecoveryActionPresentationBuilder.Build(durablePlan, taskId)
+            ? PlanRecoveryActionPresentationBuilder.Build(
+                durablePlan,
+                taskId,
+                currentHead,
+                isAncestor)
             : hasCommitEvidence
                 ? new PlanRecoveryPrimaryActionPresentation(
                     isAmendment

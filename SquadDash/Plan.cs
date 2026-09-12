@@ -523,7 +523,10 @@ internal sealed record PlanInterruptionData(
                                                         PlanRecoveryDecisionEvidence? RecoveryAssessment = null,
     [property: JsonPropertyName("recoveryCorrection")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                        PlanRecoveryCorrectionContext? RecoveryCorrection = null);
+                                                        PlanRecoveryCorrectionContext? RecoveryCorrection = null,
+    [property: JsonPropertyName("lastCorrectionError")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        string? LastCorrectionError = null);
 
 internal sealed record PlanRecoveryCorrectionContext(
     [property: JsonPropertyName("baselineCommit")] string BaselineCommit,
