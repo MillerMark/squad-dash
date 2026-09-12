@@ -377,9 +377,9 @@ internal static class DecomposePlanningInstructions
         string? canonicalBranch)
     {
         var builder = new StringBuilder();
-        builder.AppendLine("## Verified Agent Assignments for This Step");
+        builder.AppendLine("## Verified Primary Agent for This Step");
         builder.AppendLine();
-        builder.AppendLine($"Task [{stepId}] has {assignments.Count} host-authorized primary assignment(s).");
+        builder.AppendLine($"Task [{stepId}] has one host-authorized primary assignment.");
         builder.AppendLine($"Execution attempt: `{executionAttempt.AttemptId}`.");
         builder.AppendLine("This execution attempt starts with no launch failures. Do not carry a delegation, provider, quota, or runtime failure forward from an earlier attempt or transcript turn. Only a tool result produced in this turn with this exact execution-attempt identity can fail this attempt.");
         builder.AppendLine("Launch exactly the assigned worker and wait for its result. Do not launch an additional coordinator-owned primary worker.");

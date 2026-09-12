@@ -62,7 +62,12 @@ internal sealed class PlanAgentAssignmentSchemaTests
             """;
 
         Assert.That(TasksJsonParser.TryParse(text, out _, out var diagnostic), Is.False);
-        Assert.That(diagnostic?.Code, Is.EqualTo("too-many-agent-assignments"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostic?.Code, Is.EqualTo("too-many-agent-assignments"));
+            Assert.That(diagnostic?.Message, Does.Contain("split required work into dependent tasks")
+                .And.Contain("read-only assistance"));
+        });
     }
 
     [Test]
@@ -284,7 +289,8 @@ internal sealed class PlanAgentAssignmentSchemaTests
             };
             Assert.That(PlanAgentAssignmentCatalogValidator.TryValidate(
                 parallel, temp, out var parallelError, requireExplicitRouting: true), Is.False);
-            Assert.That(parallelError, Does.Contain("isolate"));
+            Assert.That(parallelError, Does.Contain("dependent tasks"));
+            Assert.That(parallelError, Does.Contain("read-only assistance"));
             Assert.That(PlanAgentAssignmentCatalogValidator.TryValidate(
                 parallel,
                 temp,

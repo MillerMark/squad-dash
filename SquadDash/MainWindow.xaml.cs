@@ -9706,8 +9706,8 @@ public partial class MainWindow : Window
         }
         UpdatePlanValidationStatus(
             _decomposeRepairPending
-                ? "Plan corrections received. SquadDash is rechecking structure and human-proof coverage…"
-                : "Validating plan structure and human-proof coverage…");
+                ? "Plan corrections received. SquadDash is rechecking structure, ownership, and human-proof coverage…"
+                : "Validating plan structure, ownership, and human-proof coverage…");
         var checkId = Guid.NewGuid().ToString("N");
         var candidateHash = PlanHumanProofCoverageReview.ComputeCandidateHash(rejectedCandidate);
         try
@@ -9753,13 +9753,13 @@ public partial class MainWindow : Window
         if (queued is null)
         {
             FailPlanHumanProofCoverageReview(
-                "SquadDash could not queue the human-proof coverage preflight.");
+                "SquadDash could not queue the plan-contract preflight.");
             return;
         }
         queued.IsLocked = true;
-        queued.DisplayLabel = "Validate plan proof coverage";
+        queued.DisplayLabel = "Validate plan contracts";
         queued.ReadOnlyDisplayText =
-            "AI is checking that human-observable outcomes have checkpoints and executable preparation.";
+            "AI is checking ownership, executable preparation, and human-observable checkpoints.";
         SyncQueuePanel();
     }
 
@@ -9771,7 +9771,7 @@ public partial class MainWindow : Window
         if (pending is null)
         {
             SquadDashTrace.Write("PlanPreflight",
-                "Ignored a human-proof coverage result because no plan preflight is pending.");
+                "Ignored a plan-contract result because no plan preflight is pending.");
             return true;
         }
         if (!PlanHumanProofCoverageReview.TryParse(rawResponse, out var review, out var error) || review is null)
@@ -9837,7 +9837,7 @@ public partial class MainWindow : Window
             return true;
         }
         FailPlanHumanProofCoverageReview(
-            "The human-proof coverage preflight was still invalid after one correction. " + reason);
+            "The plan-contract preflight was still invalid after one correction. " + reason);
         return true;
     }
 

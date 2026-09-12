@@ -26,7 +26,7 @@ internal static class PlanAgentAssignmentCatalogValidator
             if (task.AgentAssignments is { Count: > 1 })
             {
                 error = $"Task {task.Id} assigns multiple primary agents. " +
-                        "Parallel primary execution is unavailable until SquadDash can isolate each writer in its own worktree.";
+                        "Split required work into dependent tasks. Subordinate children are only for read-only assistance.";
                 return false;
             }
 

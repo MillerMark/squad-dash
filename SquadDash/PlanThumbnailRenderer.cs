@@ -402,7 +402,7 @@ internal sealed class PlanThumbnailRenderer : IDisposable
             if (avatarChipSize > 0 && task.AgentAssignments is { Count: > 0 })
             {
                 var avatarPanel = new StackPanel { Orientation = Orientation.Horizontal };
-                foreach (var assignment in task.AgentAssignments)
+                foreach (var assignment in task.AgentAssignments.Take(1))
                 {
                     var info = _resolveAgentAvatar!(assignment.AgentHandle);
                     var chip = CreateAvatarChip(info, avatarChipSize, assignment.AgentHandle, scaleFactor);

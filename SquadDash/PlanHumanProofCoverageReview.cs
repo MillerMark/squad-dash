@@ -20,8 +20,9 @@ internal sealed record PlanHumanProofCoverageReviewPayload(
 
 /// <summary>
 /// Focused semantic preflight for plan constraints a JSON schema cannot infer: whether prose
-/// promises a human-observable outcome without placing human proof at the right boundary, or leaves
-/// an AI executor with a task whose only meaningful outcome is that human observation.
+/// promises a human-observable outcome without placing human proof at the right boundary, leaves
+/// an AI executor with a task whose only meaningful outcome is that human observation, or attributes
+/// required execution to a named agent other than the task's single assigned primary.
 /// </summary>
 internal static class PlanHumanProofCoverageReview
 {
@@ -35,15 +36,28 @@ internal static class PlanHumanProofCoverageReview
         Perform one focused plan-contract preflight. Do not implement, revise, or broadly critique
         the plan. Determine whether every promised outcome that inherently requires a person to
         interact with or observe the live product has a matching human-only proof requirement in an
-        approval gate at the correct boundary, and whether every preceding task still contains
-        meaningful work or evidence its assigned executor can actually produce.
+        approval gate at the correct boundary, whether every preceding task still contains meaningful
+        work or evidence its assigned executor can actually produce, and whether every required task
+        output and worker-owned proof belongs to that task's single assigned primary.
 
         Read the isolated revision-locked candidate definition from:
         .squad/tmp/decompose/preflight/{{checkId}}.txt
 
         The candidate may also contain structural errors. Ignore those—the host checks them
-        independently. Still inspect every intelligible task and report all uncovered human-proof
-        requirements in one issues array so the planner can repair everything in one response.
+        independently. Still inspect every intelligible task and report all uncovered human-proof and
+        cross-agent ownership requirements in one issues array so the planner can repair everything in
+        one response alongside the host's aggregated structural diagnostics.
+
+        Each task has exactly one accountable primary agent. Inspect its description, outputs, and
+        worker-owned proof requirements for required execution attributed to another named agent. If
+        another named agent must modify files, produce an output, create or run tests, perform a build,
+        or satisfy a worker-owned proof, require a separate dependent task assigned to that agent with
+        explicit output/input handoff. Required execution must not be hidden in prose such as
+        “collaborates,” “owns testing,” “supplies validation,” or equivalent wording under a different
+        primary. Do not flag a mere subject-matter reference, historical attribution, or optional
+        read-only consultation that leaves all required work and accountability with the assigned
+        primary. Generic children are subordinate read-only research helpers and never satisfy a named
+        agent assignment or worker proof.
 
         Inspect task descriptions, observable outcomes, validation assertions, and proof contracts.
         Live UI behavior, restart behavior, focus, window state, notification appearance, timing as
@@ -89,15 +103,16 @@ internal static class PlanHumanProofCoverageReview
           "issues": [
             {
               "targetId": "canonical task, validation, or plan ID",
-              "observableOutcome": "the exact uncovered human-observable promise",
-              "reason": "why proof is uncovered or why the task is not executable by its assigned worker",
-              "recommendation": "the checkpoint to add, or the preparation task, Inbox instructions, and optional fixture to produce"
+              "observableOutcome": "the exact uncovered human-observable promise or conflicting cross-agent ownership statement",
+              "reason": "why proof is uncovered, why the task is not executable by its assigned worker, or why required work belongs to another primary",
+              "recommendation": "the checkpoint or preparation task to add, or the dependent assigned task and output/input handoff to create"
             }
           ]
         }
 
-        Use revision-required when at least one human-observable promise is uncovered or at least one
-        human-only task shell remains. Use ready with an empty issues array otherwise. Do not report
+        Use revision-required when at least one human-observable promise is uncovered, at least one
+        human-only task shell remains, or required execution is attributed to a named agent other than
+        the task's assigned primary. Use ready with an empty issues array otherwise. Do not report
         implementation-quality, architecture, naming, style, or ordinary automated-test findings in
         this focused preflight.
         """;
@@ -124,7 +139,7 @@ internal static class PlanHumanProofCoverageReview
             status is not ("ready" or "revision-required") ||
             payload.Issues is null)
         {
-            error = "The human-proof coverage review omitted its identity, status, summary, or issues.";
+            error = "The plan-contract review omitted its identity, status, summary, or issues.";
             payload = null;
             return false;
         }
@@ -135,13 +150,13 @@ internal static class PlanHumanProofCoverageReview
                 string.IsNullOrWhiteSpace(issue.Reason) ||
                 string.IsNullOrWhiteSpace(issue.Recommendation)))
         {
-            error = "Every human-proof coverage issue needs a target, observable outcome, reason, and recommendation.";
+            error = "Every plan-contract issue needs a target, relevant contract statement, reason, and recommendation.";
             payload = null;
             return false;
         }
         if ((status == "ready") != (payload.Issues.Count == 0))
         {
-            error = "Human-proof coverage status must be ready only when the issue list is empty.";
+            error = "Plan-contract status must be ready only when the issue list is empty.";
             payload = null;
             return false;
         }
@@ -168,7 +183,7 @@ internal static class PlanHumanProofCoverageReview
         var details = review.Issues.Select((issue, index) =>
             $"{index + 1}. {issue.TargetId}: '{issue.ObservableOutcome}'. {issue.Reason} " +
             $"Required correction: {issue.Recommendation}");
-        return "Semantic human-proof coverage validation failed. " + review.Summary + Environment.NewLine +
+        return "Semantic plan-contract validation failed. " + review.Summary + Environment.NewLine +
                string.Join(Environment.NewLine, details);
     }
 }

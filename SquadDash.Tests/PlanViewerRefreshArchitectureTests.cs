@@ -135,6 +135,7 @@ internal sealed class PlanViewerRefreshArchitectureTests
         var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
         var editor = File.ReadAllText(FindRepoFile("SquadDash", "StagedPlanEditor.cs"));
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var thumbnail = File.ReadAllText(FindRepoFile("SquadDash", "PlanThumbnailRenderer.cs"));
 
         Assert.Multiple(() =>
         {
@@ -150,8 +151,15 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 .And.Contain("editor.SelectAll();"),
                 "New definitions must place keyboard focus in the first editable field after rebuilding.");
             Assert.That(viewer, Does.Contain("CreateAssignToSubmenu")
-                .And.Contain("CreateThemedMenuItem(\"Assign to\""),
-                "Editable task menus must enumerate the active workspace roster.");
+                .And.Contain("CreateThemedMenuItem(\"Assign primary agent\"")
+                .And.Contain("Primary agent (handle | role | allow generic children)")
+                .And.Contain("Enter exactly one primary agent")
+                .And.Not.Contain("ToggleTaskAgent")
+                .And.Not.Contain("preserving other assignees"),
+                "Editable task menus must expose one primary-agent selection from the active workspace roster.");
+            Assert.That(viewer, Does.Contain("task.AgentAssignments!.Take(1)"));
+            Assert.That(thumbnail, Does.Contain("task.AgentAssignments.Take(1)"),
+                "Legacy multi-assignment data must not render multiple agents as executable primaries.");
             Assert.That(main, Does.Contain("getAssignableAgents: GetAssignablePlanAgentsForViewer")
                 .And.Contain("PlanStepAgentResolver.ParseTeamMd("),
                 "The viewer must receive the active workspace roster rather than infer agents from existing tasks.");

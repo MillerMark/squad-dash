@@ -49,6 +49,10 @@ host-assigned task. SquadDash owns every task status marker: do not edit, stage,
 For the assigned task:
 
 1. Complete the step fully and correctly.
+   The task's single assigned primary owns every worker-produced output and proof in its approved
+   contract. Required work attributed to another named agent belongs in a separate dependent task;
+   do not claim that unlaunched agent performed it. Read-only subordinate research does not transfer
+   accountability from the primary.
 2. For implementation steps, commit only source changes to the branch specified in the group header.
    For a host-marked verification-only step, do not create a commit; report the current evaluated HEAD.
    Never stage `tasks.md`.

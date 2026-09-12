@@ -209,7 +209,7 @@ internal static class TasksJsonParser
             if (task.AgentAssignments is { Count: > 1 })
             {
                 return Fail("too-many-agent-assignments",
-                    $"task '{task.Id}' has more than one primary agent assignment; use generic children beneath that owner");
+                    $"task '{task.Id}' has more than one primary agent assignment; split required work into dependent tasks and use subordinate children only for read-only assistance");
             }
 
             var assignedHandles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -805,7 +805,7 @@ internal static class TasksJsonParser
             if (task.Priority is not ("critical" or "high" or "mid" or "medium" or "low"))
                 Add("invalid-task-priority", $"task '{taskId}' priority must be critical, high, mid, or low");
             if (task.AgentAssignments is { Count: > 1 })
-                Add("too-many-agent-assignments", $"task '{taskId}' has more than one primary agent assignment; use generic children beneath that owner");
+                Add("too-many-agent-assignments", $"task '{taskId}' has more than one primary agent assignment; split required work into dependent tasks and use subordinate children only for read-only assistance");
 
             var routingMode = task.AgentRoutingMode?.Trim();
             if (routingMode is not null && routingMode is not ("assigned" or "generic"))

@@ -123,6 +123,11 @@ Before authoring a plan:
   task, validation node, approval gate, or planning halt.
 - Use dependencies only for real prerequisites. Mark parallel work only when it can safely proceed
   without unproduced inputs or conflicting ownership.
+- Give each task exactly one accountable primary agent. When another named agent must modify files,
+  produce a required output, or satisfy a worker-owned proof, represent that work as a separate dependent
+  task assigned to that agent. Never hide required execution in prose such as “collaborates,” “owns
+  testing,” or “supplies validation” under a different primary. Read-only subordinate research may remain
+  within the primary task, but it never transfers responsibility from the assigned primary.
 - Give every implementation task an observable outcome and a production consumer or integration
   path. Use exact implementation names only when verified and decision-relevant; execution handoffs
   capture the concrete files and symbols actually changed for downstream work.

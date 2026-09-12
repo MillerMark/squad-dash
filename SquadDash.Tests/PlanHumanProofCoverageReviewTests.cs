@@ -4,7 +4,7 @@ namespace SquadDash.Tests;
 internal sealed class PlanHumanProofCoverageReviewTests
 {
     [Test]
-    public void Prompt_IsFocusedOnMissingHumanProofCoverage()
+    public void Prompt_CoversHumanProofAndCrossAgentOwnershipInOneReview()
     {
         const string checkId = "check-123";
         const string candidateHash = "abcdef0123456789";
@@ -27,6 +27,13 @@ internal sealed class PlanHumanProofCoverageReviewTests
             Assert.That(normalized, Does.Contain(checkId));
             Assert.That(normalized, Does.Contain(candidateHash));
             Assert.That(normalized, Does.Contain("report all uncovered human-proof"));
+            Assert.That(normalized, Does.Contain("single assigned primary"));
+            Assert.That(normalized, Does.Contain("cross-agent ownership requirements in one issues array"));
+            Assert.That(normalized, Does.Contain("create or run tests"));
+            Assert.That(normalized, Does.Contain("separate dependent task assigned to that agent"));
+            Assert.That(normalized, Does.Contain("collaborates"));
+            Assert.That(normalized, Does.Contain("subordinate read-only research helpers"));
+            Assert.That(normalized, Does.Contain("alongside the host's aggregated structural diagnostics"));
         });
     }
 
@@ -53,6 +60,30 @@ internal sealed class PlanHumanProofCoverageReviewTests
         Assert.That(payload!.Issues, Has.Count.EqualTo(1));
         Assert.That(PlanHumanProofCoverageReview.BuildRepairDiagnostic(payload),
             Does.Contain("PLAN-1-007"));
+    }
+
+    [Test]
+    public void RepairDiagnostic_DescribesCrossAgentOwnershipAsPlanContractFailure()
+    {
+        var payload = new PlanHumanProofCoverageReviewPayload(
+            "check-1",
+            "abcdef0123456789",
+            "revision-required",
+            "One task assigns required testing to another agent.",
+            [new PlanHumanProofCoverageIssue(
+                "PLAN-1-002",
+                "BruceBanner owns the tests while Shuri is primary.",
+                "The required worker proof is assigned only through prose.",
+                "Create a dependent BruceBanner testing task.")]);
+
+        var diagnostic = PlanHumanProofCoverageReview.BuildRepairDiagnostic(payload);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(diagnostic, Does.StartWith("Semantic plan-contract validation failed."));
+            Assert.That(diagnostic, Does.Contain("PLAN-1-002"));
+            Assert.That(diagnostic, Does.Contain("dependent BruceBanner testing task"));
+        });
     }
 
     [Test]

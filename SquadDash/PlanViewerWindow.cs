@@ -3446,7 +3446,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     MaxWidth = NodeWidth - 8 * _scaleFactor,
                     ClipToBounds = false,
                 };
-                foreach (var assignment in task.AgentAssignments!)
+                foreach (var assignment in task.AgentAssignments!.Take(1))
                 {
                     var info = _resolveAgentAvatar!(assignment.AgentHandle);
                     var chip = CreateAgentAvatarChip(info, avatarChipSize, assignment.AgentHandle);
@@ -4774,7 +4774,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var headerText = new TextBlock
         {
-            Text = "Assign to",
+            Text = "Assign primary agent",
             FontStyle = FontStyles.Italic,
         };
         headerText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
@@ -4787,27 +4787,28 @@ internal sealed class PlanViewerWindow : ChromedWindow
         menu.Items.Add(header);
         menu.Items.Add(CreateThemedMenuSeparator());
 
-        var assignedHandles = (task.AgentAssignments ?? [])
-            .Select(assignment => assignment.AgentHandle)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var primaryHandle = task.AgentAssignments?.FirstOrDefault()?.AgentHandle;
 
         foreach (var agent in agents)
         {
             var capturedAgent = agent;
             var item = CreateThemedMenuItem(capturedAgent.Name);
             item.IsCheckable = true;
-            item.IsChecked = assignedHandles.Contains(capturedAgent.Handle);
+            item.IsChecked = string.Equals(
+                primaryHandle,
+                capturedAgent.Handle,
+                StringComparison.OrdinalIgnoreCase);
             item.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                $"Click to assign only {capturedAgent.Name}. Shift+click to add/remove while preserving other assignees.");
+                $"Assign {capturedAgent.Name} as the task's primary agent.");
             item.Click += (_, _) =>
             {
                 if (_plan is null || !IsTaskDefinitionEditable(taskId))
                     return;
 
-                var shiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-                var mutation = shiftHeld
-                    ? StagedPlanEditor.ToggleTaskAgent(_plan.Group, taskId, capturedAgent.Handle)
-                    : StagedPlanEditor.AssignTaskToAgent(_plan.Group, taskId, capturedAgent.Handle);
+                var mutation = StagedPlanEditor.AssignTaskToAgent(
+                    _plan.Group,
+                    taskId,
+                    capturedAgent.Handle);
                 ApplyStagedMutation(mutation, selectKind: "task", selectId: taskId);
             };
             menu.Items.Add(item);
@@ -4829,7 +4830,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             .OrderBy(agent => agent.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         var definitionEditable = IsTaskDefinitionEditable(taskId);
-        var submenu = CreateThemedMenuItem("Assign to", definitionEditable && agents.Length > 0);
+        var submenu = CreateThemedMenuItem("Assign primary agent", definitionEditable && agents.Length > 0);
         if (agents.Length == 0)
         {
             submenu.ToolTip = ToolTipHelper.MakeThemedToolTip(
@@ -4837,24 +4838,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
             return submenu;
         }
 
-        var assignedHandles = (task.AgentAssignments ?? [])
-            .Select(assignment => assignment.AgentHandle)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var primaryHandle = task.AgentAssignments?.FirstOrDefault()?.AgentHandle;
         foreach (var agent in agents)
         {
             var capturedAgent = agent;
-            var wasAssigned = assignedHandles.Contains(capturedAgent.Handle);
             var item = CreateThemedMenuItem(capturedAgent.Name, definitionEditable);
             item.IsCheckable = true;
-            item.IsChecked = wasAssigned;
-            item.ToolTip = ToolTipHelper.MakeThemedToolTip($"Assign this step to {capturedAgent.Handle}.");
+            item.IsChecked = string.Equals(
+                primaryHandle,
+                capturedAgent.Handle,
+                StringComparison.OrdinalIgnoreCase);
+            item.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                $"Assign {capturedAgent.Name} as the task's primary agent.");
             item.Click += (_, _) =>
             {
                 if (_plan is null || !IsTaskDefinitionEditable(taskId)) return;
-                var shiftHeld = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
-                var mutation = shiftHeld
-                    ? StagedPlanEditor.ToggleTaskAgent(_plan.Group, taskId, capturedAgent.Handle)
-                    : StagedPlanEditor.AssignTaskToAgent(_plan.Group, taskId, capturedAgent.Handle);
+                var mutation = StagedPlanEditor.AssignTaskToAgent(
+                    _plan.Group,
+                    taskId,
+                    capturedAgent.Handle);
                 ApplyStagedMutation(mutation, selectKind: "task", selectId: taskId);
             };
             submenu.Items.Add(item);
@@ -6673,7 +6675,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var routingMode = AddEditorField(panel, "Agent routing mode", task.AgentRoutingMode, 34);
         var assignments = AddEditorField(
             panel,
-            "Agent assignments (handle | role | allow generic children)",
+            "Primary agent (handle | role | allow generic children)",
             string.Join(Environment.NewLine, (task.AgentAssignments ?? []).Select(value =>
                 $"{value.AgentHandle} | {value.Role} | {value.AllowGenericChildren}")),
             80);
@@ -7037,6 +7039,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             result.Add(new DecomposedAgentAssignment(
                 parts[0], parts[1], parts.Length < 3 || bool.Parse(parts[2])));
         }
+        if (result.Count > 1)
+        {
+            assignments = [];
+            error = "Enter exactly one primary agent. Split required work into dependent tasks.";
+            return false;
+        }
         assignments = result;
         error = null;
         return true;
@@ -7388,16 +7396,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(depList);
         }
 
-        // 11. Agent Assignments
+        // 11. Primary agent
         if (task.AgentAssignments is { Count: > 0 })
         {
-            AddSectionHeader("Agent Assignments");
+            AddSectionHeader("Primary agent");
             var agentList = new List();
             agentList.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
             agentList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             agentList.MarkerStyle = TextMarkerStyle.None;
             agentList.Margin = new Thickness(0, 0, 0, 12);
-            foreach (var assignment in task.AgentAssignments)
+            foreach (var assignment in task.AgentAssignments.Take(1))
             {
                 var agentPara = new Paragraph();
                 agentPara.Inlines.Add(CreateAgentLink(assignment.AgentHandle));

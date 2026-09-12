@@ -37,6 +37,10 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].agentHandle`"));
         Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].role`"));
         Assert.That(instruction, Does.Contain("`tasks[].agentAssignments[].allowGenericChildren`"));
+        Assert.That(instruction, Does.Contain("Each task has exactly one accountable primary agent"));
+        Assert.That(instruction, Does.Contain("create a separate dependent task assigned"));
+        Assert.That(instruction, Does.Contain("Do not encode required execution only through prose"));
+        Assert.That(instruction, Does.Contain("subordinate read-only research helpers"));
         Assert.That(instruction, Does.Contain("`tasks[].proofRequirements`"));
         Assert.That(instruction, Does.Contain("`tasks[].contractExamples`"));
         Assert.That(instruction, Does.Contain("minimal normative example"));
@@ -366,6 +370,8 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("absolute path"));
             Assert.That(instruction, Does.Contain("{{approval-check:requirement-id}}"));
             Assert.That(instruction, Does.Contain("contract examples"));
+            Assert.That(instruction, Does.Contain("single assigned primary owns every worker-produced output and proof"));
+            Assert.That(instruction, Does.Contain("do not claim that unlaunched agent performed it"));
             Assert.That(instruction.ReplaceLineEndings(" "),
                 Does.Contain("strong candidates for focused regression tests"));
             Assert.That(instruction, Does.Contain("Do not create a ceremonial"));

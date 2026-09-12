@@ -56,6 +56,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("not from the Git repository root or shell directory"));
             Assert.That(charter, Does.Contain("verify every link target before delivery"));
             Assert.That(charter, Does.Contain("absolute path"));
+            Assert.That(charter, Does.Contain("exactly one accountable primary agent"));
+            Assert.That(charter, Does.Contain("separate dependent"));
+            Assert.That(charter, Does.Contain("Never hide required execution in prose"));
         });
     }
 
