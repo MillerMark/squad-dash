@@ -276,6 +276,29 @@ public class DecomposeEnvelopeRepairTests
     }
 
     [Test]
+    public void RepairPrompt_TypedViolation_ProvidesFieldSpecificPatchAndChangedVariantRule()
+    {
+        var violation = new DecomposeStepResultViolation(
+            DecomposeStepResultViolationCode.NoOpFieldsOnChangedResult,
+            "noOpEvidence is only valid for a verified-no-op result.",
+            "/noOpEvidence",
+            "remove from the changed result");
+
+        var prompt = DecomposeEnvelopeRepairPrompt.Build(
+            "g1", "t1", "r1", violation.Message,
+            envelopeWasPresent: true,
+            violations: [violation]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("JSON-Patch semantics"));
+            Assert.That(prompt, Does.Contain("`/noOpEvidence`: remove"));
+            Assert.That(prompt, Does.Contain("a `changed` object uses `commit`"));
+            Assert.That(prompt, Does.Not.Contain("independent Fact Checker"));
+        });
+    }
+
+    [Test]
     public void RepairPrompt_GenericSchemaRepair_PreservesExecutionAttemptWithoutAgentExecutions()
     {
         var prompt = DecomposeEnvelopeRepairPrompt.Build(
@@ -296,6 +319,58 @@ public class DecomposeEnvelopeRepairTests
             Assert.That(prompt, Does.Contain("\"status\": \"failed\""));
             Assert.That(prompt, Does.Not.Contain("\"completionKind\":"));
             Assert.That(prompt, Does.Contain("Do not re-run tools"));
+        });
+    }
+
+    [Test]
+    public void TryParse_ChangedResultWithMirroredEvaluatedCommit_IsCanonicalized()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId":"g1", "taskId":"t1", "revision":"r1",
+              "status":"complete", "completionKind":"changed",
+              "commit":"abc1234", "evaluatedCommit":"abc1234",
+              "summary":"done", "remainingWork":[],
+              "verification":{"status":"passed","command":"test","summary":"passed"}
+            }
+            """;
+
+        var parsed = DecomposeStepResultParser.TryParse(text, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result!.Commit, Is.EqualTo("abc1234"));
+            Assert.That(result.EvaluatedCommit, Is.Null);
+            Assert.That(result.CompletionKind, Is.EqualTo(DecomposeStepCompletionKind.Changed));
+        });
+    }
+
+    [Test]
+    public void ParseDetailed_InvalidSchema_RetainsCandidateAndTypedViolations()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "completionKind":"changed", "commit":"abc1234", "summary":"done",
+              "remainingWork":[],
+              "verification":{"status":"passed","command":"test","summary":"passed"}
+            }
+            """;
+
+        var outcome = DecomposeStepResultParser.ParseDetailed(
+            text, "g1", "t1", "r1", "attempt-1");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome.IsValid, Is.False);
+            Assert.That(outcome.Candidate, Is.Not.Null);
+            Assert.That(outcome.Candidate!.GroupId, Is.EqualTo("g1"));
+            Assert.That(outcome.Candidate.ExecutionAttemptId, Is.EqualTo("attempt-1"));
+            Assert.That(outcome.Violations.Select(item => item.Code),
+                Does.Contain(DecomposeStepResultViolationCode.InvalidStatus));
+            Assert.That(outcome.Canonicalizations, Has.Count.GreaterThanOrEqualTo(4));
         });
     }
 

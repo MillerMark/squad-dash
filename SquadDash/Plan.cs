@@ -526,7 +526,16 @@ internal sealed record PlanInterruptionData(
                                                         PlanRecoveryCorrectionContext? RecoveryCorrection = null,
     [property: JsonPropertyName("lastCorrectionError")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                        string? LastCorrectionError = null);
+                                                        string? LastCorrectionError = null,
+    [property: JsonPropertyName("workCompletePendingAcceptance")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        PlanWorkCompletePendingAcceptance? WorkCompletePendingAcceptance = null);
+
+internal sealed record PlanWorkCompletePendingAcceptance(
+    [property: JsonPropertyName("taskId")] string TaskId,
+    [property: JsonPropertyName("candidateResultJson")] string CandidateResultJson,
+    [property: JsonPropertyName("validationProblems")] IReadOnlyList<string> ValidationProblems,
+    [property: JsonPropertyName("capturedAt")] DateTimeOffset CapturedAt);
 
 internal sealed record PlanRecoveryCorrectionContext(
     [property: JsonPropertyName("baselineCommit")] string BaselineCommit,

@@ -23,7 +23,7 @@ internal sealed class PlanRecoveryProvenanceService
         string? BlockReason = null);
 
     /// <summary>
-    /// Applies a single bounded recovery (envelope repair) to the durable plan task.
+    /// Applies one bounded envelope-repair recovery to the durable plan task.
     /// Captures the provenance of the prior attempt and resets the task to Pending.
     /// Returns <see cref="RecoveryResult.Applied"/> = true on success, or false
     /// when the plan/task was not found or recovery was already exhausted.
@@ -42,14 +42,13 @@ internal sealed class PlanRecoveryProvenanceService
         if (task is null)
             return new RecoveryResult(plan, Applied: false, $"Task '{taskId}' not found.");
 
-        // Enforce bounded recovery: if the task already has a provenance chain entry
-        // with RecoveryKind "envelope-repair", block further repairs.
-        if (task.ProvenanceChain?.Entries.Any(e =>
-            string.Equals(e.RecoveryKind, "envelope-repair", StringComparison.Ordinal)) == true)
+        var priorEnvelopeRepairs = task.ProvenanceChain?.Entries.Count(e =>
+            string.Equals(e.RecoveryKind, "envelope-repair", StringComparison.Ordinal)) ?? 0;
+        if (priorEnvelopeRepairs >= PlanExecutionRecoveryPolicy.MaxEnvelopeRepairRequestsPerAttempt)
         {
             return new RecoveryResult(plan, Applied: false,
                 $"Task '{taskId}' has already exhausted its envelope-repair allowance. " +
-                "The unmet proof requirement cannot be satisfied by repeating the same operation.");
+                "The result contract could not be corrected within the bounded schema-repair budget.");
         }
 
         var updated = PlanStoreUpdater.ApplyRecoveryWithProvenance(

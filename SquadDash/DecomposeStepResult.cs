@@ -76,24 +76,80 @@ internal static class DecomposeStepCompletionKind
     internal const string VerifiedNoOp = "verified-no-op";
 }
 
+internal enum DecomposeStepResultViolationCode
+{
+    MissingOrInvalidEnvelope,
+    MissingIdentityOrSummary,
+    InvalidStatus,
+    InvalidCompleteVariant,
+    CompletionKindOnNonCompleteResult,
+    CompleteVerificationNotPassed,
+    ChangedCommitMissing,
+    VerifiedNoOpEvaluatedCommitMissing,
+    VerifiedNoOpEvidenceMissing,
+    VerifiedNoOpEvidenceInvalid,
+    NoOpFieldsOnChangedResult,
+    PartialRemainingWorkMissing,
+    PartialCommitNotVerified,
+    ProofEvidenceInvalid,
+    DeferredWorkInvalid,
+    IdentityMismatch,
+}
+
+internal sealed record DecomposeStepResultViolation(
+    DecomposeStepResultViolationCode Code,
+    string Message,
+    string? JsonPath = null,
+    string? RepairOperation = null);
+
+internal sealed record DecomposeStepResultParseOutcome(
+    DecomposeStepResult? Candidate,
+    IReadOnlyList<DecomposeStepResultViolation> Violations,
+    IReadOnlyList<string> Canonicalizations)
+{
+    internal bool IsValid => Candidate is not null && Violations.Count == 0;
+    internal string? Error => DecomposeStepResultContractDiagnostics.Combine(
+        Violations.Select(violation => violation.Message));
+}
+
 internal static class DecomposeStepResultParser
 {
     internal const string Marker = "DECOMPOSE_STEP_RESULT_JSON:";
 
     internal static bool TryParse(string? text, out DecomposeStepResult? result, out string? error)
     {
-        result = null;
-        error = null;
+        var outcome = ParseDetailed(text);
+        result = outcome.IsValid ? outcome.Candidate : null;
+        error = outcome.Error;
+        return outcome.IsValid;
+    }
+
+    internal static DecomposeStepResultParseOutcome ParseDetailed(
+        string? text,
+        string? authoritativeGroupId = null,
+        string? authoritativeTaskId = null,
+        string? authoritativeRevision = null,
+        string? authoritativeExecutionAttemptId = null)
+    {
         if (!StructuredJsonBlockParser.TryExtractProtocolObject<DecomposeStepResult>(text, Marker, out var extraction) ||
             extraction is null)
         {
-            error = $"The response did not contain a valid {Marker} payload.";
-            return false;
+            return new DecomposeStepResultParseOutcome(
+                null,
+                [new(
+                    DecomposeStepResultViolationCode.MissingOrInvalidEnvelope,
+                    $"The response did not contain a valid {Marker} payload.",
+                    RepairOperation: "return the required result object")],
+                []);
         }
-        result = extraction.Payload;
+        var result = extraction.Payload;
+        var canonicalizations = new List<string>();
 
         result = result with
         {
+            GroupId = CanonicalizeMissingHostField(result.GroupId, authoritativeGroupId, "groupId", canonicalizations),
+            TaskId = CanonicalizeMissingHostField(result.TaskId, authoritativeTaskId, "taskId", canonicalizations),
+            Revision = CanonicalizeMissingHostField(result.Revision, authoritativeRevision, "revision", canonicalizations),
             Status = result.Status?.Trim().ToLowerInvariant() ?? string.Empty,
             Commit = result.Commit?.Trim(),
             CompletionKind = string.IsNullOrWhiteSpace(result.CompletionKind)
@@ -132,6 +188,11 @@ internal static class DecomposeStepResultParser
                         .ToArray(),
                 })
                 .ToArray(),
+            ExecutionAttemptId = CanonicalizeMissingHostField(
+                result.ExecutionAttemptId,
+                authoritativeExecutionAttemptId,
+                "executionAttemptId",
+                canonicalizations),
         };
 
         if (result.Status == "complete" && string.IsNullOrWhiteSpace(result.CompletionKind))
@@ -143,57 +204,95 @@ internal static class DecomposeStepResultParser
         // task baseline. Ignore the redundant field instead of spending the one repair attempt
         // on a schema-only correction or interrupting an otherwise valid plan.
         if (result.IsVerifiedNoOp && !string.IsNullOrWhiteSpace(result.Commit))
+        {
             result = result with { Commit = null };
+            canonicalizations.Add("removed redundant commit from verified-no-op result");
+        }
 
-        if (result is null || string.IsNullOrWhiteSpace(result.GroupId) ||
+        // evaluatedCommit is host-validated no-op metadata. Models occasionally mirror the
+        // changed commit into it even though completionKind already discriminates the variant.
+        // It cannot alter the meaning of a changed result, so discard it at the trust boundary.
+        if (string.Equals(result.CompletionKind, DecomposeStepCompletionKind.Changed, StringComparison.Ordinal) &&
+            !string.IsNullOrWhiteSpace(result.EvaluatedCommit))
+        {
+            result = result with { EvaluatedCommit = null };
+            canonicalizations.Add("removed irrelevant evaluatedCommit from changed result");
+        }
+
+        var violations = new List<DecomposeStepResultViolation>();
+
+        if (string.IsNullOrWhiteSpace(result.GroupId) ||
             string.IsNullOrWhiteSpace(result.TaskId) || string.IsNullOrWhiteSpace(result.Revision) ||
             string.IsNullOrWhiteSpace(result.Summary))
         {
-            error = "The step result omitted groupId, taskId, revision, or summary.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.MissingIdentityOrSummary,
+                "The step result omitted groupId, taskId, revision, or summary.",
+                RepairOperation: "add each missing required field"));
         }
 
         if (result.Status is not ("complete" or "partial" or "failed"))
         {
-            error = "The step-result status must be complete, partial, or failed.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.InvalidStatus,
+                "The step-result status must be complete, partial, or failed.",
+                "/status",
+                "replace with complete, partial, or failed"));
         }
 
         if (result.Status == "complete" &&
             result.CompletionKind is not (DecomposeStepCompletionKind.Changed or DecomposeStepCompletionKind.VerifiedNoOp))
         {
-            error = "A complete result must use completionKind changed or verified-no-op.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.InvalidCompleteVariant,
+                "A complete result must use completionKind changed or verified-no-op.",
+                "/completionKind",
+                "replace with changed or verified-no-op"));
         }
 
         if (result.Status != "complete" && !string.IsNullOrWhiteSpace(result.CompletionKind))
         {
-            error = "completionKind is only valid for a complete result.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.CompletionKindOnNonCompleteResult,
+                "completionKind is only valid for a complete result.",
+                "/completionKind",
+                "remove"));
         }
 
         if (result.Status == "complete" && result.Verification?.Status != "passed")
         {
-            error = "A complete result requires passed verification evidence.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.CompleteVerificationNotPassed,
+                "A complete result requires passed verification evidence.",
+                "/verification/status",
+                "replace only if verification actually passed"));
         }
 
         if (result.Status == "complete" && !result.IsVerifiedNoOp && string.IsNullOrWhiteSpace(result.Commit))
         {
-            error = "A changed complete result requires a commit.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.ChangedCommitMissing,
+                "A changed complete result requires a commit.",
+                "/commit",
+                "add the exact commit already created"));
         }
 
         if (result.IsVerifiedNoOp && string.IsNullOrWhiteSpace(result.EvaluatedCommit))
         {
-            error = "A verified-no-op result requires evaluatedCommit.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.VerifiedNoOpEvaluatedCommitMissing,
+                "A verified-no-op result requires evaluatedCommit.",
+                "/evaluatedCommit",
+                "add the exact inspected HEAD"));
         }
 
         if (result.IsVerifiedNoOp && result.NoOpEvidence is not { Count: > 0 })
         {
-            error = "A verified-no-op result requires requirement-scoped noOpEvidence.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.VerifiedNoOpEvidenceMissing,
+                "A verified-no-op result requires requirement-scoped noOpEvidence.",
+                "/noOpEvidence",
+                "add requirement-scoped evidence from the completed inspection"));
         }
 
         if (result.IsVerifiedNoOp && result.NoOpEvidence!.Any(item =>
@@ -201,28 +300,40 @@ internal static class DecomposeStepResultParser
                 string.IsNullOrWhiteSpace(item.Observation) ||
                 item.Locations is not { Count: > 0 }))
         {
-            error = "Each verified-no-op evidence item requires requirement, observation, and at least one repository location.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.VerifiedNoOpEvidenceInvalid,
+                "Each verified-no-op evidence item requires requirement, observation, and at least one repository location.",
+                "/noOpEvidence",
+                "replace invalid evidence items"));
         }
 
         if (!result.IsVerifiedNoOp &&
             (!string.IsNullOrWhiteSpace(result.EvaluatedCommit) || result.NoOpEvidence is { Count: > 0 }))
         {
-            error = "evaluatedCommit and noOpEvidence are only valid for a verified-no-op result.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.NoOpFieldsOnChangedResult,
+                "noOpEvidence is only valid for a verified-no-op result.",
+                "/noOpEvidence",
+                "remove from the changed result"));
         }
 
         if (result.Status == "partial" && (result.RemainingWork is null || result.RemainingWork.Count == 0))
         {
-            error = "A partial result must describe its remaining work.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.PartialRemainingWorkMissing,
+                "A partial result must describe its remaining work.",
+                "/remainingWork",
+                "add concrete remaining work"));
         }
 
         if (result.Status == "partial" && !string.IsNullOrWhiteSpace(result.Commit) &&
             result.Verification?.Status != "passed")
         {
-            error = "A committed partial result requires passed verification evidence.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.PartialCommitNotVerified,
+                "A committed partial result requires passed verification evidence.",
+                "/verification/status",
+                "record the truthful verification outcome"));
         }
 
         if ((result.ProofEvidence ?? []).Any(evidence =>
@@ -230,8 +341,11 @@ internal static class DecomposeStepResultParser
                 string.IsNullOrWhiteSpace(evidence.ProofType) ||
                 string.IsNullOrWhiteSpace(evidence.Summary)))
         {
-            error = "Proof evidence requires requirementId, proofType, and summary.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.ProofEvidenceInvalid,
+                "Proof evidence requires requirementId, proofType, and summary.",
+                "/proofEvidence",
+                "replace invalid proof evidence items"));
         }
 
         if ((result.DeferredWork ?? []).Any(item =>
@@ -240,40 +354,75 @@ internal static class DecomposeStepResultParser
                 item.OwnerTaskIds is not { Count: > 0 } ||
                 item.OwnerTaskIds.Any(string.IsNullOrWhiteSpace)))
         {
-            error = "Deferred work requires a requirement, reason, and at least one named owner task.";
-            return false;
+            violations.Add(new(
+                DecomposeStepResultViolationCode.DeferredWorkInvalid,
+                "Deferred work requires a requirement, reason, and at least one named owner task.",
+                "/deferredWork",
+                "replace invalid deferred work items"));
         }
 
-        return true;
+        return new DecomposeStepResultParseOutcome(result, violations, canonicalizations);
+    }
+
+    private static string CanonicalizeMissingHostField(
+        string? supplied,
+        string? authoritative,
+        string fieldName,
+        ICollection<string> canonicalizations)
+    {
+        if (!string.IsNullOrWhiteSpace(supplied))
+            return supplied.Trim();
+        if (string.IsNullOrWhiteSpace(authoritative))
+            return supplied?.Trim() ?? string.Empty;
+        canonicalizations.Add($"filled missing host-owned {fieldName}");
+        return authoritative.Trim();
     }
 }
 
 /// <summary>
 /// Validates model-supplied result identity against the host-owned execution envelope. These
-/// fields remain explicit protocol data: the host reports every mismatch for one bounded repair
-/// instead of silently rewriting the response or revealing defects one at a time.
+/// fields remain explicit protocol data: the host reports every mismatch as a typed violation
+/// instead of silently rewriting conflicting identity or revealing defects one at a time.
 /// </summary>
 internal static class DecomposeStepResultContractDiagnostics
 {
-    internal static IReadOnlyList<string> ValidateIdentity(
+    internal static IReadOnlyList<DecomposeStepResultViolation> ValidateIdentityViolations(
         DecomposeStepResult result,
         string expectedGroupId,
         string expectedTaskId,
         string expectedRevision)
     {
-        var diagnostics = new List<string>();
+        var diagnostics = new List<DecomposeStepResultViolation>();
         if (!string.Equals(result.GroupId, expectedGroupId, StringComparison.Ordinal))
-            diagnostics.Add(
-                $"The result used groupId '{result.GroupId}', but the active plan is '{expectedGroupId}'.");
+            diagnostics.Add(new(
+                DecomposeStepResultViolationCode.IdentityMismatch,
+                $"The result used groupId '{result.GroupId}', but the active plan is '{expectedGroupId}'.",
+                "/groupId",
+                $"replace with {expectedGroupId}"));
         if (!string.Equals(result.TaskId, expectedTaskId, StringComparison.Ordinal))
-            diagnostics.Add(
-                $"The result used taskId '{result.TaskId}', but the assigned task is '{expectedTaskId}'.");
+            diagnostics.Add(new(
+                DecomposeStepResultViolationCode.IdentityMismatch,
+                $"The result used taskId '{result.TaskId}', but the assigned task is '{expectedTaskId}'.",
+                "/taskId",
+                $"replace with {expectedTaskId}"));
         if (!string.Equals(result.Revision, expectedRevision, StringComparison.Ordinal))
-            diagnostics.Add(
+            diagnostics.Add(new(
+                DecomposeStepResultViolationCode.IdentityMismatch,
                 $"The result used revision '{result.Revision}', but the authoritative current plan revision is " +
-                $"'{expectedRevision}'. Return \"revision\":\"{expectedRevision}\" for this execution attempt.");
+                $"'{expectedRevision}'. Return \"revision\":\"{expectedRevision}\" for this execution attempt.",
+                "/revision",
+                $"replace with {expectedRevision}"));
         return diagnostics;
     }
+
+    internal static IReadOnlyList<string> ValidateIdentity(
+        DecomposeStepResult result,
+        string expectedGroupId,
+        string expectedTaskId,
+        string expectedRevision)
+        => ValidateIdentityViolations(result, expectedGroupId, expectedTaskId, expectedRevision)
+            .Select(violation => violation.Message)
+            .ToArray();
 
     internal static string? Combine(IEnumerable<string?> diagnostics)
     {

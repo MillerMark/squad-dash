@@ -146,6 +146,25 @@ internal sealed class PlanStoreUpdaterInterruptedTests
     }
 
     [Test]
+    public void ApplyInterrupted_PersistsWorkCompletePendingAcceptanceCheckpoint()
+    {
+        var pending = new PlanWorkCompletePendingAcceptance(
+            "GRP-001",
+            "{\"status\":\"complete\"}",
+            ["summary is required"],
+            DateTimeOffset.UtcNow);
+
+        var updated = PlanStoreUpdater.ApplyInterrupted(
+            MakePlan(),
+            "result envelope was not accepted",
+            2,
+            interruptedTaskId: "GRP-001",
+            workCompletePendingAcceptance: pending);
+
+        Assert.That(updated.InterruptionData?.WorkCompletePendingAcceptance, Is.EqualTo(pending));
+    }
+
+    [Test]
     public void ApplyInterrupted_InfersOnlyHumanReviewStepWhenCurrentIdentityWasLost()
     {
         var task = new PlanTask(

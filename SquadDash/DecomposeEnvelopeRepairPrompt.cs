@@ -13,9 +13,12 @@ internal static class DecomposeEnvelopeRepairPrompt
         string? executionAttemptId = null,
         IReadOnlyList<DecomposedAgentAssignment>? assignments = null,
         string? previousStatus = null,
-        bool verificationOnly = false)
+        bool verificationOnly = false,
+        IReadOnlyList<DecomposeStepResultViolation>? violations = null,
+        DecomposeStepResult? previousResult = null)
     {
-        if (IsCompletionKindOnNonCompleteResult(reason, previousStatus))
+        if (HasViolation(violations, DecomposeStepResultViolationCode.CompletionKindOnNonCompleteResult) ||
+            IsCompletionKindOnNonCompleteResult(reason, previousStatus))
             return BuildNonCompleteCorrection(
                 groupId,
                 taskId,
@@ -25,7 +28,7 @@ internal static class DecomposeEnvelopeRepairPrompt
                 executionAttemptId,
                 assignments);
 
-        if (verificationOnly || IsMissingNewCommitFailure(reason))
+        if (verificationOnly || RequiresVerifiedNoOpCorrection(violations) || IsMissingNewCommitFailure(reason))
             return BuildVerifiedNoOpCorrection(
                 groupId,
                 taskId,
@@ -40,12 +43,15 @@ internal static class DecomposeEnvelopeRepairPrompt
             : "Do not re-run any tools, re-examine files, or repeat previous work.";
         var executionAttemptJsonFields = BuildExecutionAttemptJsonFields(executionAttemptId, assignments);
         var executionAttemptInstruction = BuildExecutionAttemptInstruction(executionAttemptId, assignments);
+        var fieldCorrections = BuildFieldCorrections(violations, previousResult);
 
         return $$"""
             SquadDash detected that your previous response completed normally but its required DECOMPOSE_STEP_RESULT_JSON envelope {{(envelopeWasPresent ? "did not match the required schema" : "was missing or invalid")}}.
             Validation error: {{reason}}
 
             Correct the validation error and provide ONLY the result envelope now, based on the work you just completed. {{correctionInstruction}}
+
+            {{fieldCorrections}}
 
             Authoritative identity for this execution attempt: groupId `{{groupId}}`, taskId `{{taskId}}`, revision `{{revision}}`.
             If your previous response used another revision, did you mean the authoritative current revision `{{revision}}` for the work just completed? If so, use that exact value below. Do not reuse a revision from earlier conversation or review context, and do not change other valid result content merely because this identity metadata is being corrected.
@@ -73,6 +79,7 @@ internal static class DecomposeEnvelopeRepairPrompt
 
             Schema reminders:
             - Preserve every valid field from the previous handoff; change only the invalid field(s) named by the validation error and any field required by this schema.
+            - Treat `completionKind` as the discriminator: a `changed` object uses `commit` and MUST omit `evaluatedCommit` and `noOpEvidence`; a `verified-no-op` object uses `evaluatedCommit` plus `noOpEvidence` and MUST omit `commit`.
             - `completionKind` is only valid when `status` is `complete`.
             - For `partial` or `failed`, omit `completionKind`, `evaluatedCommit`, and `noOpEvidence`; a `partial` result must include non-empty `remainingWork`.
             - For a `complete` changed result, keep `completionKind: "changed"`, include the exact commit, and keep passed verification evidence.
@@ -253,8 +260,38 @@ internal static class DecomposeEnvelopeRepairPrompt
 
     private static bool IsMissingNewCommitFailure(string reason) =>
         reason.Contains("without creating a new commit", StringComparison.OrdinalIgnoreCase) ||
-        reason.Contains("verified-no-op", StringComparison.OrdinalIgnoreCase) ||
-        reason.Contains("noOpEvidence", StringComparison.OrdinalIgnoreCase);
+        reason.Contains("A verified-no-op result requires", StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasViolation(
+        IReadOnlyList<DecomposeStepResultViolation>? violations,
+        DecomposeStepResultViolationCode code) =>
+        (violations ?? []).Any(violation => violation.Code == code);
+
+    private static bool RequiresVerifiedNoOpCorrection(
+        IReadOnlyList<DecomposeStepResultViolation>? violations) =>
+        (violations ?? []).Any(violation => violation.Code is
+            DecomposeStepResultViolationCode.VerifiedNoOpEvaluatedCommitMissing or
+            DecomposeStepResultViolationCode.VerifiedNoOpEvidenceMissing or
+            DecomposeStepResultViolationCode.VerifiedNoOpEvidenceInvalid);
+
+    private static string BuildFieldCorrections(
+        IReadOnlyList<DecomposeStepResultViolation>? violations,
+        DecomposeStepResult? previousResult)
+    {
+        var operations = (violations ?? [])
+            .Where(violation => !string.IsNullOrWhiteSpace(violation.RepairOperation))
+            .Select(violation => $"- `{violation.JsonPath ?? "/"}`: {violation.RepairOperation}")
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (operations.Length == 0)
+            return "Change only the field or fields named by the validation error.";
+
+        var prior = previousResult is null
+            ? string.Empty
+            : "\nThe host retained the prior candidate object; preserve all fields not listed above.";
+        return "Apply these field-specific corrections (JSON-Patch semantics):\n" +
+               string.Join("\n", operations) + prior;
+    }
 
     private static bool IsCompletionKindOnNonCompleteResult(string reason, string? previousStatus) =>
         previousStatus is "partial" or "failed" &&

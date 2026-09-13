@@ -11,6 +11,12 @@ internal enum PlanExecutionRecoveryAction
     Block
 }
 
+internal enum PlanExecutionFailureKind
+{
+    EnvelopeContract,
+    HostEvidence,
+}
+
 /// <summary>
 /// Keeps response-envelope repair separate from terminal host-evidence contamination.
 /// Immutable launch evidence can never be repaired in place; it requires a new attempt.
@@ -19,14 +25,16 @@ internal enum PlanExecutionRecoveryAction
 /// </summary>
 internal static class PlanExecutionRecoveryPolicy
 {
-    internal const int MaxRepairRequestsPerAttempt = 1;
+    internal const int MaxEnvelopeRepairRequestsPerAttempt = 3;
+    internal const int MaxRepairRequestsPerAttempt = MaxEnvelopeRepairRequestsPerAttempt;
     internal const int MaxFreshAttemptsPerTask = 1;
 
     internal static PlanExecutionRecoveryAction Resolve(
         PlanExecutionAttemptState? attempt,
         IReadOnlyList<DecomposedAgentAssignment>? expectedAssignments,
         int repairRequestCount,
-        int freshAttemptCount)
+        int freshAttemptCount,
+        PlanExecutionFailureKind failureKind = PlanExecutionFailureKind.EnvelopeContract)
     {
         // A worker that exhausted provider/runtime recovery is an operational stop, not corrupt
         // provenance. Preserve its attempt and working tree for an explicit resume instead of
@@ -39,7 +47,12 @@ internal static class PlanExecutionRecoveryPolicy
                 ? PlanExecutionRecoveryAction.StartFreshAttempt
                 : PlanExecutionRecoveryAction.Block;
 
-        return repairRequestCount < MaxRepairRequestsPerAttempt
+        // Branch, commit ancestry, changed-file attribution, and other host-recorded evidence
+        // are trust-boundary failures. Rewording the model envelope cannot make them true.
+        if (failureKind == PlanExecutionFailureKind.HostEvidence)
+            return PlanExecutionRecoveryAction.Block;
+
+        return repairRequestCount < MaxEnvelopeRepairRequestsPerAttempt
             ? PlanExecutionRecoveryAction.RequestRepair
             : PlanExecutionRecoveryAction.Block;
     }

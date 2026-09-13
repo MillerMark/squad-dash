@@ -42,7 +42,8 @@ internal static class PlanRepairReplayPolicy
         DecomposeStepResult? result,
         string? parseError,
         out PendingRepairResult? pending,
-        out string? rejection)
+        out string? rejection,
+        IReadOnlyList<DecomposeStepResultViolation>? violations = null)
     {
         pending = null;
         rejection = null;
@@ -87,7 +88,8 @@ internal static class PlanRepairReplayPolicy
             taskId,
             attemptId,
             result is not null ? System.Text.Json.JsonSerializer.Serialize(result) : null,
-            parseError);
+            parseError,
+            violations);
         return true;
     }
 

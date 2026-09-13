@@ -114,10 +114,10 @@ internal sealed class ProofProvenanceRecoveryIntegrationTests
         Assert.That(entry.CommitShortSha, Is.EqualTo("abc1234"));
     }
 
-    // ── Second invalid result is blocked without re-reset ────────────────────
+    // ── Schema repair is bounded independently from execution attempts ──────
 
     [Test]
-    public void EnvelopeRepair_SecondInvalid_BlocksWithoutRerunningRecovery()
+    public void EnvelopeRepair_FourthInvalid_BlocksWithoutRerunningRecovery()
     {
         var plan = MakeInterruptedPlan();
         _planStore.Save(plan);
@@ -134,19 +134,25 @@ internal sealed class ProofProvenanceRecoveryIntegrationTests
         // Confirm provenance exists from first recovery
         Assert.That(taskAfterFirstRecovery.ProvenanceChain!.Entries, Has.Count.EqualTo(1));
 
-        // Second repair attempt — should be BLOCKED because allowance is exhausted
+        // Two more schema repairs are allowed; the fourth is blocked.
         var second = _service.ApplyEnvelopeRepair(
             plan.PlanId, "TASK-001", "newcommit1234567890abcdef12345678901234567");
+        var third = _service.ApplyEnvelopeRepair(
+            plan.PlanId, "TASK-001", "newcommit2234567890abcdef12345678901234567");
+        var fourth = _service.ApplyEnvelopeRepair(
+            plan.PlanId, "TASK-001", "newcommit3234567890abcdef12345678901234567");
 
-        Assert.That(second.Applied, Is.False);
-        Assert.That(second.BlockReason, Does.Contain("exhausted"));
-        Assert.That(second.BlockReason, Does.Contain("envelope-repair"));
+        Assert.That(second.Applied, Is.True);
+        Assert.That(third.Applied, Is.True);
+        Assert.That(fourth.Applied, Is.False);
+        Assert.That(fourth.BlockReason, Does.Contain("exhausted"));
+        Assert.That(fourth.BlockReason, Does.Contain("envelope-repair"));
 
         // Verify the plan was NOT modified by the second attempt
         var finalPlan = _planStore.Load(plan.PlanId)!;
         var finalTask = finalPlan.Tasks[0];
-        Assert.That(finalTask.ProvenanceChain!.Entries, Has.Count.EqualTo(1),
-            "Provenance chain must not grow beyond the bounded single repair entry.");
+        Assert.That(finalTask.ProvenanceChain!.Entries, Has.Count.EqualTo(3),
+            "Provenance chain must not grow beyond the bounded schema-repair budget.");
     }
 
     // ── Fresh-attempt recovery captures provenance ───────────────────────────

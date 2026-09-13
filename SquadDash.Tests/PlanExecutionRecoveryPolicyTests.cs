@@ -36,8 +36,23 @@ internal sealed class PlanExecutionRecoveryPolicyTests
                 Is.EqualTo(PlanExecutionRecoveryAction.RequestRepair));
             Assert.That(
                 PlanExecutionRecoveryPolicy.Resolve(clean, [Assignment], 1, 0),
+                Is.EqualTo(PlanExecutionRecoveryAction.RequestRepair));
+            Assert.That(
+                PlanExecutionRecoveryPolicy.Resolve(clean, [Assignment], 2, 0),
+                Is.EqualTo(PlanExecutionRecoveryAction.RequestRepair));
+            Assert.That(
+                PlanExecutionRecoveryPolicy.Resolve(clean, [Assignment], 3, 0),
                 Is.EqualTo(PlanExecutionRecoveryAction.Block));
         });
+    }
+
+    [Test]
+    public void HostEvidenceFailure_DoesNotSpendSchemaRepairBudget()
+    {
+        Assert.That(
+            PlanExecutionRecoveryPolicy.Resolve(
+                Attempt(), [Assignment], 0, 0, PlanExecutionFailureKind.HostEvidence),
+            Is.EqualTo(PlanExecutionRecoveryAction.Block));
     }
 
     [Test]

@@ -912,7 +912,8 @@ internal sealed record PendingRepairResult(
     string TaskId,
     string? AttemptId,
     string? ResultJson,
-    string? ErrorText)
+    string? ErrorText,
+    IReadOnlyList<DecomposeStepResultViolation>? Violations = null)
 {
     internal bool Matches(string groupId, string revision, string? attemptId)
     {

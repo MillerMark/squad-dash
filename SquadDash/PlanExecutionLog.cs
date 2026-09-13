@@ -17,7 +17,9 @@ internal sealed record PlanExecutionLogEntry(
     [property: JsonPropertyName("taskId")]     string? TaskId,
     [property: JsonPropertyName("taskTitle")]  string? TaskTitle,
     [property: JsonPropertyName("message")]    string? Message,
-    [property: JsonPropertyName("outcome")]    string? Outcome);
+    [property: JsonPropertyName("outcome")]    string? Outcome,
+    [property: JsonPropertyName("phase")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Phase = null);
 
 /// <summary>
 /// Append-only, workspace-scoped loop execution log.

@@ -26,6 +26,11 @@ internal static class PlanExecutionContextBuilder
         builder.AppendLine($"`{{\"groupId\":\"{plan.PlanId}\",\"taskId\":\"{currentTask.TaskId}\",\"revision\":\"{plan.Revision}\"}}`");
         builder.AppendLine("Do not copy a revision from earlier conversation, review, amendment, or tasks.md context. " +
                            "The current revision above is host-owned and supersedes every older value.");
+        builder.AppendLine("The result is a discriminated contract. For `status: complete`, choose exactly one variant: " +
+                           "`completionKind: changed` requires `commit` and forbids `evaluatedCommit`/`noOpEvidence`; " +
+                           "`completionKind: verified-no-op` requires `evaluatedCommit` plus non-empty `noOpEvidence` " +
+                           "and forbids `commit`. For `partial` or `failed`, omit all completion-only fields. " +
+                           "Do not copy fields from one variant into another.");
         builder.AppendLine();
         builder.AppendLine("### Host-owned Git branch lease");
         builder.AppendLine($"Canonical branch: `{plan.Branch}`");

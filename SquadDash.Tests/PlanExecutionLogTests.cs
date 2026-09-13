@@ -104,6 +104,21 @@ internal sealed class PlanExecutionLogTests
     }
 
     [Test]
+    public void Append_PhaseEvent_RoundTripDistinguishesEnvelopeRepair()
+    {
+        var log = new PlanExecutionLog(_tempDir);
+        log.Append(MakeEntry("phase_started") with { Phase = "envelope_repair" });
+
+        var entry = log.Load().Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(entry.Kind, Is.EqualTo("phase_started"));
+            Assert.That(entry.Phase, Is.EqualTo("envelope_repair"));
+        });
+    }
+
+    [Test]
     public void Load_TrimsToMaxEntries()
     {
         var log = new PlanExecutionLog(_tempDir);

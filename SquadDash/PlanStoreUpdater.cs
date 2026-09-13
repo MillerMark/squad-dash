@@ -406,7 +406,8 @@ internal static class PlanStoreUpdater
         string? lastCommit          = null,
         IReadOnlyList<string>? affectedPaths     = null,
         string? partialWorkEvidence = null,
-        PlanTaskCommitEvidence? taskCommitEvidence = null)
+        PlanTaskCommitEvidence? taskCommitEvidence = null,
+        PlanWorkCompletePendingAcceptance? workCompletePendingAcceptance = null)
     {
         var now = DateTimeOffset.UtcNow;
         var existingData = existing.InterruptionData;
@@ -427,7 +428,8 @@ internal static class PlanStoreUpdater
             TaskCommitEvidence:  taskCommitEvidence ?? existingData?.TaskCommitEvidence,
             RecoveryAssessment:  existingData?.RecoveryAssessment,
             RecoveryCorrection:  existingData?.RecoveryCorrection,
-            LastCorrectionError: existingData?.LastCorrectionError);
+            LastCorrectionError: existingData?.LastCorrectionError,
+            WorkCompletePendingAcceptance: workCompletePendingAcceptance ?? existingData?.WorkCompletePendingAcceptance);
         return existing with
         {
             LifecycleStatus  = PlanLifecycleStatus.Interrupted,

@@ -414,6 +414,7 @@ public partial class MainWindow : Window
     private CodeHealthGroupRunner?  _CodeHealthGroupRunner;
     private DecomposeStepResult?    _capturedDecomposeStepResult;
     private string?                 _capturedDecomposeStepResultError;
+    private IReadOnlyList<DecomposeStepResultViolation> _capturedDecomposeStepResultViolations = [];
     private string?                 _capturedPlanInboxOpenPathError;
     private string?                 _capturedDecomposeTranscriptCommit;
     private PlanValidationResultPayload? _capturedValidationResult;
@@ -664,6 +665,7 @@ public partial class MainWindow : Window
     private bool _loopIsWaiting;
     private DateTimeOffset? _loopRoundStartedAt;
     private LoopRoundExecutionIdentity? _loopRoundExecutionIdentity;
+    private string _loopRoundExecutionPhase = "implementation";
     private DateTimeOffset? _loopPlanStartedAt;
     private TimeSpan        _loopTotalActiveTime;
     private string?         _lastPlanTranscriptPhaseKey;
@@ -7342,6 +7344,16 @@ public partial class MainWindow : Window
             activeValidation?.Title
                 ?? activeVerificationTask?.Title
                 ?? _CodeHealthGroupRunner?.GetCurrentStepTitle());
+        _loopRoundExecutionPhase = string.Equals(
+                _pec.CurrentDispatchedItem?.SourceTag,
+                PlanRepairReplayPolicy.TaskResultRepairSourceTag,
+                StringComparison.Ordinal)
+            ? "envelope_repair"
+            : activeValidation is not null
+                ? "validation"
+                : activeVerificationTask is not null || activeVerificationTaskId is not null
+                    ? "verification"
+                    : "implementation";
         _loopIsWaiting = false;
         _loopRoundStartedAt = DateTimeOffset.Now;
         _loopPlanStartedAt ??= _loopRoundStartedAt;
@@ -7351,7 +7363,7 @@ public partial class MainWindow : Window
         if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(_activeDecomposeGroupId is not null))
             AppendLine($"↩ Round {iteration}");
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
-            Kind: "round_started",
+            Kind: _loopRoundExecutionPhase == "implementation" ? "round_started" : "phase_started",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
             PlanId: _loopRoundExecutionIdentity.PlanId,
             Revision: _loopRoundExecutionIdentity.Revision,
@@ -7359,7 +7371,8 @@ public partial class MainWindow : Window
             TaskId: _loopRoundExecutionIdentity.TaskId,
             TaskTitle: _loopRoundExecutionIdentity.TaskTitle,
             Message: null,
-            Outcome: null));
+            Outcome: null,
+            Phase: _loopRoundExecutionPhase));
         EnsurePlanContinuationQueueItem();
         SyncLoopPanel();
     }
@@ -7754,7 +7767,7 @@ public partial class MainWindow : Window
         if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(completedExecution?.PlanId is not null))
             AppendLine($"  ✓ Round {iteration} complete");
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
-            Kind: "round_completed",
+            Kind: _loopRoundExecutionPhase == "implementation" ? "round_completed" : "phase_completed",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
             PlanId: completedExecution?.PlanId,
             Revision: completedExecution?.Revision,
@@ -7762,7 +7775,8 @@ public partial class MainWindow : Window
             TaskId: completedExecution?.TaskId,
             TaskTitle: completedExecution?.TaskTitle,
             Message: null,
-            Outcome: "completed"));
+            Outcome: "completed",
+            Phase: _loopRoundExecutionPhase));
         if (_planExecutionLog is not null &&
             PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(completedExecution?.PlanId is not null))
         {
@@ -13351,16 +13365,19 @@ public partial class MainWindow : Window
             _capturedValidationResultError = valError;
         }
 
-        if (DecomposeStepResultParser.TryParse(rawResponse, out var result, out var error))
-        {
-            _capturedDecomposeStepResult = result;
-            _capturedDecomposeStepResultError = null;
-        }
-        else
-        {
-            _capturedDecomposeStepResult = null;
-            _capturedDecomposeStepResultError = error;
-        }
+        var resultOutcome = DecomposeStepResultParser.ParseDetailed(
+            rawResponse,
+            activeExecution?.DecomposeGroupId ?? _activeDecomposeGroupId,
+            activeExecution?.RecoveryTaskId ?? _CodeHealthGroupRunner?.CurrentStepId,
+            activeExecution?.DecomposeRevision ?? _CodeHealthGroupRunner?.CurrentRevision,
+            activeExecution?.PlanExecutionAttempt?.AttemptId);
+        var result = resultOutcome.Candidate;
+        var error = resultOutcome.Error;
+        _capturedDecomposeStepResult = result;
+        _capturedDecomposeStepResultError = error;
+        _capturedDecomposeStepResultViolations = resultOutcome.Violations;
+        foreach (var canonicalization in resultOutcome.Canonicalizations)
+            SquadDashTrace.Write("PlanContract", $"Canonicalized result envelope: {canonicalization}.");
 
         // Persist the captured result durably so it survives process restart.
         try
@@ -13374,7 +13391,8 @@ public partial class MainWindow : Window
                 return;
 
             if (!PlanRepairReplayPolicy.TryCreatePendingResult(
-                    activeExecution, result, error, out var pending, out var rejection))
+                    activeExecution, result, error, out var pending, out var rejection,
+                    resultOutcome.Violations))
             {
                 SquadDashTrace.Write("PlanRepair", $"Repair response was not persisted: {rejection}.");
                 return;
@@ -13399,6 +13417,7 @@ public partial class MainWindow : Window
 
         _capturedDecomposeStepResult = null;
         _capturedDecomposeStepResultError = null;
+        _capturedDecomposeStepResultViolations = [];
         _capturedPlanInboxOpenPathError = null;
         _capturedDecomposeTranscriptCommit = null;
         _capturedValidationResult = null;
@@ -13975,6 +13994,7 @@ public partial class MainWindow : Window
 
         var result = _capturedDecomposeStepResult;
         var error = _capturedDecomposeStepResultError;
+        var resultViolations = _capturedDecomposeStepResultViolations;
         if (activeExecution is null)
         {
             // A graceful stop can clear the durable execution envelope while the
@@ -13998,6 +14018,8 @@ public partial class MainWindow : Window
                     try
                     {
                         result = JsonSerializer.Deserialize<DecomposeStepResult>(pending.ResultJson);
+                        error = pending.ErrorText;
+                        resultViolations = pending.Violations ?? [];
                     }
                     catch (Exception ex)
                     {
@@ -14031,6 +14053,7 @@ public partial class MainWindow : Window
         string? assignmentError = null;
         string? assignmentEvidenceError = null;
         var branchLeaseFailure = false;
+        var hostEvidenceFailure = false;
 
         var canonicalPlan = _planStore?.Load(groupId);
         if (canonicalPlan is not null)
@@ -14088,8 +14111,12 @@ public partial class MainWindow : Window
 
         var resultDiagnostics = new List<string?> { error, assignmentError };
         if (result is not null)
-            resultDiagnostics.AddRange(DecomposeStepResultContractDiagnostics.ValidateIdentity(
-                result, groupId, taskId, revision));
+        {
+            var identityViolations = DecomposeStepResultContractDiagnostics.ValidateIdentityViolations(
+                result, groupId, taskId, revision);
+            resultViolations = resultViolations.Concat(identityViolations).ToArray();
+            resultDiagnostics.AddRange(identityViolations.Select(violation => violation.Message));
+        }
         if (result is not null && persistedTask is not null)
             resultDiagnostics.Add(PlanStepProofPolicy.Validate(persistedTask, result));
         resultDiagnostics.Add(
@@ -14145,6 +14172,7 @@ public partial class MainWindow : Window
             }
             else
             {
+                hostEvidenceFailure = true;
                 error = DecomposeStepResultContractDiagnostics.Combine([error, noOpValidation.Error]);
             }
         }
@@ -14183,9 +14211,12 @@ public partial class MainWindow : Window
                     result.Verification,
                     commitValidation.Commits);
             }
-            else if (error is null)
+            else
             {
-                error = commitValidation.Error;
+                if (!string.IsNullOrWhiteSpace(commitValidation.Error))
+                    hostEvidenceFailure = true;
+                if (error is null)
+                    error = commitValidation.Error;
             }
         }
 
@@ -14209,7 +14240,10 @@ public partial class MainWindow : Window
                 executionAttempt,
                 routingPolicy == PlanAgentRoutingPolicy.Off ? null : expectedAssignments,
                 activeExecution.RepairRequestCount,
-                activeExecution.FreshAttemptCount);
+                activeExecution.FreshAttemptCount,
+                branchLeaseFailure || hostEvidenceFailure
+                    ? PlanExecutionFailureKind.HostEvidence
+                    : PlanExecutionFailureKind.EnvelopeContract);
             if (branchLeaseFailure)
                 recoveryAction = PlanExecutionRecoveryAction.Block;
             var repairError = error ?? "no result envelope was returned";
@@ -14318,7 +14352,9 @@ public partial class MainWindow : Window
                     executionAttempt?.AttemptId,
                     expectedAssignments,
                     result?.Status,
-                    verificationOnly);
+                    verificationOnly,
+                    resultViolations,
+                    result);
                 if (persistedTask?.ProofRequirements is { Count: > 0 } proofRequirements)
                 {
                     var resultRequirements = PlanProofCapabilityPolicy.ResultEnvelopeRequirements(proofRequirements);
@@ -14417,6 +14453,28 @@ public partial class MainWindow : Window
                 }
                 if (activeExecution.PendingInboxLinkRepairError is { } inboxLinkError)
                     repairPrompt += DecomposeEnvelopeRepairPrompt.BuildInboxLinkCorrection(inboxLinkError);
+                AppendPlanExecutionJournal(
+                    groupId,
+                    taskId,
+                    "envelope-repair-requested",
+                    PlanExecutionJournal.Serialize(new
+                    {
+                        Attempt = activeExecution.RepairRequestCount + 1,
+                        Maximum = PlanExecutionRecoveryPolicy.MaxEnvelopeRepairRequestsPerAttempt,
+                        Violations = resultViolations,
+                        Error = repairError,
+                    }));
+                _planExecutionLog?.Append(new PlanExecutionLogEntry(
+                    Kind: "envelope_repair_requested",
+                    Timestamp: DateTimeOffset.UtcNow.ToString("O"),
+                    PlanId: groupId,
+                    Revision: revision,
+                    Round: _loopCurrentIteration,
+                    TaskId: taskId,
+                    TaskTitle: _CodeHealthGroupRunner.GetCurrentStepTitle(),
+                    Message: repairError,
+                    Outcome: "pending",
+                    Phase: "envelope_repair"));
                 EnqueuePrompt(
                     repairPrompt,
                     isSystemInjected: true,
@@ -14429,13 +14487,53 @@ public partial class MainWindow : Window
             handleBlock:
             if (!branchLeaseFailure)
                 _CodeHealthGroupRunner.MarkCurrentStepFailed();
+            var pendingAcceptance = taskCommitEvidence is not null && result is not null
+                ? new PlanWorkCompletePendingAcceptance(
+                    taskId,
+                    JsonSerializer.Serialize(result),
+                    (resultViolations.Count > 0
+                        ? resultViolations.Select(violation => violation.Message)
+                        : [error ?? "The result was not accepted."]).ToArray(),
+                    DateTimeOffset.UtcNow)
+                : null;
+            if (pendingAcceptance is not null)
+                AppendPlanExecutionJournal(
+                    groupId,
+                    taskId,
+                    "work-complete-pending-acceptance",
+                    PlanExecutionJournal.Serialize(pendingAcceptance));
             StopAndOfferDecomposeRecovery(
                 groupId,
                 taskId,
                 revision,
                 $"SquadDash rejected the step result after repair attempt: {error ?? "no result was returned"}",
-                taskCommitEvidence);
+                taskCommitEvidence,
+                pendingAcceptance);
             return;
+        }
+
+        if (replayingPendingResult || activeExecution.RepairRequestCount > 0)
+        {
+            AppendPlanExecutionJournal(
+                groupId,
+                taskId,
+                "envelope-repair-accepted",
+                PlanExecutionJournal.Serialize(new
+                {
+                    Attempts = activeExecution.RepairRequestCount,
+                    Result = result,
+                }));
+            _planExecutionLog?.Append(new PlanExecutionLogEntry(
+                Kind: "envelope_repair_accepted",
+                Timestamp: DateTimeOffset.UtcNow.ToString("O"),
+                PlanId: groupId,
+                Revision: revision,
+                Round: _loopCurrentIteration,
+                TaskId: taskId,
+                TaskTitle: _CodeHealthGroupRunner.GetCurrentStepTitle(),
+                Message: null,
+                Outcome: "accepted",
+                Phase: "envelope_repair"));
         }
 
         if (result.Status == "complete" && persistedTask is not null &&
@@ -14974,7 +15072,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Finalizes a validation turn by applying the captured validation result to durable plan state.
-    /// Handles missing envelope repair (once), tolerant result acceptance, and state cleanup.
+    /// Handles bounded envelope repair, tolerant result acceptance, and state cleanup.
     /// </summary>
     private async Task FinalizeValidationTurnAsync(
         string groupId,
@@ -15538,7 +15636,8 @@ public partial class MainWindow : Window
         string taskId,
         string revision,
         string reason,
-        PlanTaskCommitEvidence? taskCommitEvidence = null)
+        PlanTaskCommitEvidence? taskCommitEvidence = null,
+        PlanWorkCompletePendingAcceptance? workCompletePendingAcceptance = null)
     {
         SuppressLoopResume("plan-blocked");
         _loopController.RequestStop();
@@ -15546,7 +15645,8 @@ public partial class MainWindow : Window
         // Persist the final recovery state and its task-scoped commit evidence before rendering
         // transcript or Inbox actions. The UI must describe the durable state it will operate on.
         TryPublishPlanBlocked(groupId, taskId);
-        TryPublishPlanInterrupted(groupId, taskId, reason, taskCommitEvidence);
+        TryPublishPlanInterrupted(
+            groupId, taskId, reason, taskCommitEvidence, workCompletePendingAcceptance);
         ScheduleDecomposeSystemEntry(
             PlanRecoveryPresentationBuilder.BuildStatusMessage(taskCommitEvidence is not null),
             groupId,
@@ -57239,7 +57339,8 @@ public partial class MainWindow : Window
         string groupId,
         string taskId,
         string reason,
-        PlanTaskCommitEvidence? taskCommitEvidence = null)
+        PlanTaskCommitEvidence? taskCommitEvidence = null,
+        PlanWorkCompletePendingAcceptance? workCompletePendingAcceptance = null)
     {
         if (_currentWorkspace is null || _planStore is null) return;
         try
@@ -57252,7 +57353,8 @@ public partial class MainWindow : Window
                 loopIteration:     _loopCurrentIteration,
                 interruptedTaskId: taskId,
                 lastCommit:        _decomposeIterationBaselineCommit,
-                taskCommitEvidence: taskCommitEvidence);
+                taskCommitEvidence: taskCommitEvidence,
+                workCompletePendingAcceptance: workCompletePendingAcceptance);
             PublishPlanProgress(updated);
         }
         catch (Exception ex)

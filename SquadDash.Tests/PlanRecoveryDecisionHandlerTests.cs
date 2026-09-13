@@ -113,10 +113,10 @@ internal sealed class PlanRecoveryDecisionHandlerTests
         Assert.That(task.ProvenanceChain.Entries[0].CommitShortSha, Is.EqualTo("abc1234"));
     }
 
-    // ── Test: second repair blocked, no advancement ─────────────────────────
+    // ── Test: fourth repair blocked, no advancement ─────────────────────────
 
     [Test]
-    public void HandleRepairDecision_SecondRepair_BlockedAndNoAdvancement()
+    public void HandleRepairDecision_FourthRepair_BlockedAndNoAdvancement()
     {
         var plan = MakePlanWithTaskAndValidation();
         _planStore.Save(plan);
@@ -126,20 +126,25 @@ internal sealed class PlanRecoveryDecisionHandlerTests
             plan.PlanId, "TASK-001", plan.Tasks[0].Commit);
         Assert.That(first.Allowed, Is.True);
 
-        // Second repair on the same task — must be blocked
         var second = _handler.HandleRepairDecision(
             plan.PlanId, "TASK-001", "newcommit1234567890abcdef12345678901234567");
+        var third = _handler.HandleRepairDecision(
+            plan.PlanId, "TASK-001", "newcommit2234567890abcdef12345678901234567");
+        var fourth = _handler.HandleRepairDecision(
+            plan.PlanId, "TASK-001", "newcommit3234567890abcdef12345678901234567");
 
-        Assert.That(second.Allowed, Is.False, "Second repair must be blocked.");
-        Assert.That(second.Result.Applied, Is.False);
-        Assert.That(second.UserMessage, Does.Contain("⛔ Recovery (envelope-repair) blocked"));
-        Assert.That(second.UserMessage, Does.Contain("exhausted"));
-        Assert.That(second.UserMessage, Does.Contain("Prior attempts:"));
+        Assert.That(second.Allowed, Is.True);
+        Assert.That(third.Allowed, Is.True);
+        Assert.That(fourth.Allowed, Is.False, "Fourth repair must be blocked.");
+        Assert.That(fourth.Result.Applied, Is.False);
+        Assert.That(fourth.UserMessage, Does.Contain("⛔ Recovery (envelope-repair) blocked"));
+        Assert.That(fourth.UserMessage, Does.Contain("exhausted"));
+        Assert.That(fourth.UserMessage, Does.Contain("Prior attempts:"));
 
         // Verify plan was not modified by the blocked attempt
         var finalPlan = _planStore.Load(plan.PlanId)!;
-        Assert.That(finalPlan.Tasks[0].ProvenanceChain!.Entries, Has.Count.EqualTo(1),
-            "Provenance chain must not grow beyond the bounded single repair entry.");
+        Assert.That(finalPlan.Tasks[0].ProvenanceChain!.Entries, Has.Count.EqualTo(3),
+            "Provenance chain must not grow beyond the bounded schema-repair budget.");
     }
 
     // ── Test: first fresh-attempt succeeds ───────────────────────────────────
@@ -311,12 +316,14 @@ internal sealed class PlanRecoveryDecisionHandlerTests
         var plan = MakePlanWithTaskAndValidation();
         _planStore.Save(plan);
 
-        // First succeeds
+        // Exhaust the three schema repairs.
         _handler.HandleRepairDecision(plan.PlanId, "TASK-001", plan.Tasks[0].Commit);
+        _handler.HandleRepairDecision(plan.PlanId, "TASK-001", "newcommit1234567890abcdef12345678901234567");
+        _handler.HandleRepairDecision(plan.PlanId, "TASK-001", "newcommit2234567890abcdef12345678901234567");
 
-        // Second is blocked — message should include provenance chain
+        // Fourth is blocked — message should include provenance chain
         var blocked = _handler.HandleRepairDecision(
-            plan.PlanId, "TASK-001", "newcommit1234567890abcdef12345678901234567");
+            plan.PlanId, "TASK-001", "newcommit3234567890abcdef12345678901234567");
 
         Assert.That(blocked.Allowed, Is.False);
         Assert.That(blocked.UserMessage, Does.Contain("⛔ Recovery"));

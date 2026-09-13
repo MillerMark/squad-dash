@@ -107,12 +107,16 @@ internal sealed class PlanRecoveryInboxAndPromptQueueTests
 
         var handler = new PlanRecoveryDecisionHandler(_service, _inboxStore);
 
-        // First repair succeeds
+        // Three schema repairs succeed.
         handler.HandleRepairDecision(plan.PlanId, "TASK-001", plan.Tasks[0].Commit);
-
-        // Second repair is blocked
-        var blocked = handler.HandleRepairDecision(
+        handler.HandleRepairDecision(
             plan.PlanId, "TASK-001", "newcommit1234567890abcdef12345678901234567");
+        handler.HandleRepairDecision(
+            plan.PlanId, "TASK-001", "newcommit2234567890abcdef12345678901234567");
+
+        // Fourth repair is blocked.
+        var blocked = handler.HandleRepairDecision(
+            plan.PlanId, "TASK-001", "newcommit3234567890abcdef12345678901234567");
 
         Assert.That(blocked.Allowed, Is.False);
 
