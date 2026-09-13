@@ -3790,12 +3790,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             {
                                 var taskTitle = capturedTaskForStop.Title ?? capturedTaskForStop.Id;
                                 var defaultQ = $"Has {taskTitle} been reviewed and approved?";
-                                var question = _saveDefinitionEdit is not null
-                                    ? SimpleInputDialog.Show(this, "Enter a reviewer question for this approval gate:", "Add Approval Gate", defaultQ)
-                                    : defaultQ;
-                                if (string.IsNullOrWhiteSpace(question)) return;
+                                if (_saveDefinitionEdit is not null)
+                                {
+                                    var stagedGatePlan = PlanGateManager.AddGateBefore(durablePlan, capturedTaskForStop.Id,
+                                        $"Review before starting: {taskTitle}", question: defaultQ);
+                                    var changedGate = stagedGatePlan.ApprovalGates.FirstOrDefault(gate =>
+                                        durablePlan.ApprovalGates.FirstOrDefault(existing =>
+                                            existing.GateId == gate.GateId) is not { } existing ||
+                                        !Equals(existing, gate));
+                                    if (changedGate is not null)
+                                    {
+                                        // Expanded gates retain their old anchor unless explicitly moved.
+                                        stagedGatePlan = PlanGateManager.SetPresentationAnchor(
+                                            stagedGatePlan, changedGate.GateId, beforeAnchor);
+                                        ApplyStagedMutation(
+                                            PendingDecomposePlanAdapter.FromPlan(stagedGatePlan).Group,
+                                            selectKind: "humanapproval",
+                                            selectId: changedGate.GateId,
+                                            beginEditingSelection: true);
+                                    }
+                                    return;
+                                }
                                 updated = PlanGateManager.AddGateBefore(durablePlan, capturedTaskForStop.Id,
-                                    $"Review before starting: {taskTitle}", question: question);
+                                    $"Review before starting: {taskTitle}", question: defaultQ);
                                 // Ensure the clicked octagon is primary (ExpandCompatiblePendingGate may not update PresentationAnchor)
                                 var expandedBeforeGate = updated.ApprovalGates.FirstOrDefault(g =>
                                     PlanGateManager.CanEditGate(g) &&
@@ -3963,12 +3980,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             {
                                 var taskTitle = capturedTaskForStop.Title ?? capturedTaskForStop.Id;
                                 var defaultQ = $"Has {taskTitle} been reviewed and approved?";
-                                var question = _saveDefinitionEdit is not null
-                                    ? SimpleInputDialog.Show(this, "Enter a reviewer question for this approval gate:", "Add Approval Gate", defaultQ)
-                                    : defaultQ;
-                                if (string.IsNullOrWhiteSpace(question)) return;
+                                if (_saveDefinitionEdit is not null)
+                                {
+                                    var stagedGatePlan = PlanGateManager.AddGateAfter(durablePlan, capturedTaskForStop.Id,
+                                        $"Review after completing: {taskTitle}", question: defaultQ);
+                                    var changedGate = stagedGatePlan.ApprovalGates.FirstOrDefault(gate =>
+                                        durablePlan.ApprovalGates.FirstOrDefault(existing =>
+                                            existing.GateId == gate.GateId) is not { } existing ||
+                                        !Equals(existing, gate));
+                                    if (changedGate is not null)
+                                    {
+                                        // Expanded gates retain their old anchor unless explicitly moved.
+                                        stagedGatePlan = PlanGateManager.SetPresentationAnchor(
+                                            stagedGatePlan, changedGate.GateId, afterAnchor);
+                                        ApplyStagedMutation(
+                                            PendingDecomposePlanAdapter.FromPlan(stagedGatePlan).Group,
+                                            selectKind: "humanapproval",
+                                            selectId: changedGate.GateId,
+                                            beginEditingSelection: true);
+                                    }
+                                    return;
+                                }
                                 updated = PlanGateManager.AddGateAfter(durablePlan, capturedTaskForStop.Id,
-                                    $"Review after completing: {taskTitle}", question: question);
+                                    $"Review after completing: {taskTitle}", question: defaultQ);
                                 // Ensure the clicked octagon is primary (ExpandCompatiblePendingGate may not update PresentationAnchor)
                                 var expandedAfterGate = updated.ApprovalGates.FirstOrDefault(g =>
                                     PlanGateManager.CanEditGate(g) &&

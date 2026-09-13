@@ -46,6 +46,12 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 .And.Contain("\"validation\" => \"Edit Validation\"")
                 .And.Contain("\"gate\" or \"humanapproval\" => \"Edit Approval\""),
                 "Editors must be hosted by the existing inspector and stay read-only until Edit.");
+            Assert.That(source, Does.Contain("_isInspectorEditing = beginEditingSelection;")
+                .And.Contain("if (_isInspectorEditing && TryPopulateStagedEditor())")
+                .And.Contain("\"gate\" or \"humanapproval\" => PopulateGateEditor(_selectedElement.Id)")
+                .And.Contain("return gate is null || gate.Status == PlanGateStatus.Pending;")
+                .And.Contain("_inspectorPrimaryEditor = message;"),
+                "Add-and-edit must use the same staged approval editor as Edit Approval, with Message as its primary field.");
             Assert.That(source, Does.Contain("Header = \"Add validation after this step\"")
                 .And.Contain("Header = \"Delete step\"")
                 .And.Contain("Header = \"Delete validation\""));
@@ -246,6 +252,61 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 "An editable empty octagon must expose the inverse of the removal action.");
             Assert.That(method, Does.Contain("AppendDeveloperNormalizeMenuItem(approvalMenu)"),
                 "Normalization should be appended to the approval menu instead of replacing it.");
+        });
+    }
+
+    [TestCase("Before", "before", "Review before starting")]
+    [TestCase("After", "after", "Review after completing")]
+    public void EmptyTaskApprovalOctagon_StagesSelectsAndEditsWithoutPrompting(
+        string boundary, string anchorPrefix, string defaultLabel)
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var stopStart = source.IndexOf(
+            $"var {anchorPrefix}Stop = CreateApprovalStop(", StringComparison.Ordinal);
+        Assert.That(stopStart, Is.GreaterThanOrEqualTo(0));
+        var addStart = source.IndexOf(
+            "var taskTitle = capturedTaskForStop.Title", stopStart, StringComparison.Ordinal);
+        Assert.That(addStart, Is.GreaterThan(stopStart));
+        var callbackStart = source.IndexOf(
+            "if (!ReferenceEquals(updated, durablePlan)) onGatesChanged(updated);",
+            addStart, StringComparison.Ordinal);
+        Assert.That(callbackStart, Is.GreaterThan(addStart));
+        var addPath = source[addStart..callbackStart];
+        var stagedStart = addPath.IndexOf("if (_saveDefinitionEdit is not null)", StringComparison.Ordinal);
+        var runtimeStart = addPath.IndexOf(
+            $"updated = PlanGateManager.AddGate{boundary}(", StringComparison.Ordinal);
+        Assert.That(stagedStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(runtimeStart, Is.GreaterThan(stagedStart));
+        var stagedPath = addPath[stagedStart..runtimeStart];
+        var runtimePath = addPath[runtimeStart..];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(addPath, Does.Not.Contain("SimpleInputDialog")
+                .And.Contain("var defaultQ = $\"Has {taskTitle} been reviewed and approved?\";"),
+                "Empty task octagons must add with the existing default question, never prompt.");
+            Assert.That(stagedPath, Does.Contain($"var stagedGatePlan = PlanGateManager.AddGate{boundary}(")
+                .And.Contain($"$\"{defaultLabel}: {{taskTitle}}\", question: defaultQ")
+                .And.Contain("existing.GateId == gate.GateId")
+                .And.Contain("!Equals(existing, gate)"),
+                "The staged path must identify the added or expanded gate just like the task context menu.");
+            Assert.That(stagedPath, Does.Contain("stagedGatePlan = PlanGateManager.SetPresentationAnchor(")
+                .And.Contain($"stagedGatePlan, changedGate.GateId, {anchorPrefix}Anchor"),
+                "The clicked octagon must remain primary, including when a compatible gate expands.");
+            Assert.That(stagedPath, Does.Contain("ApplyStagedMutation(")
+                .And.Contain("PendingDecomposePlanAdapter.FromPlan(stagedGatePlan).Group")
+                .And.Contain("selectKind: \"humanapproval\"")
+                .And.Contain("selectId: changedGate.GateId")
+                .And.Contain("beginEditingSelection: true"),
+                "The new gate must be selected and opened in the existing inspector editor.");
+            Assert.That(stagedPath, Does.Match(@"return;\s*\}\s*$")
+                .And.Not.Contain("onGatesChanged"),
+                "The staged branch must return before the runtime callback to avoid applying twice.");
+            Assert.That(runtimePath, Does.Contain($"$\"{defaultLabel}: {{taskTitle}}\", question: defaultQ")
+                .And.Contain($"PlanGateManager.SetPresentationAnchor(updated, expanded{boundary}Gate.GateId, {anchorPrefix}Anchor)")
+                .And.Not.Contain("ApplyStagedMutation")
+                .And.Not.Contain("return;"),
+                "Non-staged additions must still reach the original callback with their clicked anchor.");
         });
     }
 
