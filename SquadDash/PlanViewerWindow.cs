@@ -995,6 +995,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var interruptedTaskId = durablePlan.InterruptionData.InterruptedTaskId;
             var interruptedTask = durablePlan.Tasks.FirstOrDefault(task =>
                 string.Equals(task.TaskId, interruptedTaskId, StringComparison.Ordinal));
+            var assessmentActive = !string.IsNullOrWhiteSpace(interruptedTaskId) &&
+                (_recoveryAssessmentTaskIds.Contains(interruptedTaskId) ||
+                 (_isRecoveryAssessmentActive?.Invoke(interruptedTaskId) ?? false));
+            assessmentPanel.IsEnabled = !assessmentActive;
             var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
                 interruptedTask?.DisplayStepLabel,
                 interruptedTask?.Title ?? interruptedTaskId ?? "Interrupted Step");
@@ -1072,6 +1076,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 task.TaskId,
                 durablePlan.InterruptionData?.InterruptedTaskId,
                 StringComparison.Ordinal));
+            var assessmentActive = interruptedActionTask is not null &&
+                (_recoveryAssessmentTaskIds.Contains(interruptedActionTask.TaskId) ||
+                 (_isRecoveryAssessmentActive?.Invoke(interruptedActionTask.TaskId) ?? false));
             if (onAdoptVerifiedCommitRange is not null && !safeResume &&
                 _onOpenInterruptedChanges is not null)
             {
@@ -1133,7 +1140,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             if (_onAssessInterruptedWork is not null && interruptedActionTask is not null)
             {
-                var assessmentActive = _isRecoveryAssessmentActive?.Invoke(interruptedActionTask.TaskId) ?? false;
                 var assessButton = TranscriptQuickReplyFactory.CreateButton(
                     assessmentActive ? "Assessing with AI…" : "Assess with AI",
                     quickReplyFontSize,
@@ -1141,7 +1147,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         "Ask AI whether the current source satisfies this step. The assessment includes the plan, stop point, card evidence, repository changes, and the decision that needs to be made."));
                 assessButton.Focusable = false;
                 assessButton.IsEnabled = !assessmentActive;
-                assessButton.Click += (_, _) => _onAssessInterruptedWork(durablePlan);
+                assessButton.Click += (_, _) =>
+                {
+                    // Lock every mutually exclusive recovery decision immediately. The shared
+                    // assessment activity event rebuilds this panel and keeps it locked until
+                    // the assessment either finishes or fails before it can be queued.
+                    interruptedPanel.IsEnabled = false;
+                    assessButton.Content = "Assessing with AI…";
+                    _onAssessInterruptedWork(durablePlan);
+                };
                 interruptedPanel.Children.Add(assessButton);
             }
             // Safe continuation owns the recovery choice. A ready validation is simply the next
@@ -1247,6 +1261,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 interruptedPanel.Children.Add(endButton);
             }
+            interruptedPanel.IsEnabled = !assessmentActive;
             header.Children.Add(interruptedPanel);
         }
 

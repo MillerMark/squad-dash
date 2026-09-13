@@ -20158,9 +20158,10 @@ public partial class MainWindow : Window
 
     private async Task AssessInterruptedPlanAdvisoryFromDurableAsync(Plan plan)
     {
+        string? taskId = null;
         try
         {
-            var taskId = plan.InterruptionData?.InterruptedTaskId
+            taskId = plan.InterruptionData?.InterruptedTaskId
                 ?? plan.Progress.ExecutingTaskId
                 ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
             if (string.IsNullOrWhiteSpace(taskId))
@@ -20173,6 +20174,13 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            if (!string.IsNullOrWhiteSpace(taskId) && _pendingPlanRecoveryAssessment is null)
+            {
+                _broker.Publish(new PlanRecoveryAssessmentActivityEvent(
+                    plan.PlanId,
+                    taskId,
+                    IsActive: false));
+            }
             HandleUiCallbackException("Assess interrupted work", ex);
         }
     }
