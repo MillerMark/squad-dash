@@ -251,7 +251,8 @@ public sealed class PlanApprovalRuntimeTests
             prepareResolution: current =>
                 PlanHumanReviewStepAcceptance.ApplyTasks(
                     current,
-                    presentation.ReviewAttentions));
+                    presentation.ReviewAttentions,
+                    currentHead: commit));
 
         Assert.Multiple(() =>
         {
@@ -269,6 +270,109 @@ public sealed class PlanApprovalRuntimeTests
             Assert.That(_requests.GetState(plan.PlanId)?.Archived, Is.True);
             Assert.That(_requests.GetState(plan.PlanId)?.ActiveGateIds, Is.Empty);
         });
+    }
+
+    [Test]
+    public async Task Approve_SharedCheckpoint_PersistsBothReviewedTasksAndGateInOneWrite()
+    {
+        var (plan, token, presentation) = await PrepareSharedReviewAsync();
+        var writes = new List<Plan>();
+        var reviewedCommits = plan.Tasks.ToDictionary(task => task.TaskId, task => task.Handoff!.Commit!);
+
+        var resolution = await _runtime.ApproveAsync(
+            token, plan, null,
+            updated => { writes.Add(updated); return true; },
+            resolvedBy: "Reviewer",
+            prepareResolution: current => PlanHumanReviewStepAcceptance.ApplyTasks(
+                current, presentation.ReviewAttentions,
+                currentHead: "bbbbbbbbbb", reviewedTaskCommits: reviewedCommits));
+
+        Assert.That(writes, Has.Count.EqualTo(1), "No intermediate task-only or gate-only state may be persisted.");
+        var persisted = writes.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolution.Result, Is.EqualTo(ApprovalClickResult.Approved));
+            Assert.That(resolution.UpdatedPlan, Is.SameAs(persisted));
+            Assert.That(persisted.Tasks.Select(task => task.Status), Is.All.EqualTo(PlanTaskStatus.Complete));
+            Assert.That(persisted.Tasks.Select(task => task.Commit),
+                Is.EqualTo(new[] { "aaaaaaaaaa", "bbbbbbbbbb" }));
+            Assert.That(persisted.ApprovalGates.Single().Status, Is.EqualTo(PlanGateStatus.Approved));
+            Assert.That(persisted.Progress.CompletedCount, Is.EqualTo(2));
+            Assert.That(persisted.Progress.ExecutingTaskId, Is.Null);
+            Assert.That(plan.Tasks.Select(task => task.Status), Is.All.EqualTo(PlanTaskStatus.HumanReviewRequired));
+            Assert.That(plan.ApprovalGates.Single().Status, Is.EqualTo(PlanGateStatus.AwaitingApproval));
+            Assert.That(_actions.HasActiveGates(plan.PlanId), Is.False);
+            Assert.That(_requests.GetState(plan.PlanId)?.Archived, Is.True);
+            Assert.That(_requests.GetState(plan.PlanId)?.ActiveGateIds, Is.Empty);
+        });
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    public async Task Approve_SharedCheckpointMismatchedCommit_DoesNotPersistOrResolveGate(int mismatchedIndex)
+    {
+        var (plan, token, presentation) = await PrepareSharedReviewAsync();
+        var before = System.Text.Json.JsonSerializer.Serialize(plan);
+        var requestBefore = System.Text.Json.JsonSerializer.Serialize(_requests.GetState(plan.PlanId));
+        var messageBefore = System.Text.Json.JsonSerializer.Serialize(
+            _inbox.GetById(DurableApprovalRequestManager.BuildMessageId(plan.PlanId)));
+        var writes = new List<Plan>();
+        var reviewedCommits = plan.Tasks.ToDictionary(task => task.TaskId, task => task.Handoff!.Commit!);
+        reviewedCommits[plan.Tasks[mismatchedIndex].TaskId] = "unreviewed-commit";
+
+        Assert.ThrowsAsync<InvalidOperationException>(async () => await _runtime.ApproveAsync(
+            token, plan, null,
+            updated => { writes.Add(updated); return true; },
+            prepareResolution: current => PlanHumanReviewStepAcceptance.ApplyTasks(
+                current, presentation.ReviewAttentions,
+                currentHead: "bbbbbbbbbb", reviewedTaskCommits: reviewedCommits)));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(writes, Is.Empty);
+            Assert.That(System.Text.Json.JsonSerializer.Serialize(plan), Is.EqualTo(before));
+            Assert.That(_actions.HasActiveGates(plan.PlanId), Is.True);
+            Assert.That(System.Text.Json.JsonSerializer.Serialize(_requests.GetState(plan.PlanId)),
+                Is.EqualTo(requestBefore));
+            Assert.That(System.Text.Json.JsonSerializer.Serialize(
+                _inbox.GetById(DurableApprovalRequestManager.BuildMessageId(plan.PlanId))),
+                Is.EqualTo(messageBefore));
+        });
+    }
+
+    private async Task<(Plan Plan, ApprovalClickToken Token, PlanCheckpointPrimaryActionPresentation Presentation)>
+        PrepareSharedReviewAsync()
+    {
+        var tasks = new[] { "aaaaaaaaaa", "bbbbbbbbbb" }.Select((commit, index) => new PlanTask(
+            $"REVIEW-{index}", $"Review step {index}", "Verify the UI", [], "high",
+            PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff(
+                commit, "Implemented UI.", ["Feature.cs"],
+                new DecomposeStepVerification("passed", "dotnet test", "Tests passed."),
+                DateTimeOffset.UtcNow))).ToArray();
+        var gate = new PlanApprovalGate(
+            "SHARED-GATE", "Confirm both steps.", tasks.Select(task => task.TaskId).ToArray(), [],
+            PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [new PlanTaskProofRequirement("visual", "live-ui-observation", "Observe both steps.", "Do both work?")],
+            HumanReviewSelections:
+            [new PlanHumanReviewSelection("visual", true, "bbbbbbbbbb", DateTimeOffset.UtcNow)]);
+        var plan = new Plan(
+            "SHARED-REVIEW-PLAN", "rev-1", PlanSource.DecomposeDecision,
+            PlanLifecycleStatus.AwaitingApproval, "Review plan", "feature/review", "Review",
+            tasks, [gate], new PlanProgress(0, 2, tasks[0].TaskId), new PlanTimestamps(DateTimeOffset.UtcNow));
+        await _requests.AppendCheckpointAsync(plan, gate, await BuildSnapshotAsync(plan, gate, CancellationToken.None));
+        var state = _requests.GetState(plan.PlanId)!;
+        var token = await _actions.RestoreAsync(plan.PlanId, plan.Revision, state.Version, state.ActiveGateIds);
+        var presentation = PlanCheckpointPrimaryActionPresentationResolver.Resolve(plan, token.GateIds);
+        Assert.Multiple(() =>
+        {
+            Assert.That(token.GateIds, Is.EqualTo(new[] { gate.GateId }));
+            Assert.That(presentation.Kind, Is.EqualTo(PlanCheckpointPrimaryActionKind.CompleteHumanReviewTasks));
+            Assert.That(presentation.ReviewAttentions.Select(attention => attention.Task.TaskId),
+                Is.EqualTo(gate.AfterTaskIds));
+        });
+        return (plan, token, presentation);
     }
 
     [Test]

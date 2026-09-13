@@ -242,7 +242,8 @@ internal static class PlanRecoveryAcceptancePolicy
 /// </summary>
 internal static class PlanHumanReviewGatePolicy
 {
-    internal static PlanApprovalGate? FindCombinableGate(Plan plan, string taskId)
+    internal static PlanApprovalGate? FindCombinableGate(
+        Plan plan, string taskId, bool allowPendingReviewSiblings = false)
     {
         var task = plan.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
@@ -256,7 +257,8 @@ internal static class PlanHumanReviewGatePolicy
                 string.Equals(afterTaskId, taskId, StringComparison.Ordinal) ||
                 plan.Tasks.Any(candidate =>
                     string.Equals(candidate.TaskId, afterTaskId, StringComparison.Ordinal) &&
-                    candidate.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)) &&
+                    (candidate.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded ||
+                     allowPendingReviewSiblings && candidate.Status == PlanTaskStatus.HumanReviewRequired))) &&
             gate.BeforeTaskIds.All(beforeTaskId => plan.Tasks.Any(candidate =>
                 string.Equals(candidate.TaskId, beforeTaskId, StringComparison.Ordinal) &&
                 candidate.Status == PlanTaskStatus.Pending)) &&
@@ -373,8 +375,7 @@ internal static class PlanRecoveryPresentationBuilder
     {
         var task = plan.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
-        var report = task?.VerificationHistory?.LastOrDefault(candidate =>
-            !string.Equals(candidate.Verdict, PlanTaskVerificationVerdict.Accepted, StringComparison.Ordinal));
+        var report = ResolveReviewReport(plan, taskId);
         if (task?.Status != PlanTaskStatus.HumanReviewRequired &&
             report?.Verdict != PlanTaskVerificationVerdict.HumanReviewRequired)
             return null;
@@ -386,6 +387,9 @@ internal static class PlanRecoveryPresentationBuilder
             .FirstOrDefault();
         var question = gate is null ? null : PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
         var bullets = new List<PlanHumanReviewAnalysisItem>();
+        var provenance = BuildReviewProvenanceNotice(plan, taskId);
+        if (provenance is not null)
+            bullets.Add(new PlanHumanReviewAnalysisItem(provenance, PlanHumanReviewAnalysisSeverity.Warning));
         if (report is not null)
         {
             var inconclusiveReview = string.Equals(
@@ -407,7 +411,7 @@ internal static class PlanRecoveryPresentationBuilder
                     text,
                     ClassifyAnalysisSentence(text, inconclusiveReview))));
         }
-        if (bullets.Count == 0)
+        if (report is null)
             bullets.Add(new PlanHumanReviewAnalysisItem(
                 SummarizeReason(plan.InterruptionData?.Reason),
                 PlanHumanReviewAnalysisSeverity.Warning));
@@ -427,6 +431,36 @@ internal static class PlanRecoveryPresentationBuilder
             "Review Required",
             question,
             distinct);
+    }
+
+    internal static string? BuildReviewProvenanceNotice(Plan plan, string taskId)
+    {
+        var commit = ResolveDisplayedCommit(plan, taskId);
+        if (string.IsNullOrWhiteSpace(commit)) return null;
+        var reportCommit = ResolveReviewReport(plan, taskId)?.EvaluatedCommit;
+        if (string.Equals(commit, reportCommit, StringComparison.OrdinalIgnoreCase)) return null;
+        var source = string.IsNullOrWhiteSpace(reportCommit) ? "an unknown earlier commit" : $"commit {reportCommit}";
+        return $"Review below reflects {source}; current evidence is commit {commit}. " +
+               "These conclusions have not been reverified for the current evidence.";
+    }
+
+    private static string? ResolveDisplayedCommit(Plan plan, string taskId) =>
+        plan.InterruptionData?.TaskCommitEvidence is { } evidence &&
+        string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal)
+            ? evidence.Commit
+            : plan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Handoff?.Commit;
+
+    private static PlanTaskVerificationReport? ResolveReviewReport(Plan plan, string taskId)
+    {
+        var history = plan.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.VerificationHistory;
+        var commit = ResolveDisplayedCommit(plan, taskId);
+        return history?.LastOrDefault(report =>
+                   !string.IsNullOrWhiteSpace(commit) &&
+                   string.Equals(report.EvaluatedCommit, commit, StringComparison.OrdinalIgnoreCase))
+               ?? history?.LastOrDefault(report =>
+                   !string.Equals(report.Verdict, PlanTaskVerificationVerdict.Accepted, StringComparison.Ordinal));
     }
 
     private static PlanHumanReviewAnalysisSeverity ClassifyAnalysisSentence(

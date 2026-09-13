@@ -448,6 +448,7 @@
     <Compile Include="..\SquadDash\InterruptedStepResultRecoveryPolicy.cs" Link="Source\InterruptedStepResultRecoveryPolicy.cs" />
     <Compile Include="..\SquadDash\InterruptedPlanEvidenceResolver.cs" Link="Source\InterruptedPlanEvidenceResolver.cs" />
     <Compile Include="..\SquadDash\InterruptedPlanEvidenceRefresher.cs" Link="Source\InterruptedPlanEvidenceRefresher.cs" />
+    <Compile Include="..\SquadDash\PlanRecoveryGitQuery.cs" Link="Source\PlanRecoveryGitQuery.cs" />
     <Compile Include="..\SquadDash\DecomposeEnvelopeRepairPrompt.cs" Link="Source\DecomposeEnvelopeRepairPrompt.cs" />
     <Compile Include="..\SquadDash\DecomposeRecoveryDecision.cs" Link="Source\DecomposeRecoveryDecision.cs" />
     <Compile Include="..\SquadDash\DecomposeWorktreePolicy.cs" Link="Source\DecomposeWorktreePolicy.cs" />

@@ -228,8 +228,19 @@ internal static class DecomposePlanInbox
 
         var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(reason);
         var status = PlanRecoveryPresentationBuilder.BuildStatusMessage(hasCommitEvidence);
+        var reviewCard = durablePlan is null
+            ? null
+            : PlanRecoveryPresentationBuilder.BuildHumanReviewCard(durablePlan, taskId);
+        var provenance = durablePlan is null
+            ? null
+            : PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(durablePlan, taskId);
+        var narrative = reviewCard is not null
+            ? "**Automated Review Status:**\n" +
+              string.Join("\n", reviewCard.AnalysisBullets.Select(bullet => "- " + bullet.Text))
+            : (provenance is null ? string.Empty : provenance + "\n\n") +
+              $"Why it stopped: **{compactReason}**";
         var body = $"**{status}**\n\n" +
-                   $"Why it stopped: **{compactReason}**\n\n" +
+                   narrative + "\n\n" +
                    $"Plan: **{plan.Group.GroupTitle}**  \n" +
                    $"Attempted task: \"{taskTitle}\"\n";
 

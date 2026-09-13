@@ -38,15 +38,14 @@ internal static class PlanCheckpointPrimaryActionPresentationResolver
             .Where(gate => representedGateIds.Contains(gate.GateId, StringComparer.Ordinal) &&
                            gate.Status == PlanGateStatus.AwaitingApproval)
             .ToArray();
-        var reviewAttentions = representedGates.Select(gate =>
+        var reviewAttentions = representedGates.SelectMany(gate => gate.AfterTaskIds.Select(taskId =>
         {
-            var taskId = gate.AfterTaskIds.Count == 1 ? gate.AfterTaskIds[0] : null;
             var reviewAttention = PlanReviewAttentionPresentationResolver.Resolve(plan, taskId);
             return reviewAttention is not null &&
                    string.Equals(reviewAttention.Gate.GateId, gate.GateId, StringComparison.Ordinal)
                 ? reviewAttention
                 : null;
-        }).OfType<PlanReviewAttentionPresentation>().ToArray();
+        })).OfType<PlanReviewAttentionPresentation>().DistinctBy(attention => attention.Task.TaskId).ToArray();
         if (reviewAttentions.Length > 0)
         {
             var singleReview = reviewAttentions.Length == 1 ? reviewAttentions[0] : null;
@@ -91,32 +90,51 @@ internal static class PlanHumanReviewStepAcceptance
     internal static Plan ApplyTasks(
         Plan plan,
         IReadOnlyList<PlanReviewAttentionPresentation> reviewAttentions,
-        string? currentHead = null)
+        string? currentHead = null,
+        IReadOnlyDictionary<string, string>? reviewedTaskCommits = null)
     {
         var updated = plan;
-        var recordedCommit = plan.InterruptionData?.TaskCommitEvidence?.Commit;
+        if (reviewedTaskCommits is not null && string.IsNullOrWhiteSpace(currentHead))
+            throw new InvalidOperationException("Cannot validate reviewed evidence because the current HEAD is unavailable.");
         foreach (var reviewAttention in reviewAttentions)
         {
-            var handoff = reviewAttention.Task.Handoff ??
+            var task = plan.Tasks.SingleOrDefault(candidate =>
+                string.Equals(candidate.TaskId, reviewAttention.Task.TaskId, StringComparison.Ordinal));
+            var handoff = task?.Handoff ??
                 throw new InvalidOperationException("The reviewed task has no durable implementation handoff.");
+            if (task!.Status != PlanTaskStatus.HumanReviewRequired)
+                throw new InvalidOperationException("The reviewed task is no longer awaiting human review.");
             var isVerifiedNoOp = string.Equals(
                 handoff.CompletionKind,
                 DecomposeStepCompletionKind.VerifiedNoOp,
                 StringComparison.Ordinal);
             if (!isVerifiedNoOp && string.IsNullOrWhiteSpace(handoff.Commit))
                 throw new InvalidOperationException("The reviewed task handoff has no commit.");
-            if (!isVerifiedNoOp &&
-                !string.IsNullOrWhiteSpace(currentHead) &&
-                (string.IsNullOrWhiteSpace(recordedCommit) ||
-                 !string.Equals(handoff.Commit, recordedCommit, StringComparison.OrdinalIgnoreCase) ||
-                 !string.Equals(handoff.Commit, currentHead, StringComparison.OrdinalIgnoreCase)))
+            var taskCommit = isVerifiedNoOp ? handoff.EvaluatedCommit : handoff.Commit;
+            var reviewedCommit = isVerifiedNoOp
+                ? reviewAttention.Task.Handoff?.EvaluatedCommit
+                : reviewAttention.Task.Handoff?.Commit;
+            var isInterruptedTask = plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
+                string.Equals(plan.InterruptionData?.InterruptedTaskId, task.TaskId, StringComparison.Ordinal);
+            var evidence = isInterruptedTask ? plan.InterruptionData?.TaskCommitEvidence : null;
+            var expectedCommit = currentHead;
+            if (reviewedTaskCommits is not null)
+                reviewedTaskCommits.TryGetValue(task.TaskId, out expectedCommit);
+            if (!string.Equals(taskCommit, reviewedCommit, StringComparison.OrdinalIgnoreCase) ||
+                (!isVerifiedNoOp && isInterruptedTask &&
+                 (evidence is null ||
+                  !string.Equals(evidence.TaskId, task.TaskId, StringComparison.Ordinal) ||
+                  !string.Equals(taskCommit, evidence.Commit, StringComparison.OrdinalIgnoreCase))) ||
+                ((!string.IsNullOrWhiteSpace(currentHead) || reviewedTaskCommits is not null) &&
+                 (string.IsNullOrWhiteSpace(expectedCommit) ||
+                  !string.Equals(taskCommit, expectedCommit, StringComparison.OrdinalIgnoreCase))))
             {
                 throw new InvalidOperationException(
-                    "Reviewed evidence is stale: task tip has advanced past the reviewed commit. Refresh the review card.");
+                    $"Reviewed evidence is stale for task {task.TaskId}: task tip has advanced past the reviewed commit. Refresh the review card.");
             }
             var commits = isVerifiedNoOp
                 ? Array.Empty<PlanEvidenceCommit>()
-                : reviewAttention.Task.Commits ??
+                : task.Commits ??
                 [new PlanEvidenceCommit(
                     handoff.Commit!,
                     PlanRecoveryCommitRelation.Task,
@@ -143,7 +161,12 @@ internal static class PlanHumanReviewStepAcceptance
         }
         return updated with
         {
-            InterruptionData = null,
+            InterruptionData = plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
+                               plan.InterruptionData is { } interruption &&
+                               !reviewAttentions.Any(attention => string.Equals(
+                                   attention.Task.TaskId, interruption.InterruptedTaskId, StringComparison.Ordinal))
+                ? interruption
+                : null,
             Progress = updated.Progress with { ExecutingTaskId = null },
         };
     }
@@ -162,7 +185,8 @@ internal static class PlanReviewAttentionPresentationResolver
         var task = plan.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
         if (task is null || task.Status != PlanTaskStatus.HumanReviewRequired) return null;
-        var gate = PlanHumanReviewGatePolicy.FindCombinableGate(plan, task.TaskId);
+        var gate = PlanHumanReviewGatePolicy.FindCombinableGate(
+            plan, task.TaskId, allowPendingReviewSiblings: true);
         if (gate is null) return null;
 
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(

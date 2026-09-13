@@ -1371,7 +1371,7 @@ public partial class MainWindow : Window
             onInboxChanged:             OnInboxWatcherChanged,
             onTeamFileChanged:          HandleSquadMarkdownWatcherChange,
             onTeamFileRenamed:          HandleSquadMarkdownWatcherRename,
-            onGitHeadChanged:           UpdateBranchIndicator,
+            onGitHeadChanged:           () => _ = RefreshBranchIfChangedAsync(),
             onRestartRequestChanged:    HandleRestartRequestChanged,
             onDocsChanged:              OnDocsWatcherChanged,
             onDocsRenamed:              OnDocsWatcherRenamed,
@@ -12890,7 +12890,7 @@ public partial class MainWindow : Window
                        RequestPlanPauseAfterCurrentStep(paused);
                }
             : null;
-        var currentHead = TryReadCurrentHeadCommit();
+        var currentHead = ReadCachedRecoveryHeadCommit();
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
         var interruptedRecoveryAction = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
                                         !string.IsNullOrWhiteSpace(interruptedTaskId)
@@ -12898,7 +12898,7 @@ public partial class MainWindow : Window
                 durablePlan,
                 interruptedTaskId!,
                 currentHead,
-                (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant))
+                (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant))
             : null;
         var hasRecoveryAssessment = durablePlan?.InterruptionData?.RecoveryAssessment is not null &&
                                     !string.IsNullOrWhiteSpace(interruptedTaskId);
@@ -15363,8 +15363,10 @@ public partial class MainWindow : Window
         bool verificationOnly,
         string? baselineOverride = null,
         string? transcriptCommit = null,
-        bool skipWorktreePreflight = false)
+        bool skipWorktreePreflight = false,
+        Func<string, string, Task<string>>? runGit = null)
     {
+        runGit ??= RunGitAsync;
         if (_currentWorkspace is null) return ("No workspace is active.", null, [], []);
         if (string.IsNullOrWhiteSpace(result.Commit) ||
             !Regex.IsMatch(result.Commit, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
@@ -15373,12 +15375,12 @@ public partial class MainWindow : Window
         try
         {
             var workspace = _currentWorkspace.FolderPath;
-            var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
+            var head = (await runGit(workspace, "rev-parse HEAD")).Trim();
             var baseline = baselineOverride ?? _decomposeIterationBaselineCommit;
             string resolved;
             try
             {
-                resolved = (await RunGitAsync(
+                resolved = (await runGit(
                     workspace,
                     $"rev-parse --verify \"{result.Commit}^{{commit}}\"")).Trim();
             }
@@ -15405,11 +15407,12 @@ public partial class MainWindow : Window
                 try
                 {
                     if (!string.IsNullOrWhiteSpace(baseline))
-                        await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{resolved}\"");
-                    await RunGitAsync(workspace, $"merge-base --is-ancestor \"{resolved}\" \"{head}\"");
+                        await runGit(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{resolved}\"");
+                    await runGit(workspace, $"merge-base --is-ancestor \"{resolved}\" \"{head}\"");
                 }
-                catch
+                catch (InvalidOperationException ex)
                 {
+                    SquadDashTrace.Write("PlanRecovery", $"Task commit ancestry validation failed: {ex.Message}");
                     return ($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null, [], []);
                 }
             }
@@ -15417,10 +15420,11 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    await RunGitAsync(workspace, $"merge-base --is-ancestor \"{resolved}\" \"{head}\"");
+                    await runGit(workspace, $"merge-base --is-ancestor \"{resolved}\" \"{head}\"");
                 }
-                catch
+                catch (InvalidOperationException ex)
                 {
+                    SquadDashTrace.Write("PlanRecovery", $"Verification commit ancestry validation failed: {ex.Message}");
                     return ($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null, [], []);
                 }
             }
@@ -15434,8 +15438,8 @@ public partial class MainWindow : Window
             if (!string.IsNullOrWhiteSpace(baseline))
             {
                 var rangeEnd = verificationOnly ? head : resolved;
-                await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{rangeEnd}\"");
-                var commitCountText = (await RunGitAsync(
+                await runGit(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{rangeEnd}\"");
+                var commitCountText = (await runGit(
                     workspace,
                     $"rev-list --count \"{baseline}..{rangeEnd}\"")).Trim();
                 if (!int.TryParse(commitCountText, out var commitCount))
@@ -15445,7 +15449,7 @@ public partial class MainWindow : Window
 
                 if (!verificationOnly)
                 {
-                    var commitOutput = await RunGitAsync(
+                    var commitOutput = await runGit(
                         workspace,
                         $"rev-list --reverse \"{baseline}..{rangeEnd}\"");
                     commits = commitOutput
@@ -15472,14 +15476,14 @@ public partial class MainWindow : Window
                 }
             }
 
-            var changedPaths = (await RunGitAsync(
+            var changedPaths = (await runGit(
                     workspace,
                     string.IsNullOrWhiteSpace(baseline)
                         ? $"diff-tree --no-commit-id --name-only -r \"{resolved}\""
                         : $"diff --name-only \"{baseline}..{(verificationOnly ? head : resolved)}\""))
                 .Replace("\r\n", "\n", StringComparison.Ordinal)
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
+            var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace, runGit);
             if (tasksRelativePath is not null &&
                 changedPaths.Any(path => string.Equals(
                     path.Replace('\\', '/'),
@@ -15493,6 +15497,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            SquadDashTrace.Write("PlanRecovery", $"Task commit validation failed: {ex.Message}");
             return ($"Git validation failed: {ex.Message}", null, [], []);
         }
     }
@@ -15530,9 +15535,13 @@ public partial class MainWindow : Window
             return;
 
         var workspace = _currentWorkspace.FolderPath;
+        var store = _planStore;
+        using var recoveryBudget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var cancellationToken = recoveryBudget.Token;
         var turns = _conversationManager.ConversationState.Turns;
-        foreach (var plan in _planStore.LoadAll())
+        foreach (var plan in store.LoadAll())
         {
+            if (cancellationToken.IsCancellationRequested) break;
             var interruption = plan.InterruptionData;
             var taskId = interruption?.InterruptedTaskId;
             var baseline = interruption?.LastCommit;
@@ -15548,21 +15557,22 @@ public partial class MainWindow : Window
                 turns, plan.PlanId, plan.Revision, taskId);
             foreach (var candidate in candidates)
             {
+                if (cancellationToken.IsCancellationRequested) break;
                 string taskBaseline;
                 string candidateCommit;
                 try
                 {
-                    taskBaseline = (await RunGitAsync(
+                    taskBaseline = (await PlanRecoveryGit.RunRequiredAsync(
                         workspace,
-                        $"rev-parse --verify \"{baseline}^{{commit}}\"")).Trim();
-                    candidateCommit = (await RunGitAsync(
+                        $"rev-parse --verify \"{baseline}^{{commit}}\"", cancellationToken)).Trim();
+                    candidateCommit = (await PlanRecoveryGit.RunRequiredAsync(
                         workspace,
-                        $"rev-parse --verify \"{candidate.Commit}^{{commit}}\"")).Trim();
-                    await RunGitAsync(
+                        $"rev-parse --verify \"{candidate.Commit}^{{commit}}\"", cancellationToken)).Trim();
+                    await PlanRecoveryGit.RunRequiredAsync(
                         workspace,
-                        $"merge-base --is-ancestor \"{taskBaseline}\" \"{candidateCommit}\"");
+                        $"merge-base --is-ancestor \"{taskBaseline}\" \"{candidateCommit}\"", cancellationToken);
                 }
-                catch (Exception ex)
+                catch (InvalidOperationException ex)
                 {
                     SquadDashTrace.Write(
                         "PlanRecovery",
@@ -15573,7 +15583,9 @@ public partial class MainWindow : Window
                 var validation = await ValidateDecomposeStepCommitAsync(
                     candidate,
                     verificationOnly: false,
-                    baselineOverride: taskBaseline);
+                    baselineOverride: taskBaseline,
+                    skipWorktreePreflight: true,
+                    runGit: (folder, arguments) => PlanRecoveryGit.RunRequiredAsync(folder, arguments, cancellationToken));
                 if (validation.Error is not null || string.IsNullOrWhiteSpace(validation.EffectiveCommit))
                 {
                     SquadDashTrace.Write(
@@ -15590,10 +15602,13 @@ public partial class MainWindow : Window
                     candidate.Summary,
                     candidate.Verification,
                     validation.Commits);
+                var isDescendant = selectedEvidence is not null &&
+                    !string.Equals(selectedEvidence.Commit, evidence.Commit, StringComparison.OrdinalIgnoreCase) &&
+                    await PlanRecoveryGit.IsAncestorAsync(workspace, selectedEvidence.Commit, evidence.Commit, cancellationToken);
                 var replacement = InterruptedPlanEvidenceRefresher.SelectReplacement(
                     selectedEvidence,
                     evidence,
-                    (ancestor, descendant) => IsGitAncestor(workspace, ancestor, descendant));
+                    (_, _) => isDescendant);
                 if (replacement is null)
                 {
                     if (selectedEvidence is not null)
@@ -15639,6 +15654,14 @@ public partial class MainWindow : Window
 
             if (!evidenceChanged)
                 continue;
+            if (!ReferenceEquals(store, _planStore) ||
+                !string.Equals(workspace, _currentWorkspace?.FolderPath, StringComparison.OrdinalIgnoreCase) ||
+                store.Load(plan.PlanId) is not { } latest ||
+                !string.Equals(JsonSerializer.Serialize(latest), JsonSerializer.Serialize(plan), StringComparison.Ordinal))
+            {
+                SquadDashTrace.Write("PlanRecovery", $"Skipped evidence refresh for changed workspace or plan={plan.PlanId}.");
+                continue;
+            }
 
             var reconciled = plan with
             {
@@ -15661,6 +15684,7 @@ public partial class MainWindow : Window
                     $"Could not persist refreshed task evidence plan={plan.PlanId} task={taskId}: {saveError}");
             }
         }
+        await RefreshRecoveryGitSnapshotAsync();
     }
 
     private static IReadOnlyList<PlanEvidenceCommit> MergeRecoveryEvidenceCommits(
@@ -16937,24 +16961,56 @@ public partial class MainWindow : Window
                 ReviewAttentions.Count: > 0,
             })
         {
-            if (_currentWorkspace is null)
-                throw new InvalidOperationException("Cannot validate reviewed evidence because the active workspace is unavailable.");
-            currentHead = (await RunGitAsync(_currentWorkspace.FolderPath, "rev-parse HEAD")).Trim();
-            foreach (var reviewAttention in primaryAction.ReviewAttentions)
+            void RejectReview(string message)
             {
-                if (await ValidateHumanReviewStepAcceptanceAsync(plan, reviewAttention)) continue;
+                ReportPlanActionIssue(plan.PlanId, "Review could not be completed", message);
                 if (cards is not null)
                     foreach (var card in cards) TranscriptApprovalCardBuilder.HideUpdatingState(card);
-                const string validationMessage =
-                    "The review was not completed, so no task or checkpoint state changed.";
                 if (_openPlanApprovalReviewWindows.TryGetValue(clickToken.PlanId, out var reviewWindow))
-                    reviewWindow.CancelApprovalUpdate(validationMessage);
+                    reviewWindow.CancelApprovalUpdate(message);
                 if (_inboxStore?.GetById(messageId) is { } reviewMessage)
                     RefreshOpenApprovalInboxWindows(messageId, reviewMessage);
+            }
+            var workspace = _currentWorkspace?.FolderPath;
+            var store = _planStore;
+            using var validationBudget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            currentHead = await PlanRecoveryGit.TryReadHeadAsync(workspace, validationBudget.Token);
+            if (currentHead is null)
+            {
+                RejectReview("Current Git evidence is unavailable. No task or checkpoint state changed; retry after Git is available.");
+                return;
+            }
+            var reviewedTaskCommits = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var reviewAttention in primaryAction.ReviewAttentions)
+            {
+                if (!await ValidateHumanReviewStepAcceptanceAsync(
+                        plan, reviewAttention, currentHead,
+                        requireCurrentHead: primaryAction.ReviewAttentions.Count == 1,
+                        validationBudget.Token))
+                {
+                    RejectReview("The review was not completed, so no task or checkpoint state changed.");
+                    return;
+                }
+                var handoff = reviewAttention.Task.Handoff!;
+                reviewedTaskCommits.Add(reviewAttention.Task.TaskId,
+                    handoff.CompletionKind == DecomposeStepCompletionKind.VerifiedNoOp
+                        ? handoff.EvaluatedCommit!
+                        : handoff.Commit!);
+            }
+            var finalHead = await PlanRecoveryGit.TryReadHeadAsync(workspace, validationBudget.Token);
+            var latest = store.Load(plan.PlanId);
+            if (!ReferenceEquals(store, _planStore) ||
+                !string.Equals(workspace, _currentWorkspace?.FolderPath, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(currentHead, finalHead, StringComparison.OrdinalIgnoreCase) ||
+                latest is null ||
+                !string.Equals(JsonSerializer.Serialize(latest), JsonSerializer.Serialize(plan), StringComparison.Ordinal))
+            {
+                RejectReview("The workspace, plan, or Git evidence changed during review. No state changed; reopen the review.");
                 return;
             }
             prepareResolution = current =>
-                PlanHumanReviewStepAcceptance.ApplyTasks(current, primaryAction.ReviewAttentions, currentHead);
+                PlanHumanReviewStepAcceptance.ApplyTasks(
+                    current, primaryAction.ReviewAttentions, currentHead, reviewedTaskCommits);
         }
         var resolution = await _planApprovalRuntime.ApproveAsync(
             clickToken,
@@ -17749,7 +17805,7 @@ public partial class MainWindow : Window
         var messageId = DecomposePlanInbox.BuildRecoveryMessageId(pendingPlan, taskId);
         var existing = _inboxStore.GetById(messageId);
         if (existing is null) return;
-        var currentHead = TryReadCurrentHeadCommit();
+        var currentHead = ReadCachedRecoveryHeadCommit();
 
         var refreshed = DecomposePlanInbox.BuildRecoveryMessage(
             pendingPlan,
@@ -17759,7 +17815,7 @@ public partial class MainWindow : Window
             plan.InterruptionData?.TaskCommitEvidence,
             plan,
             currentHead,
-            (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant)) with
+            (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant)) with
         {
             Read = existing.Read,
         };
@@ -18459,7 +18515,7 @@ public partial class MainWindow : Window
         if (plan is null) return;
         var durablePlan = _planStore?.Load(groupId);
         var evidence = durablePlan?.InterruptionData?.TaskCommitEvidence;
-        var currentHead = TryReadCurrentHeadCommit();
+        var currentHead = ReadCachedRecoveryHeadCommit();
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             plan,
             taskId,
@@ -18468,21 +18524,19 @@ public partial class MainWindow : Window
             evidence,
             durablePlan,
             currentHead,
-            (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
+            (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant));
         var existing = _inboxStore.GetById(message.Id);
-        if (existing is not null)
-        {
-            _inboxStore.Save(message with
+        _inboxStore.Save(existing is null
+            ? message
+            : message with
             {
                 Read = existing.Read,
                 Timestamp = existing.Timestamp,
             });
-            _inboxPanel?.Refresh(_inboxStore.LoadAll());
-            return;
-        }
-        _inboxStore.Save(message);
         _inboxPanel?.Refresh(_inboxStore.LoadAll());
-        AppendInboxReceivedEntry(message.Subject, message.Id);
+        if (existing is null)
+            AppendInboxReceivedEntry(message.Subject, message.Id);
+        _ = RefreshRecoveryGitSnapshotAsync(refreshSurfaces: true);
     }
 
     private void ScheduleDecomposeSystemEntry(
@@ -19165,6 +19219,10 @@ public partial class MainWindow : Window
         {
             var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(
                 durablePlan?.InterruptionData?.Reason);
+            var provenance = durablePlan is null ? null :
+                PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(durablePlan, taskId);
+            if (provenance is not null)
+                compactReason = provenance + "\n\n" + compactReason;
             var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 6);
             var reasonLabel = new Run("Why it stopped: ") { FontWeight = FontWeights.SemiBold };
             reasonLabel.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
@@ -19178,14 +19236,14 @@ public partial class MainWindow : Window
         var presentation = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.Build(durablePlan, taskId, hasPreservedWork);
-        var recoveryHead = TryReadCurrentHeadCommit();
+        var recoveryHead = ReadCachedRecoveryHeadCommit();
         var primaryRecoveryAction = durablePlan is null
             ? null
             : PlanRecoveryActionPresentationBuilder.Build(
                 durablePlan,
                 taskId,
                 recoveryHead,
-                (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
+                (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant));
 
         if (isBranchLeaseRecovery && durablePlan is not null)
         {
@@ -19217,6 +19275,19 @@ public partial class MainWindow : Window
                 assessmentEvidence,
                 assessmentStepLabel);
             var assessmentParagraph = CreateTranscriptParagraph(bottomMargin: 5);
+            var assessmentCommit = assessmentEvidence.EvaluatedCommit ?? assessmentEvidence.HeadCommit;
+            var displayedCommit = presentation?.CommitEvidence?.Commit;
+            if (!string.IsNullOrWhiteSpace(displayedCommit) &&
+                !string.Equals(assessmentCommit, displayedCommit, StringComparison.OrdinalIgnoreCase))
+            {
+                var source = string.IsNullOrWhiteSpace(assessmentCommit)
+                    ? "an unknown earlier commit"
+                    : $"commit {assessmentCommit}";
+                MarkdownFlowDocumentBuilder.AddInboxInlineText(
+                    assessmentParagraph.Inlines,
+                    $"Assessment below reflects {source}; current evidence is commit {displayedCommit}. " +
+                    "These conclusions have not been reverified for the current evidence.\n\n");
+            }
             MarkdownFlowDocumentBuilder.AddInboxInlineText(
                 assessmentParagraph.Inlines,
                 assessmentPresentation.Finding);
@@ -19900,14 +19971,13 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var currentHead = _currentWorkspace is null
-                ? null
-                : (await RunGitAsync(_currentWorkspace.FolderPath, "rev-parse HEAD")).Trim();
+            await RefreshRecoveryGitSnapshotAsync();
+            var currentHead = ReadCachedRecoveryHeadCommit();
             var action = PlanRecoveryActionPresentationBuilder.Build(
                 durable,
                 taskId,
                 currentHead,
-                (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
+                (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant));
             switch (action.Kind)
             {
                 case PlanRecoveryPrimaryActionKind.AcceptStep:
@@ -21761,7 +21831,10 @@ public partial class MainWindow : Window
 
     private async Task<bool> ValidateHumanReviewStepAcceptanceAsync(
         Plan plan,
-        PlanReviewAttentionPresentation reviewAttention)
+        PlanReviewAttentionPresentation reviewAttention,
+        string currentHead,
+        bool requireCurrentHead,
+        CancellationToken cancellationToken)
     {
         if (_currentWorkspace is null) return false;
         if (reviewAttention.Checklist.Count == 0 || reviewAttention.Checklist.Any(item => !item.IsChecked))
@@ -21796,7 +21869,13 @@ public partial class MainWindow : Window
         }
         try
         {
-            await RunGitAsync(workspace, $"merge-base --is-ancestor \"{reviewTarget}\" HEAD");
+            if ((requireCurrentHead && !string.Equals(reviewTarget, currentHead, StringComparison.OrdinalIgnoreCase)) ||
+                !await PlanRecoveryGit.IsAncestorAsync(workspace, reviewTarget, currentHead, cancellationToken))
+            {
+                ReportPlanActionIssue(plan.PlanId, "Review evidence stale",
+                    $"The reviewed commit for task {reviewAttention.Task.TaskId} could not be validated against the current branch.");
+                return false;
+            }
             if (PlanRecoveryAcceptancePolicy.RequiresCleanWorktreeBeforeAcceptance(plan))
                 await EnsurePlanWorktreeReadyAsync(workspace, plan.PlanId);
             return true;
@@ -21816,7 +21895,7 @@ public partial class MainWindow : Window
     {
         if (_inboxStore is null || _planStore is null) return;
 
-        var currentHead = TryReadCurrentHeadCommit();
+        var currentHead = ReadCachedRecoveryHeadCommit();
         var changed = false;
         foreach (var message in _inboxStore.LoadAll()
                      .Where(DecomposeRecoveryInboxReconciler.IsRecoveryMessage)
@@ -21833,7 +21912,7 @@ public partial class MainWindow : Window
                 message,
                 plan,
                 currentHead,
-                (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
+                (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant));
             if (!Equals(result.Message, message))
             {
                 _inboxStore.Save(result.Message);
@@ -21876,12 +21955,12 @@ public partial class MainWindow : Window
         var plan = _planStore is null || string.IsNullOrWhiteSpace(planId)
             ? null
             : _planStore.Load(planId);
-        var currentHead = TryReadCurrentHeadCommit();
+        var currentHead = ReadCachedRecoveryHeadCommit();
         var result = DecomposeRecoveryInboxReconciler.Reconcile(
             message,
             plan,
             currentHead,
-            (ancestor, descendant) => IsCurrentWorkspaceAncestor(ancestor, descendant));
+            (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant));
         if (!Equals(result.Message, message))
             _inboxStore.Save(result.Message);
         if (result.ShouldArchive)
@@ -49713,47 +49792,43 @@ public partial class MainWindow : Window
         }
     }
 
-    private string? TryReadCurrentHeadCommit()
-    {
-        if (_currentWorkspace is null)
-            return null;
-        try
-        {
-            return RunGitAsync(_currentWorkspace.FolderPath, "rev-parse HEAD").GetAwaiter().GetResult().Trim();
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    private static readonly PlanRecoveryGitQuery PlanRecoveryGit = new();
 
-    private bool IsCurrentWorkspaceAncestor(string ancestor, string descendant) =>
-        _currentWorkspace is not null &&
-        IsGitAncestor(_currentWorkspace.FolderPath, ancestor, descendant);
+    private readonly PlanRecoveryGitPresentationCache _recoveryGitPresentationCache = new();
 
-    private static bool IsGitAncestor(string workspace, string ancestor, string descendant)
+    private PlanRecoveryGitSnapshot? RecoveryPresentationSnapshot =>
+        string.Equals(_recoveryGitPresentationCache.Current?.Workspace, _currentWorkspace?.FolderPath, StringComparison.OrdinalIgnoreCase)
+            ? _recoveryGitPresentationCache.Current
+            : null;
+
+    private string? ReadCachedRecoveryHeadCommit() => RecoveryPresentationSnapshot?.Head;
+
+    private bool IsCachedRecoveryAncestor(string ancestor, string descendant) =>
+        RecoveryPresentationSnapshot?.IsAncestor(ancestor, descendant) == true;
+
+    private async Task RefreshRecoveryGitSnapshotAsync(bool refreshSurfaces = false)
     {
-        try
+        var workspace = _currentWorkspace?.FolderPath;
+        var store = _planStore;
+        var version = _recoveryGitPresentationCache.BeginRefresh(workspace, refreshSurfaces);
+        if (workspace is null || store is null) return;
+        var commits = store.LoadAll()
+            .Select(plan => plan.InterruptionData?.TaskCommitEvidence?.Commit)
+            .OfType<string>().ToArray();
+        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var snapshot = await PlanRecoveryGit.ReadSnapshotAsync(workspace, commits, budget.Token);
+        if (!ReferenceEquals(store, _planStore) ||
+            !string.Equals(workspace, _currentWorkspace?.FolderPath, StringComparison.OrdinalIgnoreCase))
+            return;
+        if (!_recoveryGitPresentationCache.TryApply(version, snapshot, out var shouldRefreshSurfaces))
+            return;
+        if (shouldRefreshSurfaces)
         {
-            var psi = new System.Diagnostics.ProcessStartInfo(
-                "git",
-                $"merge-base --is-ancestor \"{ancestor}\" \"{descendant}\"")
-            {
-                WorkingDirectory = workspace,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc is null)
-                return false;
-            proc.WaitForExit();
-            return proc.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
+            foreach (var plan in store.LoadAll().Where(plan =>
+                         plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked))
+                RefreshHumanReviewSurfaces(plan);
+            SyncPlansPanel();
+            _recoveryGitPresentationCache.MarkRendered();
         }
     }
 
@@ -49764,7 +49839,8 @@ public partial class MainWindow : Window
         if (folder is null)
             return;
 
-        var branch = await Task.Run(() => ReadGitBranch(folder)).ConfigureAwait(false);
+        var branch = await Task.Run(() => ReadGitBranch(folder));
+        await RefreshRecoveryGitSnapshotAsync(refreshSurfaces: true);
         if (branch != _currentBranch)
             await Dispatcher.InvokeAsync(UpdateBranchIndicator);
     }
@@ -59771,11 +59847,12 @@ public partial class MainWindow : Window
         return paths;
     }
 
-    private async Task<string?> GetTasksRepositoryRelativePathAsync(string workspace)
+    private async Task<string?> GetTasksRepositoryRelativePathAsync(
+        string workspace, Func<string, string, Task<string>>? runGit = null)
     {
         if (_currentWorkspace is null) return null;
-        var repositoryRoot = await RunGitAsync(workspace, "rev-parse --show-toplevel");
         var tasksPath = Path.Combine(_currentWorkspace.SquadFolderPath, "tasks.md");
+        var repositoryRoot = await (runGit ?? RunGitAsync)(workspace, "rev-parse --show-toplevel");
         return DecomposeWorktreePolicy.GetRepositoryRelativePath(repositoryRoot, tasksPath);
     }
 
