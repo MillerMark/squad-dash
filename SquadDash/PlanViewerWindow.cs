@@ -5714,10 +5714,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Opacity = engaged ? engagedOpacity : 1.0,
         };
         hitTarget.Children.Add(indicator);
-        if (isDependent && stop is not null)
+        const double dependentOctagonVisualScale = 0.75;
+        var shrinkToDependentVisualSize = stop is not null &&
+                                          !approved &&
+                                          !showsQuestion &&
+                                          (isDependent || !engaged);
+        if (shrinkToDependentVisualSize)
         {
             indicator.RenderTransformOrigin = new Point(0.5, 0.5);
-            indicator.RenderTransform = new ScaleTransform(0.75, 0.75);
+            indicator.RenderTransform = new ScaleTransform(dependentOctagonVisualScale, dependentOctagonVisualScale);
         }
         if (toggle is not null && stop is not null && selectionAnchor is null)
         {
