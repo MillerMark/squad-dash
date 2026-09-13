@@ -1896,9 +1896,7 @@ export function evaluatePlanDelegationLaunch(
         ? parsedArgs.plan_execution_request as Record<string, unknown>
         : undefined;
     const hasAssignmentEnvelope = prompt.includes("SQUADDASH_AGENT_ASSIGNMENT_JSON:");
-    const referencedKnownWork = guard?.knownPlans.some(plan =>
-        plan.workItemIds.some(workItemId => prompt.includes(workItemId))) === true;
-    const planLaunch = request !== undefined || hasAssignmentEnvelope || referencedKnownWork;
+    const planLaunch = request !== undefined || hasAssignmentEnvelope;
     if (!planLaunch)
         return { planLaunch: false, allowed: true };
 
@@ -3350,7 +3348,7 @@ export class SquadBridgeService {
                         if (counterfeitHandle) {
                             return {
                                 permissionDecision: "deny" as const,
-                                additionalContext:
+                                permissionDecisionReason:
                                     "SquadDash rejected this generic task launch because it impersonates or contains a host-owned roster assignment " +
                                     `(matched ${counterfeitHandle}). Retry with delegate_roster_agent and an exact agent_handle. ` +
                                     "Use task only for genuinely temporary workers."
@@ -3370,7 +3368,7 @@ export class SquadBridgeService {
                                 currentRequest.planLaunchCorrectionCount++;
                             return {
                                 permissionDecision: "deny" as const,
-                                additionalContext: buildPlanLaunchCorrectionContext(
+                                permissionDecisionReason: buildPlanLaunchCorrectionContext(
                                     evaluation,
                                     currentRequest?.planDelegationGuard,
                                     correctionAlreadyUsed)

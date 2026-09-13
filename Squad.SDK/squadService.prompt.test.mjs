@@ -60,13 +60,31 @@ test("plan delegation authorization validates the active phase, branch, worktree
         allowed: true
     });
     assert.match(evaluatePlanDelegationLaunch(
-        { ...validArgs, plan_execution_request: undefined },
+        {
+            ...validArgs,
+            prompt: "SQUADDASH_AGENT_ASSIGNMENT_JSON:\n{}",
+            plan_execution_request: undefined
+        },
         guard,
         "D:\\Drive\\Source\\SquadDash-public").reason, /missing/);
     assert.match(evaluatePlanDelegationLaunch(
         { ...validArgs, agent_handle: "lyra-morn" },
         guard,
         "D:\\Drive\\Source\\SquadDash-public").reason, /roster agent/);
+});
+
+test("known plan task references do not turn ordinary roster delegation into plan execution", () => {
+    const guard = {
+        knownPlans: [{ planId: "CLIDETECT-20260814", workItemIds: ["CLIDETECT-20260814-005"] }]
+    };
+
+    assert.deepEqual(evaluatePlanDelegationLaunch({
+        agent_handle: "arjun-sen",
+        prompt: "Apply a bounded manual correction to CLIDETECT-20260814-005."
+    }, guard, "D:\\Drive\\Source\\SquadDash-public"), {
+        planLaunch: false,
+        allowed: true
+    });
 });
 
 test("problematic plan launch receives one correction before requiring human approval", async () => {
@@ -83,7 +101,7 @@ test("problematic plan launch receives one correction before requiring human app
                     toolName: "delegate_roster_agent",
                     toolArgs: {
                         agent_handle: "arjun-sen",
-                        prompt: "Resume CLIDETECT-20260814-005 now."
+                        prompt: "SQUADDASH_AGENT_ASSIGNMENT_JSON:\n{}\nResume CLIDETECT-20260814-005 now."
                     },
                     cwd: "D:\\Drive\\Source\\SquadDash-public"
                 };
@@ -106,10 +124,10 @@ test("problematic plan launch receives one correction before requiring human app
     });
 
     assert.equal(decisions[0].permissionDecision, "deny");
-    assert.match(decisions[0].additionalContext, /DECOMPOSE_RECOVERY_JSON/);
+    assert.match(decisions[0].permissionDecisionReason, /DECOMPOSE_RECOVERY_JSON/);
     assert.equal(decisions[1].permissionDecision, "deny");
-    assert.match(decisions[1].additionalContext, /explicit human approval/);
-    assert.doesNotMatch(decisions[1].additionalContext, /Retry with/);
+    assert.match(decisions[1].permissionDecisionReason, /explicit human approval/);
+    assert.doesNotMatch(decisions[1].permissionDecisionReason, /Retry with/);
 });
 
 test("auth diagnostics preserve a recent Copilot service failure instead of demanding sign-in", () => {
