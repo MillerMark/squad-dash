@@ -278,11 +278,38 @@ internal static class PlanRecoveryPresentationBuilder
 {
     internal const string AssessmentStoppedMessage = "Assessment finished — plan still stopped.";
 
-    internal static string BuildUnattributedReviewLabel(string stepLabel) =>
-        $"Review repository changes not attributed to {stepLabel}";
+    internal static string BuildCommittedReviewLabel(
+        string stepLabel,
+        string? baselineCommit,
+        string? terminalCommit) =>
+        $"View committed changes ({BaselineLabel(baselineCommit)} → {TerminalLabel(terminalCommit)})";
 
-    internal static string UnattributedReviewHint(string stepLabel) =>
-        $"Open commits since the last accepted step. SquadDash could not attribute them to {stepLabel}; they may include unrelated work. Reviewing does not change plan state.";
+    internal static string CommittedReviewHint(
+        string stepLabel,
+        string? baselineCommit,
+        string? terminalCommit) =>
+        $"Open the local change viewer for {stepLabel}, comparing {BaselineLabel(baselineCommit)} → {TerminalLabel(terminalCommit)}. Reviewing does not change the plan.";
+
+    internal static string BuildUnattributedReviewLabel(string stepLabel, string? baselineCommit = null) =>
+        string.IsNullOrWhiteSpace(baselineCommit)
+            ? $"View workspace changes for {stepLabel}"
+            : $"View workspace changes ({ShortSha(baselineCommit)} → workspace)";
+
+    internal static string UnattributedReviewHint(string stepLabel, string? baselineCommit = null) =>
+        string.IsNullOrWhiteSpace(baselineCommit)
+            ? $"Open workspace changes associated with {stepLabel}. Exact task attribution is unavailable; reviewing does not change plan state."
+            : $"Open workspace changes compared with recorded baseline {ShortSha(baselineCommit)}. SquadDash could not attribute every change to {stepLabel}; reviewing does not change plan state.";
+
+    private static string ShortSha(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? "unknown"
+            : value.Length > 7 ? value[..7] : value;
+
+    private static string BaselineLabel(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "baseline unavailable" : ShortSha(value);
+
+    private static string TerminalLabel(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "current commit unavailable" : ShortSha(value);
 
     internal static bool ShouldShowGenericReason(PlanRecoveryDecisionEvidence? assessment) =>
         assessment is null;
@@ -337,6 +364,13 @@ internal static class PlanRecoveryPresentationBuilder
         {
             return "An earlier SquadDash build stopped after observing an additional helper worker. " +
                    "The completed primary worker's commit was preserved, and additional helpers are now advisory rather than fatal.";
+        }
+
+        if (normalized.Contains("evaluatedCommit and noOpEvidence are only valid", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("noOpEvidence is only valid for a verified-no-op", StringComparison.OrdinalIgnoreCase))
+        {
+            return "The task returned both changed-code details and details meant for a no-changes-needed result. " +
+                   "SquadDash preserved the source changes but could not safely record the step as complete.";
         }
 
         return FormatProtocolIdentifiers(normalized);
@@ -437,7 +471,9 @@ internal static class PlanRecoveryPresentationBuilder
     {
         var commit = ResolveDisplayedCommit(plan, taskId);
         if (string.IsNullOrWhiteSpace(commit)) return null;
-        var reportCommit = ResolveReviewReport(plan, taskId)?.EvaluatedCommit;
+        var report = ResolveReviewReport(plan, taskId);
+        if (report is null) return null;
+        var reportCommit = report.EvaluatedCommit;
         if (string.Equals(commit, reportCommit, StringComparison.OrdinalIgnoreCase)) return null;
         var source = string.IsNullOrWhiteSpace(reportCommit) ? "an unknown earlier commit" : $"commit {reportCommit}";
         return $"Review below reflects {source}; current evidence is commit {commit}. " +

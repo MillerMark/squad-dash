@@ -155,6 +155,9 @@ internal static class DecomposePlanInbox
 
         var hasCommitEvidence = taskCommitEvidence is not null &&
             string.Equals(taskCommitEvidence.TaskId, taskId, StringComparison.Ordinal);
+        var completedWorkReview = durablePlan is null
+            ? null
+            : CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
         var isAmendment = plan.Group.Tasks.Any(task =>
             string.Equals(task.Id, taskId, StringComparison.Ordinal) &&
             !string.IsNullOrWhiteSpace(task.AmendmentGateId));
@@ -167,12 +170,28 @@ internal static class DecomposePlanInbox
             taskTitle);
         InboxAction BuildEvidenceLink() => new()
         {
-            Label = PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(stepLabel),
+            Label = completedWorkReview?.ComparisonLabel ??
+                    (hasCommitEvidence
+                        ? PlanRecoveryPresentationBuilder.BuildCommittedReviewLabel(
+                            stepLabel,
+                            taskCommitEvidence!.BaselineCommit,
+                            taskCommitEvidence.Commit)
+                        : PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(
+                            stepLabel,
+                            durablePlan?.InterruptionData?.LastCommit)),
             RouteMode = RecoveryEvidenceRouteMode,
             Prompt = DecomposeRecoveryDecisionParser.Marker + "\n" + JsonSerializer.Serialize(
                 new DecomposeRecoveryDecision(plan.Group.GroupId, plan.Revision, "review-completed-work"),
                 DecisionOptions),
-            Hint = PlanRecoveryPresentationBuilder.UnattributedReviewHint(stepLabel),
+            Hint = completedWorkReview?.ComparisonHint ??
+                   (hasCommitEvidence
+                       ? PlanRecoveryPresentationBuilder.CommittedReviewHint(
+                           stepLabel,
+                           taskCommitEvidence!.BaselineCommit,
+                           taskCommitEvidence.Commit)
+                       : PlanRecoveryPresentationBuilder.UnattributedReviewHint(
+                           stepLabel,
+                           durablePlan?.InterruptionData?.LastCommit)),
         };
         var primary = durablePlan is not null
             ? PlanRecoveryActionPresentationBuilder.Build(
@@ -197,8 +216,13 @@ internal static class DecomposePlanInbox
                     "accept-step-complete");
 
         var actions = new List<InboxAction>();
-        if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
+        if (hasCommitEvidence || completedWorkReview is not null ||
+            primary.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
             actions.Add(BuildEvidenceLink());
+        actions.Add(BuildAction(
+            "Assess with AI",
+            "assess-current-work",
+            $"Ask AI whether the current source satisfies every requirement of {stepLabel}. The assessment is read-only and the plan remains stopped."));
         actions.Add(BuildAction(primary.Label, primary.ProtocolAction, primary.Hint));
         if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptStep)
         {
@@ -237,6 +261,12 @@ internal static class DecomposePlanInbox
         var narrative = reviewCard is not null
             ? "**Automated Review Status:**\n" +
               string.Join("\n", reviewCard.AnalysisBullets.Select(bullet => "- " + bullet.Text))
+            : completedWorkReview is not null
+                ? $"**{completedWorkReview.Heading}**\n\n" +
+                  completedWorkReview.Outcome + "\n\n" +
+                  completedWorkReview.EvidenceSummary + "\n\n" +
+                  completedWorkReview.Uncertainty + "\n\n" +
+                  $"Why execution stopped: **{compactReason}**"
             : (provenance is null ? string.Empty : provenance + "\n\n") +
               $"Why it stopped: **{compactReason}**";
         var body = $"**{status}**\n\n" +
@@ -250,7 +280,9 @@ internal static class DecomposePlanInbox
                 ? taskCommitEvidence.Commit[..7]
                 : taskCommitEvidence.Commit;
             body += $"Commits: `{shortCommit}`\n";
-            var tests = PlanRecoveryPresentationBuilder.BuildCompactTestSummary(taskCommitEvidence.Verification);
+            var tests = reviewCard is null && completedWorkReview is not null
+                ? null
+                : PlanRecoveryPresentationBuilder.BuildCompactTestSummary(taskCommitEvidence.Verification);
             if (tests is not null) body += tests + "\n";
             body += primary.Kind == PlanRecoveryPrimaryActionKind.ApproveAmendment
                 ? "\nUse the commit link above to investigate. Approving accepts the amendment and its checkpoint.\n"

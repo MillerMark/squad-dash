@@ -208,6 +208,8 @@ internal sealed class CompletedWorkReviewPresentationTests
         Assert.That(message.Actions.Select(a => a.Label),
             Is.EqualTo(new[]
             {
+                "View committed changes (baselin → abc1234)",
+                "Assess with AI",
                 "Step 1 Is Complete",
                 "✎ Continue Working on Step 1…",
                 "✎ Revise Remaining Plan…",
@@ -254,10 +256,10 @@ internal sealed class CompletedWorkReviewPresentationTests
         {
             Assert.That(message.Actions.Select(a => a.Label),
                 Has.No.Member("Review Completed Work"));
-            Assert.That(message.Actions[0].Label, Is.EqualTo("Review repository changes not attributed to Step 1"));
+            Assert.That(message.Actions[0].Label, Is.EqualTo("View workspace changes for Step 1"));
             Assert.That(message.Actions[0].RouteMode,
                 Is.EqualTo(DecomposePlanInbox.RecoveryEvidenceRouteMode));
-            Assert.That(message.Actions[0].Hint, Does.Contain("may include unrelated work"));
+            Assert.That(message.Actions[0].Hint, Does.Contain("Exact task attribution is unavailable"));
         });
     }
 
@@ -268,11 +270,12 @@ internal sealed class CompletedWorkReviewPresentationTests
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow);
 
-        Assert.That(message.Actions, Has.Count.EqualTo(4));
+        Assert.That(message.Actions, Has.Count.EqualTo(5));
         Assert.That(message.Actions.Select(a => a.Label),
             Is.EqualTo(new[]
             {
-                "Review repository changes not attributed to Step 1",
+                "View workspace changes for Step 1",
+                "Assess with AI",
                 "Step 1 Is Complete & Continue",
                 "Continue Working on Step 1",
                 "✎ Revise Remaining Plan…",
@@ -287,7 +290,7 @@ internal sealed class CompletedWorkReviewPresentationTests
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow, evidence);
 
-        Assert.That(message.Actions, Has.Count.EqualTo(3));
+        Assert.That(message.Actions, Has.Count.EqualTo(5));
         Assert.That(message.Actions.Select(action => action.Label),
             Has.No.Member("Assess & Continue"));
     }
@@ -361,11 +364,12 @@ internal sealed class CompletedWorkReviewPresentationTests
         {
             Assert.That(result.IsActionable, Is.True);
             Assert.That(result.ShouldArchive, Is.False);
-            Assert.That(result.Message.Actions, Has.Count.EqualTo(4));
+            Assert.That(result.Message.Actions, Has.Count.EqualTo(5));
             Assert.That(result.Message.Actions.Select(a => a.Label),
                 Is.EqualTo(new[]
                 {
-                    "Review repository changes not attributed to Step 1",
+                    "View committed changes (baselin → abc1234)",
+                    "Assess with AI",
                     "Step 1 Is Complete & Continue",
                     "Continue Working on Step 1",
                     "✎ Revise Remaining Plan…",
@@ -387,6 +391,34 @@ internal sealed class CompletedWorkReviewPresentationTests
             Assert.That(review.TaskTitle, Is.Not.Empty, "TaskTitle readable by screen reader");
             Assert.That(review.AcceptanceEffect, Is.Not.Empty, "AcceptanceEffect readable by screen reader");
             Assert.That(review.Commit!.Summary, Is.Not.Empty, "Commit summary readable by screen reader");
+        });
+    }
+
+    [Test]
+    public void Build_UsesPlainUnconfirmedHeadingAndBaselineAwareComparison()
+    {
+        var review = CompletedWorkReviewPresentationBuilder.Build(MakePlan(MakeEvidence()), TaskId)!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(review.Heading, Is.EqualTo("Blocked task has committed work, but completion is unconfirmed"));
+            Assert.That(review.ComparisonLabel, Is.EqualTo("View committed changes (baselin → abc1234)"));
+            Assert.That(review.ComparisonHint, Does.Contain("baselin → abc1234"));
+        });
+    }
+
+    [Test]
+    public void BuildCopyText_ExpandsTechnicalDetails()
+    {
+        var review = CompletedWorkReviewPresentationBuilder.Build(MakePlan(MakeEvidence()), TaskId)!;
+        var copied = CompletedWorkReviewPresentationBuilder.BuildCopyText(review);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(copied, Does.Contain("Technical details:"));
+            Assert.That(copied, Does.Contain("Task ID: " + TaskId));
+            Assert.That(copied, Does.Contain("Comparison baseline: baseline000"));
+            Assert.That(copied, Does.Contain("Recorded task commit: abc1234567890"));
         });
     }
 

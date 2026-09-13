@@ -209,14 +209,16 @@ internal static class DecomposeStepResultParser
             canonicalizations.Add("removed redundant commit from verified-no-op result");
         }
 
-        // evaluatedCommit is host-validated no-op metadata. Models occasionally mirror the
-        // changed commit into it even though completionKind already discriminates the variant.
-        // It cannot alter the meaning of a changed result, so discard it at the trust boundary.
+        // evaluatedCommit and noOpEvidence are host-validated no-op metadata. Models sometimes
+        // mirror the inspected snapshot and its evidence into a changed result even though
+        // completionKind already discriminates the variant. Neither field can alter the meaning
+        // of a changed result, so discard both at the trust boundary instead of interrupting an
+        // otherwise valid step for a reporting-only mistake.
         if (string.Equals(result.CompletionKind, DecomposeStepCompletionKind.Changed, StringComparison.Ordinal) &&
-            !string.IsNullOrWhiteSpace(result.EvaluatedCommit))
+            (!string.IsNullOrWhiteSpace(result.EvaluatedCommit) || result.NoOpEvidence is { Count: > 0 }))
         {
-            result = result with { EvaluatedCommit = null };
-            canonicalizations.Add("removed irrelevant evaluatedCommit from changed result");
+            result = result with { EvaluatedCommit = null, NoOpEvidence = null };
+            canonicalizations.Add("removed irrelevant verified-no-op metadata from changed result");
         }
 
         var violations = new List<DecomposeStepResultViolation>();

@@ -348,6 +348,33 @@ public class DecomposeEnvelopeRepairTests
     }
 
     [Test]
+    public void TryParse_ChangedResultWithMirroredNoOpMetadata_IsCanonicalized()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {
+              "groupId":"g1", "taskId":"t1", "revision":"r1",
+              "status":"complete", "completionKind":"changed",
+              "commit":"abc1234", "evaluatedCommit":"abc1234",
+              "summary":"done", "remainingWork":[],
+              "noOpEvidence":[{"requirement":"R","observation":"O","locations":["src/A.cs"]}],
+              "verification":{"status":"passed","command":"test","summary":"passed"}
+            }
+            """;
+
+        var parsed = DecomposeStepResultParser.TryParse(text, out var result, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result!.Commit, Is.EqualTo("abc1234"));
+            Assert.That(result.EvaluatedCommit, Is.Null);
+            Assert.That(result.NoOpEvidence, Is.Null);
+            Assert.That(result.CompletionKind, Is.EqualTo(DecomposeStepCompletionKind.Changed));
+        });
+    }
+
+    [Test]
     public void ParseDetailed_InvalidSchema_RetainsCandidateAndTypedViolations()
     {
         var text = """

@@ -11274,6 +11274,11 @@ public partial class MainWindow : Window
             await AssessPlanRecoveryAsync(plan, recoveryTaskId);
             return true;
         }
+        if (decision.Action == "assess-current-work")
+        {
+            await AssessPlanRecoveryAsync(plan, recoveryTaskId, advisoryOnly: true);
+            return true;
+        }
         if (decision.Action is "accept-step-complete" or "review-completed-work")
         {
             return durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
@@ -13224,7 +13229,11 @@ public partial class MainWindow : Window
             getSettings: () => _settingsSnapshot,
             getAssignableAgents: GetAssignablePlanAgentsForViewer,
             onFontScaleDelta: delta => SetFontSizeScale(_fontScaleLevel + delta),
-            resolveInterruptedPrimaryAction: ResolveInterruptedPrimaryAction)
+            resolveInterruptedPrimaryAction: ResolveInterruptedPrimaryAction,
+            onOpenInterruptedChanges: current =>
+                _ = OpenInterruptedTaskReviewAsync(current.PlanId, current.Revision),
+            onAssessInterruptedWork: current =>
+                _ = AssessInterruptedPlanAdvisoryFromDurableAsync(current))
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -14209,7 +14218,8 @@ public partial class MainWindow : Window
                     commitValidation.EffectiveCommit,
                     result.Summary,
                     result.Verification,
-                    commitValidation.Commits);
+                    commitValidation.Commits,
+                    commitValidation.ChangedFiles);
             }
             else
             {
@@ -14892,7 +14902,8 @@ public partial class MainWindow : Window
                 pending.BaselineCommit,
                 candidate.Commit ?? string.Empty,
                 candidate.Summary,
-                candidate.Verification);
+                candidate.Verification,
+                ChangedFiles: pending.ChangedFiles);
         StopAndOfferDecomposeRecovery(
             groupId,
             taskId,
@@ -15487,7 +15498,7 @@ public partial class MainWindow : Window
     }
 
 
-    private async Task<(string? Error, string? EffectiveCommit, IReadOnlyList<PlanEvidenceCommit> Commits, IReadOnlyList<PlanExecutionAnomaly> Anomalies)> ValidateDecomposeStepCommitAsync(
+    private async Task<(string? Error, string? EffectiveCommit, IReadOnlyList<PlanEvidenceCommit> Commits, IReadOnlyList<PlanExecutionAnomaly> Anomalies, IReadOnlyList<string> ChangedFiles)> ValidateDecomposeStepCommitAsync(
         DecomposeStepResult result,
         bool verificationOnly,
         string? baselineOverride = null,
@@ -15496,10 +15507,10 @@ public partial class MainWindow : Window
         Func<string, string, Task<string>>? runGit = null)
     {
         runGit ??= RunGitAsync;
-        if (_currentWorkspace is null) return ("No workspace is active.", null, [], []);
+        if (_currentWorkspace is null) return ("No workspace is active.", null, [], [], []);
         if (string.IsNullOrWhiteSpace(result.Commit) ||
             !Regex.IsMatch(result.Commit, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
-            return ("The reported commit was missing or malformed.", null, [], []);
+            return ("The reported commit was missing or malformed.", null, [], [], []);
 
         try
         {
@@ -15542,7 +15553,7 @@ public partial class MainWindow : Window
                 catch (InvalidOperationException ex)
                 {
                     SquadDashTrace.Write("PlanRecovery", $"Task commit ancestry validation failed: {ex.Message}");
-                    return ($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null, [], []);
+                    return ($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null, [], [], []);
                 }
             }
             else if (!string.Equals(resolved, head, StringComparison.OrdinalIgnoreCase))
@@ -15554,12 +15565,12 @@ public partial class MainWindow : Window
                 catch (InvalidOperationException ex)
                 {
                     SquadDashTrace.Write("PlanRecovery", $"Verification commit ancestry validation failed: {ex.Message}");
-                    return ($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null, [], []);
+                    return ($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null, [], [], []);
                 }
             }
 
             if (!verificationOnly && string.Equals(baseline, resolved, StringComparison.OrdinalIgnoreCase))
-                return ("The step reported completion without creating a new commit.", null, [], []);
+                return ("The step reported completion without creating a new commit.", null, [], [], []);
 
             IReadOnlyList<PlanEvidenceCommit> commits = [];
             IReadOnlyList<PlanExecutionAnomaly> anomalies = [];
@@ -15572,9 +15583,9 @@ public partial class MainWindow : Window
                     workspace,
                     $"rev-list --count \"{baseline}..{rangeEnd}\"")).Trim();
                 if (!int.TryParse(commitCountText, out var commitCount))
-                    return ("SquadDash could not determine how many commits the step produced.", null, [], []);
+                    return ("SquadDash could not determine how many commits the step produced.", null, [], [], []);
                 if (verificationOnly && commitCount != 0)
-                    return ($"The verification-only step changed the branch by {commitCount} commit(s); it must only evaluate existing work.", null, [], []);
+                    return ($"The verification-only step changed the branch by {commitCount} commit(s); it must only evaluate existing work.", null, [], [], []);
 
                 if (!verificationOnly)
                 {
@@ -15618,16 +15629,16 @@ public partial class MainWindow : Window
                     path.Replace('\\', '/'),
                     tasksRelativePath,
                     StringComparison.OrdinalIgnoreCase)))
-                return ("The AI commit modified tasks.md; plan status is owned by SquadDash.", null, [], []);
+                return ("The AI commit modified tasks.md; plan status is owned by SquadDash.", null, [], [], []);
 
             if (!skipWorktreePreflight)
                 await EnsurePlanWorktreeReadyAsync(workspace);
-            return (null, verificationOnly ? head : resolved, commits, anomalies);
+            return (null, verificationOnly ? head : resolved, commits, anomalies, changedPaths);
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write("PlanRecovery", $"Task commit validation failed: {ex.Message}");
-            return ($"Git validation failed: {ex.Message}", null, [], []);
+            return ($"Git validation failed: {ex.Message}", null, [], [], []);
         }
     }
 
@@ -15732,7 +15743,8 @@ public partial class MainWindow : Window
                     validation.EffectiveCommit,
                     candidate.Summary,
                     candidate.Verification,
-                    validation.Commits);
+                    validation.Commits,
+                    validation.ChangedFiles);
                 var isDescendant = selectedEvidence is not null &&
                     !string.Equals(selectedEvidence.Commit, evidence.Commit, StringComparison.OrdinalIgnoreCase) &&
                     await PlanRecoveryGit.IsAncestorAsync(workspace, selectedEvidence.Commit, evidence.Commit, cancellationToken);
@@ -19038,6 +19050,9 @@ public partial class MainWindow : Window
         var assessmentEvidence = durablePlan?.InterruptionData?.RecoveryAssessment;
         var durableTask = durablePlan?.Tasks.FirstOrDefault(task =>
             string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
+        var completedWorkReview = durablePlan is null
+            ? null
+            : CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
         var isBranchLeaseRecovery = PlanBranchLeaseRecoveryPolicy.IsBranchMismatchReason(
             durablePlan?.InterruptionData?.Reason);
         var humanReview = durablePlan is null
@@ -19138,7 +19153,15 @@ public partial class MainWindow : Window
         recoverySurface.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(card, cardTag));
         var blocks = cardDocument.Blocks;
 
-        var cardTitle = humanReview?.Title ?? "Plan Recovery Required";
+        var taskDefinition = plan.Group.Tasks.FirstOrDefault(task =>
+            string.Equals(task.Id, taskId, StringComparison.Ordinal));
+        var taskTitle = taskDefinition?.Title ?? taskId;
+        var taskIndex = plan.Group.Tasks.ToList().FindIndex(task =>
+            string.Equals(task.Id, taskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            durableTask?.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
+            taskTitle);
+        var cardTitle = humanReview?.Title ?? completedWorkReview?.Heading ?? "Plan Recovery Required";
         var titleParagraph = CreateTranscriptParagraph(bottomMargin: 7);
         titleParagraph.FontSize = _transcriptFontSize + 2;
         var titleRun = new Run(cardTitle) { FontWeight = FontWeights.SemiBold };
@@ -19161,14 +19184,6 @@ public partial class MainWindow : Window
         planLinkParagraph.Inlines.Add(planLink);
         blocks.Add(planLinkParagraph);
 
-        var taskDefinition = plan.Group.Tasks.FirstOrDefault(task =>
-            string.Equals(task.Id, taskId, StringComparison.Ordinal));
-        var taskTitle = taskDefinition?.Title ?? taskId;
-        var taskIndex = plan.Group.Tasks.ToList().FindIndex(task =>
-            string.Equals(task.Id, taskId, StringComparison.Ordinal));
-        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
-            durableTask?.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
-            taskTitle);
         var taskParagraph = CreateTranscriptParagraph(bottomMargin: 7);
         var stepRun = new Run(stepLabel + ": ");
         stepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
@@ -19380,6 +19395,42 @@ public partial class MainWindow : Window
             blocks.Add(reasonParagraph);
             copyParts.Add("Why it stopped: " + CommitReferenceText.Shorten(compactReason));
         }
+
+        if (completedWorkReview is not null)
+        {
+            AppendCompletedWorkReviewDetails(blocks, completedWorkReview);
+            copyParts.Add(CompletedWorkReviewPresentationBuilder.BuildCopyText(completedWorkReview));
+        }
+
+        var recoveryTechnicalDetails = completedWorkReview?.TechnicalDetails ??
+            durablePlan?.InterruptionData?.Reason;
+        if (!string.IsNullOrWhiteSpace(recoveryTechnicalDetails))
+        {
+            var technicalText = new TextBlock
+            {
+                Text = recoveryTechnicalDetails,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(8, 4, 0, 4),
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = _transcriptFontSize - 1,
+            };
+            technicalText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            var technicalDetails = new Expander
+            {
+                Header = "Technical details",
+                Content = technicalText,
+                IsExpanded = false,
+                Margin = new Thickness(0, 0, 0, 6),
+            };
+            technicalDetails.SetResourceReference(Expander.ForegroundProperty, "SubtleText");
+            if (TryFindResource("TranscriptExpanderStyle") is Style expanderStyle)
+                technicalDetails.Style = expanderStyle;
+            blocks.Add(TranscriptCardLayout.CreateContainer(
+                technicalDetails,
+                margin: new Thickness(0)));
+            if (completedWorkReview is null)
+                copyParts.Add("Technical details:" + Environment.NewLine + recoveryTechnicalDetails);
+        }
         var hasPreservedWork = string.Equals(_decomposeContinuationTaskId, taskId, StringComparison.Ordinal) &&
                                _decomposeContinuationPaths.Count > 0;
         var presentation = durablePlan is null
@@ -19499,9 +19550,21 @@ public partial class MainWindow : Window
                     DecomposeStepCompletionKind.VerifiedNoOp,
                     StringComparison.Ordinal))
             {
+                var assessmentTerminalCommit = assessmentEvidence.Commits?.LastOrDefault()?.Commit ??
+                    completedWorkReview?.Commit?.Sha;
                 AddNavigationLink(
-                    $"Review repository changes for {assessmentStepLabel}",
-                    "Open the multi-commit differences viewer. Reviewing does not change plan state.",
+                    completedWorkReview?.ComparisonLabel ??
+                    PlanRecoveryPresentationBuilder.BuildCommittedReviewLabel(
+                        assessmentStepLabel,
+                        durablePlan.InterruptionData?.TaskCommitEvidence?.BaselineCommit ??
+                        durablePlan.InterruptionData?.LastCommit,
+                        assessmentTerminalCommit),
+                    completedWorkReview?.ComparisonHint ??
+                    PlanRecoveryPresentationBuilder.CommittedReviewHint(
+                        assessmentStepLabel,
+                        durablePlan.InterruptionData?.TaskCommitEvidence?.BaselineCommit ??
+                        durablePlan.InterruptionData?.LastCommit,
+                        assessmentTerminalCommit),
                     () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
             }
 
@@ -19562,8 +19625,9 @@ public partial class MainWindow : Window
                 commitParagraph.Inlines.Add(commitLink);
                 blocks.Add(commitParagraph);
 
-                var compactTests = PlanRecoveryPresentationBuilder.BuildCompactTestSummary(
-                    commitEvidence.Verification);
+                var compactTests = completedWorkReview is null
+                    ? PlanRecoveryPresentationBuilder.BuildCompactTestSummary(commitEvidence.Verification)
+                    : null;
                 if (compactTests is not null)
                 {
                     var verificationParagraph = CreateTranscriptParagraph(bottomMargin: 3);
@@ -19589,11 +19653,8 @@ public partial class MainWindow : Window
             AddRecoveryRecommendationText(recommendation.Inlines, recommendationText);
             blocks.Add(recommendation);
 
-            if (assessmentEvidence is null &&
-                primaryRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
-            {
+            if (assessmentEvidence is null)
                 AddAssessmentAction(previousAssessment: null);
-            }
 
         }
 
@@ -19647,11 +19708,22 @@ public partial class MainWindow : Window
                 PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
                 PlanRecoveryPrimaryActionKind.ApproveAmendment)
         {
-            if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
+            if (completedWorkReview is not null)
             {
                 AddNavigationLink(
-                    PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(stepLabel),
-                    PlanRecoveryPresentationBuilder.UnattributedReviewHint(stepLabel),
+                    completedWorkReview.ComparisonLabel,
+                    completedWorkReview.ComparisonHint,
+                    () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
+            }
+            else if (primaryRecoveryAction.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
+            {
+                AddNavigationLink(
+                    PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(
+                        stepLabel,
+                        durablePlan.InterruptionData?.LastCommit),
+                    PlanRecoveryPresentationBuilder.UnattributedReviewHint(
+                        stepLabel,
+                        durablePlan.InterruptionData?.LastCommit),
                     () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
             }
             AddAsyncResultAction(
@@ -19991,6 +20063,24 @@ public partial class MainWindow : Window
         BlockCollection blocks,
         CompletedWorkReviewPresentation review)
     {
+        var outcomeParagraph = CreateTranscriptParagraph(bottomMargin: 3);
+        var outcomeRun = new Run(review.Outcome);
+        outcomeRun.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        outcomeParagraph.Inlines.Add(outcomeRun);
+        blocks.Add(outcomeParagraph);
+
+        var evidenceParagraph = CreateTranscriptParagraph(bottomMargin: 3);
+        var evidenceRun = new Run(review.EvidenceSummary) { FontWeight = FontWeights.SemiBold };
+        evidenceRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+        evidenceParagraph.Inlines.Add(evidenceRun);
+        blocks.Add(evidenceParagraph);
+
+        var uncertaintyParagraph = CreateTranscriptParagraph(bottomMargin: 4);
+        var uncertaintyRun = new Run(review.Uncertainty);
+        uncertaintyRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        uncertaintyParagraph.Inlines.Add(uncertaintyRun);
+        blocks.Add(uncertaintyParagraph);
+
         if (review.ChangedFiles.Count > 0)
         {
             var filesHeader = CreateTranscriptParagraph(bottomMargin: 2);
@@ -20022,30 +20112,6 @@ public partial class MainWindow : Window
             }
         }
 
-        if (review.TestSummary is not null)
-        {
-            var testParagraph = CreateTranscriptParagraph(bottomMargin: 3);
-            testParagraph.Margin = new Thickness(12, 2, 0, 3);
-            var testRun = new Run($"Tests: {review.TestSummary}");
-            testRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
-            testParagraph.Inlines.Add(testRun);
-            blocks.Add(testParagraph);
-        }
-
-        if (review.DownstreamTasks.Count > 0)
-        {
-            var downstreamParagraph = CreateTranscriptParagraph(bottomMargin: 3);
-            downstreamParagraph.Margin = new Thickness(12, 2, 0, 3);
-            var names = string.Join(", ", review.DownstreamTasks.Select(d => $"\"{d}\""));
-            var downstreamRun = new Run(
-                $"Downstream: {review.DownstreamTasks.Count} " +
-                (review.DownstreamTasks.Count == 1 ? "task" : "tasks") +
-                $" blocked — {names}");
-            downstreamRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
-            downstreamParagraph.Inlines.Add(downstreamRun);
-            blocks.Add(downstreamParagraph);
-        }
-
         var effectParagraph = CreateTranscriptParagraph(bottomMargin: 3);
         effectParagraph.Margin = new Thickness(12, 2, 0, 3);
         var effectRun = new Run(review.AcceptanceEffect);
@@ -20053,16 +20119,6 @@ public partial class MainWindow : Window
         effectParagraph.Inlines.Add(effectRun);
         blocks.Add(effectParagraph);
 
-        if (review.RetryRiskWarning is not null)
-        {
-            var warningParagraph = CreateTranscriptParagraph(bottomMargin: 4);
-            warningParagraph.Margin = new Thickness(12, 2, 0, 4);
-            var warningRun = new Run($"⚠ {review.RetryRiskWarning}")
-                { FontWeight = FontWeights.SemiBold };
-            warningRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            warningParagraph.Inlines.Add(warningRun);
-            blocks.Add(warningParagraph);
-        }
     }
 
     private sealed record PendingPlanRecoveryAssessment(
@@ -20098,6 +20154,27 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("SquadDash cannot identify the interrupted task to assess.");
         await AssessPlanRecoveryAsync(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
         return true;
+    }
+
+    private async Task AssessInterruptedPlanAdvisoryFromDurableAsync(Plan plan)
+    {
+        try
+        {
+            var taskId = plan.InterruptionData?.InterruptedTaskId
+                ?? plan.Progress.ExecutingTaskId
+                ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
+            if (string.IsNullOrWhiteSpace(taskId))
+                throw new InvalidOperationException("SquadDash cannot identify the interrupted task to assess.");
+
+            await AssessPlanRecoveryAsync(
+                PendingDecomposePlanAdapter.FromPlan(plan),
+                taskId,
+                advisoryOnly: true);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException("Assess interrupted work", ex);
+        }
     }
 
     private async Task ContinueInterruptedPlanFromDurableAsync(Plan plan)
@@ -20475,6 +20552,11 @@ public partial class MainWindow : Window
         return $$"""
             Perform a read-only recovery assessment for interrupted plan {{plan.PlanId}}, task {{taskId}}.
             {{assessmentScope}}
+            Answer this user question directly: Does the current source satisfy every requirement of
+            {{PlanRecoveryPresentationBuilder.FormatStepLabel(task?.DisplayStepLabel, task?.Title ?? taskId)}}
+            ({{task?.Title ?? taskId}})? The summary must begin with a plain-language answer the user can understand,
+            then cite the most important source-code and verification evidence. If the answer is partial, name the
+            exact unmet requirements in remainingWork. If it is inconclusive, say exactly what evidence is missing.
             Do not edit files, create commits, revert work, or start the task. Do not build SquadDash itself because
             this live application treats a self-build as a restart request. Determine whether the task
             is complete, partially complete, not started, or inconclusive. Classify every commit in the supplied baseline-to-HEAD range as task, mixed,
@@ -21185,6 +21267,47 @@ public partial class MainWindow : Window
         IReadOnlyList<PlanRecoveryCommitReference>? commitReferences = null)
     {
         var sb = new System.Text.StringBuilder();
+        var durablePlan = _planStore?.Load(groupId);
+        var durableTaskForQuestion = durablePlan?.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            durableTaskForQuestion?.DisplayStepLabel,
+            durableTaskForQuestion?.Title ?? taskId);
+
+        sb.AppendLine("=== Question to answer for the user ===");
+        sb.AppendLine($"Does the current source satisfy every requirement of {stepLabel} ({durableTaskForQuestion?.Title ?? taskId})?");
+        sb.AppendLine("Answer with a clear complete, partial, not started, or inconclusive finding; explain the source-code evidence and name any remaining work.");
+        sb.AppendLine();
+
+        sb.AppendLine("--- Plan and stop context ---");
+        if (durablePlan is null)
+        {
+            sb.AppendLine("(durable plan state was unavailable)");
+        }
+        else
+        {
+            sb.AppendLine($"Plan title: {durablePlan.Title}");
+            sb.AppendLine($"Plan summary: {durablePlan.Summary}");
+            sb.AppendLine($"Plan branch: {durablePlan.Branch}");
+            sb.AppendLine($"Plan state: {durablePlan.LifecycleStatus}");
+            sb.AppendLine($"Stop point: {stepLabel} ({taskId})");
+            sb.AppendLine($"Stop reason: {durablePlan.InterruptionData?.Reason ?? "not recorded"}");
+            var cardEvidence = CompletedWorkReviewPresentationBuilder.Build(durablePlan, taskId);
+            if (cardEvidence is not null)
+            {
+                sb.AppendLine("Recovery-card evidence:");
+                sb.AppendLine(CompletedWorkReviewPresentationBuilder.BuildCopyText(cardEvidence));
+            }
+            sb.AppendLine("Plan steps:");
+            foreach (var planTask in durablePlan.Tasks)
+            {
+                var planStep = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                    planTask.DisplayStepLabel,
+                    planTask.Title ?? planTask.TaskId);
+                sb.AppendLine($"- {planStep}: {planTask.Title ?? planTask.TaskId} [{planTask.Status}]");
+            }
+        }
+        sb.AppendLine();
 
         // 1. Candidate unrecorded commits since baseline
         var logOutput = string.Empty;
@@ -21234,7 +21357,7 @@ public partial class MainWindow : Window
         // handoff may already contain a successful build while independent verification was the
         // phase interrupted by restart. Label it as candidate evidence so it is not confused
         // with an independent acceptance verdict.
-        var durableTask = _planStore?.Load(groupId)?.Tasks.FirstOrDefault(task =>
+        var durableTask = durablePlan?.Tasks.FirstOrDefault(task =>
             string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
         sb.AppendLine("--- Durable task stage and candidate evidence ---");
         if (durableTask is null)
@@ -61014,8 +61137,52 @@ public partial class MainWindow : Window
 
         try
         {
+            var exactCommitEvidence = plan.InterruptionData?.TaskCommitEvidence is { } exactEvidence &&
+                                      string.Equals(exactEvidence.TaskId, taskId, StringComparison.Ordinal);
+            var workspace = _currentWorkspace?.FolderPath;
+            if (!exactCommitEvidence && !string.IsNullOrWhiteSpace(workspace))
+            {
+                var status = await RunGitAsync(workspace, "status --short --untracked-files=all");
+                if (!string.IsNullOrWhiteSpace(status))
+                {
+                    var baseline = await ResolvePlanRecoveryBaselineAsync(workspace, plan, taskId);
+                    var diff = await RunGitAsync(
+                        workspace,
+                        $"diff --no-ext-diff --no-color \"{baseline}\" --");
+                    var changedPaths = status
+                        .Replace("\r\n", "\n", StringComparison.Ordinal)
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(line => line.Length > 3 ? line[3..].Trim() : line)
+                        .ToArray();
+                    var shortBaseline = baseline[..Math.Min(7, baseline.Length)];
+                    var window = new PlanPreflightChangesWindow(
+                        new PlanPreflightBlockedException(
+                            "Interrupted workspace comparison",
+                            changedPaths,
+                            plan.Branch),
+                        status,
+                        diff,
+                        _transcriptFontSize,
+                        windowTitle: $"Workspace Changes Since {shortBaseline}",
+                        heading: $"Workspace changes compared with baseline {shortBaseline}",
+                        guidance: "This comparison includes committed, staged, and tracked working-tree changes since the recorded task baseline. Untracked files are listed in Git status.",
+                        diffLabel: $"GIT DIFF {shortBaseline} → WORKSPACE");
+                    window.Owner = CanShowOwnedWindow() ? this : null;
+                    window.Show();
+                    return;
+                }
+            }
+
             var review = await ResolveInterruptedTaskReviewRangeAsync(plan, taskId);
-            await OpenEvidenceViewerAsync(review.Commits);
+            if (string.IsNullOrWhiteSpace(workspace))
+                throw new InvalidOperationException("The workspace is unavailable.");
+            var viewer = await CommitViewerWindow.CreateRangeAsync(
+                workspace,
+                review.BaselineCommit,
+                review.TerminalCommit,
+                initialFilePath: string.Empty);
+            viewer.Owner = CanShowOwnedWindow() ? this : null;
+            viewer.Show();
         }
         catch (Exception ex)
         {

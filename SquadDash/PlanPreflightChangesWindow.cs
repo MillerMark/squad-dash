@@ -11,10 +11,14 @@ internal sealed class PlanPreflightChangesWindow : ChromedWindow
         PlanPreflightBlockedException exception,
         string gitStatus,
         string gitDiff,
-        double fontSize)
+        double fontSize,
+        string? windowTitle = null,
+        string? heading = null,
+        string? guidance = null,
+        string diffLabel = "GIT DIFF")
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
-        Title = "Plan Preflight Changes";
+        Title = windowTitle ?? "Plan Preflight Changes";
         Width = 1050;
         Height = 720;
         MinWidth = 600;
@@ -29,7 +33,7 @@ internal sealed class PlanPreflightChangesWindow : ChromedWindow
 
         var title = new TextBlock
         {
-            Text = "Uncommitted changes blocking plan execution",
+            Text = heading ?? "Uncommitted changes blocking plan execution",
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 4),
         };
@@ -39,9 +43,9 @@ internal sealed class PlanPreflightChangesWindow : ChromedWindow
 
         var target = new TextBlock
         {
-            Text = string.IsNullOrWhiteSpace(exception.TargetBranch)
+            Text = guidance ?? (string.IsNullOrWhiteSpace(exception.TargetBranch)
                 ? "Review these changes, resolve them in Git, then return to the Inbox and retry."
-                : $"Target branch: {exception.TargetBranch}. Resolve these changes in Git, then return to the Inbox and retry.",
+                : $"Target branch: {exception.TargetBranch}. Resolve these changes in Git, then return to the Inbox and retry."),
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10),
         };
@@ -53,7 +57,7 @@ internal sealed class PlanPreflightChangesWindow : ChromedWindow
         var evidence = new TextBox
         {
             Text = "GIT STATUS\n" + (string.IsNullOrWhiteSpace(gitStatus) ? "(clean)" : gitStatus.TrimEnd()) +
-                   "\n\nGIT DIFF\n" + (string.IsNullOrWhiteSpace(gitDiff)
+                   $"\n\n{diffLabel}\n" + (string.IsNullOrWhiteSpace(gitDiff)
                        ? "(No tracked diff. Untracked files, if any, are listed in Git status.)"
                        : gitDiff.TrimEnd()),
             IsReadOnly = true,

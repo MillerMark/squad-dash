@@ -423,7 +423,8 @@ internal static class PlanStoreUpdater
             InterruptedTaskId:   interruptedTaskId,
             LastCompletedTaskId: lastCompletedTaskId ?? existingData?.LastCompletedTaskId,
             LastCommit:          lastCommit ?? existingData?.LastCommit ?? interruptedTask?.Handoff?.Commit,
-            AffectedPaths:       affectedPaths ?? existingData?.AffectedPaths ?? interruptedTask?.Handoff?.ChangedFiles,
+            AffectedPaths:       affectedPaths ?? taskCommitEvidence?.ChangedFiles ??
+                                 existingData?.AffectedPaths ?? interruptedTask?.Handoff?.ChangedFiles,
             PartialWorkEvidence: partialWorkEvidence ?? existingData?.PartialWorkEvidence ?? interruptedTask?.Handoff?.Summary,
             TaskCommitEvidence:  taskCommitEvidence ?? existingData?.TaskCommitEvidence,
             RecoveryAssessment:  existingData?.RecoveryAssessment,

@@ -588,7 +588,10 @@ internal sealed record PlanTaskCommitEvidence(
                                                         DecomposeStepVerification? Verification = null,
     [property: JsonPropertyName("commits")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                        IReadOnlyList<PlanEvidenceCommit>? Commits = null);
+                                                        IReadOnlyList<PlanEvidenceCommit>? Commits = null,
+    [property: JsonPropertyName("changedFiles")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        IReadOnlyList<string>? ChangedFiles = null);
 
 internal sealed record PlanEvidenceCommit(
     [property: JsonPropertyName("commit")] string Commit,

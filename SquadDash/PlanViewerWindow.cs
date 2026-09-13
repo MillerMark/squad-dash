@@ -51,6 +51,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<Task<bool>>? _initializeRepository;
     private readonly Action<string>? _onOpenCommit;
     private readonly Action<IReadOnlyList<PlanEvidenceCommit>>? _onOpenCommits;
+    private readonly Action<Plan>? _onOpenInterruptedChanges;
+    private readonly Action<Plan>? _onAssessInterruptedWork;
     private readonly Func<PlanTask, Task<IReadOnlyList<PlanTaskFileChange>>>? _resolveTaskFileChanges;
     private readonly Action<PlanTask, string>? _onOpenTaskFileDiff;
     private readonly Action<Plan>? _onContinueInterruptedTask;
@@ -242,6 +244,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
         Action<int>? onFontScaleDelta = null,
         Func<Plan, PlanRecoveryPrimaryActionPresentation?>? resolveInterruptedPrimaryAction = null,
+        Action<Plan>? onOpenInterruptedChanges = null,
+        Action<Plan>? onAssessInterruptedWork = null,
         double lineThicknessMultiplier = 1.0)
         : base(
             captionHeight: CloseButtonHeight,
@@ -277,6 +281,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _initializeRepository = initializeRepository;
         _onOpenCommit = onOpenCommit;
         _onOpenCommits = onOpenCommits;
+        _onOpenInterruptedChanges = onOpenInterruptedChanges;
+        _onAssessInterruptedWork = onAssessInterruptedWork;
         _resolveTaskFileChanges = resolveTaskFileChanges;
         _onOpenTaskFileDiff = onOpenTaskFileDiff;
         _onContinueInterruptedTask = onContinueInterruptedTask;
@@ -526,6 +532,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var onRetryValidation  = _onRetryValidation;
         var group = plan.Group;
         var currentInterruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
+        var completedWorkReview = durablePlan is null || string.IsNullOrWhiteSpace(currentInterruptedTaskId)
+            ? null
+            : CompletedWorkReviewPresentationBuilder.Build(durablePlan, currentInterruptedTaskId);
         var interruptedCorrectionState = string.IsNullOrWhiteSpace(currentInterruptedTaskId)
             ? PlanTaskCorrectionActivityState.None
             : ResolveTaskCorrectionActivity(currentInterruptedTaskId!);
@@ -1063,7 +1072,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 task.TaskId,
                 durablePlan.InterruptionData?.InterruptedTaskId,
                 StringComparison.Ordinal));
-            if (onAdoptVerifiedCommitRange is not null && !safeResume && _onOpenCommits is not null)
+            if (onAdoptVerifiedCommitRange is not null && !safeResume &&
+                _onOpenInterruptedChanges is not null)
             {
                 var interruptedTask = durablePlan.Tasks.FirstOrDefault(task => string.Equals(
                     task.TaskId,
@@ -1074,36 +1084,65 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var evidence = PlanRecoveryPresentationBuilder.ResolveTaskEvidence(
                         durablePlan,
                         interruptedTask);
+                    var interruptedReview = CompletedWorkReviewPresentationBuilder.Build(
+                        durablePlan,
+                        interruptedTask.TaskId);
+                    var baselineCommit = durablePlan.InterruptionData?.TaskCommitEvidence?.BaselineCommit;
+                    var comparisonLabel = interruptedReview?.ComparisonLabel ??
+                        (evidence.Count > 0
+                            ? PlanRecoveryPresentationBuilder.BuildCommittedReviewLabel(
+                                PlanRecoveryPresentationBuilder.FormatStepLabel(
+                                    interruptedTask.DisplayStepLabel,
+                                    interruptedTask.Title ?? interruptedTask.Description),
+                                baselineCommit ?? durablePlan.InterruptionData?.LastCommit,
+                                evidence[^1].Commit)
+                            : PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(
+                                PlanRecoveryPresentationBuilder.FormatStepLabel(
+                                    interruptedTask.DisplayStepLabel,
+                                    interruptedTask.Title ?? interruptedTask.Description),
+                                baselineCommit));
+                    var comparisonHint = interruptedReview?.ComparisonHint ??
+                        (evidence.Count > 0
+                            ? PlanRecoveryPresentationBuilder.CommittedReviewHint(
+                                PlanRecoveryPresentationBuilder.FormatStepLabel(
+                                    interruptedTask.DisplayStepLabel,
+                                    interruptedTask.Title ?? interruptedTask.Description),
+                                baselineCommit ?? durablePlan.InterruptionData?.LastCommit,
+                                evidence[^1].Commit)
+                            : PlanRecoveryPresentationBuilder.UnattributedReviewHint(
+                                PlanRecoveryPresentationBuilder.FormatStepLabel(
+                                    interruptedTask.DisplayStepLabel,
+                                    interruptedTask.Title ?? interruptedTask.Description),
+                                baselineCommit));
                     var linkText = new TextBlock
                     {
                         Margin = new Thickness(0, 5, 14, 12),
                         VerticalAlignment = VerticalAlignment.Center,
                         FontSize = quickReplyFontSize,
                     };
-                    var reviewLink = new Hyperlink(new Run(
-                        evidence.Count > 0
-                            ? $"Review repository changes for {PlanRecoveryPresentationBuilder.FormatStepLabel(
-                                interruptedTask.DisplayStepLabel,
-                                interruptedTask.Title ?? interruptedTask.Description)}"
-                            : PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(
-                                PlanRecoveryPresentationBuilder.FormatStepLabel(
-                                    interruptedTask.DisplayStepLabel,
-                                    interruptedTask.Title ?? interruptedTask.Description))))
+                    var reviewLink = new Hyperlink(new Run(comparisonLabel))
                     {
                         Cursor = Cursors.Hand,
-                        ToolTip = ToolTipHelper.MakeThemedToolTip(
-                            evidence.Count > 0
-                                ? "Open the multi-commit differences viewer. Reviewing does not change plan state."
-                                : PlanRecoveryPresentationBuilder.UnattributedReviewHint(
-                                    PlanRecoveryPresentationBuilder.FormatStepLabel(
-                                        interruptedTask.DisplayStepLabel,
-                                        interruptedTask.Title ?? interruptedTask.Description))),
+                        ToolTip = ToolTipHelper.MakeThemedToolTip(comparisonHint),
                     };
                     reviewLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-                    reviewLink.Click += (_, _) => _onOpenCommits(evidence);
+                    reviewLink.Click += (_, _) => _onOpenInterruptedChanges(durablePlan);
                     linkText.Inlines.Add(reviewLink);
                     header.Children.Add(linkText);
                 }
+            }
+            if (_onAssessInterruptedWork is not null && interruptedActionTask is not null)
+            {
+                var assessmentActive = _isRecoveryAssessmentActive?.Invoke(interruptedActionTask.TaskId) ?? false;
+                var assessButton = TranscriptQuickReplyFactory.CreateButton(
+                    assessmentActive ? "Assessing with AI…" : "Assess with AI",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        "Ask AI whether the current source satisfies this step. The assessment includes the plan, stop point, card evidence, repository changes, and the decision that needs to be made."));
+                assessButton.Focusable = false;
+                assessButton.IsEnabled = !assessmentActive;
+                assessButton.Click += (_, _) => _onAssessInterruptedWork(durablePlan);
+                interruptedPanel.Children.Add(assessButton);
             }
             // Safe continuation owns the recovery choice. A ready validation is simply the next
             // scheduler boundary and must not create a duplicate "Resume Validation" action.
@@ -1340,21 +1379,54 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var intRow1 = new TextBlock
             {
-                Text       = $"⚠ Interrupted · {interruptionData.RecoveryState}",
+                Text       = completedWorkReview?.Heading ?? "Plan recovery requires attention",
                 FontWeight = FontWeights.SemiBold,
             };
             intRow1.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
             intRow1.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
             interruptionStack.Children.Add(intRow1);
 
-            if (interruptionData.InterruptedTaskId is { } interruptedTaskId)
+            if (completedWorkReview is not null)
+            {
+                foreach (var text in new[]
+                {
+                    completedWorkReview.Outcome,
+                    completedWorkReview.EvidenceSummary,
+                    completedWorkReview.Uncertainty,
+                })
+                {
+                    var row = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap };
+                    row.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                    row.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                    interruptionStack.Children.Add(row);
+                }
+
+                var technicalText = new TextBlock
+                {
+                    Text = completedWorkReview.TechnicalDetails,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontFamily = new FontFamily("Consolas"),
+                };
+                technicalText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                technicalText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                var technical = new Expander
+                {
+                    Header = "Technical details",
+                    Content = technicalText,
+                    IsExpanded = false,
+                    Margin = new Thickness(0, 3, 0, 0),
+                };
+                technical.SetResourceReference(Expander.ForegroundProperty, "SubtleText");
+                interruptionStack.Children.Add(technical);
+            }
+            else if (interruptionData.InterruptedTaskId is { } interruptedTaskId)
             {
                 var intRow2 = new TextBlock { Text = $"Last step: {interruptedTaskId}" };
                 intRow2.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
                 intRow2.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 interruptionStack.Children.Add(intRow2);
             }
-            if (interruptionData.LastCommit is { } lastCommit)
+            if (completedWorkReview is null && interruptionData.LastCommit is { } lastCommit)
             {
                 var shortLastCommit = lastCommit.Length >= 7 ? lastCommit[..7] : lastCommit;
                 var intRow3 = new TextBlock
@@ -1366,7 +1438,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 intRow3.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
                 interruptionStack.Children.Add(intRow3);
             }
-            if (interruptionData.PartialWorkEvidence is { } evidence && evidence.Length > 0)
+            if (completedWorkReview is null && interruptionData.PartialWorkEvidence is { } evidence && evidence.Length > 0)
             {
                 var excerpt = evidence.Length > 100 ? evidence[..100] + "…" : evidence;
                 var intRow4 = new TextBlock { Text = excerpt, TextWrapping = TextWrapping.Wrap };

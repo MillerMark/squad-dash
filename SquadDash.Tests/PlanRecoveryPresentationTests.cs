@@ -663,6 +663,24 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void ReviewProvenance_WithoutReviewReport_DoesNotInventEarlierReview()
+    {
+        var evidence = new PlanTaskCommitEvidence(
+            "PLAN-001",
+            "attempt-1",
+            "baseline123",
+            "commit456",
+            "Implemented durable replay.",
+            new DecomposeStepVerification("passed", "dotnet test", "14 tests passed"));
+        var plan = TestPlan(evidence);
+
+        var notice = PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(
+            plan, "PLAN-001");
+
+        Assert.That(notice, Is.Null);
+    }
+
+    [Test]
     public void Build_WithEvidenceForDifferentTask_DoesNotMisattributeCommit()
     {
         var plan = TestPlan(new PlanTaskCommitEvidence(
