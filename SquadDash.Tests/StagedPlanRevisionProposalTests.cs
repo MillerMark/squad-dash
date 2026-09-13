@@ -290,6 +290,29 @@ internal sealed class StagedPlanRevisionProposalTests
     }
 
     [Test]
+    public void Apply_AddTaskPreservesVisualizerOrderForCanonicalFuturePlan()
+    {
+        var legacy = MakePending();
+        var canonicalGroup = legacy.Group with
+        {
+            Tasks = DependencyEditRecomputer.OrderTasksByDisplayedStage(legacy.Group),
+        };
+        var pending = WithGroup(legacy, canonicalGroup);
+
+        var result = Apply(pending, new PlanRevisionOperation(
+            "addTask", Task: MakeTask("005", "Added stage-two task", [Id("001")])));
+        var revised = result.RevisedGroup!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Applied), result.Error);
+            Assert.That(DependencyEditRecomputer.IsInDisplayedStageOrder(revised), Is.True);
+            Assert.That(revised.Tasks.ToList().FindIndex(task => task.Id == Id("005")),
+                Is.LessThan(revised.Tasks.ToList().FindIndex(task => task.Id == Id("003"))));
+        });
+    }
+
+    [Test]
     public void Apply_SupportsMultipleIndependentTextEditsWithinOneTask()
     {
         var pending = MakePending();

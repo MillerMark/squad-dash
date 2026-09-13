@@ -160,6 +160,9 @@ internal static class StagedPlanRevisionApplier
                 Error: $"The staged proposal changed from revision {payload.BaseRevision} to {current.Revision}.");
         }
 
+        var preserveDisplayedStageOrder =
+            DependencyEditRecomputer.IsInDisplayedStageOrder(current.Group);
+
         var syntheticPlan = PendingDecomposePlanAdapter.ToPlan(
             current,
             current.CreatedAt ?? DateTimeOffset.UtcNow);
@@ -242,6 +245,13 @@ internal static class StagedPlanRevisionApplier
                 Error: topologyError ?? "The materialized task graph has invalid topology.");
         }
         normalized = topology.Group;
+        if (preserveDisplayedStageOrder)
+        {
+            normalized = normalized with
+            {
+                Tasks = DependencyEditRecomputer.OrderTasksByDisplayedStage(normalized),
+            };
+        }
 
         var revision = PendingDecomposePlanStore.ComputeRevision(normalized);
         return string.Equals(revision, current.Revision, StringComparison.Ordinal)

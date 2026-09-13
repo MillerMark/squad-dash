@@ -12890,16 +12890,22 @@ public partial class MainWindow : Window
                        RequestPlanPauseAfterCurrentStep(paused);
                }
             : null;
-        var currentHead = ReadCachedRecoveryHeadCommit();
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
-        var interruptedRecoveryAction = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
-                                        !string.IsNullOrWhiteSpace(interruptedTaskId)
-            ? PlanRecoveryActionPresentationBuilder.Build(
-                durablePlan,
-                interruptedTaskId!,
-                currentHead,
-                (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant))
-            : null;
+        PlanRecoveryPrimaryActionPresentation? ResolveInterruptedPrimaryAction(Plan current)
+        {
+            var currentTaskId = current.InterruptionData?.InterruptedTaskId;
+            return current.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+                   !string.IsNullOrWhiteSpace(currentTaskId)
+                ? PlanRecoveryActionPresentationBuilder.Build(
+                    current,
+                    currentTaskId!,
+                    ReadCachedRecoveryHeadCommit(),
+                    (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant))
+                : null;
+        }
+        var interruptedRecoveryAction = durablePlan is null
+            ? null
+            : ResolveInterruptedPrimaryAction(durablePlan);
         var hasRecoveryAssessment = durablePlan?.InterruptionData?.RecoveryAssessment is not null &&
                                     !string.IsNullOrWhiteSpace(interruptedTaskId);
         var durableReviewAttention = durablePlan is null
@@ -12920,8 +12926,13 @@ public partial class MainWindow : Window
                         AssessInterruptedPlanFromDurableAsync,
                     PlanRecoveryPrimaryActionKind.RetryVerification or
                     PlanRecoveryPrimaryActionKind.ContinueWorking when !hasRecoveryAssessment =>
-                        async current => await RetryDecomposeTaskAsync(
-                            PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!),
+                        async current =>
+                        {
+                            var currentTaskId = current.InterruptionData?.InterruptedTaskId;
+                            return !string.IsNullOrWhiteSpace(currentTaskId) &&
+                                   await RetryDecomposeTaskAsync(
+                                       PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
+                        },
                     _ => null,
                 }
                 : null;
@@ -12933,19 +12944,36 @@ public partial class MainWindow : Window
             : null;
         Action<Plan>? onContinueInterruptedTask =
             interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptStep
-                ? current => _ = QueuePlanRecoveryCorrectionAsync(
-                    PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
+                ? current =>
+                {
+                    var currentTaskId = current.InterruptionData?.InterruptedTaskId;
+                    if (!string.IsNullOrWhiteSpace(currentTaskId))
+                        _ = QueuePlanRecoveryCorrectionAsync(
+                            PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
+                }
                 : interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp
-                    ? current => _ = RetryDecomposeTaskAsync(
-                        PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
+                    ? current =>
+                    {
+                        var currentTaskId = current.InterruptionData?.InterruptedTaskId;
+                        if (!string.IsNullOrWhiteSpace(currentTaskId))
+                            _ = RetryDecomposeTaskAsync(
+                                PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
+                    }
                 : interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep
-                    ? current => _ = RetryDecomposeTaskAsync(
-                        PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!)
+                    ? current =>
+                    {
+                        var currentTaskId = current.InterruptionData?.InterruptedTaskId;
+                        if (!string.IsNullOrWhiteSpace(currentTaskId))
+                            _ = RetryDecomposeTaskAsync(
+                                PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
+                    }
                 : hasRecoveryAssessment
             ? current =>
             {
                 PrepareForHostRecoveryAction();
-                _ = RetryDecomposeTaskAsync(PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!);
+                var currentTaskId = current.InterruptionData?.InterruptedTaskId;
+                if (!string.IsNullOrWhiteSpace(currentTaskId))
+                    _ = RetryDecomposeTaskAsync(PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
             }
             : null;
         Action<Plan>? onReplanRemainingWork = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
@@ -12953,7 +12981,9 @@ public partial class MainWindow : Window
             ? current =>
             {
                 PrepareForHostRecoveryAction();
-                QueueDecomposeReplan(PendingDecomposePlanAdapter.FromPlan(current), interruptedTaskId!);
+                var currentTaskId = current.InterruptionData?.InterruptedTaskId;
+                if (!string.IsNullOrWhiteSpace(currentTaskId))
+                    QueueDecomposeReplan(PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
             }
             : null;
         // Keep gate action callbacks stable for the lifetime of an open viewer. Its durable
@@ -13179,7 +13209,8 @@ public partial class MainWindow : Window
                 _ = RetryFailedPlanValidationAsync(current.PlanId, validationId),
             getSettings: () => _settingsSnapshot,
             getAssignableAgents: GetAssignablePlanAgentsForViewer,
-            onFontScaleDelta: delta => SetFontSizeScale(_fontScaleLevel + delta))
+            onFontScaleDelta: delta => SetFontSizeScale(_fontScaleLevel + delta),
+            resolveInterruptedPrimaryAction: ResolveInterruptedPrimaryAction)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
@@ -16953,6 +16984,7 @@ public partial class MainWindow : Window
         var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
             plan,
             gateIdsToResolve ?? clickToken.GateIds);
+        var representedGateIds = gateIdsToResolve ?? clickToken.GateIds;
         Func<Plan, Plan>? prepareResolution = null;
         string? currentHead = null;
         if (primaryAction is
@@ -16980,13 +17012,27 @@ public partial class MainWindow : Window
                 RejectReview("Current Git evidence is unavailable. No task or checkpoint state changed; retry after Git is available.");
                 return;
             }
+            if (!PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(
+                    plan, representedGateIds, currentHead))
+            {
+                RejectReview("The branch contains work beyond the represented checkpoint evidence. No state changed; reopen the review.");
+                return;
+            }
+            var checkpointCommits = PlanHumanReviewCheckpointCommitPolicy.ResolveDurableCommits(
+                plan, representedGateIds);
+            foreach (var checkpointCommit in checkpointCommits)
+            {
+                if (await PlanRecoveryGit.IsAncestorAsync(
+                        workspace, checkpointCommit, currentHead, validationBudget.Token))
+                    continue;
+                RejectReview("Represented checkpoint evidence is no longer reachable from the active branch. No state changed; reopen the review.");
+                return;
+            }
             var reviewedTaskCommits = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var reviewAttention in primaryAction.ReviewAttentions)
             {
                 if (!await ValidateHumanReviewStepAcceptanceAsync(
-                        plan, reviewAttention, currentHead,
-                        requireCurrentHead: primaryAction.ReviewAttentions.Count == 1,
-                        validationBudget.Token))
+                        plan, reviewAttention, currentHead, validationBudget.Token))
                 {
                     RejectReview("The review was not completed, so no task or checkpoint state changed.");
                     return;
@@ -17786,7 +17832,10 @@ public partial class MainWindow : Window
         if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
             plan.InterruptionData?.InterruptedTaskId is { } taskId)
         {
-            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryActions(
+            // This is an in-place data refresh of the current card, not a historical recovery
+            // transition. Replace the whole plan-scoped surface so the old card body is not left
+            // beside the refreshed card with only its buttons hidden.
+            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
                 CoordinatorThread.Document.Blocks, plan.PlanId);
             AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
             RefreshRecoveryInboxMessage(plan, taskId);
@@ -21833,7 +21882,6 @@ public partial class MainWindow : Window
         Plan plan,
         PlanReviewAttentionPresentation reviewAttention,
         string currentHead,
-        bool requireCurrentHead,
         CancellationToken cancellationToken)
     {
         if (_currentWorkspace is null) return false;
@@ -21869,8 +21917,7 @@ public partial class MainWindow : Window
         }
         try
         {
-            if ((requireCurrentHead && !string.Equals(reviewTarget, currentHead, StringComparison.OrdinalIgnoreCase)) ||
-                !await PlanRecoveryGit.IsAncestorAsync(workspace, reviewTarget, currentHead, cancellationToken))
+            if (!await PlanRecoveryGit.IsAncestorAsync(workspace, reviewTarget, currentHead, cancellationToken))
             {
                 ReportPlanActionIssue(plan.PlanId, "Review evidence stale",
                     $"The reviewed commit for task {reviewAttention.Task.TaskId} could not be validated against the current branch.");

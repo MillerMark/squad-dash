@@ -516,6 +516,50 @@ internal sealed class DecomposeDecisionParserTests
 internal sealed class PendingDecomposePlanStoreTests
 {
     [Test]
+    public void Save_AssignsFuturePlanStepLabelsInVisualizerOrder()
+    {
+        var squadFolder = Path.Combine(TestContext.CurrentContext.WorkDirectory, "stage-ordered-plan-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            DecomposedSubTask Task(string id, params string[] dependsOn) =>
+                new(id, id, dependsOn, "mid", id);
+            var group = new DecomposedTaskGroup("PLAN-STAGES", "Plan", "feature/plan", "Summary",
+            [
+                Task("T1", "T8"),
+                Task("T2", "T1"),
+                Task("T3", "T2"),
+                Task("T4", "T3"),
+                Task("T5", "T4"),
+                Task("T6", "T9"),
+                Task("T7", "T6"),
+                Task("T8"),
+                Task("T9", "T5"),
+            ]);
+
+            var saved = new PendingDecomposePlanStore(squadFolder).Save(group);
+            var durable = PendingDecomposePlanAdapter.ToPlan(saved, DateTimeOffset.UtcNow);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(saved.Group.Tasks.Select(task => task.Id),
+                    Is.EqualTo(new[] { "T8", "T1", "T2", "T3", "T4", "T5", "T9", "T6", "T7" }));
+                Assert.That(durable.Tasks.Select(task => (task.TaskId, task.DisplayStepLabel)),
+                    Is.EqualTo(new[]
+                    {
+                        ("T8", "1"), ("T1", "2"), ("T2", "3"),
+                        ("T3", "4"), ("T4", "5"), ("T5", "6"),
+                        ("T9", "7"), ("T6", "8"), ("T7", "9"),
+                    }));
+                Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(durable), Is.True);
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(squadFolder)) Directory.Delete(squadFolder, recursive: true);
+        }
+    }
+
+    [Test]
     public void SaveLoadAndDelete_RoundTripsRevisionedPlan()
     {
         var squadFolder = Path.Combine(TestContext.CurrentContext.WorkDirectory, "pending-plan-" + Guid.NewGuid().ToString("N"));

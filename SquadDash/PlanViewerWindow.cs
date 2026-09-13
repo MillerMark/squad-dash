@@ -41,6 +41,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<Plan, Task<bool>>? _onAdoptVerifiedCommitRange;
     private readonly string? _interruptedPrimaryActionLabel;
     private readonly string? _interruptedPrimaryActionHint;
+    private readonly Func<Plan, PlanRecoveryPrimaryActionPresentation?>? _resolveInterruptedPrimaryAction;
     private readonly Action<Plan>? _onEndPlan;
     private readonly Action<Plan, string>? _onApproveGate;
     private readonly Action<Plan, string>? _onUnapproveGate;
@@ -240,6 +241,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<ApplicationSettingsSnapshot>? getSettings = null,
         Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
         Action<int>? onFontScaleDelta = null,
+        Func<Plan, PlanRecoveryPrimaryActionPresentation?>? resolveInterruptedPrimaryAction = null,
         double lineThicknessMultiplier = 1.0)
         : base(
             captionHeight: CloseButtonHeight,
@@ -265,6 +267,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onAdoptVerifiedCommitRange = onAdoptVerifiedCommitRange;
         _interruptedPrimaryActionLabel = interruptedPrimaryActionLabel;
         _interruptedPrimaryActionHint = interruptedPrimaryActionHint;
+        _resolveInterruptedPrimaryAction = resolveInterruptedPrimaryAction;
         _onEndPlan          = onEndPlan;
         _onApproveGate      = onApproveGate;
         _onUnapproveGate    = onUnapproveGate;
@@ -512,6 +515,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var planRunnerActive   = durablePlan is not null &&
                                  (_isPlanRunnerActive?.Invoke(durablePlan) ?? true);
         var onAdoptVerifiedCommitRange = _onAdoptVerifiedCommitRange;
+        var currentInterruptedPrimaryAction = durablePlan is null
+            ? null
+            : _resolveInterruptedPrimaryAction?.Invoke(durablePlan);
         var onEndPlan          = _onEndPlan;
         var onContinueInterruptedTask = _onContinueInterruptedTask;
         var onReplanRemainingWork = _onReplanRemainingWork;
@@ -987,8 +993,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (onAdoptVerifiedCommitRange is not null && interruptedTask is not null)
             {
                 var acceptButton = TranscriptQuickReplyFactory.CreateButton(
+                    currentInterruptedPrimaryAction?.Label ??
                     _interruptedPrimaryActionLabel ?? $"{stepLabel} Is Complete", quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
+                        currentInterruptedPrimaryAction?.Hint ??
                         _interruptedPrimaryActionHint ??
                         $"Use the evidence links in this viewer, then mark only {stepLabel} complete and continue the plan."));
                 acceptButton.Focusable = false;
@@ -1106,12 +1114,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var resumableValidation = PlanExecutionBoundaryPolicy.SelectValidation(capturedPlan);
                 var adoptButton = TranscriptQuickReplyFactory.CreateButton(
                     resumableValidation is null
-                        ? _interruptedPrimaryActionLabel ?? "Continue Plan Recovery"
+                        ? currentInterruptedPrimaryAction?.Label ??
+                          _interruptedPrimaryActionLabel ?? "Continue Plan Recovery"
                         : "Resume Validation",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
                         resumableValidation is null
-                            ? _interruptedPrimaryActionHint ??
+                            ? currentInterruptedPrimaryAction?.Hint ??
+                              _interruptedPrimaryActionHint ??
                               "Continue from the preserved plan state without launching a preliminary repository assessment."
                             : $"Continue with the ready validation “{resumableValidation.Title}.” Completed implementation steps will not be repeated."));
                 adoptButton.Focusable = false;

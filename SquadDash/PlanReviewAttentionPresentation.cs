@@ -23,6 +23,60 @@ internal sealed record PlanCheckpointPrimaryActionPresentation(
         ReviewAttentions.Count == 1 ? ReviewAttentions[0] : null;
 }
 
+internal static class PlanHumanReviewCheckpointCommitPolicy
+{
+    internal static bool OwnsCurrentHead(
+        Plan plan,
+        IReadOnlyCollection<string> representedGateIds,
+        string? currentHead)
+    {
+        if (string.IsNullOrWhiteSpace(currentHead)) return false;
+
+        return ResolveDurableCommits(plan, representedGateIds).Contains(
+            currentHead, StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal static IReadOnlyList<string> ResolveDurableCommits(
+        Plan plan,
+        IReadOnlyCollection<string> representedGateIds)
+    {
+        var representedTaskIds = plan.ApprovalGates
+            .Where(gate => representedGateIds.Contains(gate.GateId, StringComparer.Ordinal) &&
+                           gate.Status == PlanGateStatus.AwaitingApproval)
+            .SelectMany(gate => gate.AfterTaskIds)
+            .ToHashSet(StringComparer.Ordinal);
+        return plan.Tasks
+            .Where(task => representedTaskIds.Contains(task.TaskId))
+            .Select(ResolveDurableCommit)
+            .OfType<string>()
+            .Where(commit => !string.IsNullOrWhiteSpace(commit))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static string? ResolveDurableCommit(PlanTask task)
+    {
+        if (task.Status == PlanTaskStatus.HumanReviewRequired)
+        {
+            return string.Equals(
+                task.Handoff?.CompletionKind,
+                DecomposeStepCompletionKind.VerifiedNoOp,
+                StringComparison.Ordinal)
+                ? task.Handoff?.EvaluatedCommit
+                : task.Handoff?.Commit;
+        }
+
+        if (task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded))
+            return null;
+        return string.Equals(
+            task.CompletionKind,
+            DecomposeStepCompletionKind.VerifiedNoOp,
+            StringComparison.Ordinal)
+            ? task.EvaluatedCommit
+            : task.Commit;
+    }
+}
+
 /// <summary>
 /// Defines the single primary action represented by an approval boundary. UI surfaces must use
 /// this presentation instead of inferring task completion from a gate's AfterTaskIds. A gate can

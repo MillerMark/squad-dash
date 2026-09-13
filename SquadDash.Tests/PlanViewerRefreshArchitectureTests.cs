@@ -62,6 +62,24 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
+    public void LiveRecoveryRefresh_RecomputesActionForTheCurrentInterruptedTask()
+    {
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer, Does.Contain("_resolveInterruptedPrimaryAction?.Invoke(durablePlan)")
+                .And.Contain("currentInterruptedPrimaryAction?.Label")
+                .And.Contain("currentInterruptedPrimaryAction?.Hint"),
+                "A rebuilt open viewer must not retain the recovery label from an earlier task.");
+            Assert.That(main, Does.Contain("resolveInterruptedPrimaryAction: ResolveInterruptedPrimaryAction")
+                .And.Contain("var currentTaskId = current.InterruptionData?.InterruptedTaskId;"),
+                "Recovery labels and actions must resolve the task from each current durable-plan snapshot.");
+        });
+    }
+
+    [Test]
     public void PendingTranscriptLink_ResolvesLatestRevisionBeforeViewerReuse()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

@@ -98,6 +98,25 @@ internal sealed record DependencyEditRecomputeResult
 internal static class DependencyEditRecomputer
 {
     /// <summary>
+    /// Returns tasks in the same order in which the plan visualizer presents them:
+    /// stage columns from left to right, then task cards from top to bottom within a stage.
+    /// The original task sequence is the stable row-order tie breaker.
+    /// </summary>
+    internal static IReadOnlyList<DecomposedSubTask> OrderTasksByDisplayedStage(
+        DecomposedTaskGroup group)
+    {
+        var levels = ValidationShieldPresenter.ComputeValidationAwareLevels(
+            group.Tasks,
+            group.Validations ?? []);
+        return OrderTasksByDisplayedStage(group.Tasks, levels);
+    }
+
+    internal static bool IsInDisplayedStageOrder(DecomposedTaskGroup group) =>
+        group.Tasks.Select(task => task.Id).SequenceEqual(
+            OrderTasksByDisplayedStage(group).Select(task => task.Id),
+            StringComparer.Ordinal);
+
+    /// <summary>
     /// Recomputes the full layout for <paramref name="group"/> after a dependency edit.
     /// Returns a failure result (no mutations) if the edited graph contains a cycle.
     /// </summary>
@@ -120,15 +139,7 @@ internal static class DependencyEditRecomputer
         // position within the same level. This matches the column-then-row traversal
         // order the Plan Visualizer uses and produces the same sequential display labels
         // that PendingDecomposePlanAdapter.ToPlan would assign from scratch.
-        var indexedTasks = synchronizedGroup.Tasks
-            .Select((task, originalIndex) => (task, originalIndex))
-            .ToArray();
-
-        var sortedTasks = indexedTasks
-            .OrderBy(item => levels.TryGetValue(item.task.Id, out var level) ? level : 0)
-            .ThenBy(item => item.originalIndex)
-            .Select(item => item.task)
-            .ToArray();
+        var sortedTasks = OrderTasksByDisplayedStage(synchronizedGroup.Tasks, levels);
 
         // Display labels: 1-based sequential in topological order.
         var displayLabels = sortedTasks
@@ -166,6 +177,15 @@ internal static class DependencyEditRecomputer
             approvalBoundaryAnchors,
             eligibleValidationIds);
     }
+
+    private static DecomposedSubTask[] OrderTasksByDisplayedStage(
+        IReadOnlyList<DecomposedSubTask> tasks,
+        IReadOnlyDictionary<string, int> levels) => tasks
+        .Select((task, originalIndex) => (task, originalIndex))
+        .OrderBy(item => levels.TryGetValue(item.task.Id, out var level) ? level : 0)
+        .ThenBy(item => item.originalIndex)
+        .Select(item => item.task)
+        .ToArray();
 
     /// <summary>
     /// Keeps validations attached after a single task synchronized with that task's direct

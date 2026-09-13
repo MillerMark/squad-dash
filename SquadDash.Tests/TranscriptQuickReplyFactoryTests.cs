@@ -282,6 +282,35 @@ internal sealed class TranscriptQuickReplyFactoryTests
     }
 
     [Test]
+    public void RemoveDecomposeRecoveryContainers_ForPlan_ReplacesOnlyThatPlansWholeCard()
+    {
+        var document = new FlowDocument();
+        var planA = new Section
+        {
+            Tag = new DecomposeRecoveryTag("PLAN-A", "revision-a", "TASK-A"),
+        };
+        planA.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
+            new Border(),
+            new DecomposeRecoveryCardTag(
+                new DecomposeRecoveryTag("PLAN-A", "revision-a", "TASK-A"),
+                new WrapPanel())));
+        var planB = new Section
+        {
+            Tag = new DecomposeRecoveryTag("PLAN-B", "revision-b", "TASK-B"),
+        };
+        document.Blocks.Add(planA);
+        document.Blocks.Add(planB);
+
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(document.Blocks, "PLAN-A");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(document.Blocks.Contains(planA), Is.False);
+            Assert.That(document.Blocks.Contains(planB), Is.True);
+        });
+    }
+
+    [Test]
     public void RemoveDecomposeRecoveryActions_PreservesNarrativeAndUnrelatedPlanActions()
     {
         var document = new FlowDocument();

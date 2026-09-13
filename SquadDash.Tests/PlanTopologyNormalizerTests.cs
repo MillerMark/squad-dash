@@ -59,6 +59,41 @@ internal sealed class PlanTopologyNormalizerTests
     }
 
     [Test]
+    public void DisplayOrder_OrdersStepsByVisualStageThenRow()
+    {
+        var group = Group(
+        [
+            Task("T1", "T8"),
+            Task("T2", "T1"),
+            Task("T3", "T2"),
+            Task("T4", "T3"),
+            Task("T5", "T4"),
+            Task("T6", "T9"),
+            Task("T7", "T6"),
+            Task("T8"),
+            Task("T9", "T5"),
+        ]);
+
+        var first = group with
+        {
+            Tasks = DependencyEditRecomputer.OrderTasksByDisplayedStage(group),
+        };
+        var second = first with
+        {
+            Tasks = DependencyEditRecomputer.OrderTasksByDisplayedStage(first),
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(DependencyEditRecomputer.IsInDisplayedStageOrder(group), Is.False);
+            Assert.That(first.Tasks.Select(task => task.Id),
+                Is.EqualTo(new[] { "T8", "T1", "T2", "T3", "T4", "T5", "T9", "T6", "T7" }));
+            Assert.That(DependencyEditRecomputer.IsInDisplayedStageOrder(first), Is.True);
+            Assert.That(second.Tasks.Select(task => task.Id), Is.EqualTo(first.Tasks.Select(task => task.Id)));
+        });
+    }
+
+    [Test]
     public void Normalize_PreservesDiamondDependencies()
     {
         var group = Group(

@@ -82,6 +82,92 @@ internal sealed class PlanHumanReviewStepAcceptanceTests
         });
     }
 
+    [Test]
+    public void SharedCheckpoint_UnrelatedDescendantHeadIsNotOwnedByReviewedTasks()
+    {
+        var plan = MakeSharedGatePlan();
+        var gateIds = plan.ApprovalGates.Select(gate => gate.GateId).ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(plan, gateIds, Head), Is.True);
+            Assert.That(PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(
+                plan, gateIds, "unrelated-descendant"), Is.False);
+        });
+    }
+
+    [Test]
+    public void MixedCheckpoint_CompletedSiblingMayOwnHeadForSingleReviewedTask()
+    {
+        var plan = MakeSharedGatePlan();
+        plan = plan with
+        {
+            Tasks =
+            [
+                plan.Tasks[0],
+                plan.Tasks[1] with
+                {
+                    Status = PlanTaskStatus.Complete,
+                    Commit = Head,
+                    Handoff = null,
+                },
+            ],
+            Progress = plan.Progress with { CompletedCount = 1 },
+        };
+        var gate = plan.ApprovalGates.Single();
+        var action = PlanCheckpointPrimaryActionPresentationResolver.Resolve(plan, [gate.GateId]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(action.ReviewAttentions, Has.Count.EqualTo(1));
+            Assert.That(action.ReviewAttentions[0].Task.TaskId, Is.EqualTo("TASK-1"));
+            Assert.That(PlanHumanReviewCheckpointCommitPolicy.ResolveDurableCommits(plan, [gate.GateId]),
+                Is.EquivalentTo(new[] { FirstCommit, Head }));
+            Assert.That(PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(plan, [gate.GateId], Head), Is.True);
+            Assert.That(PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(
+                plan, [gate.GateId], "unrelated-descendant"), Is.False);
+        });
+    }
+
+    [Test]
+    public void MixedCheckpoint_CommitFromUnrepresentedSiblingCannotOwnHead()
+    {
+        var plan = MakePlan(FirstCommit, Head);
+        plan = plan with
+        {
+            Tasks =
+            [
+                plan.Tasks[0],
+                plan.Tasks[1] with { Status = PlanTaskStatus.Complete, Commit = Head, Handoff = null },
+            ],
+        };
+
+        Assert.That(PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(
+            plan, [plan.ApprovalGates[0].GateId], Head), Is.False);
+    }
+
+    [Test]
+    public void CompletedVerifiedNoOp_UsesEvaluatedCommitAsCheckpointEvidence()
+    {
+        var plan = MakeNoOpPlan(Head);
+        plan = plan with
+        {
+            Tasks =
+            [
+                plan.Tasks[0] with
+                {
+                    Status = PlanTaskStatus.Complete,
+                    Handoff = null,
+                    CompletionKind = DecomposeStepCompletionKind.VerifiedNoOp,
+                    EvaluatedCommit = Head,
+                },
+            ],
+        };
+
+        Assert.That(PlanHumanReviewCheckpointCommitPolicy.ResolveDurableCommits(
+            plan, [plan.ApprovalGates[0].GateId]), Is.EqualTo(new[] { Head }));
+    }
+
     [TestCase(0)]
     [TestCase(1)]
     public void SharedCheckpoint_OneMismatchedCommitRejectsWithoutTaskOrGateMutation(int mismatchedIndex)

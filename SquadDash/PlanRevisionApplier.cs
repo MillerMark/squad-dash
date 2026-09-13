@@ -58,6 +58,7 @@ internal static class PlanRevisionApplier
             .Select(task => task.TaskId)
             .ToHashSet(StringComparer.Ordinal);
 
+        var preserveDisplayedStageOrder = DependencyEditRecomputer.IsInDisplayedStageOrder(currentGroup);
         var effectiveTasks = new List<DecomposedSubTask>(proposal.Tasks.Count + lockedIds.Count);
         var effectiveIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var proposedTask in proposal.Tasks)
@@ -86,6 +87,13 @@ internal static class PlanRevisionApplier
             return Invalid(topologyError ?? "The revised plan topology is invalid.", lockedIds.Count);
 
         effectiveGroup = Canonicalize(topology.Group);
+        if (preserveDisplayedStageOrder)
+        {
+            effectiveGroup = effectiveGroup with
+            {
+                Tasks = DependencyEditRecomputer.OrderTasksByDisplayedStage(effectiveGroup),
+            };
+        }
         var currentDefinitionRevision = PendingDecomposePlanStore.ComputeRevision(currentGroup);
         var effectiveRevision = PendingDecomposePlanStore.ComputeRevision(effectiveGroup);
         if (string.Equals(currentDefinitionRevision, effectiveRevision, StringComparison.Ordinal))

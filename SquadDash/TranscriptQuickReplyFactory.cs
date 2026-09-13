@@ -329,6 +329,27 @@ internal static class TranscriptQuickReplyFactory
         }
     }
 
+    internal static void RemoveDecomposeRecoveryContainers(BlockCollection blocks, string groupId)
+    {
+        foreach (var block in blocks.ToArray())
+        {
+            var matchesSurface = block is Section { Tag: DecomposeRecoveryTag sectionTag } &&
+                                 string.Equals(sectionTag.GroupId, groupId, StringComparison.Ordinal);
+            var matchesActions = block is BlockUIContainer { Tag: DecomposeRecoveryTag actionTag } &&
+                                 string.Equals(actionTag.GroupId, groupId, StringComparison.Ordinal);
+            var matchesCard = block is BlockUIContainer { Tag: DecomposeRecoveryCardTag cardTag } &&
+                              string.Equals(cardTag.Identity.GroupId, groupId, StringComparison.Ordinal);
+            if (matchesSurface || matchesActions || matchesCard)
+            {
+                blocks.Remove(block);
+                continue;
+            }
+
+            if (block is Section section)
+                RemoveDecomposeRecoveryContainers(section.Blocks, groupId);
+        }
+    }
+
     /// <summary>
     /// Removes only the actionable controls from an existing recovery surface for one plan.
     /// The explanatory narrative and plan link remain in the transcript while a newer,

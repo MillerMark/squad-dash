@@ -122,6 +122,12 @@ internal sealed class PlanRecoveryGitWiringTests
         var headReads = Regex.Matches(method, @"await\s+PlanRecoveryGit\.TryReadHeadAsync\s*\(");
         Assert.That(headReads, Has.Count.EqualTo(2), "Read HEAD before review and again before accepting it.");
         var validation = method.IndexOf("await ValidateHumanReviewStepAcceptanceAsync(", StringComparison.Ordinal);
+        var checkpointHead = method.IndexOf(
+            "PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(", StringComparison.Ordinal);
+        var checkpointCommits = method.IndexOf(
+            "PlanHumanReviewCheckpointCommitPolicy.ResolveDurableCommits(", StringComparison.Ordinal);
+        var checkpointAncestry = method.IndexOf(
+            "workspace, checkpointCommit, currentHead, validationBudget.Token", StringComparison.Ordinal);
         var apply = Regex.Match(method,
             @"PlanHumanReviewStepAcceptance\.ApplyTasks\s*\([^;]*\bcurrentHead\b[^;]*\breviewedTaskCommits\b",
             RegexOptions.Singleline);
@@ -131,6 +137,10 @@ internal sealed class PlanRecoveryGitWiringTests
 
         Assert.Multiple(() =>
         {
+            Assert.That(checkpointHead, Is.GreaterThan(headReads[0].Index));
+            Assert.That(checkpointCommits, Is.GreaterThan(checkpointHead));
+            Assert.That(checkpointAncestry, Is.GreaterThan(checkpointCommits));
+            Assert.That(validation, Is.GreaterThan(checkpointAncestry));
             Assert.That(validation, Is.GreaterThan(headReads[0].Index));
             Assert.That(headReads[1].Index, Is.GreaterThan(validation));
             Assert.That(method, Does.Match(@"string\.Equals\s*\(\s*currentHead\s*,\s*finalHead\s*,"));
@@ -158,6 +168,7 @@ internal sealed class PlanRecoveryGitWiringTests
                 @"await\s+PlanRecoveryGit\.IsAncestorAsync\s*\(\s*workspace\s*,\s*reviewTarget\s*,\s*currentHead\s*,\s*cancellationToken\s*\)"));
             Assert.That(method, Does.Not.Contain("RunGitAsync("));
             Assert.That(method, Does.Not.Contain("merge-base"));
+            Assert.That(method, Does.Not.Contain("requireCurrentHead"));
             Assert.That(method, Does.Not.Contain(".GetAwaiter().GetResult()"));
         });
     }
