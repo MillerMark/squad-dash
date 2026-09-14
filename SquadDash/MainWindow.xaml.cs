@@ -10379,7 +10379,7 @@ public partial class MainWindow : Window
                     resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
                     saveDefinitionEdit: edited => SavePendingPlanRevisionEdit(pending, edited),
                     getAssignableAgents: GetAssignablePlanAgentsForViewer,
-                    onFontScaleDelta: delta => SetFontSizeScale(_fontScaleLevel + delta))
+                    squadFolderPath: _currentWorkspace?.SquadFolderPath)
                 {
                     Owner = CanShowOwnedWindow() ? this : null,
                     Title = $"Proposed Plan — {latestProposedPlan.DisplayName} — Revision {latestProposedPlan.RevisionNumber}",
@@ -13228,12 +13228,12 @@ public partial class MainWindow : Window
                 _ = RetryFailedPlanValidationAsync(current.PlanId, validationId),
             getSettings: () => _settingsSnapshot,
             getAssignableAgents: GetAssignablePlanAgentsForViewer,
-            onFontScaleDelta: delta => SetFontSizeScale(_fontScaleLevel + delta),
             resolveInterruptedPrimaryAction: ResolveInterruptedPrimaryAction,
             onOpenInterruptedChanges: current =>
                 _ = OpenInterruptedTaskReviewAsync(current.PlanId, current.Revision),
             onAssessInterruptedWork: current =>
-                _ = AssessInterruptedPlanAdvisoryFromDurableAsync(current))
+                _ = AssessInterruptedPlanAdvisoryFromDurableAsync(current),
+            squadFolderPath: _currentWorkspace?.SquadFolderPath)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };

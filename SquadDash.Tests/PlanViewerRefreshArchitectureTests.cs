@@ -108,7 +108,7 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
-    public void PlanEditor_UsesImportantTextAndRoutesCtrlWheelToEnvironmentZoom()
+    public void PlanEditor_UsesImportantTextAndRoutesCtrlWheelToGraphZoom()
     {
         var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
@@ -120,11 +120,13 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 .And.Contain(
                     "editor.SetResourceReference(TextBox.CaretBrushProperty, \"ImportantText\");"),
                 "All staged-plan text editors should use the high-contrast important-text theme brush.");
-            Assert.That(viewer, Does.Contain("_onFontScaleDelta(e.Delta > 0 ? 1 : -1);")
+            Assert.That(viewer, Does.Contain("_graphCanvas.LayoutTransform = new ScaleTransform(zoom, zoom);")
                 .And.Contain("(Keyboard.Modifiers & ModifierKeys.Control) != 0"));
+            Assert.That(viewer, Does.Not.Contain("_onFontScaleDelta"),
+                "Graph zoom must never change the environment font scale.");
             Assert.That(main, Does.Contain(
-                    "onFontScaleDelta: delta => SetFontSizeScale(_fontScaleLevel + delta)"),
-                "Plan-viewer Ctrl+wheel must use the persisted environment font-scale path.");
+                    "squadFolderPath: _currentWorkspace?.SquadFolderPath"),
+                "Plan viewers must receive the originating workspace for per-plan navigation storage.");
         });
     }
 

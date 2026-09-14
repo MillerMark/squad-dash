@@ -462,6 +462,7 @@
     <Compile Include="..\SquadDash\DependencyEditRecomputer.cs" Link="Source\DependencyEditRecomputer.cs" />
     <Compile Include="..\SquadDash\PendingPlanEditor.cs" Link="Source\PendingPlanEditor.cs" />
     <Compile Include="..\SquadDash\PlanVisualizerReview.cs" Link="Source\PlanVisualizerReview.cs" />
+    <Compile Include="..\SquadDash\PlanVisualizerViewportStore.cs" Link="Source\PlanVisualizerViewportStore.cs" />
     <Compile Include="..\SquadDash\DecomposePlanInbox.cs" Link="Source\DecomposePlanInbox.cs" />
     <Compile Include="..\SquadDash\DecomposeRecoveryInboxReconciler.cs" Link="Source\DecomposeRecoveryInboxReconciler.cs" />
     <Compile Include="..\SquadDash\DecomposePlanningInstructions.cs" Link="Source\DecomposePlanningInstructions.cs" />

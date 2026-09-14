@@ -2,6 +2,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -73,7 +74,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onRetryValidation;
     private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
     private readonly Func<IReadOnlyList<RosterAgent>>? _getAssignableAgents;
-    private readonly Action<int>? _onFontScaleDelta;
     private PttTextBoxAttachment? _pttAttachment;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
@@ -94,6 +94,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private Border? _contentHolder;
     private ScrollViewer? _graphScroll;
     private Canvas? _graphCanvas;
+    private readonly PlanVisualizerViewportStore _viewportStore;
+    private readonly string _viewportGroupId;
+    private readonly bool _canPersistViewport;
+    private readonly PlanVisualizerViewportState? _initialViewport;
+    private readonly System.Windows.Threading.DispatcherTimer _viewportSaveTimer;
+    private PlanVisualizerViewportState _viewportState;
+    private double _zoomFactor;
+    private bool _viewportReady;
+    private bool _autoScrollForPlanProgressPending;
+    private bool _isViewerClosed;
+    private bool _spacePanHeld;
+    private bool _isGraphPanning;
+    private Point _panStart;
+    private double _panHorizontalOffset;
+    private double _panVerticalOffset;
     private FlowDocument? _detailDocument;
     private WrapPanel? _inspectorToolbarPanel;
     private Func<string?>? _inspectorEditorSaveAction;
@@ -242,11 +257,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan, string>? onRetryValidation = null,
         Func<ApplicationSettingsSnapshot>? getSettings = null,
         Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
-        Action<int>? onFontScaleDelta = null,
         Func<Plan, PlanRecoveryPrimaryActionPresentation?>? resolveInterruptedPrimaryAction = null,
         Action<Plan>? onOpenInterruptedChanges = null,
         Action<Plan>? onAssessInterruptedWork = null,
-        double lineThicknessMultiplier = 1.0)
+        double lineThicknessMultiplier = 1.0,
+        string? squadFolderPath = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -303,7 +318,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onRetryValidation = onRetryValidation;
         _getSettings = getSettings;
         _getAssignableAgents = getAssignableAgents;
-        _onFontScaleDelta = onFontScaleDelta;
+        _viewportStore = new PlanVisualizerViewportStore(squadFolderPath);
+        _viewportGroupId = plan.Group.GroupId;
+        _canPersistViewport = squadFolderPath is not null;
+        _initialViewport = _viewportStore.Load(_viewportGroupId);
+        _zoomFactor = _initialViewport?.Zoom ?? _viewportStore.LoadDefaultZoom();
+        _viewportState = _initialViewport ?? new PlanVisualizerViewportState(_zoomFactor, 0, 0);
+        _viewportSaveTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(300),
+        };
+        _viewportSaveTimer.Tick += (_, _) => SaveGraphViewport();
         _graphEdgeRenderingContract = new PlanGraphEdgeRenderingContract(lineThicknessMultiplier);
         if (_getSettings is not null)
             _pttAttachment = new PttTextBoxAttachment(_getSettings, this, Dispatcher);
@@ -319,17 +344,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
         PreviewMouseDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += OnPlanViewerPreviewKeyDown;
+        PreviewKeyUp += OnGraphPanPreviewKeyUp;
+        Deactivated += (_, _) => ReleaseGraphPan();
+        PreviewGotKeyboardFocus += (_, e) =>
+        {
+            if (IsGraphTextInput(e.NewFocus))
+                ReleaseGraphPan();
+        };
         PreviewKeyDown += (_, e) =>
         {
-            if (_pttAttachment?.HandlePreviewKeyDown(e, Keyboard.FocusedElement as TextBox) == true)
+            if (!e.Handled &&
+                _pttAttachment?.HandlePreviewKeyDown(e, Keyboard.FocusedElement as TextBox) == true)
                 e.Handled = true;
         };
         PreviewKeyUp += (_, e) => _pttAttachment?.HandlePreviewKeyUp(e);
         ContentRendered += OnInitialContentRendered;
 
         BuildContent(plan, durablePlan);
+        Closing += (_, _) => SaveGraphViewport();
         Closed += (_, _) =>
         {
+            _isViewerClosed = true;
+            ReleaseGraphPan();
+            _viewportSaveTimer.Stop();
             _preflightPollTimer?.Stop();
             _reviewCallout?.Close();
             if (_pttAttachment?.IsActive == true) _ = _pttAttachment.StopAsync();
@@ -448,11 +485,40 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void OnGraphScrollPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        _lastViewerInteractionUtc = DateTime.UtcNow;
         if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
         {
-            if (_onFontScaleDelta is null) return;
-            _onFontScaleDelta(e.Delta > 0 ? 1 : -1);
             e.Handled = true;
+            if (_graphScroll is null || _graphCanvas is null || e.Delta == 0)
+                return;
+
+            var zoom = Math.Clamp(_zoomFactor * Math.Pow(1.1, e.Delta / 120.0),
+                PlanVisualizerViewportStore.MinimumZoom, PlanVisualizerViewportStore.MaximumZoom);
+            if (zoom == _zoomFactor)
+                return;
+
+            EndGraphPan();
+            _graphScroll.UpdateLayout();
+            var anchor = e.GetPosition(_graphCanvas);
+            var pointer = e.GetPosition(_graphScroll);
+            _zoomFactor = zoom;
+            _graphCanvas.LayoutTransform = new ScaleTransform(zoom, zoom);
+            _graphScroll.UpdateLayout();
+            var movedAnchor = _graphCanvas.TranslatePoint(anchor, _graphScroll);
+            _graphScroll.ScrollToHorizontalOffset(
+                _graphScroll.HorizontalOffset + movedAnchor.X - pointer.X);
+            _graphScroll.ScrollToVerticalOffset(
+                _graphScroll.VerticalOffset + movedAnchor.Y - pointer.Y);
+            _graphScroll.UpdateLayout();
+            QueueGraphViewportSave();
+            try
+            {
+                _viewportStore.SaveDefaultZoom(zoom);
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+            {
+                ReportViewportSaveFailure(ex);
+            }
             return;
         }
         if (Keyboard.Modifiers != ModifierKeys.Shift) return;
@@ -460,6 +526,169 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var delta = e.Delta > 0 ? -SystemParameters.WheelScrollLines * 16.0 : SystemParameters.WheelScrollLines * 16.0;
         _graphScroll.ScrollToHorizontalOffset(_graphScroll.HorizontalOffset + delta);
         e.Handled = true;
+    }
+
+    private static bool IsGraphTextInput(IInputElement? element) =>
+        element is TextBoxBase or PasswordBox or ComboBox { IsEditable: true };
+
+    private void OnGraphPanPreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Space || !_spacePanHeld)
+            return;
+
+        var isTextInput = IsGraphTextInput(Keyboard.FocusedElement);
+        ReleaseGraphPan();
+        if (!isTextInput)
+            e.Handled = true;
+    }
+
+    private void OnGraphPanMouseEnter(object sender, MouseEventArgs e)
+    {
+        if (IsActive && Keyboard.IsKeyDown(Key.Space) &&
+            !IsGraphTextInput(Keyboard.FocusedElement) && _taskCardDragState is null)
+            _spacePanHeld = true;
+        UpdateGraphPanCursor();
+    }
+
+    private void OnGraphPanMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!_spacePanHeld || !Keyboard.IsKeyDown(Key.Space) ||
+            IsGraphTextInput(Keyboard.FocusedElement) ||
+            _graphScroll is null || _taskCardDragState is not null || Mouse.Captured is not null)
+            return;
+
+        _graphScroll.UpdateLayout();
+        _panStart = e.GetPosition(_graphScroll);
+        _panHorizontalOffset = _graphScroll.HorizontalOffset;
+        _panVerticalOffset = _graphScroll.VerticalOffset;
+        if (!_graphScroll.CaptureMouse())
+            return;
+
+        _isGraphPanning = true;
+        UpdateGraphPanCursor();
+        e.Handled = true;
+    }
+
+    private void OnGraphPanMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isGraphPanning || _graphScroll is null)
+            return;
+        if (e.LeftButton != MouseButtonState.Pressed || !Keyboard.IsKeyDown(Key.Space))
+        {
+            EndGraphPan();
+            return;
+        }
+
+        var delta = e.GetPosition(_graphScroll) - _panStart;
+        _graphScroll.ScrollToHorizontalOffset(_panHorizontalOffset - delta.X);
+        _graphScroll.ScrollToVerticalOffset(_panVerticalOffset - delta.Y);
+        _lastViewerInteractionUtc = DateTime.UtcNow;
+        e.Handled = true;
+    }
+
+    private void OnGraphPanMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isGraphPanning)
+            return;
+        EndGraphPan();
+        e.Handled = true;
+    }
+
+    private void EndGraphPan()
+    {
+        _isGraphPanning = false;
+        if (_graphScroll?.IsMouseCaptured == true)
+            _graphScroll.ReleaseMouseCapture();
+        UpdateGraphPanCursor();
+    }
+
+    private void ReleaseGraphPan()
+    {
+        _spacePanHeld = false;
+        EndGraphPan();
+    }
+
+    private void UpdateGraphPanCursor()
+    {
+        if (_graphScroll is null)
+            return;
+        var showHand = _spacePanHeld && (_graphScroll.IsMouseOver || _isGraphPanning);
+        if (showHand)
+        {
+            _graphScroll.Cursor = _isGraphPanning ? AnnotationCursors.ClosedHand : AnnotationCursors.OpenHand;
+            _graphScroll.ForceCursor = true;
+        }
+        else
+        {
+            _graphScroll.ClearValue(CursorProperty);
+            _graphScroll.ClearValue(ForceCursorProperty);
+        }
+    }
+
+    private void QueueGraphViewportSave()
+    {
+        if (!_viewportReady || _isViewerClosed || _graphScroll is null)
+            return;
+        _viewportState = new PlanVisualizerViewportState(
+            _zoomFactor, _graphScroll.HorizontalOffset, _graphScroll.VerticalOffset);
+        _viewportSaveTimer.Stop();
+        _viewportSaveTimer.Start();
+    }
+
+    private void SaveGraphViewport()
+    {
+        _viewportSaveTimer.Stop();
+        if (!_initialLayoutApplied || !_canPersistViewport)
+            return;
+        if (_viewportReady && _graphScroll is not null)
+        {
+            _graphScroll.UpdateLayout();
+            _viewportState = new PlanVisualizerViewportState(
+                _zoomFactor, _graphScroll.HorizontalOffset, _graphScroll.VerticalOffset);
+        }
+        try
+        {
+            _viewportStore.Save(_viewportGroupId, _viewportState);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            ReportViewportSaveFailure(ex);
+        }
+    }
+
+    private void ReportViewportSaveFailure(Exception exception)
+    {
+        SquadDashTrace.Write("PlanViewer", $"Could not save graph navigation: {exception.Message}");
+        ShowActionStatus("Graph navigation could not be saved", exception.Message);
+    }
+
+    private void RestoreGraphViewport(PlanVisualizerViewportState state)
+    {
+        if (_graphScroll is null)
+            return;
+        _graphScroll.UpdateLayout();
+        _graphScroll.ScrollToHorizontalOffset(state.HorizontalOffset);
+        _graphScroll.ScrollToVerticalOffset(state.VerticalOffset);
+        _graphScroll.UpdateLayout();
+    }
+
+    private void EnsureZoomedAutomaticScrollTargetVisible()
+    {
+        // The existing policy uses scroll-space coordinates; graph positions exclude the zoom.
+        var start = _activeVisibilityStart;
+        var end = _activeVisibilityEnd;
+        var margin = _graphCanvas?.Margin.Left ?? 0;
+        try
+        {
+            _activeVisibilityStart = margin + (start - margin) * _zoomFactor;
+            _activeVisibilityEnd = margin + (end - margin) * _zoomFactor;
+            EnsureAutomaticScrollTargetVisible();
+        }
+        finally
+        {
+            _activeVisibilityStart = start;
+            _activeVisibilityEnd = end;
+        }
     }
 
     private void ApplyLiveUpdate(Plan updatedPlan)
@@ -496,11 +725,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         RowSpacing = BaseRowSpacing * _scaleFactor;
 
         if (_plan is not null)
-            BuildContent(_plan, _durablePlan);
+            RebuildPreservingScroll(_plan, _durablePlan);
     }
 
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
+        EndGraphPan();
+        _viewportReady = false;
+        _viewportSaveTimer.Stop();
         var currentBuildSeq = ++_buildSeq;
         _preflightPollTimer?.Stop();
         _preflightPollTimer = null;
@@ -1341,7 +1573,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var hintBlock = new TextBlock
         {
-            Text         = "Arrows point from prerequisite → dependent.  ALL means every incoming step must finish.  Steps in the same stage with no arrow between them are independent and may run in any order.",
+            Text         = "Arrows point from prerequisite → dependent.  ALL means every incoming step must finish.  Steps in the same stage with no arrow between them are independent and may run in any order.  Hold Space + drag to pan.  Ctrl + wheel to zoom.  Shift + wheel to scroll horizontally.",
             TextWrapping = TextWrapping.Wrap,
             Margin       = new Thickness(22, 6, 22, 8),
         };
@@ -1524,6 +1756,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Margin              = new Thickness(18, 4, 18, 18),
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment   = VerticalAlignment.Top,
+            LayoutTransform     = new ScaleTransform(_zoomFactor, _zoomFactor),
         };
         _graphCanvas = canvas;
         _agentChipElements.Clear();
@@ -1559,6 +1792,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
         scroll.SetResourceReference(ScrollViewer.BackgroundProperty, "AppSurface");
         canvas.SetResourceReference(Canvas.BackgroundProperty, "PlanStageCanvasBackground");
         scroll.PreviewMouseWheel += OnGraphScrollPreviewMouseWheel;
+        scroll.PreviewMouseLeftButtonDown += OnGraphPanMouseDown;
+        scroll.PreviewMouseMove += OnGraphPanMouseMove;
+        scroll.PreviewMouseLeftButtonUp += OnGraphPanMouseUp;
+        scroll.MouseEnter += OnGraphPanMouseEnter;
+        scroll.MouseLeave += (_, _) => UpdateGraphPanCursor();
+        scroll.LostMouseCapture += (_, _) =>
+        {
+            _isGraphPanning = false;
+            UpdateGraphPanCursor();
+        };
+        scroll.ScrollChanged += (_, _) =>
+        {
+            if (ReferenceEquals(_graphScroll, scroll))
+                QueueGraphViewportSave();
+        };
+        UpdateGraphPanCursor();
 
         var splitGrid = new Grid();
         splitGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(7, GridUnitType.Star) });
@@ -4501,8 +4750,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Plan? durablePlan,
         bool autoScrollForPlanProgress)
     {
-        var horizontalOffset = _graphScroll?.HorizontalOffset ?? 0;
-        var verticalOffset   = _graphScroll?.VerticalOffset  ?? 0;
+        _autoScrollForPlanProgressPending |= autoScrollForPlanProgress;
         // Defer the content rebuild to the next dispatcher cycle so any in-flight mouse/keyboard
         // event (e.g. ButtonBase.OnMouseLeftButtonDown calling Focus()) fully completes before
         // _contentHolder.Child is replaced. Replacing the child mid-event detaches elements from
@@ -4510,28 +4758,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
         // a NullReferenceException inside HwndKeyboardInputProvider.AcquireFocus.
         Dispatcher.BeginInvoke(() =>
         {
+            if (_isViewerClosed)
+                return;
+            if (_viewportReady && _graphScroll is not null)
+                _viewportState = new PlanVisualizerViewportState(
+                    _zoomFactor, _graphScroll.HorizontalOffset, _graphScroll.VerticalOffset);
+            var viewport = _viewportState;
             BuildContent(plan, durablePlan);
             var capturedScroll = _graphScroll;
-            var capturedH = horizontalOffset;
-            var capturedV = verticalOffset;
-            if (capturedScroll is not null && (capturedH > 0.5 || capturedV > 0.5))
+            Dispatcher.BeginInvoke(() =>
             {
-                EventHandler? handler = null;
-                handler = (_, _) =>
-                {
-                    capturedScroll.LayoutUpdated -= handler;
-                    capturedScroll.ScrollToHorizontalOffset(capturedH);
-                    capturedScroll.ScrollToVerticalOffset(capturedV);
-                };
-                capturedScroll.LayoutUpdated += handler;
-            }
-            if (autoScrollForPlanProgress &&
-                PlanViewerAutoScrollPolicy.IsInteractionQuiet(_lastViewerInteractionUtc, DateTime.UtcNow))
-            {
-                Dispatcher.BeginInvoke(
-                    EnsureAutomaticScrollTargetVisible,
-                    System.Windows.Threading.DispatcherPriority.Render);
-            }
+                if (_isViewerClosed || !_initialLayoutApplied ||
+                    !ReferenceEquals(_graphScroll, capturedScroll))
+                    return;
+                RestoreGraphViewport(viewport);
+                if (_autoScrollForPlanProgressPending &&
+                    PlanViewerAutoScrollPolicy.IsInteractionQuiet(_lastViewerInteractionUtc, DateTime.UtcNow))
+                    EnsureZoomedAutomaticScrollTargetVisible();
+                _autoScrollForPlanProgressPending = false;
+                _viewportReady = true;
+                QueueGraphViewportSave();
+            }, System.Windows.Threading.DispatcherPriority.Render);
         }, System.Windows.Threading.DispatcherPriority.Normal);
     }
 
@@ -5189,8 +5436,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
         ContentRendered -= OnInitialContentRendered;
         ApplyInitialWindowLayout();
         _initialLayoutApplied = true;
-        Dispatcher.BeginInvoke(EnsureAutomaticScrollTargetVisible,
-            System.Windows.Threading.DispatcherPriority.Render);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_isViewerClosed)
+                return;
+            // Saved navigation wins only on open; live progress keeps its normal auto-scroll path.
+            if (_initialViewport is not null)
+                RestoreGraphViewport(_initialViewport);
+            else
+                EnsureZoomedAutomaticScrollTargetVisible();
+            _viewportReady = true;
+            QueueGraphViewportSave();
+        }, System.Windows.Threading.DispatcherPriority.Render);
     }
 
     private void ApplyInitialWindowLayout()
@@ -10284,6 +10541,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void OnPlanViewerPreviewKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Space && _graphScroll?.IsMouseOver == true &&
+            !IsGraphTextInput(Keyboard.FocusedElement) && _taskCardDragState is null)
+        {
+            _spacePanHeld = true;
+            UpdateGraphPanCursor();
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Escape && _spacePanHeld)
+        {
+            ReleaseGraphPan();
+            e.Handled = true;
+            return;
+        }
         if (e.Key != Key.Escape || _taskCardDragState is null)
             return;
 
