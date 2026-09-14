@@ -3587,7 +3587,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
                     };
-                    checkPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
+                    checkPath.SetResourceReference(Shape.FillProperty, "PriorityHigh");
 
                     return new Viewbox
                     {
@@ -3611,7 +3611,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             HorizontalAlignment = HorizontalAlignment.Center,
                             VerticalAlignment = VerticalAlignment.Center,
                         };
-                        hollowCheckPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
+                        hollowCheckPath.SetResourceReference(Shape.FillProperty, "PriorityHigh");
                         return new Viewbox
                         {
                             Width = 12 * _scaleFactor,
@@ -3649,9 +3649,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         VerticalAlignment = VerticalAlignment.Center,
                         Opacity = isTaskComplete ? 1.0 : 0.50,
                     };
-                    indicator.SetResourceReference(Shape.StrokeProperty, "TaskSucceededFill");
+                    indicator.SetResourceReference(Shape.StrokeProperty, "PriorityHigh");
                     if (isTaskComplete)
-                        indicator.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
+                        indicator.SetResourceReference(Shape.FillProperty, "PriorityHigh");
                     return indicator;
                 }
 
@@ -3667,7 +3667,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             HorizontalAlignment = HorizontalAlignment.Center,
                             VerticalAlignment = VerticalAlignment.Center,
                         };
-                        hollowStarPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
+                        hollowStarPath.SetResourceReference(Shape.FillProperty, "PriorityHigh");
                         return new Viewbox
                         {
                             Width = 14.3 * _scaleFactor,
@@ -3701,7 +3701,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center,
                     };
-                    starPath.SetResourceReference(Shape.FillProperty, "TaskSucceededFill");
+                    starPath.SetResourceReference(Shape.FillProperty, "PriorityHigh");
                     return new Viewbox
                     {
                         Width = 14.3 * _scaleFactor,

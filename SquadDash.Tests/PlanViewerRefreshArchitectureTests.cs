@@ -7,6 +7,35 @@ namespace SquadDash.Tests;
 internal sealed class PlanViewerRefreshArchitectureTests
 {
     [Test]
+    public void RightSideVerificationBadges_UseThemeAwareAmberForEveryLevelAndCompletionState()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var start = source.IndexOf("if (!verificationOnly)", StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0));
+        var end = source.IndexOf("} // end if (!verificationOnly)", start, StringComparison.Ordinal);
+        Assert.That(end, Is.GreaterThan(start));
+        var badges = source[start..end];
+
+        Assert.Multiple(() =>
+        {
+            foreach (var target in new[]
+            {
+                "checkPath.SetResourceReference(Shape.FillProperty",
+                "hollowCheckPath.SetResourceReference(Shape.FillProperty",
+                "indicator.SetResourceReference(Shape.StrokeProperty",
+                "indicator.SetResourceReference(Shape.FillProperty",
+                "hollowStarPath.SetResourceReference(Shape.FillProperty",
+                "starPath.SetResourceReference(Shape.FillProperty",
+            })
+                Assert.That(badges, Does.Contain($"{target}, \"PriorityHigh\");"));
+
+            Assert.That(badges, Does.Contain("return MakeCheckmarkIcon(applyCompletionOpacity: false);"));
+            Assert.That(badges, Does.Not.Contain("\"TaskSucceededFill\""));
+            Assert.That(badges, Does.Contain("Canvas.SetLeft(verificationIndicator, position.X + NodeWidth"));
+        });
+    }
+
+    [Test]
     public void RefreshPlan_RebuildsInPlaceWithoutConstructingAnotherWindow()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
