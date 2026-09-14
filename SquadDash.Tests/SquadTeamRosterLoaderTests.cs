@@ -183,6 +183,33 @@ internal sealed class SquadTeamRosterLoaderTests {
     }
 
     [Test]
+    public void Load_CanonicalizesLegacyFactCheckerIdentityFromStableUtilityHandle() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/agents/fact-checker/charter.md", """
+            # Fact Checker
+
+            - **Name:** Fact Checker
+            - **Role:** Devil's Advocate & Verification Agent
+            """);
+        workspace.CreateFile("assets/verity-cross.png", string.Empty);
+
+        var member = new SquadTeamRosterLoader().Load(workspace.RootPath).Single();
+        var imagePath = AgentImagePathResolver.ResolveBundledPath(
+            workspace.GetPath("assets"),
+            member.AccentKey,
+            member.Name,
+            member.Role);
+
+        Assert.Multiple(() => {
+            Assert.That(member.Name, Is.EqualTo("Verity Cross"));
+            Assert.That(member.Role, Is.EqualTo("Fact Checker, Devil's Advocate & Verification Agent"));
+            Assert.That(member.AccentKey, Is.EqualTo("fact-checker"));
+            Assert.That(member.IsUtilityAgent, Is.True);
+            Assert.That(imagePath, Is.EqualTo(workspace.GetPath("assets", "verity-cross.png")));
+        });
+    }
+
+    [Test]
     public void GetMissingUtilityAgentNames_ReturnsMissingBuiltIns() {
         using var workspace = new TestWorkspace();
         workspace.CreateFile(".squad/agents/scribe/charter.md", "# Scribe");

@@ -38149,6 +38149,7 @@ public partial class MainWindow : Window
         }
         SquadScribeWorkspaceRepairService.Repair(_currentWorkspace.FolderPath);
         SquadPlanningWorkspaceRepairService.Repair(_currentWorkspace.FolderPath);
+        SquadFactCheckerWorkspaceRepairService.Repair(_currentWorkspace.FolderPath);
         var teamRootAssessment = SquadTeamRootRepairService.Assess(_currentWorkspace.FolderPath);
         if (teamRootAssessment.ConfigNeedsRepair)
         {
@@ -46860,6 +46861,9 @@ public partial class MainWindow : Window
                     SquadDashTrace.Write("Bridge", $"Could not load charter for named-agent route @{handle}: {ex.Message}");
                 }
             }
+
+            if (string.Equals(handle, FactCheckerInstructions.Handle, StringComparison.OrdinalIgnoreCase))
+                charterContent = FactCheckerInstructions.BuildEffectiveCharter(charterContent);
 
             routes.Add(SquadSdkProcess.BuildNamedAgentRoute(
                 handle,

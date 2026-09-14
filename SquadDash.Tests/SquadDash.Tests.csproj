@@ -226,6 +226,7 @@
     <Compile Include="..\SquadDash\BulletedTextBox.cs" Link="Source\BulletedTextBox.cs" />
     <Compile Include="..\SquadDash\CastAgentWindow.cs" Link="Source\CastAgentWindow.cs" />
     <Compile Include="..\SquadDash\PlanningSpecialistInstructions.cs" Link="Source\PlanningSpecialistInstructions.cs" />
+    <Compile Include="..\SquadDash\FactCheckerInstructions.cs" Link="Source\FactCheckerInstructions.cs" />
     <Compile Include="..\SquadDash\ISpeechRecognitionService.cs" Link="Source\ISpeechRecognitionService.cs" />
     <Compile Include="..\SquadDash\SpeechRecognitionService.cs" Link="Source\SpeechRecognitionService.cs" />
     <Compile Include="..\SquadDash\WhisperSpeechRecognitionService.cs" Link="Source\WhisperSpeechRecognitionService.cs" />
@@ -262,6 +263,7 @@
     <Compile Include="..\SquadDash\WorkspacePendingUpgradeStore.cs" Link="Source\WorkspacePendingUpgradeStore.cs" />
     <Compile Include="..\SquadDash\SquadScribeWorkspaceRepairService.cs" Link="Source\SquadScribeWorkspaceRepairService.cs" />
     <Compile Include="..\SquadDash\SquadPlanningWorkspaceRepairService.cs" Link="Source\SquadPlanningWorkspaceRepairService.cs" />
+    <Compile Include="..\SquadDash\SquadFactCheckerWorkspaceRepairService.cs" Link="Source\SquadFactCheckerWorkspaceRepairService.cs" />
     <Compile Include="..\SquadDash\HostInstructionStore.cs" Link="Source\HostInstructionStore.cs" />
     <Compile Include="..\SquadDash\SquadTeamRootRepairService.cs" Link="Source\SquadTeamRootRepairService.cs" />
     <Compile Include="..\SquadDash\SquadTeamRootRepairWorkflow.cs" Link="Source\SquadTeamRootRepairWorkflow.cs" />
@@ -644,6 +646,7 @@
     <EmbeddedResource Include="..\SquadDash\Assets\squaddash-profiles.md" Link="Assets\squaddash-profiles.md" />
     <EmbeddedResource Include="..\SquadDash\Assets\decompose-planning.md" Link="Assets\decompose-planning.md" />
     <EmbeddedResource Include="..\SquadDash\Assets\planning-specialist-charter.md" Link="Assets\planning-specialist-charter.md" />
+    <EmbeddedResource Include="..\SquadDash\Assets\fact-checker-charter.md" Link="Assets\fact-checker-charter.md" />
     <EmbeddedResource Include="..\SquadDash\Assets\loop-executing-plan.md" Link="Assets\loop-executing-plan.md" />
   </ItemGroup>
 

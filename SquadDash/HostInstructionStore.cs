@@ -9,6 +9,7 @@ internal enum HostInstructionKind
 {
     DecomposePlanning,
     PlanningSpecialistCharter,
+    FactCheckerCharter,
     PlanExecutionLoop,
 }
 
@@ -139,6 +140,10 @@ internal static class HostInstructionStore
             "planning-specialist-charter.md",
             "planning-specialist-charter.md",
             null),
+        HostInstructionKind.FactCheckerCharter => new(
+            "fact-checker-charter.md",
+            "fact-checker-charter.md",
+            null),
         HostInstructionKind.PlanExecutionLoop => new(
             "loop-executing-plan.md",
             "loop-executing-plan.md",
@@ -150,6 +155,7 @@ internal static class HostInstructionStore
     {
         HostInstructionKind.DecomposePlanning => "decompose-planning",
         HostInstructionKind.PlanningSpecialistCharter => "planning-specialist",
+        HostInstructionKind.FactCheckerCharter => "fact-checker",
         HostInstructionKind.PlanExecutionLoop => "plan-execution",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };

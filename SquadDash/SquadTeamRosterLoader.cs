@@ -49,7 +49,9 @@ internal sealed class SquadTeamRosterLoader {
 
         var members = LoadFromTeamFile(normalizedWorkspace, Path.Combine(squadFolder, "team.md"), retiredSlugs);
         if (members.Count == 0)
-            return LoadFromAgentFolders(agentsFolder);
+            return LoadFromAgentFolders(agentsFolder)
+                .Select(FactCheckerInstructions.Canonicalize)
+                .ToArray();
 
         var existingFolders = new HashSet<string>(
             members
@@ -81,7 +83,7 @@ internal sealed class SquadTeamRosterLoader {
             members.Add(folderMember);
         }
 
-        return members;
+        return members.Select(FactCheckerInstructions.Canonicalize).ToArray();
     }
 
     /// <summary>
