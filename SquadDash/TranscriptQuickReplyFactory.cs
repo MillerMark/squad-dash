@@ -90,6 +90,23 @@ internal static class TranscriptCardLayout
     {
         if (child is FrameworkElement element)
             MakeResponsive(element);
+
+        // Focusable content inside a BlockUIContainer (notably hyperlinks in the
+        // selectable recovery-card viewer) can ask WPF to bring its entire host into
+        // view on mouse-down.  When the top of a tall card is above the viewport, that
+        // ancestor scroll consumes the user's apparent click and can move the link out
+        // of reach.  Pointer clicks already identify exactly what the user wants to
+        // interact with, so keep the viewport stable for that request.  Keyboard focus
+        // and explicit, programmatic BringIntoView calls remain available.
+        child.AddHandler(
+            FrameworkElement.RequestBringIntoViewEvent,
+            new RequestBringIntoViewEventHandler((_, e) =>
+            {
+                if (ShouldSuppressPointerBringIntoView(Mouse.LeftButton))
+                    e.Handled = true;
+            }),
+            handledEventsToo: true);
+
         var container = new BlockUIContainer(child)
         {
             Margin = margin ?? new Thickness(0, 2, 0, 10),
@@ -100,6 +117,9 @@ internal static class TranscriptCardLayout
             child.SetValue(CopyableProperty, new VisualTranscriptCardCopyData(child));
         return container;
     }
+
+    internal static bool ShouldSuppressPointerBringIntoView(MouseButtonState leftButton) =>
+        leftButton == MouseButtonState.Pressed;
 
     /// <summary>Finds the transcript container that owns a clicked card descendant.</summary>
     internal static BlockUIContainer? FindContainer(DependencyObject? origin)

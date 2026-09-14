@@ -2,6 +2,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 
 namespace SquadDash.Tests;
 
@@ -279,6 +280,17 @@ internal sealed class TranscriptQuickReplyFactoryTests
         Assert.That(historySection.Blocks.Contains(recoverySurface), Is.False);
         Assert.That(historySection.Blocks.OfType<Paragraph>().Single().Inlines
             .OfType<Run>().Single().Text, Is.EqualTo("Historical narrative"));
+    }
+
+    [TestCase(MouseButtonState.Pressed, true)]
+    [TestCase(MouseButtonState.Released, false)]
+    public void ShouldSuppressPointerBringIntoView_OnlySuppressesActivePointerClicks(
+        MouseButtonState leftButton,
+        bool expected)
+    {
+        Assert.That(
+            TranscriptCardLayout.ShouldSuppressPointerBringIntoView(leftButton),
+            Is.EqualTo(expected));
     }
 
     [Test]

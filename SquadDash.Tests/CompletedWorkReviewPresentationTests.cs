@@ -423,6 +423,71 @@ internal sealed class CompletedWorkReviewPresentationTests
     }
 
     [Test]
+    public void BuildCopyText_CanOmitHeadingWhenCardAlreadyRenderedIt()
+    {
+        var review = CompletedWorkReviewPresentationBuilder.Build(MakePlan(MakeEvidence()), TaskId)!;
+
+        var copied = CompletedWorkReviewPresentationBuilder.BuildCopyText(review, includeHeading: false);
+
+        Assert.That(copied, Does.Not.Contain(review.Heading));
+    }
+
+    [Test]
+    public void Build_WhenStopReasonMatchesOutcome_DoesNotRepeatItInTechnicalDetails()
+    {
+        var evidence = MakeEvidence() with { Summary = "Worker stopped." };
+
+        var review = CompletedWorkReviewPresentationBuilder.Build(MakePlan(evidence), TaskId)!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(review.Outcome, Is.EqualTo("Worker stopped."));
+            Assert.That(review.TechnicalDetails, Does.Not.Contain("Stop reason: Worker stopped."));
+            Assert.That(review.TechnicalDetails, Does.Contain("Task ID: " + TaskId));
+        });
+    }
+
+    [Test]
+    public void Build_WhenStopReasonUsesShortCommitAndOutcomeUsesFullCommit_DoesNotRepeatIt()
+    {
+        const string fullCommit = "abc1234567890123456789012345678901234567";
+        var evidence = MakeEvidence() with
+        {
+            Commit = fullCommit,
+            Summary = $"Committed regression coverage in {fullCommit}."
+        };
+        var plan = MakePlan(evidence) with
+        {
+            InterruptionData = MakePlan(evidence).InterruptionData! with
+            {
+                Reason = "Committed regression coverage in abc1234."
+            }
+        };
+
+        var review = CompletedWorkReviewPresentationBuilder.Build(plan, TaskId)!;
+
+        Assert.That(review.TechnicalDetails, Does.Not.Contain("Stop reason:"));
+    }
+
+    [Test]
+    public void Build_WhenStopReasonDiffersFromOutcome_PreservesItInTechnicalDetails()
+    {
+        var review = CompletedWorkReviewPresentationBuilder.Build(MakePlan(MakeEvidence()), TaskId)!;
+
+        Assert.That(review.TechnicalDetails, Does.Contain("Stop reason: Worker stopped."));
+    }
+
+    [TestCase("Tests/Parser/MyFileName.cs", "MyFileName.cs")]
+    [TestCase(@"Tests\Parser\MyFileName.cs", "MyFileName.cs")]
+    [TestCase("MyFileName.cs", "MyFileName.cs")]
+    public void GetChangedFileDisplayName_ShowsOnlyBasename(string path, string expected)
+    {
+        Assert.That(
+            CompletedWorkReviewPresentationBuilder.GetChangedFileDisplayName(path),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
     public void BuildRecoveryMessage_ActionHintsAreNonEmpty()
     {
         var pending = MakePending();

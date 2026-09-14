@@ -116,18 +116,21 @@ internal static class CompletedWorkReviewPresentationBuilder
                 "Independent review found work that still needs correction.",
             _ => "Independent completion review did not finish, so the step remains unconfirmed.",
         };
-        var technicalDetails = string.Join(Environment.NewLine, new[]
-        {
-            $"Stop reason: {plan.InterruptionData?.Reason ?? "Plan execution stopped unexpectedly."}",
+        var stopReason = plan.InterruptionData?.Reason ?? "Plan execution stopped unexpectedly.";
+        var technicalDetailLines = new List<string>();
+        if (!AreEquivalentNarratives(stopReason, evidence.Summary))
+            technicalDetailLines.Add($"Stop reason: {stopReason}");
+        technicalDetailLines.AddRange([
             $"Task ID: {taskId}",
             $"Execution attempt: {evidence.ExecutionAttemptId ?? "unknown"}",
             $"Comparison baseline: {evidence.BaselineCommit}",
             $"Recorded task commit: {evidence.Commit}",
             $"Reported verification command: {evidence.Verification?.Command ?? "not provided"}",
-        });
+        ]);
+        var technicalDetails = string.Join(Environment.NewLine, technicalDetailLines);
 
         return new CompletedWorkReviewPresentation(
-            StopReason: plan.InterruptionData?.Reason ?? "Plan execution stopped unexpectedly.",
+            StopReason: stopReason,
             TaskTitle: taskTitle,
             TaskId: taskId,
             Commit: commitDetail,
@@ -152,17 +155,40 @@ internal static class CompletedWorkReviewPresentationBuilder
             TechnicalDetails: technicalDetails);
     }
 
-    internal static string BuildCopyText(CompletedWorkReviewPresentation review) =>
+    internal static string BuildCopyText(
+        CompletedWorkReviewPresentation review,
+        bool includeHeading = true) =>
         string.Join(Environment.NewLine, new[]
         {
-            review.Heading,
+            includeHeading ? review.Heading : null,
             review.Outcome,
             review.EvidenceSummary,
             review.Uncertainty,
             review.AcceptanceEffect,
             "Technical details:",
             review.TechnicalDetails,
-        });
+        }.Where(line => !string.IsNullOrWhiteSpace(line)));
+
+    internal static string GetChangedFileDisplayName(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return path;
+        var normalized = path.Trim().Replace('\\', '/').TrimEnd('/');
+        var separator = normalized.LastIndexOf('/');
+        return separator >= 0 && separator < normalized.Length - 1
+            ? normalized[(separator + 1)..]
+            : normalized;
+    }
+
+    private static bool AreEquivalentNarratives(string left, string right)
+    {
+        static string Normalize(string value) => string.Join(
+            ' ',
+            CommitReferenceText.Shorten(value).Split(
+                (char[]?)null,
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        return string.Equals(Normalize(left), Normalize(right), StringComparison.Ordinal);
+    }
 
     private static string ShortSha(string? value) =>
         string.IsNullOrWhiteSpace(value)

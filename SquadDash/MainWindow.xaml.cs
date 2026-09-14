@@ -19379,7 +19379,8 @@ public partial class MainWindow : Window
             }
             blocks.Add(analysisList);
         }
-        else if (PlanRecoveryPresentationBuilder.ShouldShowGenericReason(assessmentEvidence))
+        else if (completedWorkReview is null &&
+                 PlanRecoveryPresentationBuilder.ShouldShowGenericReason(assessmentEvidence))
         {
             var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(
                 durablePlan?.InterruptionData?.Reason);
@@ -19398,8 +19399,14 @@ public partial class MainWindow : Window
 
         if (completedWorkReview is not null)
         {
-            AppendCompletedWorkReviewDetails(blocks, completedWorkReview);
-            copyParts.Add(CompletedWorkReviewPresentationBuilder.BuildCopyText(completedWorkReview));
+            AppendCompletedWorkReviewDetails(
+                blocks,
+                completedWorkReview,
+                durablePlan!.PlanId,
+                durablePlan.Revision);
+            copyParts.Add(CompletedWorkReviewPresentationBuilder.BuildCopyText(
+                completedWorkReview,
+                includeHeading: false));
         }
 
         var recoveryTechnicalDetails = completedWorkReview?.TechnicalDetails ??
@@ -20065,7 +20072,9 @@ public partial class MainWindow : Window
 
     private void AppendCompletedWorkReviewDetails(
         BlockCollection blocks,
-        CompletedWorkReviewPresentation review)
+        CompletedWorkReviewPresentation review,
+        string planId,
+        string planRevision)
     {
         var outcomeParagraph = CreateTranscriptParagraph(bottomMargin: 3);
         var outcomeRun = new Run(review.Outcome);
@@ -20098,11 +20107,25 @@ public partial class MainWindow : Window
             var maxFiles = Math.Min(review.ChangedFiles.Count, 8);
             for (var i = 0; i < maxFiles; i++)
             {
+                var fullPath = review.ChangedFiles[i];
+                var displayName = CompletedWorkReviewPresentationBuilder.GetChangedFileDisplayName(fullPath);
                 var fileParagraph = CreateTranscriptParagraph(bottomMargin: 1);
                 fileParagraph.Margin = new Thickness(24, 0, 0, 1);
-                var fileRun = new Run($"• {review.ChangedFiles[i]}");
-                fileRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-                fileParagraph.Inlines.Add(fileRun);
+                var bulletRun = new Run("• ");
+                bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                fileParagraph.Inlines.Add(bulletRun);
+                var fileLink = new Hyperlink(new Run(displayName))
+                {
+                    Cursor = Cursors.Hand,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        $"Open {fullPath} in the commit viewer"),
+                };
+                fileLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                fileLink.Click += (_, _) => _ = OpenInterruptedTaskReviewAsync(
+                    planId,
+                    planRevision,
+                    fullPath);
+                fileParagraph.Inlines.Add(fileLink);
                 blocks.Add(fileParagraph);
             }
             if (review.ChangedFiles.Count > maxFiles)
@@ -61138,7 +61161,10 @@ public partial class MainWindow : Window
         IReadOnlyList<PlanEvidenceCommit> Commits,
         bool HasExactTaskAttribution);
 
-    private async Task OpenInterruptedTaskReviewAsync(string planId, string expectedRevision)
+    private async Task OpenInterruptedTaskReviewAsync(
+        string planId,
+        string expectedRevision,
+        string? initialFilePath = null)
     {
         var plan = _planStore?.Load(planId);
         if (plan is null || !string.Equals(plan.Revision, expectedRevision, StringComparison.Ordinal))
@@ -61203,7 +61229,7 @@ public partial class MainWindow : Window
                 workspace,
                 review.BaselineCommit,
                 review.TerminalCommit,
-                initialFilePath: string.Empty);
+                initialFilePath ?? string.Empty);
             viewer.Owner = CanShowOwnedWindow() ? this : null;
             viewer.Show();
         }
