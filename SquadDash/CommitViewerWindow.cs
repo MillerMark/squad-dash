@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 
@@ -19,6 +20,9 @@ internal sealed class CommitViewerWindow : ChromedWindow
     private readonly StackPanel _diffPanel = new();
     private readonly TextBlock _heading = new();
     private readonly TextBlock _status = new();
+    private readonly CommitViewerCodeFontStore _codeFontStore = new();
+    private readonly double _codeHeaderFontRatio;
+    private double _codeFontSize;
 
     private CommitViewerWindow(
         string repositoryPath,
@@ -32,6 +36,9 @@ internal sealed class CommitViewerWindow : ChromedWindow
         _commitSha = commits[0].Sha;
         _baselineSha = baselineSha;
         _initialFilePath = initialFilePath;
+        var defaultCodeFontSize = (double)Application.Current.Resources["FontSizeNormal"];
+        _codeFontSize = _codeFontStore.Load(defaultCodeFontSize);
+        _codeHeaderFontRatio = (double)Application.Current.Resources["FontSizeSmall"] / defaultCodeFontSize;
         Title = baselineSha is not null
             ? $"Changes {ShortSha(baselineSha)}..{ShortSha(_commitSha)}"
             : commits.Count == 1 ? $"Commit {ShortSha(_commitSha)}" : $"Evidence · {commits.Count} commits";
@@ -68,6 +75,7 @@ internal sealed class CommitViewerWindow : ChromedWindow
         };
         diffScroll.SetResourceReference(BackgroundProperty, "CardSurface");
         diffScroll.SetResourceReference(StyleProperty, "RosterScrollViewerStyle");
+        diffScroll.PreviewMouseWheel += DiffScroll_PreviewMouseWheel;
 
         _commitList.BorderThickness = new Thickness(0);
         _commitList.Padding = new Thickness(5);
@@ -262,8 +270,10 @@ internal sealed class CommitViewerWindow : ChromedWindow
             Margin = new Thickness(2, 0, 8, 0)
         };
         path.SetResourceReference(TextBlock.ForegroundProperty, "TableCellText");
+        path.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
 
         var summary = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+        summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         if (file.IsBinary)
         {
             summary.Text = "binary";
@@ -322,7 +332,42 @@ internal sealed class CommitViewerWindow : ChromedWindow
                 : rawLine.StartsWith("@@") || rawLine.StartsWith("diff ") || rawLine.StartsWith("index ") ||
                   rawLine.StartsWith("---") || rawLine.StartsWith("+++") ? DiffLineKind.Header
                 : DiffLineKind.Context;
-            _diffPanel.Children.Add(DiffLinePresenter.Create(rawLine.Length == 0 ? " " : rawLine, kind));
+            var line = DiffLinePresenter.Create(rawLine.Length == 0 ? " " : rawLine, kind);
+            line.Tag = kind;
+            ApplyCodeFontSize(line, kind);
+            _diffPanel.Children.Add(line);
+        }
+    }
+
+    private void ApplyCodeFontSize(TextBlock line, DiffLineKind kind) =>
+        line.FontSize = _codeFontSize * (kind == DiffLineKind.Header ? _codeHeaderFontRatio : 1);
+
+    private void DiffScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0 || e.Delta == 0)
+            return;
+
+        e.Handled = true;
+        var fontSize = CommitViewerCodeFontStore.Clamp(_codeFontSize + Math.Sign(e.Delta));
+        if (fontSize == _codeFontSize)
+            return;
+
+        _codeFontSize = fontSize;
+        foreach (var child in _diffPanel.Children)
+        {
+            if (child is TextBlock { Tag: DiffLineKind kind } line)
+                ApplyCodeFontSize(line, kind);
+        }
+
+        try
+        {
+            _codeFontStore.Save(_codeFontSize);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            SquadDashTrace.Write("CommitViewerCodeFont", $"Could not save code font size: {ex.Message}");
+            MessageBox.Show(this, $"The code font size changed, but could not be saved.\n\n{ex.Message}",
+                "Commit Viewer", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
