@@ -12,7 +12,7 @@ namespace SquadDash.Tests;
 internal sealed class CommitViewerWindowTests
 {
     [Test]
-    public void FileListAutoFit_WiresHardenedSplitterAndLogsInputBeforeEarlyReturns()
+    public void FileListAutoFit_WiresHardenedSplitterWithGuardsAndWidthAssignment()
     {
         var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
         while (directory is not null &&
@@ -25,12 +25,15 @@ internal sealed class CommitViewerWindowTests
         Assert.Multiple(() =>
         {
             Assert.That(source, Does.Contain("CommitViewerLayout.CreateFileListSplitter((sender, e) =>"));
-            Assert.That(source.IndexOf("FileListSplitter input:", StringComparison.Ordinal),
-                Is.LessThan(source.IndexOf("if (e.ClickCount != 2)", StringComparison.Ordinal)));
-            Assert.That(source, Does.Contain("if (_fileList.Items.Count == 0)"));
-            Assert.That(source, Does.Contain("FileListSplitter auto-fit:"));
-            Assert.That(source, Does.Contain("FileListSplitter built:"));
-            Assert.That(source, Does.Contain("FileListSplitter window double-click:"));
+            Assert.That(source, Does.Match(
+                @"if \(e\.ClickCount != 2\)\s*\{\s*return;\s*\}\s*" +
+                @"if \(_fileList\.Items\.Count == 0\)\s*\{\s*return;\s*\}\s*e\.Handled = true;"));
+            Assert.That(source, Does.Contain("var fileColumn = split.ColumnDefinitions[offset];"));
+            Assert.That(source, Does.Contain(".Select(CommitViewerLayout.MeasureFileListItemWidth).ToArray()"));
+            Assert.That(source, Does.Match(
+                @"var fittedWidth = new GridLength\(CommitViewerLayout\.CalculateFileListWidth\(\s*" +
+                @"itemWidths,\s*chromeWidth, availableWidth, fileColumn\.ActualWidth\)\);\s*" +
+                @"fileColumn\.Width = fittedWidth;"));
             Assert.That(source.IndexOf("split.Children.Add(splitter)", StringComparison.Ordinal),
                 Is.GreaterThan(source.IndexOf("split.Children.Add(diffScroll)", StringComparison.Ordinal)));
             Assert.That(source, Does.Not.Contain("splitter.PreviewMouseDoubleClick +="));
