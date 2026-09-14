@@ -105,6 +105,21 @@ internal sealed class CommitViewerWindow : ChromedWindow
         var splitter = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch };
         splitter.SetResourceReference(BackgroundProperty, "LineColor");
         Grid.SetColumn(splitter, offset + 1);
+        splitter.PreviewMouseDoubleClick += (_, e) =>
+        {
+            if (e.ChangedButton != MouseButton.Left || _fileList.Items.Count == 0) return;
+            e.Handled = true;
+
+            var fileColumn = split.ColumnDefinitions[offset];
+            var availableWidth = split.ActualWidth - splitter.ActualWidth -
+                split.ColumnDefinitions.Take(offset).Sum(column => column.ActualWidth);
+            var chromeWidth = _fileList.Padding.Left + _fileList.Padding.Right +
+                _fileList.BorderThickness.Left + _fileList.BorderThickness.Right +
+                SystemParameters.VerticalScrollBarWidth;
+            fileColumn.Width = new GridLength(CommitViewerLayout.CalculateFileListWidth(
+                _fileList.Items.Cast<ListBoxItem>().Select(CommitViewerLayout.MeasureFileListItemWidth),
+                chromeWidth, availableWidth, fileColumn.ActualWidth));
+        };
         Grid.SetColumn(diffScroll, offset + 2);
         split.Children.Add(_fileList);
         split.Children.Add(splitter);

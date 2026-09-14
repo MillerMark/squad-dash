@@ -1,3 +1,10 @@
+using System.Globalization;
+using System.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
+
 namespace SquadDash.Tests;
 
 [TestFixture]
@@ -36,6 +43,87 @@ internal sealed class CommitViewerWindowTests
         double expected)
     {
         Assert.That(CommitViewerLayout.CalculateWindowWidth(workingWidth), Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void CalculateFileListWidth_FitsWidestCompleteRowPlusListChrome()
+    {
+        var width = CommitViewerLayout.CalculateFileListWidth([120, 501.25, 400], 27, 1100, 330);
+
+        Assert.That(width, Is.EqualTo(529));
+    }
+
+    [TestCase(100, 1100, 330)]
+    [TestCase(2000, 1100, 860)]
+    [TestCase(2000, 1600, 1280)]
+    [TestCase(2000, 700, 460)]
+    [TestCase(2000, 500, 260)]
+    [TestCase(2000, 200, 0)]
+    public void CalculateFileListWidth_PreservesDiffSpaceWithinRemainingPaneWidth(
+        double itemWidth, double availableWidth, double expected)
+    {
+        Assert.That(
+            CommitViewerLayout.CalculateFileListWidth([itemWidth], 27, availableWidth, 330),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void CalculateFileListWidth_EmptyListKeepsCurrentWidth()
+    {
+        Assert.That(
+            CommitViewerLayout.CalculateFileListWidth([], 27, 1100, 415),
+            Is.EqualTo(415));
+    }
+
+    [TestCase(12, false)]
+    [TestCase(24, false)]
+    [TestCase(24, true)]
+    [Apartment(ApartmentState.STA)]
+    public void MeasureFileListItemWidth_IncludesUntrimmedPathSummaryAndChrome(double fontSize, bool binary)
+    {
+        var path = new TextBlock
+        {
+            Text = "SquadDash/VeryLongDirectory/NestedDirectory/CommitViewerWindow.cs",
+            FontSize = fontSize,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(2, 0, 8, 0)
+        };
+        var summary = new TextBlock { FontSize = fontSize };
+        if (binary)
+            summary.Text = "binary";
+        else
+        {
+            summary.Inlines.Add(new Run("+12345") { FontWeight = FontWeights.SemiBold });
+            summary.Inlines.Add(new Run("  -67890") { FontWeight = FontWeights.SemiBold });
+        }
+
+        var row = new Grid { Margin = new Thickness(3, 5, 3, 5) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(summary, 1);
+        row.Children.Add(path);
+        row.Children.Add(summary);
+        var item = new ListBoxItem { Content = row, Padding = new Thickness(4), BorderThickness = new Thickness(1) };
+        item.Measure(new Size(200, double.PositiveInfinity));
+
+        var width = CommitViewerLayout.MeasureFileListItemWidth(item);
+        var dpi = VisualTreeHelper.GetDpi(path).PixelsPerDip;
+        var pathWidth = new FormattedText(path.Text, CultureInfo.CurrentCulture, path.FlowDirection,
+            new Typeface(path.FontFamily, path.FontStyle, path.FontWeight, path.FontStretch),
+            fontSize, Brushes.Black, dpi).WidthIncludingTrailingWhitespace;
+        var summaryWidth = new FormattedText(binary ? "binary" : "+12345  -67890",
+            CultureInfo.CurrentCulture, summary.FlowDirection,
+            new Typeface(summary.FontFamily, summary.FontStyle,
+                binary ? summary.FontWeight : FontWeights.SemiBold, summary.FontStretch),
+            fontSize, Brushes.Black, dpi).WidthIncludingTrailingWhitespace;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(width, Is.GreaterThanOrEqualTo(pathWidth + summaryWidth + 26 - 1));
+            Assert.That(width, Is.LessThan(pathWidth + summaryWidth + 30));
+            Assert.That(path.TextTrimming, Is.EqualTo(TextTrimming.CharacterEllipsis));
+            Assert.That(item.IsMeasureValid, Is.False, "Normal constrained layout must run again.");
+        });
     }
 
     [Test]
