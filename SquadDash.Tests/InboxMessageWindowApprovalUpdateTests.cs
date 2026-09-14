@@ -129,4 +129,30 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
             window.CompleteApprovalUpdate(after, (_, _) => { });
             Assert.That(window.IsApprovalUpdateInProgress, Is.False);
         });
+
+    [Test]
+    public void SetDecisionActionsEnabled_LocksEveryRecoveryChoiceAsOneGroup() =>
+        WpfTestContext.Run(() =>
+        {
+            _ = Application.Current ?? new Application();
+            var message = new InboxMessage
+            {
+                Id = "recovery-1",
+                Subject = "Plan recovery",
+                Body = "Choose one recovery action.",
+                Actions =
+                [
+                    new InboxAction { Label = "Assess with AI" },
+                    new InboxAction { Label = "Accept Step 4 as Complete" },
+                    new InboxAction { Label = "Continue Working" },
+                ],
+            };
+            var window = new InboxMessageWindow(message, (_, _) => { });
+
+            window.SetDecisionActionsEnabled(false);
+            Assert.That(window.AreDecisionActionsEnabled, Is.False);
+
+            window.SetDecisionActionsEnabled(true);
+            Assert.That(window.AreDecisionActionsEnabled, Is.True);
+        });
 }

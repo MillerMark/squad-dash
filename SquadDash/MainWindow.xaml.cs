@@ -19866,6 +19866,7 @@ public partial class MainWindow : Window
                 Orientation = Orientation.Horizontal,
                 Visibility = previousAssessment is null ? Visibility.Visible : Visibility.Collapsed,
             };
+            cardTag.RegisterActionSurface(assessmentPanel);
             var label = previousAssessment is null ? "Assess with AI" : "Reassess with AI";
             var button = TranscriptQuickReplyFactory.CreateButton(
                 label,
@@ -19875,7 +19876,7 @@ public partial class MainWindow : Window
                     "The plan stays stopped and you make the decision."));
             button.Click += async (_, _) =>
             {
-                assessmentPanel.IsEnabled = false;
+                cardTag.SetActionsEnabled(false);
                 button.Content = "Assessing with AI…";
                 PrepareForHostRecoveryAction();
                 try
@@ -19885,7 +19886,7 @@ public partial class MainWindow : Window
                 catch (Exception ex)
                 {
                     button.Content = label;
-                    assessmentPanel.IsEnabled = true;
+                    cardTag.SetActionsEnabled(true);
                     HandleUiCallbackException("Assess plan recovery", ex);
                 }
             };
@@ -19919,6 +19920,7 @@ public partial class MainWindow : Window
                 tone: tone);
             button.Click += (_, _) =>
             {
+                cardTag.SetActionsEnabled(false);
                 if (removeAfterAction) panel.Visibility = Visibility.Collapsed;
                 PrepareForHostRecoveryAction();
                 action();
@@ -19941,11 +19943,13 @@ public partial class MainWindow : Window
                 tone: tone);
             button.Click += async (_, _) =>
             {
+                cardTag.SetActionsEnabled(false);
                 if (removeAfterAction) panel.Visibility = Visibility.Collapsed;
                 PrepareForHostRecoveryAction();
                 try { await action(); }
                 catch (Exception ex)
                 {
+                    cardTag.SetActionsEnabled(true);
                     if (removeAfterAction) panel.Visibility = Visibility.Visible;
                     HandleUiCallbackException("Decompose recovery", ex);
                 }
@@ -19976,13 +19980,13 @@ public partial class MainWindow : Window
             button.Click += async (_, _) =>
             {
                 actionStatus.Visibility = Visibility.Collapsed;
-                panel.IsEnabled = false;
+                cardTag.SetActionsEnabled(false);
                 try
                 {
                     var succeeded = await action();
                     if (!succeeded)
                     {
-                        panel.IsEnabled = true;
+                        cardTag.SetActionsEnabled(true);
                         actionStatus.Text = _planActionIssues.TryGetValue(
                             plan.Group.GroupId,
                             out var planIssue)
@@ -20008,7 +20012,7 @@ public partial class MainWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    panel.IsEnabled = true;
+                    cardTag.SetActionsEnabled(true);
                     panel.Visibility = Visibility.Visible;
                     SquadDashTrace.Write("DecomposeRecovery", $"Transcript action failed: {ex}");
                     actionStatus.Text = $"Action failed: {ex.Message}";
@@ -57752,6 +57756,11 @@ public partial class MainWindow : Window
                 var actionKey = message.Id + "\u001f" + action.Label;
                 if (!_decomposeInboxActionsInProgress.Add(actionKey))
                     return;
+                var recoveryWindows = _openInboxWindows
+                    .Where(window => string.Equals(window.MessageId, message.Id, StringComparison.Ordinal))
+                    .ToArray();
+                foreach (var window in recoveryWindows)
+                    window.SetDecisionActionsEnabled(false);
                 try
                 {
                     if (await TryApplyDecomposeRecoveryFromResponseAsync(action.Prompt))
@@ -57760,6 +57769,8 @@ public partial class MainWindow : Window
                 finally
                 {
                     _decomposeInboxActionsInProgress.Remove(actionKey);
+                    foreach (var window in recoveryWindows)
+                        window.SetDecisionActionsEnabled(true);
                 }
                 return;
             }

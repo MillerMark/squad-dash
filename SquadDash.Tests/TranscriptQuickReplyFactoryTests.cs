@@ -351,12 +351,15 @@ internal sealed class TranscriptQuickReplyFactoryTests
         };
         var actions = new WrapPanel();
         actions.Children.Add(new Button { Content = "Assess & Continue" });
+        var reassessmentActions = new WrapPanel();
+        reassessmentActions.Children.Add(new Button { Content = "Reassess with AI" });
         var tag = new DecomposeRecoveryCardTag(
             new DecomposeRecoveryTag("PLAN-A", "revision-a", "TASK-A"),
             actions)
         {
             CopyText = "Human review required",
         };
+        tag.RegisterActionSurface(reassessmentActions);
         var card = TranscriptQuickReplyFactory.CreateContainer(new Border { Child = actions }, tag);
         section.Blocks.Add(card);
         document.Blocks.Add(section);
@@ -367,7 +370,35 @@ internal sealed class TranscriptQuickReplyFactoryTests
         {
             Assert.That(section.Blocks.Contains(card), Is.True);
             Assert.That(actions.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(reassessmentActions.Visibility, Is.EqualTo(Visibility.Collapsed));
             Assert.That(tag.GetCopyText(), Is.EqualTo("Human review required"));
+        });
+    }
+
+    [Test]
+    public void RecoveryCardActionState_LocksPrimaryAndReassessmentButtonsTogether()
+    {
+        var primaryActions = new WrapPanel();
+        var reassessmentActions = new WrapPanel();
+        var tag = new DecomposeRecoveryCardTag(
+            new DecomposeRecoveryTag("PLAN-A", "revision-a", "TASK-A"),
+            primaryActions);
+        tag.RegisterActionSurface(reassessmentActions);
+
+        tag.SetActionsEnabled(false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(primaryActions.IsEnabled, Is.False);
+            Assert.That(reassessmentActions.IsEnabled, Is.False);
+        });
+
+        tag.SetActionsEnabled(true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(primaryActions.IsEnabled, Is.True);
+            Assert.That(reassessmentActions.IsEnabled, Is.True);
         });
     }
 

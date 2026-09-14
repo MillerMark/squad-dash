@@ -19,16 +19,37 @@ internal sealed record PendingDecomposeInboxBannerTag(string GroupId, string Rev
 internal sealed record DecomposeRecoveryTag(string GroupId, string Revision, string TaskId);
 internal sealed class DecomposeRecoveryCardTag : ICopyable
 {
+    private readonly List<FrameworkElement> _actionSurfaces = [];
+
     internal DecomposeRecoveryCardTag(
         DecomposeRecoveryTag identity,
         FrameworkElement actionsPanel)
     {
         Identity = identity;
         ActionsPanel = actionsPanel;
+        _actionSurfaces.Add(actionsPanel);
     }
 
     internal DecomposeRecoveryTag Identity { get; }
     internal FrameworkElement ActionsPanel { get; }
+    internal void RegisterActionSurface(FrameworkElement actionSurface)
+    {
+        if (!_actionSurfaces.Contains(actionSurface))
+            _actionSurfaces.Add(actionSurface);
+    }
+
+    internal void SetActionsEnabled(bool isEnabled)
+    {
+        foreach (var actionSurface in _actionSurfaces)
+            actionSurface.IsEnabled = isEnabled;
+    }
+
+    internal void HideActions()
+    {
+        foreach (var actionSurface in _actionSurfaces)
+            actionSurface.Visibility = Visibility.Collapsed;
+    }
+
     internal string CopyText { get; set; } = string.Empty;
     internal Func<string>? CopyTextProvider { get; set; }
     public string GetCopyText() => CopyTextProvider?.Invoke() ?? CopyText;
@@ -368,7 +389,7 @@ internal static class TranscriptQuickReplyFactory
             if (block is BlockUIContainer { Tag: DecomposeRecoveryCardTag cardTag } &&
                 string.Equals(cardTag.Identity.GroupId, groupId, StringComparison.Ordinal))
             {
-                cardTag.ActionsPanel.Visibility = Visibility.Collapsed;
+                cardTag.HideActions();
                 continue;
             }
 

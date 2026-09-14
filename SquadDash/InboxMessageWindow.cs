@@ -1456,6 +1456,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
     internal bool IsApprovalUpdateInProgress =>
         _approvalUpdatingOverlay?.Visibility == Visibility.Visible;
 
+    internal bool AreDecisionActionsEnabled => _actionsPanel.IsEnabled;
+
+    internal void SetDecisionActionsEnabled(bool isEnabled) =>
+        _actionsPanel.IsEnabled = isEnabled;
+
     /// <summary>
     /// Shows a compact spinner overlay and disables all action buttons.
     /// Call when the host begins updating the approval message content.
