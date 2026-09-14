@@ -117,9 +117,9 @@ internal static class PlanLoopTranscriptPresentation
             Math.Max(1, plan.Progress.CompletedCount + 1));
         var displayLabel = task?.DisplayStepLabel?.Trim();
         if (string.IsNullOrWhiteSpace(displayLabel))
-            return $"{plan.Progress.CompletedCount} of {plan.Progress.TotalCount} complete";
+            return $"{plan.Progress.CompletedCount} of {plan.Progress.TotalCount} steps complete";
         if (string.Equals(displayLabel, expectedOrdinal.ToString(), StringComparison.Ordinal))
             return $"Step {displayLabel} of {plan.Progress.TotalCount}";
-        return $"{plan.Progress.CompletedCount} of {plan.Progress.TotalCount} complete (Step \"{displayLabel}\")";
+        return $"{plan.Progress.CompletedCount} of {plan.Progress.TotalCount} steps complete (now starting Step {displayLabel})";
     }
 }

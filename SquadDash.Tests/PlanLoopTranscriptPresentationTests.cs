@@ -54,7 +54,7 @@ internal sealed class PlanLoopTranscriptPresentationTests
             plan, task.TaskId, task.Title, "D:/repo/.squad/loop-executing-plan.md");
 
         Assert.That(text, Does.StartWith(
-            "Executing plan · 4 of 8 complete (Step \"4A\") · Amended cleanup"));
+            "Executing plan · 4 of 8 steps complete (now starting Step 4A) · Amended cleanup"));
         Assert.That(text, Does.Not.Contain("Step 5 of 8"));
     }
 
