@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace SquadDash.Tests;
@@ -11,7 +12,7 @@ namespace SquadDash.Tests;
 internal sealed class CommitViewerWindowTests
 {
     [Test]
-    public void FileListAutoFit_UsesPreviewLeftButtonDownBeforeThumbHandlesTheClick()
+    public void FileListAutoFit_WiresHardenedSplitterAndLogsInputBeforeEarlyReturns()
     {
         var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
         while (directory is not null &&
@@ -23,9 +24,76 @@ internal sealed class CommitViewerWindowTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(source, Does.Contain("splitter.PreviewMouseLeftButtonDown += (_, e) =>"));
-            Assert.That(source, Does.Contain("if (e.ClickCount != 2 || _fileList.Items.Count == 0) return;"));
+            Assert.That(source, Does.Contain("CommitViewerLayout.CreateFileListSplitter((sender, e) =>"));
+            Assert.That(source.IndexOf("FileListSplitter input:", StringComparison.Ordinal),
+                Is.LessThan(source.IndexOf("if (e.ClickCount != 2)", StringComparison.Ordinal)));
+            Assert.That(source, Does.Contain("if (_fileList.Items.Count == 0)"));
+            Assert.That(source, Does.Contain("FileListSplitter auto-fit:"));
+            Assert.That(source, Does.Contain("FileListSplitter built:"));
+            Assert.That(source, Does.Contain("FileListSplitter window double-click:"));
+            Assert.That(source.IndexOf("split.Children.Add(splitter)", StringComparison.Ordinal),
+                Is.GreaterThan(source.IndexOf("split.Children.Add(diffScroll)", StringComparison.Ordinal)));
             Assert.That(source, Does.Not.Contain("splitter.PreviewMouseDoubleClick +="));
+        });
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    [Apartment(ApartmentState.STA)]
+    public void FileListSplitter_ReceivesPreviewInputEvenWhenAlreadyHandled(bool handled)
+    {
+        MouseButtonEventArgs? received = null;
+        var splitter = CommitViewerLayout.CreateFileListSplitter((_, e) => received = e);
+        var input = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+        {
+            RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent,
+            Handled = handled
+        };
+
+        splitter.RaiseEvent(input);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(received, Is.SameAs(input));
+            Assert.That(input.Handled, Is.EqualTo(handled), "Registration must not consume ordinary drag input.");
+        });
+    }
+
+    [TestCase(0)]
+    [TestCase(2)]
+    [Apartment(ApartmentState.STA)]
+    public void FileListSplitter_HitTargetFillsItsColumnAboveOverlappingSiblings(int offset)
+    {
+        var split = new Grid();
+        for (var column = 0; column < offset; column++)
+            split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(50) });
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(CommitViewerLayout.FileListSplitterWidth) });
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var splitter = CommitViewerLayout.CreateFileListSplitter((_, _) => { });
+        Grid.SetColumn(splitter, offset + 1);
+        split.Children.Add(splitter);
+        var overlappingSibling = new Border { Background = Brushes.Red };
+        Grid.SetColumnSpan(overlappingSibling, split.ColumnDefinitions.Count);
+        split.Children.Add(overlappingSibling);
+        split.Measure(new Size(1100, 600));
+        split.Arrange(new Rect(0, 0, 1100, 600));
+        split.UpdateLayout();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(splitter.ActualWidth, Is.EqualTo(8));
+            Assert.That(splitter.ActualHeight, Is.EqualTo(600));
+            Assert.That(splitter.ResizeDirection, Is.EqualTo(GridResizeDirection.Columns));
+            Assert.That(splitter.ResizeBehavior, Is.EqualTo(GridResizeBehavior.PreviousAndNext));
+            foreach (var x in new[] { 0.5, 4.0, 7.5 })
+            foreach (var y in new[] { 1.0, 300.0, 599.0 })
+            {
+                var point = splitter.TranslatePoint(new Point(x, y), split);
+                var hit = VisualTreeHelper.HitTest(split, point)?.VisualHit;
+                Assert.That(hit is not null && (hit == splitter || splitter.IsAncestorOf(hit)), Is.True,
+                    $"Divider must receive input at ({x}, {y}) even without a LineColor resource.");
+            }
         });
     }
 

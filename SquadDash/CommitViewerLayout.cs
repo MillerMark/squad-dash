@@ -1,10 +1,42 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 
 namespace SquadDash;
 
 internal static class CommitViewerLayout
 {
+    internal const double FileListSplitterWidth = 8;
+
+    internal static GridSplitter CreateFileListSplitter(MouseButtonEventHandler onPreviewLeftButtonDown)
+    {
+        // Keep the line thin while making the entire divider a reliable mouse target.
+        var hitArea = new FrameworkElementFactory(typeof(Border));
+        hitArea.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+        var line = new FrameworkElementFactory(typeof(Border));
+        line.SetValue(FrameworkElement.WidthProperty, 1.0);
+        line.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        line.SetResourceReference(Border.BackgroundProperty, "LineColor");
+        hitArea.AppendChild(line);
+
+        var splitter = new GridSplitter
+        {
+            Width = FileListSplitterWidth,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = Brushes.Transparent,
+            ResizeDirection = GridResizeDirection.Columns,
+            ResizeBehavior = GridResizeBehavior.PreviousAndNext,
+            Template = new ControlTemplate(typeof(GridSplitter)) { VisualTree = hitArea }
+        };
+        Panel.SetZIndex(splitter, 1);
+        // Ancestor/class handlers can mark routed input handled before instance handlers run.
+        splitter.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent,
+            onPreviewLeftButtonDown, handledEventsToo: true);
+        return splitter;
+    }
+
     internal static double CalculateWindowWidth(double workingWidth, double minimumWidth = 720) =>
         Math.Max(minimumWidth, Math.Min(1600, workingWidth * 0.75));
 

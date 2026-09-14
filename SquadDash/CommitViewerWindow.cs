@@ -89,7 +89,7 @@ internal sealed class CommitViewerWindow : ChromedWindow
             split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5) });
         }
         split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(330) });
-        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(5) });
+        split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(CommitViewerLayout.FileListSplitterWidth) });
         split.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var offset = commits.Count > 1 ? 2 : 0;
         if (commits.Count > 1)
@@ -102,28 +102,68 @@ internal sealed class CommitViewerWindow : ChromedWindow
             split.Children.Add(commitSplitter);
         }
         Grid.SetColumn(_fileList, offset);
-        var splitter = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch };
-        splitter.SetResourceReference(BackgroundProperty, "LineColor");
-        Grid.SetColumn(splitter, offset + 1);
-        splitter.PreviewMouseLeftButtonDown += (_, e) =>
+        var splitter = CommitViewerLayout.CreateFileListSplitter((sender, e) =>
         {
-            if (e.ClickCount != 2 || _fileList.Items.Count == 0) return;
+            SquadDashTrace.Write("CommitViewer",
+                $"FileListSplitter input: ClickCount={e.ClickCount}, ChangedButton={e.ChangedButton}, " +
+                $"Handled={e.Handled}, Items.Count={_fileList.Items.Count}, " +
+                $"OriginalSource={e.OriginalSource?.GetType().Name}, Captured={Mouse.Captured?.GetType().Name ?? "none"}");
+            if (e.ClickCount != 2)
+            {
+                SquadDashTrace.Write("CommitViewer", "FileListSplitter skipped: ClickCount != 2 (normal drag remains available).");
+                return;
+            }
+            if (_fileList.Items.Count == 0)
+            {
+                SquadDashTrace.Write("CommitViewer", "FileListSplitter skipped: file list is empty.");
+                return;
+            }
             e.Handled = true;
 
             var fileColumn = split.ColumnDefinitions[offset];
-            var availableWidth = split.ActualWidth - splitter.ActualWidth -
+            var availableWidth = split.ActualWidth - ((GridSplitter)sender).ActualWidth -
                 split.ColumnDefinitions.Take(offset).Sum(column => column.ActualWidth);
             var chromeWidth = _fileList.Padding.Left + _fileList.Padding.Right +
                 _fileList.BorderThickness.Left + _fileList.BorderThickness.Right +
                 SystemParameters.VerticalScrollBarWidth;
-            fileColumn.Width = new GridLength(CommitViewerLayout.CalculateFileListWidth(
-                _fileList.Items.Cast<ListBoxItem>().Select(CommitViewerLayout.MeasureFileListItemWidth),
+            var itemWidths = _fileList.Items.Cast<ListBoxItem>()
+                .Select(CommitViewerLayout.MeasureFileListItemWidth).ToArray();
+            var fittedWidth = new GridLength(CommitViewerLayout.CalculateFileListWidth(
+                itemWidths,
                 chromeWidth, availableWidth, fileColumn.ActualWidth));
-        };
+            SquadDashTrace.Write("CommitViewer",
+                $"FileListSplitter auto-fit: ActualWidth={fileColumn.ActualWidth:F2}, availableWidth={availableWidth:F2}, " +
+                $"chromeWidth={chromeWidth:F2}, widestItemWidth={itemWidths.Max():F2}, " +
+                $"GridLength={fittedWidth.Value:F2} {fittedWidth.GridUnitType}");
+            fileColumn.Width = fittedWidth;
+            split.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() =>
+                SquadDashTrace.Write("CommitViewer",
+                    $"FileListSplitter applied: Width={fileColumn.Width}, ActualWidth={fileColumn.ActualWidth:F2}")));
+        });
+        Grid.SetColumn(splitter, offset + 1);
         Grid.SetColumn(diffScroll, offset + 2);
         split.Children.Add(_fileList);
-        split.Children.Add(splitter);
         split.Children.Add(diffScroll);
+        split.Children.Add(splitter);
+        SquadDashTrace.Write("CommitViewer",
+            $"FileListSplitter built: offset={offset}, columnCount={split.ColumnDefinitions.Count}, " +
+            $"splitterColumn={Grid.GetColumn(splitter)}, columnWidth={split.ColumnDefinitions[offset + 1].Width}, " +
+            $"handler=PreviewMouseLeftButtonDown, handledEventsToo=true, ZIndex={Panel.GetZIndex(splitter)}");
+        splitter.Loaded += (_, _) => SquadDashTrace.Write("CommitViewer",
+            $"FileListSplitter loaded: ActualWidth={splitter.ActualWidth:F2}, ActualHeight={splitter.ActualHeight:F2}, " +
+            $"IsHitTestVisible={splitter.IsHitTestVisible}, IsEnabled={splitter.IsEnabled}, " +
+            $"Background={splitter.Background}, LineColorType={splitter.TryFindResource("LineColor")?.GetType().Name ?? "missing"}");
+        AddHandler(UIElement.PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((_, e) =>
+        {
+            if (e.ClickCount != 2) return;
+            var position = e.GetPosition(splitter);
+            SquadDashTrace.Write("CommitViewer",
+                $"FileListSplitter window double-click: ClickCount={e.ClickCount}, ChangedButton={e.ChangedButton}, " +
+                $"Handled={e.Handled}, OriginalSource={e.OriginalSource?.GetType().Name}, " +
+                $"positionInSplitter=({position.X:F2},{position.Y:F2}), " +
+                $"insideSplitter={position.X >= 0 && position.X < splitter.ActualWidth && position.Y >= 0 && position.Y < splitter.ActualHeight}, " +
+                $"Captured={Mouse.Captured?.GetType().Name ?? "none"}");
+        }), handledEventsToo: true);
 
         var root = new DockPanel();
         DockPanel.SetDock(header, Dock.Top);
