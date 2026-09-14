@@ -105,9 +105,9 @@ internal sealed class CommitViewerWindow : ChromedWindow
         var splitter = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch };
         splitter.SetResourceReference(BackgroundProperty, "LineColor");
         Grid.SetColumn(splitter, offset + 1);
-        splitter.PreviewMouseDoubleClick += (_, e) =>
+        splitter.PreviewMouseLeftButtonDown += (_, e) =>
         {
-            if (e.ChangedButton != MouseButton.Left || _fileList.Items.Count == 0) return;
+            if (e.ClickCount != 2 || _fileList.Items.Count == 0) return;
             e.Handled = true;
 
             var fileColumn = split.ColumnDefinitions[offset];

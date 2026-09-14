@@ -11,6 +11,25 @@ namespace SquadDash.Tests;
 internal sealed class CommitViewerWindowTests
 {
     [Test]
+    public void FileListAutoFit_UsesPreviewLeftButtonDownBeforeThumbHandlesTheClick()
+    {
+        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (directory is not null &&
+               !File.Exists(Path.Combine(directory.FullName, "SquadDash", "CommitViewerWindow.cs")))
+            directory = directory.Parent;
+
+        Assert.That(directory, Is.Not.Null, "Could not find CommitViewerWindow.cs.");
+        var source = File.ReadAllText(Path.Combine(directory!.FullName, "SquadDash", "CommitViewerWindow.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("splitter.PreviewMouseLeftButtonDown += (_, e) =>"));
+            Assert.That(source, Does.Contain("if (e.ClickCount != 2 || _fileList.Items.Count == 0) return;"));
+            Assert.That(source, Does.Not.Contain("splitter.PreviewMouseDoubleClick +="));
+        });
+    }
+
+    [Test]
     public async Task ResolveRepositoryRootAsync_FromNestedWorkspace_ReturnsTopLevelDirectory()
     {
         var repositoryRoot = Path.Combine(
