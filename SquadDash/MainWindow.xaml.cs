@@ -3973,6 +3973,13 @@ public partial class MainWindow : Window
 
     private void SyncQueuePanel()
     {
+        PreserveVisibleTranscriptViewportsThroughLayout(
+            SyncQueuePanelCore,
+            "queue panel synchronized");
+    }
+
+    private void SyncQueuePanelCore()
+    {
         var swFull = Stopwatch.StartNew();
         var items = _promptQueue.Items;
         if (_activeTabId is not null && items.All(item => item.Id != _activeTabId))
@@ -3987,7 +3994,10 @@ public partial class MainWindow : Window
             _queuePreEditDraft = null;
             ApplyPromptEditorLockState();
         }
-        QueueTabBorder.Visibility = (items.Count > 0 || IsQueueDispatchHeld) ? Visibility.Visible : Visibility.Collapsed;
+        SetPromptStripVisibilityPreservingViewports(
+            QueueTabBorder,
+            items.Count > 0 || IsQueueDispatchHeld ? Visibility.Visible : Visibility.Collapsed,
+            "queue strip visibility changed");
         QueueTabStrip.Children.Clear();
 
         if (items.Count > 0)
@@ -4095,9 +4105,15 @@ public partial class MainWindow : Window
         // When pausing with no queued items the border is normally Collapsed;
         // make it visible so the play ▶ button and status label are shown.
         if (dispatchHeld && _promptQueue.Items.Count == 0)
-            QueueTabBorder.Visibility = Visibility.Visible;
+            SetPromptStripVisibilityPreservingViewports(
+                QueueTabBorder,
+                Visibility.Visible,
+                "empty queue entered held state");
         else if (!dispatchHeld && _promptQueue.Items.Count == 0)
-            QueueTabBorder.Visibility = Visibility.Collapsed;
+            SetPromptStripVisibilityPreservingViewports(
+                QueueTabBorder,
+                Visibility.Collapsed,
+                "empty queue left held state");
         if (paused && _isPromptRunning)
         {
             // Case 2: Pause requested while a turn is in progress → pending.
@@ -4836,6 +4852,14 @@ public partial class MainWindow : Window
     private void OnQueueTabClicked(string? id)
     {
         if (_activeTabId == id) return;
+
+        PreserveVisibleTranscriptViewportsThroughLayout(
+            () => OnQueueTabClickedCore(id),
+            "active queue tab changed");
+    }
+
+    private void OnQueueTabClickedCore(string? id)
+    {
 
         var sw = Stopwatch.StartNew();
 
@@ -25058,7 +25082,7 @@ public partial class MainWindow : Window
 
                 var addToNewChatItem = new MenuItem { Header = "Add to New Chat" };
                 addToNewChatItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                addToNewChatItem.Click += (_, _) => { AddEmptyQueueSlot(); AttachTranscriptFollowUp(activeRtb); };
+                addToNewChatItem.Click += (_, _) => AddTranscriptSelectionToNewChat(activeRtb);
                 menu.Items.Add(addToNewChatItem);
 
                 var addToNotesItem = new MenuItem { Header = "Add to Notes" };
@@ -40827,7 +40851,7 @@ public partial class MainWindow : Window
 
                     var addToNewChatItem = new MenuItem { Header = "Add to New Chat" };
                     addToNewChatItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                    addToNewChatItem.Click += (_, _) => { AddEmptyQueueSlot(); AttachTranscriptFollowUp(rtb); };
+                    addToNewChatItem.Click += (_, _) => AddTranscriptSelectionToNewChat(rtb);
                     menu.Items.Add(addToNewChatItem);
 
                     var addToNotesItem = new MenuItem { Header = "Add to Notes" };
@@ -47768,6 +47792,24 @@ public partial class MainWindow : Window
         var showItem = MakeItem("Show in Explorer");
         showItem.Click += (_, _) => WorkspaceTitleText_MouseLeftButtonUp(sender, e);
         menu.Items.Add(showItem);
+
+        var workspacePath = _currentWorkspace?.FolderPath;
+        var copyPathItem = MakeItem("Copy workspace path");
+        copyPathItem.IsEnabled = !string.IsNullOrEmpty(workspacePath);
+        copyPathItem.Click += (_, _) =>
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(workspacePath))
+                    Clipboard.SetText(workspacePath);
+            }
+            catch (Exception ex)
+            {
+                HandleUiCallbackException(nameof(WorkspaceTitleText_MouseRightButtonUp), ex);
+            }
+        };
+        menu.Items.Add(copyPathItem);
+
         menu.IsOpen = true;
         e.Handled = true;
     }
@@ -50192,8 +50234,14 @@ public partial class MainWindow : Window
     {
         if (_currentWorkspace is null)
         {
-            BranchIndicatorStrip.Visibility = Visibility.Collapsed;
-            NoRepoPromptStrip.Visibility = Visibility.Collapsed;
+            SetPromptStripVisibilityPreservingViewports(
+                BranchIndicatorStrip,
+                Visibility.Collapsed,
+                "branch strip hidden without workspace");
+            SetPromptStripVisibilityPreservingViewports(
+                NoRepoPromptStrip,
+                Visibility.Collapsed,
+                "repository prompt hidden without workspace");
             WorkspaceTitleText.ToolTip = null;
             return;
         }
@@ -50207,17 +50255,27 @@ public partial class MainWindow : Window
 
         if (string.IsNullOrEmpty(branch))
         {
-            BranchIndicatorStrip.Visibility = Visibility.Collapsed;
+            SetPromptStripVisibilityPreservingViewports(
+                BranchIndicatorStrip,
+                Visibility.Collapsed,
+                "branch strip hidden without repository");
             // Only offer "Initialize repository" once the workspace has real team members —
             // an empty or Squad-only folder has nothing meaningful to commit yet.
-            NoRepoPromptStrip.Visibility = WorkspaceHasRealTeamMembers()
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            SetPromptStripVisibilityPreservingViewports(
+                NoRepoPromptStrip,
+                WorkspaceHasRealTeamMembers() ? Visibility.Visible : Visibility.Collapsed,
+                "repository prompt visibility changed");
             return;
         }
 
-        NoRepoPromptStrip.Visibility = Visibility.Collapsed;
-        BranchIndicatorStrip.Visibility = Visibility.Visible;
+        SetPromptStripVisibilityPreservingViewports(
+            NoRepoPromptStrip,
+            Visibility.Collapsed,
+            "repository prompt hidden for repository");
+        SetPromptStripVisibilityPreservingViewports(
+            BranchIndicatorStrip,
+            Visibility.Visible,
+            "branch strip shown for repository");
 
         var homeBranch = _settingsSnapshot.GetHomeBranch(_currentWorkspace.FolderPath);
 
@@ -53471,7 +53529,10 @@ public partial class MainWindow : Window
 
             _bridgeStallShowing = true;
             if (QueueTabBorder.Visibility != Visibility.Visible)
-                QueueTabBorder.Visibility = Visibility.Visible;
+                SetPromptStripVisibilityPreservingViewports(
+                    QueueTabBorder,
+                    Visibility.Visible,
+                    "bridge stall status shown");
 
             QueueStatusLabel.Text = msg;
             QueueStatusLabel.SetResourceReference(TextBlock.BackgroundProperty, "DangerButtonBg");
@@ -53497,7 +53558,10 @@ public partial class MainWindow : Window
 
             ForceAbortStalledAgentButton.Visibility = Visibility.Collapsed;
             if (_promptQueue.Items.Count == 0 && !IsQueueDispatchHeld)
-                QueueTabBorder.Visibility = Visibility.Collapsed;
+                SetPromptStripVisibilityPreservingViewports(
+                    QueueTabBorder,
+                    Visibility.Collapsed,
+                    "bridge stall status hidden");
             else
                 SetQueuePaused(_queueManuallyPaused);
         }
@@ -55104,6 +55168,102 @@ public partial class MainWindow : Window
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
+    /// <summary>
+    /// Creates a queue slot and attaches the selected transcript text without allowing the
+    /// queue-strip layout change to disturb the originating transcript's viewport.
+    /// </summary>
+    private void AddTranscriptSelectionToNewChat(RichTextBox rtb)
+    {
+        void AddAndAttach()
+        {
+            AddEmptyQueueSlot();
+            AttachTranscriptFollowUp(rtb);
+        }
+
+        PreserveVisibleTranscriptViewportsThroughLayout(
+            AddAndAttach,
+            "add transcript selection to new chat",
+            FindScrollControllerForTranscriptBox(rtb));
+    }
+
+    /// <summary>
+    /// Preserves every visible transcript because prompt-composer height changes resize the
+    /// shared transcript row, including secondary panels that did not initiate the operation.
+    /// </summary>
+    private void PreserveVisibleTranscriptViewportsThroughLayout(
+        Action operation,
+        string reason,
+        TranscriptScrollController? requiredController = null)
+    {
+        var controllers = new List<TranscriptScrollController>();
+
+        void AddController(TranscriptScrollController? controller)
+        {
+            if (controller is not null && !controllers.Any(existing => ReferenceEquals(existing, controller)))
+                controllers.Add(controller);
+        }
+
+        if (_coordinatorScrollController is not null && OutputTextBox?.IsVisible == true)
+            AddController(_coordinatorScrollController);
+
+        foreach (var entry in _primaryAgentTranscriptHosts.Values)
+        {
+            if (entry.TranscriptBox.IsVisible)
+                AddController(entry.ScrollController);
+        }
+
+        foreach (var entry in _secondaryTranscripts)
+        {
+            if (entry.TranscriptBox.IsVisible)
+                AddController(entry.ScrollController);
+        }
+
+        AddController(requiredController);
+
+        Action guardedOperation = operation;
+        for (int i = controllers.Count - 1; i >= 0; i--)
+        {
+            var controller = controllers[i];
+            var innerOperation = guardedOperation;
+            guardedOperation = () => controller.PreserveViewportThroughLayout(innerOperation, reason);
+        }
+
+        guardedOperation();
+    }
+
+    private void SetPromptStripVisibilityPreservingViewports(
+        FrameworkElement strip,
+        Visibility visibility,
+        string reason)
+    {
+        if (strip.Visibility == visibility)
+            return;
+
+        PreserveVisibleTranscriptViewportsThroughLayout(
+            () => strip.Visibility = visibility,
+            reason);
+    }
+
+    private TranscriptScrollController? FindScrollControllerForTranscriptBox(RichTextBox rtb)
+    {
+        if (ReferenceEquals(rtb, OutputTextBox))
+            return _coordinatorScrollController;
+
+        foreach (var entry in _primaryAgentTranscriptHosts.Values)
+        {
+            if (ReferenceEquals(entry.TranscriptBox, rtb))
+                return entry.ScrollController;
+        }
+
+        foreach (var entry in _secondaryTranscripts)
+        {
+            if (ReferenceEquals(entry.TranscriptBox, rtb))
+                return entry.ScrollController;
+        }
+
+        return null;
+    }
+
     private TranscriptThreadState FindThreadForDocument(FlowDocument document)
     {
         if (ReferenceEquals(CoordinatorThread.Document, document))
@@ -55773,6 +55933,28 @@ public partial class MainWindow : Window
     }
 
     private void UpdateFollowUpStrip()
+    {
+        if (FollowUpStrip is null || FollowUpItemsPanel is null) return;
+
+        int desiredRowCount = _followUpAttachments.TryGetValue(_activeTabId ?? "", out var list)
+            ? list.Count
+            : 0;
+        var desiredVisibility = desiredRowCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        bool layoutWillChange = FollowUpStrip.Visibility != desiredVisibility
+                                || (desiredRowCount > 0 && FollowUpItemsPanel.Children.Count != desiredRowCount);
+
+        if (layoutWillChange)
+        {
+            PreserveVisibleTranscriptViewportsThroughLayout(
+                UpdateFollowUpStripCore,
+                "follow-up attachment strip changed");
+            return;
+        }
+
+        UpdateFollowUpStripCore();
+    }
+
+    private void UpdateFollowUpStripCore()
     {
         if (FollowUpStrip is null || FollowUpItemsPanel is null) return;
         if (_followUpAttachments.TryGetValue(_activeTabId ?? "", out var list) && list.Count > 0)
