@@ -297,6 +297,81 @@ internal sealed class ProviderFailurePresentationTests
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void AppendAggregated_RelatedFailuresCreateOneNavigableCopyAllCard()
+    {
+        var thread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Coordinator",
+            DateTimeOffset.Now);
+        var first = ProviderFailurePresentation.Analyze(
+            "HTTP 429 rate limit exceeded. Request-ID first",
+            new ProviderFailureContext(Model: "gpt-test", ProfileAlias: "Profile A"));
+        var second = ProviderFailurePresentation.Analyze(
+            "HTTP 429 rate limit exceeded. Request-ID second",
+            new ProviderFailureContext(Model: "gpt-test", ProfileAlias: "Profile A"));
+        var startedAt = new DateTimeOffset(2026, 9, 14, 10, 0, 0, TimeSpan.Zero);
+
+        ProviderFailureTranscriptBlockFactory.AppendAggregated(
+            thread, first, "Temporary Agent (review-1)", 14, "review-operation", startedAt, "failure-1");
+        ProviderFailureTranscriptBlockFactory.AppendAggregated(
+            thread, second, "Temporary Agent (review-2)", 14, "review-operation", startedAt.AddSeconds(10), "failure-2");
+
+        var failureCards = thread.Document.Blocks
+            .Cast<Block>()
+            .Where(ProviderFailureTranscriptBlockFactory.IsProviderFailureContainer)
+            .Cast<BlockUIContainer>()
+            .ToArray();
+        var tag = (ProviderFailureTranscriptBlockFactory.ProviderFailureAggregateTranscriptTag)
+            failureCards.Single().Tag;
+        var buttons = ((StackPanel)((Border)failureCards.Single().Child).Child)
+            .Children.OfType<StackPanel>()
+            .Single(panel => panel.Orientation == Orientation.Horizontal)
+            .Children.OfType<Button>()
+            .ToArray();
+        var copied = tag.GetCopyText();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(failureCards, Has.Length.EqualTo(1));
+            Assert.That(tag.Occurrences, Has.Count.EqualTo(2));
+            Assert.That(tag.SelectedIndex, Is.EqualTo(1));
+            Assert.That(copied, Does.Contain("Temporary Agent (review-1)"));
+            Assert.That(copied, Does.Contain("Temporary Agent (review-2)"));
+            Assert.That(copied, Does.Contain("Request-ID first"));
+            Assert.That(copied, Does.Contain("Request-ID second"));
+            Assert.That(buttons, Has.Length.EqualTo(2));
+            Assert.That(buttons.All(button =>
+                button.ReadLocalValue(FrameworkElement.StyleProperty) != DependencyProperty.UnsetValue), Is.True);
+        });
+
+        tag.Move(-1);
+        Assert.That(tag.SelectedIndex, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void AppendAggregated_DifferentOperationScopesRemainSeparate()
+    {
+        var thread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Coordinator",
+            DateTimeOffset.Now);
+        var failure = ProviderFailurePresentation.Analyze(
+            "HTTP 429 rate limit exceeded",
+            new ProviderFailureContext(Model: "gpt-test", ProfileAlias: "Profile A"));
+
+        ProviderFailureTranscriptBlockFactory.AppendAggregated(
+            thread, failure, "Temporary Agent (one)", 14, "operation-1", DateTimeOffset.Now, "failure-1");
+        ProviderFailureTranscriptBlockFactory.AppendAggregated(
+            thread, failure, "Temporary Agent (two)", 14, "operation-2", DateTimeOffset.Now, "failure-2");
+
+        Assert.That(thread.Document.Blocks
+            .Cast<Block>()
+            .Count(ProviderFailureTranscriptBlockFactory.IsProviderFailureContainer), Is.EqualTo(2));
+    }
+
     [Test]
     public void ErrorTheme_UsesDarkRedInLightThemeAndLightRedInDarkThemeWithHighContrast()
     {

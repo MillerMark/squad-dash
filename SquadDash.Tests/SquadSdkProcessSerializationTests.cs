@@ -56,6 +56,35 @@ internal sealed class SquadSdkProcessSerializationTests {
     }
 
     [Test]
+    public void PromptRequest_WithTemporaryAgentRoute_SerializesAssignedProfile()
+    {
+        var route = new SquadSdkNamedAgentRoute(
+            "temporary-agent",
+            "Temporary Agent",
+            "General-purpose temporary worker",
+            null,
+            "claude-opus-4.8",
+            null,
+            null,
+            "copilot-default",
+            "Copilot");
+
+        var json = JsonSerializer.Serialize(new SquadSdkPromptRequest(
+            "review this change",
+            @"D:\repo",
+            TemporaryAgentRoute: route));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(json, Does.Contain("\"temporaryAgentRoute\""));
+            Assert.That(json, Does.Contain("\"handle\":\"temporary-agent\""));
+            Assert.That(json, Does.Contain("\"model\":\"claude-opus-4.8\""));
+            Assert.That(json, Does.Contain("\"profileId\":\"copilot-default\""));
+            Assert.That(json, Does.Contain("\"profileAlias\":\"Copilot\""));
+        });
+    }
+
+    [Test]
     public void PromptRequest_WithPlanDelegationGuard_SerializesFirstClassAuthorization()
     {
         var guard = new SquadSdkPlanDelegationGuard(

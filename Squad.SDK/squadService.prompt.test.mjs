@@ -21,6 +21,7 @@ import {
     reconcileStreamedAndFinalResponse,
     resolvePermissionApprovalKind,
     resolvePermissionApprovalKindFromSchema,
+    reserveProviderRetryTimestamp,
     SquadBridgeService,
     StagedPlanRevisionHostProtocol,
     tryParseStagedPlanRevisionRequest
@@ -514,6 +515,68 @@ test("named roster tool launches exact agent with its own provider profile", asy
     assert.equal(completed[0].agent.agentName, "lyra-morn");
 });
 
+test("temporary task tool uses the separately assigned profile without limiting launches", async () => {
+    const configs = [];
+    const started = [];
+    let sessionNumber = 0;
+    const service = new SquadBridgeService({
+        onSubagentStarted(_sessionId, agent) {
+            started.push(agent);
+        }
+    });
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            sessionNumber++;
+            return {
+                sessionId: `session-${sessionNumber}`,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => ({
+                    content: sessionNumber === 1 ? "Coordinator done" : "Temporary review report"
+                })
+            };
+        }
+    };
+
+    await service.runPrompt("Review the change in parallel", {}, {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        model: "gpt-6-astra",
+        temporaryAgentRoute: {
+            handle: "temporary-agent",
+            displayName: "Temporary Agent",
+            model: "claude-opus-4.8",
+            profileId: "copilot-default",
+            profileAlias: "Copilot"
+        }
+    });
+
+    const temporaryTool = configs[0].tools.find(tool => tool.name === "delegate_temporary_agent");
+    assert.ok(temporaryTool);
+    const nativeTaskDecision = configs[0].hooks.onPreToolUse({
+        toolName: "task",
+        toolArgs: { name: "review-batch-3", prompt: "Review batch three." }
+    });
+    const report = await temporaryTool.handler({
+        name: "review-batch-3",
+        prompt: "Review batch three.",
+        mode: "background"
+    }, {
+        sessionId: "session-1",
+        toolCallId: "tool-review-3",
+        toolName: "delegate_temporary_agent",
+        arguments: {}
+    });
+
+    assert.equal(report, "Temporary review report");
+    assert.equal(configs[1].model, "claude-opus-4.8");
+    assert.equal(started[0].agentName, "review-batch-3");
+    assert.equal(started[0].profileAlias, "Copilot");
+    assert.equal(nativeTaskDecision.permissionDecision, "deny");
+    assert.match(nativeTaskDecision.permissionDecisionReason, /delegate_temporary_agent/);
+});
+
 test("provider throttling distinguishes transient rate limits from terminal quota failures", () => {
     const transient = analyzeProviderThrottle(Object.assign(
         new Error("HTTP 429: tokens per minute rate limit exceeded"),
@@ -710,6 +773,7 @@ test("named roster tool keeps the same session through more than four consecutiv
             resumed.push(agent);
         }
     });
+    service.reserveProviderRetry = () => ({ key: "test-provider", scheduledAt: Date.now() + 1 });
     service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
     service.client = {
         createSession: async config => {
@@ -915,6 +979,22 @@ test("verified roster revisions use structural or tool-metadata correlation and 
     assert.equal(completed[2].agent.hostProtocolVerified, true);
     assert.equal(completed[2].agent.hostProtocolCorrelationSource, "tool_metadata");
     assert.equal(completed[2].agent.latestResponse, revision);
+});
+
+test("provider retry budget counts only retries in its recent rolling window", () => {
+    const now = 1_000_000;
+    const windowMs = 120_000;
+    const oldRetries = [now - windowMs - 50_000, now - windowMs - 1];
+    const recentRetries = [now - 50_000, now - 40_000, now - 30_000, now - 20_000, now - 10_000];
+
+    const withOldHistory = reserveProviderRetryTimestamp(oldRetries, now, 1, windowMs, 5);
+    const saturated = reserveProviderRetryTimestamp(recentRetries, now, 1, windowMs, 5);
+
+    assert.equal(withOldHistory.scheduledAt, now + 1,
+        "expired retries must never delay new work");
+    assert.deepEqual(withOldHistory.attempts, [now + 1]);
+    assert.equal(saturated.scheduledAt, recentRetries[0] + windowMs + 1,
+        "only a provider that exhausted the recent budget should wait for a slot");
 });
 
 test("counterfeit roster detection rejects roster-like and plan-bearing generic tasks", () => {

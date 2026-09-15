@@ -256,8 +256,8 @@ internal static class TranscriptQuickReplyFactory
 
     /// <summary>
     /// Replaces a pending plan's historical receipt and action card with one compact Inbox
-    /// receipt at the position of the first historical surface. Returns false only when no
-    /// surface survived transcript hydration, allowing the caller to use a recovery fallback.
+    /// receipt at the position of the first historical surface. Returns false when no surface
+    /// survived transcript hydration; callers should not invent a new transcript position.
     /// </summary>
     internal static bool ReplacePendingDecomposeApprovalSurfaceWithInboxBanner(
         BlockCollection blocks,

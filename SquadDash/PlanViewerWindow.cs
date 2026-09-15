@@ -7671,6 +7671,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 var verdictIcon = report.Verdict.Equals(PlanTaskVerificationVerdict.ReworkRequired, StringComparison.OrdinalIgnoreCase)
                     ? VerificationIconKind.Failed
                     : accepted ? VerificationIconKind.Supported : VerificationIconKind.Unclear;
+                if (accepted)
+                    verdictPara.Inlines.Add(new Run(VerificationCheckLeadingSpace));
                 verdictPara.Inlines.Add(new InlineUIContainer(CreateVerificationIcon(
                     verdictIcon))
                 {
@@ -7704,13 +7706,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     foreach (var finding in report.ClaimFindings)
                     {
                         var fPara = new Paragraph();
-                        var iconKind = finding.Disposition switch
-                        {
-                            "supported" => VerificationIconKind.Supported,
-                            "missing" or "overstated" => VerificationIconKind.Failed,
-                            _ => VerificationIconKind.Unclear,
-                        };
-                        fPara.Inlines.Add(new InlineUIContainer(CreateVerificationIcon(iconKind))
+                        if (IsSupportedVerificationDisposition(finding.Disposition))
+                            fPara.Inlines.Add(new Run(VerificationCheckLeadingSpace));
+                        fPara.Inlines.Add(new InlineUIContainer(CreateVerificationClaimIcon(finding.Disposition))
                         {
                             BaselineAlignment = BaselineAlignment.Center,
                         });
@@ -7926,6 +7924,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
     }
 
+    private const string VerificationCheckLeadingSpace = "\u2005"; // Four-per-em space: one quarter of the current font height.
+
     private enum VerificationIconKind { Supported, Failed, Unclear, HumanAccepted }
 
     private static FrameworkElement CreateVerificationIcon(VerificationIconKind kind)
@@ -7939,12 +7939,50 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
         if (Application.Current?.TryFindResource(resourceKey) is FrameworkElement icon)
         {
-            icon.Width = 11;
-            icon.Height = 11;
+            icon.SetResourceReference(FrameworkElement.WidthProperty, "FontSizeLargePlus");
+            icon.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeLargePlus");
             icon.VerticalAlignment = VerticalAlignment.Center;
             return icon;
         }
         return new TextBlock { Text = kind == VerificationIconKind.Failed ? "×" : "✓" };
+    }
+
+    private static bool IsSupportedVerificationDisposition(string? disposition) =>
+        string.Equals(disposition, "supported", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(disposition, "confirmed", StringComparison.OrdinalIgnoreCase);
+
+    private static FrameworkElement CreateVerificationClaimIcon(string? disposition)
+    {
+        var isSupported = IsSupportedVerificationDisposition(disposition);
+        Geometry geometry;
+        if (isSupported && Application.Current?.TryFindResource("TaskSucceededGeometry") is Geometry succeededGeometry)
+        {
+            // Use the same checkmark silhouette as a completed task, but verification amber
+            // distinguishes supported evidence from task completion state.
+            geometry = succeededGeometry;
+        }
+        else if (isSupported)
+        {
+            geometry = Geometry.Parse("M0,5 L3.5,8.5 10,1.5 8.5,0 3.5,5.5 1.5,3.5z");
+        }
+        else
+        {
+            geometry = Geometry.Parse("M0,1.5 1.5,0 5,3.5 8.5,0 10,1.5 6.5,5 10,8.5 8.5,10 5,6.5 1.5,10 0,8.5 3.5,5z");
+        }
+
+        var path = new Path { Data = geometry };
+        path.SetResourceReference(Shape.FillProperty, isSupported ? "PriorityHigh" : "PriorityCritical");
+        var icon = new Viewbox
+        {
+            Stretch = Stretch.Uniform,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = path,
+        };
+        // FontSizeLargePlus is 16px at the default scale versus the former fixed 11px icon,
+        // and remains tied to the application's live font-scale resource dictionary.
+        icon.SetResourceReference(FrameworkElement.WidthProperty, "FontSizeLargePlus");
+        icon.SetResourceReference(FrameworkElement.HeightProperty, "FontSizeLargePlus");
+        return icon;
     }
 
     private static IReadOnlyList<PlanApprovalGate> ResolveHumanAcceptanceGates(PlanTask task, Plan? plan)
@@ -7963,6 +8001,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         foreach (var gate in gates)
         {
             var accepted = new Paragraph();
+            accepted.Inlines.Add(new Run(VerificationCheckLeadingSpace));
             accepted.Inlines.Add(new InlineUIContainer(CreateVerificationIcon(VerificationIconKind.HumanAccepted))
             {
                 BaselineAlignment = BaselineAlignment.Center,
@@ -8371,12 +8410,40 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durableTask?.VerificationHistory is { Count: > 0 } history)
         {
-            foreach (var report in history)
+            var reports = history.OrderByDescending(report => report.CompletedAt).ToArray();
+            for (var reportIndex = 0; reportIndex < reports.Length; reportIndex++)
             {
-                var verdictColorKey = report.Verdict.Equals("accepted", StringComparison.OrdinalIgnoreCase)
-                    ? "PriorityLow" : "PriorityHigh";
+                if (reportIndex == 1)
+                    AddSectionHeader("Previous Verification Attempts");
+
+                var report = reports[reportIndex];
+                var verificationPassed = report.Verdict.Equals(
+                    PlanTaskVerificationVerdict.Accepted,
+                    StringComparison.OrdinalIgnoreCase);
+                var reworkRequired = report.Verdict.Equals(
+                    PlanTaskVerificationVerdict.ReworkRequired,
+                    StringComparison.OrdinalIgnoreCase);
+                var verdictColorKey = reworkRequired ? "PriorityCritical" : "PriorityHigh";
+                var verdictLabel = report.Verdict switch
+                {
+                    PlanTaskVerificationVerdict.Accepted => "Verification passed",
+                    PlanTaskVerificationVerdict.ReworkRequired => "Rework required",
+                    PlanTaskVerificationVerdict.HumanReviewRequired => "Human review required",
+                    _ => report.Verdict,
+                };
                 var verdictPara = new Paragraph();
-                var verdictRun = new Run($"● {report.Verdict}") { FontWeight = FontWeights.SemiBold };
+                if (verificationPassed)
+                    verdictPara.Inlines.Add(new Run(VerificationCheckLeadingSpace));
+                verdictPara.Inlines.Add(new InlineUIContainer(
+                    verificationPassed
+                        ? CreateVerificationClaimIcon("supported")
+                        : reworkRequired
+                            ? CreateVerificationClaimIcon("missing")
+                            : CreateVerificationIcon(VerificationIconKind.Unclear))
+                {
+                    BaselineAlignment = BaselineAlignment.Center,
+                });
+                var verdictRun = new Run($"  {verdictLabel}") { FontWeight = FontWeights.SemiBold };
                 verdictRun.SetResourceReference(TextElement.ForegroundProperty, verdictColorKey);
                 verdictPara.Inlines.Add(verdictRun);
                 verdictPara.Inlines.Add(new Run($"  ({report.CompletedAt:yyyy-MM-dd HH:mm} UTC)"));
@@ -8416,13 +8483,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     findingList.Margin = new Thickness(0, 0, 0, 8);
                     foreach (var finding in report.ClaimFindings)
                     {
-                        var isConfirmed = finding.Disposition.Equals("confirmed", StringComparison.OrdinalIgnoreCase);
-                        var dispositionColor = isConfirmed ? "PriorityLow" : "PriorityMid";
                         var fPara = new Paragraph();
-                        var indicator = isConfirmed ? "✓ " : "✗ ";
-                        var indicatorRun = new Run(indicator);
-                        indicatorRun.SetResourceReference(TextElement.ForegroundProperty, dispositionColor);
-                        fPara.Inlines.Add(indicatorRun);
+                        if (IsSupportedVerificationDisposition(finding.Disposition))
+                            fPara.Inlines.Add(new Run(VerificationCheckLeadingSpace));
+                        fPara.Inlines.Add(new InlineUIContainer(CreateVerificationClaimIcon(finding.Disposition))
+                        {
+                            BaselineAlignment = BaselineAlignment.Center,
+                        });
+                        fPara.Inlines.Add(new Run("  "));
                         fPara.Inlines.Add(new Run(finding.Claim));
                         if (!string.IsNullOrWhiteSpace(finding.Evidence))
                         {

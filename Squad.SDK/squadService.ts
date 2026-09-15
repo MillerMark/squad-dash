@@ -11,6 +11,8 @@ const CopilotAuthenticationLogReadLimit = 256 * 1024;
 const MissingCopilotAuthenticationMessage = "Session was not created with authentication info or custom provider";
 const NamedAgentThrottleBaseDelayMs = 30 * 1000;
 const NamedAgentThrottleMaxSingleDelayMs = 120 * 1000;
+const ProviderRetryBudgetWindowMs = 2 * 60 * 1000;
+const ProviderRetryBudgetLimit = 5;
 const NamedAgentThrottleContinuationPrompt = [
     "Continue the delegated task from this existing session after provider throttling.",
     "Keep and use the analysis, repository reads, and tool results already gathered.",
@@ -98,8 +100,34 @@ export type SquadPromptRequest = {
     model?: string;
     reasoningEffort?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
+    temporaryAgentRoute?: SquadNamedAgentRoute;
     planDelegationGuard?: PlanDelegationGuard;
 };
+
+export function reserveProviderRetryTimestamp(
+    existingTimestamps: number[],
+    now: number,
+    minimumDelayMs: number,
+    windowMs = ProviderRetryBudgetWindowMs,
+    limit = ProviderRetryBudgetLimit
+): { attempts: number[]; scheduledAt: number } {
+    const attempts = existingTimestamps
+        .filter(timestamp => timestamp > now - windowMs)
+        .sort((left, right) => left - right);
+    let scheduledAt = now + Math.max(0, minimumDelayMs);
+
+    while (true) {
+        const recentAtSlot = attempts.filter(timestamp =>
+            timestamp > scheduledAt - windowMs && timestamp <= scheduledAt);
+        if (recentAtSlot.length < limit)
+            break;
+        scheduledAt = recentAtSlot[0] + windowMs + 1;
+    }
+
+    attempts.push(scheduledAt);
+    attempts.sort((left, right) => left - right);
+    return { attempts, scheduledAt };
+}
 
 export type PlanDelegationGuard = {
     knownPlans: Array<{
@@ -147,6 +175,7 @@ export type SquadDelegationRequest = {
     targetAgent: string;
     approvalGroupContext?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
+    temporaryAgentRoute?: SquadNamedAgentRoute;
 };
 
 export type SquadNamedAgentRequest = {
@@ -161,6 +190,7 @@ export type SquadNamedAgentRequest = {
     reasoningEffort?: string;
     approvalGroupContext?: string;
     agentRoute?: SquadNamedAgentRoute;
+    temporaryAgentRoute?: SquadNamedAgentRoute;
 };
 
 export type SessionReadyInfo = {
@@ -392,6 +422,7 @@ type SessionState = {
     completedPromptCount: number;
     workingDirectory: string;
     namedAgentRoutes: SquadNamedAgentRoute[];
+    temporaryAgentRoute?: SquadNamedAgentRoute;
 };
 
 const GenericIdentityKeys = new Set([
@@ -957,6 +988,14 @@ type NamedAgentToolArgs = {
         attemptId?: string;
         branch?: string;
     };
+};
+
+type TemporaryAgentToolArgs = {
+    prompt?: string;
+    name?: string;
+    description?: string;
+    agent_type?: string;
+    mode?: string;
 };
 
 function findNamedAgentRoute(routes: readonly SquadNamedAgentRoute[], requestedHandle: string | undefined): SquadNamedAgentRoute | undefined {
@@ -2092,17 +2131,25 @@ export function computeProviderThrottleDelayMs(
 
 async function waitForNamedAgentThrottleDelay(
     delayMs: number,
-    isCancelled: () => boolean
+    isCancelled: () => boolean,
+    shouldResumeEarly: () => boolean = () => false
 ): Promise<boolean> {
     const deadline = Date.now() + Math.max(0, delayMs);
     while (Date.now() < deadline) {
         if (isCancelled())
             return false;
+        if (shouldResumeEarly())
+            return true;
         await new Promise<void>(resolve => setTimeout(resolve, Math.min(250, deadline - Date.now())));
     }
 
     return !isCancelled();
 }
+
+type ProviderRetryReservation = {
+    key: string;
+    scheduledAt: number;
+};
 
 function summarizeErrorForDiagnostics(error: unknown, depth = 0): Record<string, unknown> {
     if (depth > 2)
@@ -2436,9 +2483,45 @@ export class SquadBridgeService {
     private client: SquadClient | null = null;
     private clientCwd: string | null = null;
     private readonly sessions = new Map<string, SessionState>();
+    private readonly providerRetryAttempts = new Map<string, number[]>();
 
     public constructor(bridgeHandlers: SquadBridgeHandlers = {}) {
         this.bridgeHandlers = bridgeHandlers;
+    }
+
+    private buildProviderRetryKey(route: SquadNamedAgentRoute): string {
+        return [
+            route.provider?.baseUrl?.trim().toLowerCase() ?? "copilot",
+            route.provider?.type?.trim().toLowerCase() ?? "copilot",
+            route.profileId?.trim().toLowerCase() ?? "default",
+            route.model?.trim().toLowerCase() ?? "auto"
+        ].join("|");
+    }
+
+    private reserveProviderRetry(route: SquadNamedAgentRoute, minimumDelayMs: number): ProviderRetryReservation {
+        const key = this.buildProviderRetryKey(route);
+        const now = Date.now();
+        const reservation = reserveProviderRetryTimestamp(
+            this.providerRetryAttempts.get(key) ?? [],
+            now,
+            minimumDelayMs);
+        this.providerRetryAttempts.set(key, reservation.attempts);
+        return { key, scheduledAt: reservation.scheduledAt };
+    }
+
+    private releaseProviderRetryReservation(reservation: ProviderRetryReservation): void {
+        const attempts = this.providerRetryAttempts.get(reservation.key);
+        if (!attempts)
+            return;
+        const index = attempts.indexOf(reservation.scheduledAt);
+        if (index >= 0)
+            attempts.splice(index, 1);
+        if (attempts.length === 0)
+            this.providerRetryAttempts.delete(reservation.key);
+    }
+
+    private clearProviderRetryBudget(route: SquadNamedAgentRoute): void {
+        this.providerRetryAttempts.delete(this.buildProviderRetryKey(route));
     }
 
     public async runPrompt(
@@ -2466,6 +2549,7 @@ export class SquadBridgeService {
                 configDir: request.configDir,
                 model: request.model,
                 namedAgentRoutes: request.namedAgentRoutes,
+                temporaryAgentRoute: request.temporaryAgentRoute,
                 requireSameSession: true
             },
             buildDelegationHiddenContext(
@@ -2490,6 +2574,7 @@ export class SquadBridgeService {
                 providerOverride: request.agentRoute?.provider ?? null,
                 providerOverrideSpecified: request.agentRoute !== undefined,
                 exposeNamedAgentTool: false,
+                temporaryAgentRoute: request.temporaryAgentRoute,
                 requireSameSession: false
             });
     }
@@ -3036,12 +3121,79 @@ export class SquadBridgeService {
         };
     }
 
+    private createTemporaryAgentTool(
+        getRoute: () => SquadNamedAgentRoute | undefined,
+        options: SquadSessionRequest
+    ): NonNullable<SquadSessionConfig["tools"]>[number] {
+        return {
+            name: "delegate_temporary_agent",
+            description:
+                "Launch one genuinely temporary worker using the model profile assigned by SquadDash. " +
+                "Use this instead of the built-in task tool whenever it is available. It preserves the " +
+                "requested worker name and supports both background and synchronous task-shaped calls.",
+            parameters: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    prompt: {
+                        type: "string",
+                        description: "Complete, self-contained work brief for the temporary worker."
+                    },
+                    name: {
+                        type: "string",
+                        description: "Optional concise worker identifier used in monitoring and transcripts."
+                    },
+                    description: {
+                        type: "string",
+                        description: "Optional short human-readable description of the work."
+                    },
+                    agent_type: {
+                        type: "string",
+                        description: "Optional compatibility hint from a task-shaped launch."
+                    },
+                    mode: {
+                        type: "string",
+                        enum: ["background", "sync"],
+                        description: "Optional monitoring hint. The tool waits for the routed worker result."
+                    }
+                },
+                required: ["prompt"]
+            },
+            handler: async (rawArgs, invocation) => {
+                const route = getRoute();
+                if (!route)
+                    throw new Error("The routed temporary-agent profile is no longer available.");
+
+                const args = (rawArgs && typeof rawArgs === "object" ? rawArgs : {}) as TemporaryAgentToolArgs;
+                const prompt = normalizeOptionalString(args.prompt);
+                if (!prompt)
+                    throw new Error("Temporary-agent delegation requires a non-empty prompt.");
+
+                const requestedName = normalizeAgentHandle(args.name ?? "temporary-agent") || "temporary-agent";
+                const dynamicRoute: SquadNamedAgentRoute = {
+                    ...route,
+                    handle: requestedName,
+                    displayName: "Temporary Agent",
+                    role: normalizeOptionalString(args.description) ?? route.role
+                };
+                return await this.runNamedAgentTool(
+                    dynamicRoute,
+                    prompt,
+                    args,
+                    invocation,
+                    options,
+                    true);
+            }
+        };
+    }
+
     private async runNamedAgentTool(
         route: SquadNamedAgentRoute,
         prompt: string,
         args: NamedAgentToolArgs,
         invocation: { sessionId: string; toolCallId: string },
-        outerOptions: SquadSessionRequest
+        outerOptions: SquadSessionRequest,
+        isTemporaryAgent = false
     ): Promise<string> {
         const handle = normalizeAgentHandle(route.handle);
         const stagedRevisionCorrelation = resolveStagedPlanRevisionCorrelation(
@@ -3076,11 +3228,13 @@ export class SquadBridgeService {
         this.bridgeHandlers.onSubagentStarted?.(invocation.sessionId, lifecycle);
 
         try {
-            let attemptPrompt = buildNamedAgentPrompt({
-                selectedOption: prompt,
-                targetAgent: handle,
-                charterContent: route.charterContent
-            });
+            let attemptPrompt = isTemporaryAgent
+                ? prompt
+                : buildNamedAgentPrompt({
+                    selectedOption: prompt,
+                    targetAgent: handle,
+                    charterContent: route.charterContent
+                });
             let response: string | undefined;
 
             while (true) {
@@ -3161,8 +3315,10 @@ export class SquadBridgeService {
                             providerOverride: route.provider ?? null,
                             providerOverrideSpecified: true,
                             exposeNamedAgentTool: false,
+                            temporaryAgentRoute: outerOptions.temporaryAgentRoute,
                             requireSameSession: retryCount > 0
                         });
+                    this.clearProviderRetryBudget(route);
                     break;
                 }
                 catch (error) {
@@ -3185,9 +3341,11 @@ export class SquadBridgeService {
                     }
 
                     const retryDelayMs = computeProviderThrottleDelayMs(throttle, consecutiveRetryCount);
-                    const boundedRetryDelayMs = Math.min(
+                    const providerDelayMs = Math.min(
                         NamedAgentThrottleMaxSingleDelayMs,
                         retryDelayMs);
+                    const retryReservation = this.reserveProviderRetry(route, providerDelayMs);
+                    const boundedRetryDelayMs = Math.max(0, retryReservation.scheduledAt - Date.now());
                     retryCount++;
                     consecutiveRetryCount++;
                     totalRetryDelayMs += boundedRetryDelayMs;
@@ -3219,9 +3377,12 @@ export class SquadBridgeService {
 
                     const continued = await waitForNamedAgentThrottleDelay(
                         boundedRetryDelayMs,
-                        () => this.sessions.get(invocation.sessionId)?.currentRequest?.aborted === true);
-                    if (!continued)
+                        () => this.sessions.get(invocation.sessionId)?.currentRequest?.aborted === true,
+                        () => !this.providerRetryAttempts.has(retryReservation.key));
+                    if (!continued) {
+                        this.releaseProviderRetryReservation(retryReservation);
                         throw new Error("Named-agent throttling recovery was cancelled.");
+                    }
 
                     this.bridgeHandlers.onSubagentResumed?.(invocation.sessionId, {
                         ...lifecycle,
@@ -3308,6 +3469,7 @@ export class SquadBridgeService {
             if (existingState) {
                 if (options.namedAgentRoutes)
                     existingState.namedAgentRoutes = options.namedAgentRoutes;
+                existingState.temporaryAgentRoute = options.temporaryAgentRoute;
                 bridgeDiagnostic("getOrCreateSession:bridge-cache", {
                     sessionId: options.sessionId,
                     durationMs: Date.now() - acquireStartedAt
@@ -3329,6 +3491,17 @@ export class SquadBridgeService {
             : buildCustomProviderFromEnv();
         const namedAgentRoutes = options.namedAgentRoutes ?? [];
         const resolvedReasoningEffort = resolveSessionReasoningEffort(options.reasoningEffort);
+        const sessionTools: NonNullable<SquadSessionConfig["tools"]> = [];
+        if (options.exposeNamedAgentTool !== false) {
+            sessionTools.push(this.createNamedAgentTool(
+                () => stateRef?.namedAgentRoutes ?? namedAgentRoutes,
+                options));
+        }
+        if (options.temporaryAgentRoute) {
+            sessionTools.push(this.createTemporaryAgentTool(
+                () => stateRef?.temporaryAgentRoute ?? options.temporaryAgentRoute,
+                options));
+        }
         const sessionConfig: SquadSessionConfig = {
             onPermissionRequest: async () => approvePermissionRequest(),
             streaming: true,
@@ -3336,9 +3509,7 @@ export class SquadBridgeService {
             configDir: options.configDir,
             model: resolveSessionModel(options.model, !options.providerOverrideSpecified),
             provider: customProvider,
-            tools: options.exposeNamedAgentTool === false
-                ? undefined
-                : [this.createNamedAgentTool(() => stateRef?.namedAgentRoutes ?? namedAgentRoutes, options)],
+            tools: sessionTools.length > 0 ? sessionTools : undefined,
             hooks: {
                 onPreToolUse: (input: { toolName: string; toolArgs: unknown; cwd?: string }) => {
                     if (input.toolName === "task") {
@@ -3352,6 +3523,15 @@ export class SquadBridgeService {
                                     "SquadDash rejected this generic task launch because it impersonates or contains a host-owned roster assignment " +
                                     `(matched ${counterfeitHandle}). Retry with delegate_roster_agent and an exact agent_handle. ` +
                                     "Use task only for genuinely temporary workers."
+                            };
+                        }
+
+                        if (stateRef?.temporaryAgentRoute ?? options.temporaryAgentRoute) {
+                            return {
+                                permissionDecision: "deny" as const,
+                                permissionDecisionReason:
+                                    "SquadDash has a separate model profile assigned to temporary agents. " +
+                                    "Retry this genuinely temporary assignment with delegate_temporary_agent, preserving the same prompt, name, description, and mode."
                             };
                         }
                     }
@@ -3482,6 +3662,7 @@ export class SquadBridgeService {
         if (existing) {
             if (options.namedAgentRoutes)
                 existing.namedAgentRoutes = options.namedAgentRoutes;
+            existing.temporaryAgentRoute = options.temporaryAgentRoute;
             return {
                 state: existing,
                 sessionReady: {
@@ -3506,7 +3687,8 @@ export class SquadBridgeService {
             createdAt: Date.now(),
             completedPromptCount: 0,
             workingDirectory: options.cwd,
-            namedAgentRoutes
+            namedAgentRoutes,
+            temporaryAgentRoute: options.temporaryAgentRoute
         };
 
         stateRef = state;

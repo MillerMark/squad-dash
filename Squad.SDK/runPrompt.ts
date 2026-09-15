@@ -24,6 +24,7 @@ type PromptRequest = {
     model?: string;
     reasoningEffort?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
+    temporaryAgentRoute?: SquadNamedAgentRoute;
     planDelegationGuard?: PlanDelegationGuard;
 };
 
@@ -38,6 +39,7 @@ type DelegateRequest = {
     model?: string;
     approvalGroupContext?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
+    temporaryAgentRoute?: SquadNamedAgentRoute;
 };
 
 type NamedAgentRequest = {
@@ -53,6 +55,7 @@ type NamedAgentRequest = {
     reasoningEffort?: string;
     approvalGroupContext?: string;
     agentRoute?: SquadNamedAgentRoute;
+    temporaryAgentRoute?: SquadNamedAgentRoute;
 };
 
 function normalizeRequestedModel(model: string | undefined): string | undefined {
@@ -562,6 +565,7 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
     const model = extractOptionalString(parsed.model);
     const reasoningEffort = extractOptionalString(parsed.reasoningEffort);
     const namedAgentRoutes = parseNamedAgentRoutes(parsed.namedAgentRoutes);
+    const temporaryAgentRoute = tryParseNamedAgentRoute(parsed.temporaryAgentRoute) ?? undefined;
     const planDelegationGuard = parsePlanDelegationGuard(parsed.planDelegationGuard);
 
     return {
@@ -574,6 +578,7 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
         model,
         reasoningEffort,
         namedAgentRoutes,
+        temporaryAgentRoute,
         planDelegationGuard
     };
 }
@@ -598,6 +603,7 @@ function tryParseDelegateRequest(parsed: Partial<DelegateRequest>): DelegateRequ
     const model = extractOptionalString(parsed.model);
     const approvalGroupContext = extractOptionalString(parsed.approvalGroupContext);
     const namedAgentRoutes = parseNamedAgentRoutes(parsed.namedAgentRoutes);
+    const temporaryAgentRoute = tryParseNamedAgentRoute(parsed.temporaryAgentRoute) ?? undefined;
 
     return {
         type: "delegate",
@@ -609,7 +615,8 @@ function tryParseDelegateRequest(parsed: Partial<DelegateRequest>): DelegateRequ
         configDir,
         model,
         approvalGroupContext,
-        namedAgentRoutes
+        namedAgentRoutes,
+        temporaryAgentRoute
     };
 }
 
@@ -632,7 +639,8 @@ function tryParseNamedAgentRequest(parsed: Partial<NamedAgentRequest>): NamedAge
         model: extractOptionalString(parsed.model),
         reasoningEffort: extractOptionalString(parsed.reasoningEffort),
         approvalGroupContext: extractOptionalString(parsed.approvalGroupContext),
-        agentRoute: tryParseNamedAgentRoute(parsed.agentRoute) ?? undefined
+        agentRoute: tryParseNamedAgentRoute(parsed.agentRoute) ?? undefined,
+        temporaryAgentRoute: tryParseNamedAgentRoute(parsed.temporaryAgentRoute) ?? undefined
     };
 }
 
@@ -1285,6 +1293,7 @@ async function handleNamedAgent(request: NamedAgentRequest): Promise<void> {
                 model: request.agentRoute?.model ?? request.model,
                 reasoningEffort: request.agentRoute?.reasoningEffort ?? request.reasoningEffort,
                 agentRoute: request.agentRoute,
+                temporaryAgentRoute: request.temporaryAgentRoute,
                 approvalGroupContext: request.approvalGroupContext
             },
             buildNamedAgentRunHandlers(request.requestId, toolCallId, handle, displayName, request.sessionId)

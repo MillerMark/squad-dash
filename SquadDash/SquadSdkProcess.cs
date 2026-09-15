@@ -87,6 +87,13 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     /// </summary>
     internal IReadOnlyList<SquadSdkNamedAgentRoute> NamedAgentRoutes { get; set; } = [];
 
+    /// <summary>
+    /// Optional host-resolved route for genuinely temporary workers. Null preserves the
+    /// provider SDK's native task path; a value exposes SquadDash's routed temporary-agent
+    /// tool so a category assignment can differ from the parent session.
+    /// </summary>
+    internal SquadSdkNamedAgentRoute? TemporaryAgentRoute { get; set; }
+
     internal SquadSdkProcess(IWorkspacePaths workspacePaths)
         : this(processStartInfoFactory: null, options: null, workspacePaths: workspacePaths) {
     }
@@ -175,7 +182,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 requestId,
                 Model: ResolveRequestModel(ActiveProfile?.Model ?? CopilotDefaultModel),
                 ApprovalGroupContext: approvalGroupContext,
-                NamedAgentRoutes: NamedAgentRoutes);
+                NamedAgentRoutes: NamedAgentRoutes,
+                TemporaryAgentRoute: TemporaryAgentRoute);
             await RunBridgeRequestOnceAsync(
                 request,
                 requestId,
@@ -239,7 +247,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 Model: ResolveRequestModel(agentRoute?.Model ?? ActiveProfile?.Model ?? CopilotDefaultModel),
                 ReasoningEffort: NormalizeReasoningEffort(agentRoute?.ReasoningEffort ?? ActiveProfile?.ReasoningEffort),
                 ApprovalGroupContext: approvalGroupContext,
-                AgentRoute: agentRoute);
+                AgentRoute: agentRoute,
+                TemporaryAgentRoute: TemporaryAgentRoute);
             await RunBridgeRequestOnceAsync(
                 request,
                 requestId,
@@ -403,6 +412,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             Model: ResolveRequestModel(ActiveProfile?.Model ?? CopilotDefaultModel),
             ReasoningEffort: NormalizeReasoningEffort(ActiveProfile?.ReasoningEffort),
             NamedAgentRoutes: NamedAgentRoutes,
+            TemporaryAgentRoute: TemporaryAgentRoute,
             PlanDelegationGuard: planDelegationGuard);
         await RunBridgeRequestOnceAsync(
             request,
@@ -1897,6 +1907,7 @@ internal sealed record SquadSdkPromptRequest(
     [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
     [property: JsonPropertyName("reasoningEffort"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReasoningEffort = null,
     [property: JsonPropertyName("namedAgentRoutes"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<SquadSdkNamedAgentRoute>? NamedAgentRoutes = null,
+    [property: JsonPropertyName("temporaryAgentRoute"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkNamedAgentRoute? TemporaryAgentRoute = null,
     [property: JsonPropertyName("planDelegationGuard"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkPlanDelegationGuard? PlanDelegationGuard = null);
 
 public sealed record SquadSdkKnownPlanWork(
@@ -1928,7 +1939,8 @@ internal sealed record SquadSdkDelegateRequest(
     [property: JsonPropertyName("type")] string Type = "delegate",
     [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
     [property: JsonPropertyName("approvalGroupContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalGroupContext = null,
-    [property: JsonPropertyName("namedAgentRoutes"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<SquadSdkNamedAgentRoute>? NamedAgentRoutes = null);
+    [property: JsonPropertyName("namedAgentRoutes"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<SquadSdkNamedAgentRoute>? NamedAgentRoutes = null,
+    [property: JsonPropertyName("temporaryAgentRoute"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkNamedAgentRoute? TemporaryAgentRoute = null);
 
 internal sealed record SquadSdkNamedAgentRequest(
     [property: JsonPropertyName("targetAgent")] string TargetAgent,
@@ -1942,7 +1954,8 @@ internal sealed record SquadSdkNamedAgentRequest(
     [property: JsonPropertyName("model"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Model = null,
     [property: JsonPropertyName("reasoningEffort"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ReasoningEffort = null,
     [property: JsonPropertyName("approvalGroupContext"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApprovalGroupContext = null,
-    [property: JsonPropertyName("agentRoute"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkNamedAgentRoute? AgentRoute = null);
+    [property: JsonPropertyName("agentRoute"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkNamedAgentRoute? AgentRoute = null,
+    [property: JsonPropertyName("temporaryAgentRoute"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SquadSdkNamedAgentRoute? TemporaryAgentRoute = null);
 
 internal sealed record SquadSdkNamedAgentRoute(
     [property: JsonPropertyName("handle")] string Handle,

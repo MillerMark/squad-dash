@@ -238,7 +238,7 @@ internal sealed class TranscriptQuickReplyFactoryTests
     }
 
     [Test]
-    public void ReplacePendingDecomposeApprovalSurfaceWithInboxBanner_NoAnchorLeavesRecoveryFallbackToCaller()
+    public void ReplacePendingDecomposeApprovalSurfaceWithInboxBanner_NoAnchorLeavesTranscriptUnchanged()
     {
         var document = new FlowDocument(new Paragraph(new Run("Unrelated transcript")));
         var banner = new Paragraph(new Run("Plan moved to Inbox"))

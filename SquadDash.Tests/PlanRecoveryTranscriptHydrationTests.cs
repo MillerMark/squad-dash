@@ -82,6 +82,8 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
             Assert.That(restoreAndBanner, Does.Contain("OpenOrFocusInboxMessage(message.Id)"));
             Assert.That(restoreAndBanner, Does.Contain("OpenDecomposePlanAttachment(attachment)"));
             Assert.That(restoreAndBanner, Does.Contain("ReplacePendingDecomposeApprovalSurfaceWithInboxBanner("));
+            Assert.That(restoreAndBanner, Does.Not.Contain("blocks.Add(paragraph)"),
+                "A missing historical anchor must not make an old Inbox receipt look like new transcript activity.");
             Assert.That(callout, Does.Contain("OpenTourMenuItemAsync("));
             Assert.That(callout, Does.Contain("FindVisibleMessageRow(messageId)"));
             Assert.That(callout, Does.Contain("_docsPanelState?.InboxPanelVisible == true"),

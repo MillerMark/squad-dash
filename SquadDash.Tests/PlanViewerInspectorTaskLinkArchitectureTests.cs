@@ -146,21 +146,42 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
     }
 
     [Test]
-    public void VerificationFindings_UseSharedStatusIconsAndKeepEvidenceExpanded()
+    public void VerificationFindings_UseAmberTaskCheckAndCriticalFailureShapeAndKeepEvidenceExpanded()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
         var method = ExtractMethod(source, "private void PopulateTaskDetail(PlanTask task, Plan? plan)");
         var icon = ExtractMethod(source,
-            "private static FrameworkElement CreateVerificationIcon(VerificationIconKind kind)");
+            "private static FrameworkElement CreateVerificationClaimIcon(string? disposition)");
 
         Assert.Multiple(() =>
         {
-            Assert.That(method, Does.Contain("\"supported\" => VerificationIconKind.Supported")
-                .And.Contain("\"missing\" or \"overstated\" => VerificationIconKind.Failed")
+            Assert.That(method, Does.Contain("CreateVerificationClaimIcon(finding.Disposition)")
+                .And.Contain("new Run(VerificationCheckLeadingSpace)")
                 .And.Contain("new Paragraph(new Run(finding.Evidence))"));
-            Assert.That(icon, Does.Contain("\"TaskSucceeded\"")
-                .And.Contain("\"TaskFailed\"")
-                .And.Contain("\"PlanApprovalResolvedCheck\""));
+            Assert.That(icon, Does.Contain("IsSupportedVerificationDisposition(disposition)")
+                .And.Contain("\"TaskSucceededGeometry\"")
+                .And.Contain("FrameworkElement.WidthProperty, \"FontSizeLargePlus\"")
+                .And.Contain("FrameworkElement.HeightProperty, \"FontSizeLargePlus\"")
+                .And.Contain("isSupported ? \"PriorityHigh\" : \"PriorityCritical\""));
+            Assert.That(source, Does.Contain("VerificationCheckLeadingSpace = \"\\u2005\""));
+        });
+    }
+
+    [Test]
+    public void VerificationInspector_ShowsNewestResultAsCurrentAndSeparatesEarlierAttempts()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var method = ExtractMethod(source,
+            "private void PopulateVerificationDetail(string taskTitle, string taskId, string verificationLevel, bool verificationOnly, PlanTask? durableTask = null)");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("history.OrderByDescending(report => report.CompletedAt)")
+                .And.Contain("PlanTaskVerificationVerdict.Accepted => \"Verification passed\"")
+                .And.Contain("AddSectionHeader(\"Previous Verification Attempts\")"));
+            Assert.That(method, Does.Contain("CreateVerificationClaimIcon(finding.Disposition)")
+                .And.Contain("new Run(VerificationCheckLeadingSpace)")
+                .And.Not.Contain("finding.Disposition.Equals(\"confirmed\""));
         });
     }
 

@@ -936,6 +936,7 @@ public partial class MainWindow : Window
         _bridge.ByokProviderSettings = BuildByokSettings(initialSettings);
         _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(initialSettings);
         _bridge.ActiveProfile = ResolveActiveProfile(initialSettings);
+        _bridge.TemporaryAgentRoute = BuildTemporaryAgentRoute(_bridge.ActiveProfile);
         _bridge.BridgeDiagnosticsEnabled = initialSettings.BridgeDiagnosticsEnabled;
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
@@ -6797,7 +6798,14 @@ public partial class MainWindow : Window
         RecordPlanAgentCompletion(thread, evt, succeeded: false);
         _agentThreadRegistry.FinalizeAgentThread(thread);
         ProviderFailureTranscriptBlockFactory.Append(thread, failure, agentLabel, _transcriptFontSize);
-        ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, agentLabel, _transcriptFontSize);
+        ProviderFailureTranscriptBlockFactory.AppendAggregated(
+            CoordinatorThread,
+            failure,
+            agentLabel,
+            _transcriptFontSize,
+            evt.SessionId ?? evt.RequestId ?? "current-provider-operation",
+            thread.CompletedAt ?? DateTimeOffset.Now,
+            thread.ThreadId);
         ScrollToEndIfAtBottom(thread);
         ScrollToEndIfAtBottom(CoordinatorThread);
         StopRequiredPlanWorkAfterProviderFailure(thread, failure, agentLabel);
@@ -6806,11 +6814,6 @@ public partial class MainWindow : Window
         CompleteDirectQuickReplyAgentThread(thread, "subagent_failed");
 
         _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
-        _backgroundTaskPresenter.AppendBackgroundNotice(
-            summary,
-            ThemeBrush("TaskFailureText"),
-            BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread) + ":failed",
-            appendWhenIdle: false);
         SyncAgentCardsWithThreads();
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_failed");
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
@@ -7032,6 +7035,98 @@ public partial class MainWindow : Window
             evt.ProviderType,
             evt.WireApi,
             evt.RequestedModel);
+
+    private void RestoreProviderFailureAggregatesFromPersistedThreads()
+    {
+        var previousCards = CoordinatorThread.Document.Blocks
+            .Cast<Block>()
+            .Where(ProviderFailureTranscriptBlockFactory.IsProviderFailureContainer)
+            .ToArray();
+        foreach (var previousCard in previousCards)
+            CoordinatorThread.Document.Blocks.Remove(previousCard);
+
+        var restoredFailures = _agentThreadRegistry.ThreadOrder
+            .Where(thread => string.Equals(thread.StatusText, "Failed", StringComparison.OrdinalIgnoreCase) &&
+                             !string.IsNullOrWhiteSpace(thread.ErrorText))
+            .Select(thread =>
+            {
+                var failure = ProviderFailurePresentation.Analyze(
+                    thread.ErrorText,
+                    BuildPersistedProviderFailureContext(thread.DetailText));
+                return (Thread: thread, Failure: failure);
+            })
+            .Where(item => item.Failure.Category != ProviderFailureCategory.Unknown)
+            .OrderBy(item => item.Thread.StartedAt)
+            .ToArray();
+
+        var clusters = new List<PersistedProviderFailureCluster>();
+        foreach (var item in restoredFailures)
+        {
+            var groupingKey = ProviderFailureTranscriptBlockFactory.BuildGroupingKey(item.Failure);
+            var occurredAt = item.Thread.CompletedAt ?? item.Thread.StartedAt;
+            var cluster = clusters.LastOrDefault(candidate =>
+                string.Equals(candidate.GroupingKey, groupingKey, StringComparison.Ordinal) &&
+                item.Thread.StartedAt <= candidate.LatestCompletionAt + TimeSpan.FromMinutes(2));
+            if (cluster is null)
+            {
+                cluster = new PersistedProviderFailureCluster(
+                    groupingKey,
+                    $"restored-provider-operation-{clusters.Count + 1}",
+                    occurredAt);
+                clusters.Add(cluster);
+            }
+            else if (occurredAt > cluster.LatestCompletionAt)
+            {
+                cluster.LatestCompletionAt = occurredAt;
+            }
+
+            ProviderFailureTranscriptBlockFactory.AppendAggregated(
+                CoordinatorThread,
+                item.Failure,
+                BackgroundTaskPresenter.BuildBackgroundAgentLabel(item.Thread),
+                _transcriptFontSize,
+                cluster.Scope,
+                occurredAt,
+                item.Thread.ThreadId);
+        }
+
+        if (restoredFailures.Length > 0)
+        {
+            SquadDashTrace.Write(
+                "UI",
+                $"Restored {restoredFailures.Length} provider failure(s) into {clusters.Count} consolidated transcript card(s).");
+        }
+    }
+
+    private static ProviderFailureContext BuildPersistedProviderFailureContext(string? detailText) =>
+        new(
+            Model: ExtractPersistedProviderContextValue(detailText, "Model/deployment"),
+            ProfileAlias: ExtractPersistedProviderContextValue(detailText, "Profile"),
+            ProviderBaseUrl: ExtractPersistedProviderContextValue(detailText, "Endpoint"),
+            ProviderType: ExtractPersistedProviderContextValue(detailText, "Provider"),
+            WireApi: ExtractPersistedProviderContextValue(detailText, "Protocol"),
+            RequestedModel: ExtractPersistedProviderContextValue(detailText, "Requested model"));
+
+    private static string? ExtractPersistedProviderContextValue(string? detailText, string label)
+    {
+        if (string.IsNullOrWhiteSpace(detailText))
+            return null;
+        var match = Regex.Match(
+            detailText,
+            $@"(?:^|[\r\n]|\s•\s){Regex.Escape(label)}:\s*(?<value>.*?)(?=\s+•\s+|[\r\n]|$)",
+            RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["value"].Value.Trim() : null;
+    }
+
+    private sealed class PersistedProviderFailureCluster(
+        string groupingKey,
+        string scope,
+        DateTimeOffset latestCompletionAt)
+    {
+        internal string GroupingKey { get; } = groupingKey;
+        internal string Scope { get; } = scope;
+        internal DateTimeOffset LatestCompletionAt { get; set; } = latestCompletionAt;
+    }
 
     private void HandleSubagentCancelled(SquadSdkEvent evt)
     {
@@ -11082,13 +11177,14 @@ public partial class MainWindow : Window
             paragraph);
         if (!replacedInPlace)
         {
-            // Recovery fallback for legacy/corrupt transcript state where the original tagged
-            // plan receipt did not survive hydration. Normal live and restart paths replace the
-            // receipt beside the turn that produced the plan.
-            blocks.Add(paragraph);
+            // The Inbox already owns the durable reminder. If the original tagged transcript
+            // receipt did not survive hydration, appending a replacement here would invent a
+            // new position in the conversation and make an old plan look newly moved. Leave the
+            // transcript unchanged instead; live and intact restart paths still replace the
+            // original receipt beside the turn that produced the plan.
             SquadDashTrace.Write(
                 TraceCategory.UI,
-                $"Pending-plan Inbox banner used transcript-end recovery fallback group={plan.Group.GroupId} revision={plan.Revision}.");
+                $"Pending-plan Inbox banner skipped because no historical transcript anchor survived group={plan.Group.GroupId} revision={plan.Revision}.");
         }
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
@@ -38226,6 +38322,7 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace?.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
         await _conversationManager.LoadWorkspaceConversationAsync();
+        RestoreProviderFailureAggregatesFromPersistedThreads();
         // Recovery evidence lives in the persisted transcript, which is workspace-hydrated only
         // here. Reconcile it before rebuilding any recovery card or Inbox action.
         await ReconcileInterruptedPlanTaskEvidenceAsync();
@@ -46852,6 +46949,36 @@ public partial class MainWindow : Window
     private void RefreshBridgeNamedAgentRoutes()
     {
         _bridge.NamedAgentRoutes = BuildNamedAgentRoutes();
+        _bridge.TemporaryAgentRoute = BuildTemporaryAgentRoute(_bridge.ActiveProfile);
+    }
+
+    private SquadSdkNamedAgentRoute? BuildTemporaryAgentRoute(ModelProfile? activeProfile)
+    {
+        var profiles = _modelProfileStore.GetProfiles();
+        var assignments = _modelProfileStore.GetCategoryAssignments();
+        var profile = ModelProfileResolver.Resolve(
+            profiles,
+            assignments,
+            perAgentOverrideProfileId: null,
+            agentCategory: ModelProfileCategory.TemporaryAgents);
+
+        // Preserve the SDK's native task implementation whenever the temporary-worker
+        // assignment is the same profile as the parent. This keeps the high-throughput
+        // path untouched for the common case and only introduces routed execution when
+        // the user explicitly separates the categories.
+        if (profile is null ||
+            (activeProfile is not null &&
+             string.Equals(profile.Id, activeProfile.Id, StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        return SquadSdkProcess.BuildNamedAgentRoute(
+            "temporary-agent",
+            "Temporary Agent",
+            "General-purpose temporary worker",
+            charterContent: null,
+            profile);
     }
 
     private IReadOnlyList<SquadSdkNamedAgentRoute> BuildNamedAgentRoutes()
@@ -50494,17 +50621,21 @@ public partial class MainWindow : Window
         var previousByokSettings = _bridge.ByokProviderSettings;
         var previousCopilotDefaultModel = _bridge.CopilotDefaultModel;
         var previousActiveProfile = _bridge.ActiveProfile;
+        var previousTemporaryAgentRoute = _bridge.TemporaryAgentRoute;
         var currentByokSettings = BuildByokSettings(snapshot);
         var currentCopilotDefaultModel = BuildCopilotDefaultModel(snapshot);
         var currentActiveProfile = ResolveActiveProfile(snapshot);
         var currentNamedAgentRoutes = BuildNamedAgentRoutes();
+        var currentTemporaryAgentRoute = BuildTemporaryAgentRoute(currentActiveProfile);
 
         _bridge.ByokProviderSettings = currentByokSettings;
         _bridge.CopilotDefaultModel = currentCopilotDefaultModel;
         _bridge.ActiveProfile = currentActiveProfile;
         _bridge.NamedAgentRoutes = currentNamedAgentRoutes;
+        _bridge.TemporaryAgentRoute = currentTemporaryAgentRoute;
 
         var changed = !Equals(previousActiveProfile, currentActiveProfile) ||
+                      !Equals(previousTemporaryAgentRoute, currentTemporaryAgentRoute) ||
                       (previousActiveProfile is null && currentActiveProfile is null &&
                        (!Equals(previousByokSettings, currentByokSettings) ||
                         !string.Equals(previousCopilotDefaultModel, currentCopilotDefaultModel, StringComparison.Ordinal)));
