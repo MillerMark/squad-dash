@@ -6,26 +6,39 @@
 
 ## Overview
 
-The Daily Issue & PR Tracker is a maintenance task that automatically queries GitHub for new issues and pull requests posted to your repository in the last 24 hours. It provides a structured report delivered to your Inbox panel, helping you stay on top of incoming activity.
+The Daily Issue & PR Tracker queries GitHub for issues and pull requests created since its last successful run, with a 10-minute overlap for indexing lag. Results are deduplicated by number. On first run (no watermark), it reports only open items created within the last 60 days. Later runs retain the watermark window even after a long gap and include closed items too.
 
 ## What It Does
 
-1. **Queries GitHub API** - Uses GitHub CLI to search for issues/PRs created in the last 24 hours
+1. **Queries GitHub API** - Uses GitHub CLI with the saved UTC watermark or first-run fallback
 2. **Identifies the Repository** - Dynamically detects your current workspace's repository
-3. **Generates a Report** - Formats findings as a clear, actionable markdown report
-4. **Delivers to Inbox** - Sends the report to your SquadDash Inbox for easy access
+3. **Generates a Report** - Details the newest 20 items across issues and PRs, with full counts and a "+N more — View all on GitHub" search link when truncated
+4. **Delivers to Inbox** - Sends the report from Argus Weld with label- and volume-based priority
 
 ## Configuration Options
 
 ### Include Pull Requests (Checkbox)
 
-- **Default**: Disabled (issues only)
+- **Default**: Enabled (issues and PRs)
 - **When enabled**: Report includes both issues and pull requests
 - **When disabled**: Report includes issues only
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `maxDetailedItems` | 20 | Shared detailed-item cap; full counts and priority include undisplayed items |
+| `escalateCountThreshold` | 10 | Total matching count that triggers high priority |
+| `criticalLabels` | `security, critical, P0, sev1, severity: critical` | Critical label-name matches |
+| `highPriorityLabels` | `priority: high, high priority, urgent, P1, important` | High-priority label-name matches |
+
+### Inbox Priority
+
+Rules apply in order: **low** for no new items; **critical** if any item matches a critical label; **high** if any item matches a high-priority label or the total reaches the count threshold; otherwise **mid**. Label lists are comma-separated and matched case-insensitively against label names (including substrings). GitHub has no native priority field, so labels provide priority signals. Escalated reports name the triggering labels or count, including matches outside the detailed list.
 
 ## Report Format
 
 Each report includes:
+
+- Repository and effective UTC window: "since <timestamp>" (including overlap), or "open issues, last 60 days (first run)". PRs use the same window when enabled.
 
 ### Summary
 - Count of new issues (and PRs if enabled)
@@ -48,28 +61,27 @@ Each report includes:
 
 ### Enable the Task
 
-1. Open `.squad/maintenance.md`
-2. Find the `daily-issue-pr-tracker` task
-3. Change `enabled: false` to `enabled: true`
+1. Open the Code Health panel.
+2. Find **Issue & PR Tracker** (`daily-issue-pr-tracker`).
+3. Enable it if disabled (the shipped task is enabled by default).
 
 ### Configure Options
 
-In the same task definition, adjust the `options` section:
+Adjust the task options in the Code Health panel. Task-definition option values use this shape:
 
 ```yaml
 options:
   includePullRequests:
-    value: false  # Set to true to include PRs
+    value: true  # Set to false for issues only
+  maxDetailedItems:
+    value: 20
+  escalateCountThreshold:
+    value: 10
 ```
 
 ### Run Manually
 
-To test the task or run it outside the maintenance schedule:
-
-```powershell
-# From the repository root
-.\.squad\examples\daily-issue-pr-tracker-example.ps1 -IncludePullRequests $false
-```
+Run the task from the Code Health panel to use its persisted watermark and configured options outside the daily schedule.
 
 ## Requirements
 
@@ -86,7 +98,7 @@ This task is designed to be **repo-agnostic** and can be distributed to any GitH
 - Requires no repo-specific configuration
 - Respects the safety level (`report-only`)
 
-Simply copy the task definition from `.squad/maintenance.md` to another repository's maintenance configuration, and it will work immediately.
+The built-in task ships with SquadDash; no repository-specific query configuration is required.
 
 ## Example Output
 
@@ -94,7 +106,8 @@ Simply copy the task definition from `.squad/maintenance.md` to another reposito
 ## Daily Issue & PR Tracker Report
 
 **Repository**: [MillerMark/squad-dash](https://github.com/MillerMark/squad-dash)
-**Period**: Last 24 hours
+**Period**: Since 2026-06-02T15:00:00Z (last successful run minus 10 minutes)
+**Priority**: mid
 
 ### Summary
 - **New Issues**: 2

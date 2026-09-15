@@ -655,6 +655,100 @@ internal sealed class CodeHealthRunnerTests {
 
     // ── SubstituteOptions — conditional directives ────────────────────────────
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task StartAsync_SubstitutesLastRunAt_FromPersistedTaskState(bool hasPreviousRun) {
+        const string taskId = "generic-watermark-task";
+        var previousRun = new DateTime(2026, 9, 12, 14, 25, 36, DateTimeKind.Utc).AddTicks(1234567);
+        var previousStore = new CodeHealthStateStore(_stateDir, new FakeTimeProvider(previousRun));
+        previousStore.RecordRun("other-task", commitSha: null);
+        if (hasPreviousRun)
+            previousStore.RecordRun(taskId, commitSha: null);
+
+        var currentRun = previousRun.AddDays(2);
+        var stateStore = new CodeHealthStateStore(_stateDir, new FakeTimeProvider(currentRun));
+        stateStore.Reload();
+        var prompts = new List<string>();
+        var runner = MakeRunner(
+            stateStore: stateStore,
+            executePromptAsync: (prompt, _) => { prompts.Add(prompt); return Task.FromResult(-1); });
+        var config = MakeConfig([MakeTask(taskId,
+            instructions: "Watermark=[{{last_run_at}}]; mixed=[{{LaSt_RuN_At}}].")]);
+
+        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
+
+        var expected = hasPreviousRun ? "2026-09-12T14:25:36.1234567Z" : string.Empty;
+        Assert.That(prompts, Has.Count.EqualTo(1));
+        Assert.Multiple(() => {
+            Assert.That(prompts[0], Does.Contain($"Watermark=[{expected}]; mixed=[{expected}]."));
+            Assert.That(CodeHealthRunner.StripPreambleForDisplay(prompts[0]), Does.Not.Contain("{{"));
+            Assert.That(stateStore.GetLastRunAt(taskId), Is.EqualTo(currentRun),
+                "The prompt uses the prior watermark, before recording the current successful run.");
+        });
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task StartAsync_ShippedIssuePrTracker_RendersOptionsAndValidHandlebars(bool includePullRequests) {
+        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "squad-dash.slnx")))
+            directory = directory.Parent;
+        Assert.That(directory, Is.Not.Null, "Repository root must be available for the shipped catalog test.");
+        var catalogPath = Path.Combine(directory!.FullName, "SquadDash", "Assets", "code-health.md");
+        var config = CodeHealthMdParser.Parse(catalogPath);
+        Assert.That(config, Is.Not.Null);
+        Assert.That(config!.Tasks, Is.Not.Null);
+        var tracker = config.Tasks!.Single(task => task.Id == "daily-issue-pr-tracker");
+        Assert.That(tracker.Options, Is.Not.Null);
+        var options = tracker.Options!.ToDictionary(option => option.Key);
+        Assert.Multiple(() => {
+            Assert.That(tracker.Safety, Is.EqualTo("report-only"));
+            Assert.That(tracker.Frequency, Is.EqualTo("daily"));
+            Assert.That(options["includePullRequests"].RawValue, Is.EqualTo("true"));
+            Assert.That(options["maxDetailedItems"].RawValue, Is.EqualTo("20"));
+            Assert.That(options["maxDetailedItems"].Type, Is.EqualTo("number"));
+            Assert.That(options["escalateCountThreshold"].RawValue, Is.EqualTo("10"));
+            Assert.That(options["escalateCountThreshold"].Type, Is.EqualTo("number"));
+            Assert.That(options["criticalLabels"].RawValue, Is.EqualTo("security, critical, P0, sev1, severity: critical"));
+            Assert.That(options["criticalLabels"].Type, Is.EqualTo("text"));
+            Assert.That(options["highPriorityLabels"].RawValue, Is.EqualTo("priority: high, high priority, urgent, P1, important"));
+            Assert.That(options["highPriorityLabels"].Type, Is.EqualTo("text"));
+        });
+        tracker = tracker with {
+            Options = tracker.Options.Select(option => option.Key == "includePullRequests"
+                ? option with { RawValue = includePullRequests ? "true" : "false" }
+                : option).ToArray()
+        };
+
+        var instructions = CodeHealthRunner.SubstituteOptions(tracker.Instructions, tracker.Options)
+            .Replace("{{last_run_at}}", string.Empty, StringComparison.OrdinalIgnoreCase);
+        // Compile directly so the runner's rendering-error fallback cannot hide a broken template.
+        var template = HandlebarsDotNet.Handlebars.Create().Compile(instructions);
+        var rendered = template(new { });
+        var prompts = new List<string>();
+        var runner = MakeRunner(
+            executePromptAsync: (prompt, _) => { prompts.Add(prompt); return Task.FromResult(-1); });
+
+        await runner.StartAsync(MakeConfig([tracker]), _workspaceDir, CancellationToken.None);
+
+        Assert.That(prompts, Has.Count.EqualTo(1));
+        Assert.Multiple(() => {
+            Assert.That(rendered, Does.Not.Contain("{{"));
+            Assert.That(prompts[0], Does.Contain(rendered));
+            Assert.That(rendered, Does.Contain("Last successful run (UTC): \"\"."));
+            Assert.That(rendered, Does.Contain("Detail at most 20 items"));
+            Assert.That(rendered, Does.Contain("security, critical, P0, sev1, severity: critical"));
+            Assert.That(rendered, Does.Contain("priority: high, high priority, urgent, P1, important"));
+            Assert.That(rendered, Does.Contain("is:open created:>=<today-minus-60-days>"));
+            Assert.That(rendered, Does.Contain(includePullRequests
+                ? "Also include pull requests."
+                : "Pull requests are not included in this report."));
+            Assert.That(rendered, Does.Not.Contain(includePullRequests
+                ? "Add `is:issue`"
+                : "Apply the same window to pull requests"));
+        });
+    }
+
     [Test]
     public void SubstituteOptions_IfBlock_IncludesMatchingBranch() {
         var opts = new[] {

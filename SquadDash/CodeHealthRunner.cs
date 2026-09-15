@@ -124,6 +124,7 @@ internal sealed class CodeHealthRunner {
                     }
 
                     var lastReviewedSha = _stateStore.GetLastCommitSha(task.Id);
+                    var lastRunAt = _stateStore.GetLastRunAt(task.Id);
                     var newCommitCount  = NeedsCommitCount(task.Frequency) && commitSha is not null
                         ? await _stateStore.GetCommitCountSinceAsync(task.Id, workspacePath).ConfigureAwait(false)
                         : 0;
@@ -132,7 +133,7 @@ internal sealed class CodeHealthRunner {
                     var dynamicBranchName = $"codehealth/{task.Id}/{taskStartedAt:yyyyMMdd-HHmmss}";
                     
                     var prompt = BuildPrompt(task, effectiveSafety, dynamicBranchName,
-                        taskStartedAt, lastReviewedSha, newCommitCount,
+                        taskStartedAt, lastReviewedSha, newCommitCount, lastRunAt,
                         uncategorizedApprovals: _getUncategorizedApprovals?.Invoke() ?? string.Empty,
                         featureCategoryInventory: _getFeatureCategoryInventory?.Invoke() ?? string.Empty);
                     int anchorIndex;
@@ -309,6 +310,7 @@ internal sealed class CodeHealthRunner {
 
     private static string BuildPrompt(CodeHealthTask task, string effectiveSafety,
         string dynamicBranchName, DateTimeOffset runDate, string? lastReviewedSha = null, int newCommitCount = 0,
+        DateTime? lastRunAt = null,
         string? uncategorizedApprovals = null,
         string? featureCategoryInventory = null) {
 
@@ -346,6 +348,7 @@ internal sealed class CodeHealthRunner {
         // Apply commit-range substitutions for commit-frequency tasks
         instructions = instructions.Replace("{{last_reviewed_sha}}", lastReviewedSha ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         instructions = instructions.Replace("{{new_commit_count}}", newCommitCount.ToString(), StringComparison.OrdinalIgnoreCase);
+        instructions = instructions.Replace("{{last_run_at}}", lastRunAt?.ToUniversalTime().ToString("O") ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         instructions = instructions.Replace("{{uncategorized_approvals}}", uncategorizedApprovals ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         instructions = instructions.Replace("{{feature_category_inventory}}", featureCategoryInventory ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         

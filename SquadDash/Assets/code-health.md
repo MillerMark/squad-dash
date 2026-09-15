@@ -644,42 +644,112 @@ tasks:
     has_safety_options: false
     title: Issue & PR Tracker
     instructions: |
-      Query the GitHub API to find new issues posted to the repository in the last
-      24 hours. {{#if includePullRequests}}Also include pull requests.{{/if}}{{#if !includePullRequests}}Pull requests are not included in this report.{{/if}}
-      
-      Use the GitHub CLI (`gh`) to query the repository. The query should:
-      - Identify the current repository (use `gh repo view --json nameWithOwner`)
-      - Search for issues created in the last 24 hours using GitHub's search syntax
-      {{#if includePullRequests}}- Also search for pull requests created in the last 24 hours{{/if}}
-      - Retrieve title, number, creation time, and URL for each result
-      
-      Format the findings into a clear, actionable report:
-      1. **Summary**: Total count of new issues{{#if includePullRequests}} and pull requests{{/if}}
-      2. **New Issues** (if any):
-         - List each with: #<number> Title (created: YYYY-MM-DD HH:MM UTC)
-         - Include link: https://github.com/owner/repo/issues/<number>
+      Use the GitHub CLI (`gh`) to report newly created issues in the current
+      repository. Detect it dynamically with `gh repo view --json nameWithOwner`;
+      never hard-code a repository. {{#if includePullRequests}}Also include pull requests.{{/if}}{{#if !includePullRequests}}Pull requests are not included in this report.{{/if}}
+
+      Last successful run (UTC): "{{last_run_at}}".
+      - If non-empty, subtract 10 minutes from that timestamp for indexing-lag
+        safety overlap and query `created:>=<ISO8601>` using that UTC cutoff.
+        Include all states, not just open items. Keep this watermark window even
+        after a long gap; do not revert to a fixed daily window.
+      - If empty (first run), use `is:open created:>=<today-minus-60-days>` with
+        the date computed in UTC: open issues created within the last 60 days.
       {{#if includePullRequests}}
-      3. **New Pull Requests** (if any):
-         - List each with: #<number> Title (created: YYYY-MM-DD HH:MM UTC)
-         - Include link: https://github.com/owner/repo/pull/<number>
-      4. **Suggested Next Steps**: Brief recommendations for triage/review
+      Apply the same window to pull requests, including the open-only 60-day
+      fallback on first run.
       {{/if}}
+
+      Build one GitHub search query with `repo:<detected-nameWithOwner>` and the
+      effective window above.
       {{#if !includePullRequests}}
-      3. **Suggested Next Steps**: Brief recommendations for issue triage
+      Add `is:issue` to exclude pull requests from results, counts, and priority.
       {{/if}}
-      
-      Do not change any code or issues. Send the report to the user's Inbox using
-      an INBOX_MESSAGE_JSON block (from: "argus-weld").
-      
-      **Note**: This task is designed to be distributed to other repositories. It
-      queries the current workspace's repository dynamically, so it will work on
-      any GitHub repository that uses SquadDash.
+      {{#if includePullRequests}}
+      Do not restrict item type: GitHub's search/issues endpoint includes both
+      issues and PRs (identify PRs by the `pull_request` field).
+      {{/if}}
+      Use newest-created-first ordering (`sort:created-desc`). Pre-build a
+      "View all on GitHub" URL as `https://github.com/search?type=issues&q=<query>`
+      with the entire same query URL-encoded, including repo, window, type filter
+      if any, and sort order.
+
+      Retrieve number, title, creation time, URL, and labels for every match.
+      For example, use `gh api --method GET search/issues -f q="<query>"
+      -f sort=created -f order=desc -f per_page=100 --paginate`; map `created_at`
+      and `html_url` to creation time and link, and read `labels[].name`.
+      If using `gh issue list`{{#if includePullRequests}} or `gh pr list`{{/if}},
+      request `--json number,title,createdAt,url,labels` and use `--state all`
+      for watermark runs; their default open-only state and result limit must
+      not silently narrow the report.
+
+      Dedupe by issue/PR number across all pages and overlapping queries.
+      Get the full matching count, not just the first page or detailed list.
+      If search exceeds GitHub's 1,000-result limit, partition the same window
+      into smaller created-time ranges and dedupe the combined results.
+      Check for incomplete search results; retry or explicitly report retrieval
+      failure rather than treating failed/partial queries as no new items.
+      Evaluate labels and priority across ALL matches, including undisplayed items.
+
+      Detail at most {{maxDetailedItems}} items (default 20), newest first across
+      the combined result set, not a separate cap per type. The cap limits report
+      detail only, never counting or priority evaluation.
+
+      Set the INBOX_MESSAGE_JSON `priority` using this precedence:
+      1. No new items: "low", and explicitly say no new items in the body.
+      2. Otherwise, ANY critical-label match: "critical".
+         Critical labels (comma-separated): {{criticalLabels}}.
+      3. Otherwise, ANY high-priority-label match OR total new-item count >=
+         {{escalateCountThreshold}}: "high".
+         High-priority labels (comma-separated): {{highPriorityLabels}}.
+      4. Otherwise: "mid".
+      Split the configured label lists on commas, trim whitespace, ignore empty
+      entries, and match each against GitHub label names using case-insensitive
+      equality or substring matching. Never infer priority from title text.
+
+      Report body:
+      - Repository and effective window: "since <overlap-adjusted UTC timestamp>"
+        or "open issues, last 60 days (first run)".
+        {{#if includePullRequests}}Note that the same window includes PRs.{{/if}}
+      - Summary: full count of matching issues{{#if includePullRequests}} and PRs, plus combined total{{/if}}.
+      - Newest-first detailed list within the shared cap, marking each item's
+        type: `#<number> Title (created: YYYY-MM-DD HH:MM UTC)` with its GitHub link.
+      - If truncated, add "+N more — View all on GitHub" with the pre-built search
+        link and the full total count; N = total count minus detailed items shown.
+      - When high/critical, a short "Why this priority" line naming triggering
+        labels and/or the count threshold. Explain that GitHub has no native
+        priority field; labels are the priority mechanism.
+      - Brief suggested next steps for issue triage{{#if includePullRequests}} and PR review{{/if}}.
+
+      Do not change code, issues, or PRs. Deliver the full Markdown report in an
+      INBOX_MESSAGE_JSON block with `from: "argus-weld"` and the computed
+      `priority` field ("low", "mid", "high", or "critical").
     options:
       includePullRequests:
         type: checkbox
         label: Include Pull Requests
         tooltip: When enabled, report will include PRs in addition to issues
         value: true
+      maxDetailedItems:
+        type: number
+        label: Maximum Detailed Items
+        tooltip: Maximum items shown in detail across issues and PRs; remaining matches get a View all link
+        value: 20
+      escalateCountThreshold:
+        type: number
+        label: High Priority Count Threshold
+        tooltip: Escalate to high priority when the total matching item count reaches this number
+        value: 10
+      criticalLabels:
+        type: text
+        label: Critical Labels
+        tooltip: Comma-separated case-insensitive label name substrings that trigger critical priority
+        value: security, critical, P0, sev1, severity: critical
+      highPriorityLabels:
+        type: text
+        label: High Priority Labels
+        tooltip: Comma-separated case-insensitive label name substrings that trigger high priority
+        value: priority: high, high priority, urgent, P1, important
 
   - id: consolidate-feature-categories
     enabled: true
