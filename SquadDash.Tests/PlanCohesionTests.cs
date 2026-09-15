@@ -362,6 +362,14 @@ internal sealed class PlanCohesionTests
             Assert.That(spec, Does.Contain("Production consumer"));
             Assert.That(spec, Does.Contain("Artifact-only"));
             Assert.That(spec, Does.Contain("Proportional completion proof"));
+            Assert.That(spec, Does.Contain("Proportional solution selection"));
+            Assert.That(spec, Does.Contain("least-complex **complete** outcome"));
+            Assert.That(spec, Does.Contain("minimum viable implementation relative to the actual request"));
+            Assert.That(spec, Does.Contain("fewer runtime actors or failure modes"));
+            Assert.That(spec, Does.Contain("specialist work"));
+            Assert.That(spec, Does.Contain("neither by itself a reason to split nor a reason to keep work together"));
+            Assert.That(spec, Does.Contain("browser or UI automation"));
+            Assert.That(spec, Does.Contain("without creating a parallel solution, document, dataset"));
             Assert.That(spec, Does.Contain("cheap, non-mutating"));
             Assert.That(spec, Does.Contain("A build or test command alone is not sufficient reason"));
             Assert.That(spec, Does.Contain("materially broader repository state"));

@@ -42,6 +42,14 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("Calibrate detail to the approval decision"));
             Assert.That(charter, Does.Contain("number of tests"));
             Assert.That(charter, Does.Contain("bounded execution contract"));
+            Assert.That(charter, Does.Contain("least-complex complete outcome"));
+            Assert.That(charter, Does.Contain("minimum\n  viable implementation relative to the full request"));
+            Assert.That(charter, Does.Contain("deterministic host behavior"));
+            Assert.That(charter, Does.Contain("hypothetical future platform problem"));
+            Assert.That(charter, Does.Contain("Specialist availability alone decides neither outcome"));
+            Assert.That(charter, Does.Contain("functionality, implementation\n  integrity, safety"));
+            Assert.That(charter, Does.Contain("browser or UI automation"));
+            Assert.That(charter, Does.Contain("normal product or current workspace already provides sufficient\n  test state"));
             Assert.That(charter, Does.Contain("Use `contractExamples` proactively"));
             Assert.That(charter, Does.Contain("plausible wrong interpretation"));
             Assert.That(charter, Does.Contain("not reserved only for strict syntax contracts"));

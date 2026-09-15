@@ -83,14 +83,16 @@ internal sealed class DefaultPromptInstructionProviderTests
         {
             Assert.That(instruction, Does.Contain("invalid human-only task shell"));
             Assert.That(instruction, Does.Match("do not ask an\\s+AI worker to perform, simulate, or claim those observations"));
-            Assert.That(instruction, Does.Contain("Bad: `Perform the live Visual Studio smoke test`"));
-            Assert.That(instruction, Does.Contain("Good: `Prepare the Visual Studio smoke-test kit`"));
-            Assert.That(instruction, Does.Contain("plain-language, step-by-step instructions"));
+            Assert.That(instruction, Does.Contain("Bad: create a separate smoke-test-kit task"));
+            Assert.That(instruction, Does.Contain("Good: attach a concise recipe and human proof requirement"));
+            Assert.That(instruction, Does.Contain("concise setup/open/act/observe/cleanup recipe"));
             Assert.That(instruction, Does.Match("SquadDash\\s+Inbox"));
             Assert.That(instruction, Does.Contain("**AI-reachable:**"));
             Assert.That(instruction, Does.Contain("**Human-only:**"));
             Assert.That(instruction, Does.Contain("**Mixed:**"));
-            Assert.That(instruction, Does.Contain("manual-test-kit preparation task is complete only when"));
+            Assert.That(instruction, Does.Contain("separate manual-test-kit preparation task is actually warranted"));
+            Assert.That(instruction, Does.Contain("normal product or current workspace"));
+            Assert.That(instruction, Does.Contain("without creating a parallel solution, document, dataset"));
             Assert.That(instruction, Does.Contain("full usable instructions in the Inbox body"));
             Assert.That(instruction, Does.Contain("[Open fixture folder](app://open-path:"));
             Assert.That(instruction, Does.Contain("app://open-path:"));

@@ -89,6 +89,25 @@ Before authoring a plan:
 - Separate confirmed repository facts from assumptions and unresolved questions.
 - Ask a question only when the answer would materially change the plan; otherwise state the
   assumption in the plan.
+- Define the least-complex complete outcome that satisfies every explicit functional, safety,
+  compatibility, quality, and delivery constraint in the user's request. Treat this as the minimum
+  viable implementation relative to the full request, not permission to reduce or reinterpret it.
+- Compare the lowest-complexity viable approaches before selecting an architecture. Prefer existing
+  production paths and deterministic host behavior when the inputs already determine the operation.
+  Retain AI reasoning or external services only when they provide a capability the request actually
+  needs. Do not generalize for hypothetical consumers; require either an explicit request or current
+  evidence of multiple real consumers.
+- Choose task boundaries from material dependencies, independently useful deliverables, safety or
+  approval boundaries, and specialist outputs whose distinct charters materially improve the result.
+  Safe parallel work also needs unambiguous file or state ownership. Do not split work merely to make
+  phases, assign every available specialist, or isolate routine evidence. Tests, user documentation,
+  and repository-specific instructions or configuration may remain with implementation or become
+  specialist-owned tasks; select the arrangement that adds real quality without duplicating setup,
+  review, or proof. Specialist availability alone decides neither outcome.
+- Before submission, ask whether each task materially contributes functionality, implementation
+  integrity, safety, required quality, delivery, or specialist value; whether an existing path would
+  meet the request with fewer runtime actors or failure modes; and whether any generalized work is
+  supported by the current request rather than a hypothetical future platform problem.
 - Decompose around independently verifiable outcomes, not file lists or speculative helper types.
 - Calibrate detail to the approval decision. Specify the observable outcome, constraints, relevant
   existing integration points, cross-task contracts, risks, and evidence required for completion.
@@ -144,18 +163,21 @@ Before authoring a plan:
   disclose them in the initial proposal, allow at most seven checks per checkpoint, and never repeat
   an observation that later work cannot invalidate.
 - Before submission, inspect every promised user-visible, interactive, live-UI, restart, focus,
-  window-state, notification, timing, and other human-observable outcome. Give every outcome that
-  cannot be truthfully established by code inspection or an automated test a matching human-only
-  proof requirement after the producing work and before the final audit. AI assessment, source
-  inspection, and headless tests do not substitute for direct human observation. Treat missing
-  coverage as a plan error to correct, not as a completion-audit failure to defer until execution.
+  window-state, notification, timing, and other human-observable outcome that the requested work
+  creates or materially changes. First inventory real AI-accessible and workspace-provided tools,
+  including browser or UI automation, connected applications, service APIs, CLIs, and task-specific
+  instructions. Use human-only proof only for irreducible interaction or perception that those tools,
+  code inspection, and automated tests cannot establish. Treat missing coverage for a genuinely
+  human-only acceptance claim as a plan error.
 - Do not create a task whose only meaningful outcome is a human observation. Every task must retain
-  work or evidence its assigned executor can produce. When live interaction is required, create an
-  AI-executable preparation task followed by a human gate. Have the preparation task produce a
-  Markdown runbook—plain-language, step-by-step Setup, Open, Act, Observe, and Cleanup instructions—
-  and deliver or attach it through the SquadDash Inbox. Where appropriate, also produce a disposable
-  fixture, sample project, sample files, test data, or diagnostics as declared outputs and reference
-  them exactly from the gate. Screenshots replace interaction only for purely static visual claims.
+  work or evidence its assigned executor can produce. Put a required human observation after the task
+  that produces the behavior. If the normal product or current workspace already provides sufficient
+  test state—without a parallel solution, document, duplicated dataset, or reconstructed environment—
+  use a concise recipe and no separate preparation task. Create an AI-executable preparation task only
+  when the review genuinely needs produced material such as a disposable fixture, sample project,
+  sample files, test data, diagnostics, or a nontrivial Markdown runbook. Deliver that material through
+  the SquadDash Inbox and reference it exactly from the gate. Screenshots replace interaction only for
+  purely static visual claims.
 - Treat that preparation as a manual test kit, not merely a document-writing task. The task is not
   complete until it sends a self-contained Inbox message with the exact reproducible test target,
   using branch and commit when the target is committed, or workspace path, current HEAD, dirty-state

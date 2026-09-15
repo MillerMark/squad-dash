@@ -36,6 +36,45 @@ Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
 dependency must name another task in the same group. Do not implement the plan in the same turn.
 
+### Proportional solution selection
+
+Before decomposing work, define the least-complex **complete** outcome that fully satisfies the
+user's request, including every explicit functional, safety, compatibility, quality, and delivery
+constraint. This is the minimum viable implementation relative to the actual request—not the
+smallest imaginable behavior. Never omit, weaken, or reinterpret a requested constraint merely to
+make the plan smaller.
+
+Inspect the current system and compare the lowest-complexity viable approaches before selecting an
+architecture. Prefer an existing production path or a deterministic host operation when it fully
+satisfies the request. Do not insert an AI, external service, agent round trip, new abstraction, or
+general capability layer when the inputs already determine the operation and ordinary code can
+perform it safely. Conversely, retain AI reasoning or an external dependency when it provides a
+capability the request actually requires.
+
+Treat speculative reuse, hypothetical consumers, and future platform ambitions as non-goals unless
+the user requested them or current repository evidence shows that multiple real consumers need the
+same capability now. Record such ideas as follow-up possibilities rather than silently expanding the
+approved implementation.
+
+Choose task boundaries from real execution boundaries. A separate task is justified by a material
+dependency, an independently useful deliverable, a safety or approval boundary, or specialist work
+whose charter and distinct output materially improve the requested result. Safe parallel work also
+needs unambiguous ownership of files or state. Do not split work merely to create phases, assign every
+available specialist, isolate routine evidence collection, or hand tests and supporting material from
+one agent to another. Tests, user documentation, and repository-specific instruction or configuration
+updates may stay with implementation or become specialist-owned tasks; choose whichever produces a
+clearer, safer result without duplicated setup, review, or proof. The existence of a specialist is
+neither by itself a reason to split nor a reason to keep work together.
+
+Before submission, apply this proportionality check:
+- Does the selected design deliver the complete request rather than a reduced interpretation?
+- Could an existing host or product path provide the same functionality with fewer runtime actors or failure modes?
+- Does each task materially contribute functionality, safety, quality, delivery, or specialist value?
+- If a task disappeared, would functionality, implementation integrity, safety, or required quality meaningfully suffer?
+- Is generalized infrastructure supported by the current request and current consumers, rather than a hypothetical future platform problem?
+- Does product runtime truly need AI or an external service, or can deterministic code provide the requested behavior?
+- Can available AI-accessible tools establish runtime behavior, or is a human interaction or judgment genuinely irreducible?
+
 Plan for cohesion, not merely local completion. Every implementation step must satisfy **two
 cohesion requirements**:
 
@@ -245,31 +284,33 @@ not required. Use the exact property names below; do not substitute familiar sho
   checkbox. The initial proposal must make the number and placement of all generated human
   checkpoints obvious to the reviewer.
 - Before submission, inspect every promised user-visible, interactive, live-UI, restart, focus,
-  window-state, notification, timing, and other human-observable outcome. If code inspection or an
-  automated test cannot truthfully establish that exact outcome, the plan must include a matching
-  human-only proof requirement at a checkpoint after the producing work and before any final audit.
-  AI assessment, source inspection, and headless tests are not substitutes for direct observation.
-  A missing checkpoint is a plan validation error and must be repaired before the plan is staged.
+  window-state, notification, timing, and other human-observable outcome that the requested work
+  creates or materially changes. First inventory the executor's real tools and workspace-provided
+  capabilities, including browser or UI automation, connected applications, service APIs, CLIs, and
+  task-specific tool instructions. If those AI-accessible tools, code inspection, or automated tests
+  can truthfully establish the acceptance criterion, keep it AI-reachable. Use a matching human-only
+  proof requirement only for the irreducible interaction or perception that remains. A missing
+  checkpoint for a genuinely human-only acceptance claim is a plan validation error.
 - Every task must retain meaningful work or evidence that its assigned executor can actually produce.
   A task whose only outcomes are human observations is an invalid human-only task shell; do not ask an
-  AI worker to perform, simulate, or claim those observations. Replace it with an AI-executable
-  preparation task followed by a human approval gate. The preparation task should produce a Markdown
-  runbook (plain-language, step-by-step instructions the reviewer can follow) containing Setup, Open,
-  Act, Observe, and Cleanup sections, and should deliver or attach that runbook through the SquadDash
-  Inbox so the reviewer can find it when the gate opens. Where ordinary product state is insufficient
-  or costly to recreate, also produce a disposable fixture, sample project, sample files, test data,
-  diagnostic instrumentation, or another declared output that makes the review repeatable. Use
-  `accessMode: "fixture"` with exact `fixtureTaskId` and `fixtureOutputId` references when a fixture is
-  produced; otherwise provide a complete recipe. A screenshot is not a substitute for interaction
-  unless the required outcome concerns only static appearance.
+  AI worker to perform, simulate, or claim those observations. Put the human proof requirement after
+  the task that produces the behavior. When the existing product or workspace already contains the
+  state needed to exercise that behavior—so no separate solution, document, duplicated dataset, or
+  reconstructed environment is needed—provide a concise setup/open/act/observe/cleanup recipe and do
+  not create a separate preparation task. Create an AI-executable preparation task only when useful
+  review material must actually be produced, such as a disposable fixture, sample project, sample
+  files, test data, diagnostic instrumentation, or a nontrivial runbook. Use `accessMode: "fixture"`
+  with exact `fixtureTaskId` and `fixtureOutputId` references when a fixture is produced. A screenshot
+  is not a substitute for interaction unless the required outcome concerns only static appearance.
 
-  Bad: `Perform the live Visual Studio smoke test`, with only `live-ui-observation` proof.
+  Bad: create a separate smoke-test-kit task for behavior the normal product and current workspace
+  already make straightforward to exercise.
 
-  Good: `Prepare the Visual Studio smoke-test kit`, producing declared runbook and optional fixture
-  outputs and sending the instructions to the Inbox; then place the atomic live observations in the
-  following human approval gate.
+  Good: attach a concise recipe and human proof requirement to the task that changes that behavior.
+  If an isolated sample or other review material is genuinely needed, prepare that material in a
+  separate task and place the atomic live observations in the following human approval gate.
 
-  A manual-test-kit preparation task is complete only when it creates the promised material **and**
+  When a separate manual-test-kit preparation task is actually warranted, it is complete only when it creates the promised material **and**
   sends a self-contained Inbox message that the reviewer can follow without reconstructing context
   from the transcript. Require the Inbox message to contain:
   1. **Purpose and test target:** what is being verified and an exact reproducible identity appropriate
@@ -312,9 +353,12 @@ not required. Use the exact property names below; do not substitute familiar sho
   In the manual-test-kit Inbox body, put `{{approval-check:new-result}}` on its own line at that
   exact location. SquadDash replaces the marker with the host-owned synchronized checkbox.
 
-  Create fixtures, sample projects, and sample files primarily for new behavior or when the required
+  Create fixtures, sample projects, and sample files primarily when the required
   state is unavailable, fragile, destructive, or costly for the reviewer to reproduce. Do not require
-  AI to duplicate familiar projects or fixtures solely to regression-check established behavior. A
+  AI to duplicate existing product or workspace state solely to test behavior that state already
+  exposes. "Existing state is sufficient" means the reviewer can reach the required precondition in
+  the normal product or current workspace without creating a parallel solution, document, dataset,
+  or environment. A
   compact instruction such as “using the existing files you normally use, confirm the listed behavior
   still works as expected” is acceptable for ordinary regression coverage. Related existing-behavior
   checks may share one checklist item; prefer separate proof items for distinct new behaviors. Treat
