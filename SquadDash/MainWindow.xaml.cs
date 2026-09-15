@@ -7036,98 +7036,6 @@ public partial class MainWindow : Window
             evt.WireApi,
             evt.RequestedModel);
 
-    private void RestoreProviderFailureAggregatesFromPersistedThreads()
-    {
-        var previousCards = CoordinatorThread.Document.Blocks
-            .Cast<Block>()
-            .Where(ProviderFailureTranscriptBlockFactory.IsProviderFailureContainer)
-            .ToArray();
-        foreach (var previousCard in previousCards)
-            CoordinatorThread.Document.Blocks.Remove(previousCard);
-
-        var restoredFailures = _agentThreadRegistry.ThreadOrder
-            .Where(thread => string.Equals(thread.StatusText, "Failed", StringComparison.OrdinalIgnoreCase) &&
-                             !string.IsNullOrWhiteSpace(thread.ErrorText))
-            .Select(thread =>
-            {
-                var failure = ProviderFailurePresentation.Analyze(
-                    thread.ErrorText,
-                    BuildPersistedProviderFailureContext(thread.DetailText));
-                return (Thread: thread, Failure: failure);
-            })
-            .Where(item => item.Failure.Category != ProviderFailureCategory.Unknown)
-            .OrderBy(item => item.Thread.StartedAt)
-            .ToArray();
-
-        var clusters = new List<PersistedProviderFailureCluster>();
-        foreach (var item in restoredFailures)
-        {
-            var groupingKey = ProviderFailureTranscriptBlockFactory.BuildGroupingKey(item.Failure);
-            var occurredAt = item.Thread.CompletedAt ?? item.Thread.StartedAt;
-            var cluster = clusters.LastOrDefault(candidate =>
-                string.Equals(candidate.GroupingKey, groupingKey, StringComparison.Ordinal) &&
-                item.Thread.StartedAt <= candidate.LatestCompletionAt + TimeSpan.FromMinutes(2));
-            if (cluster is null)
-            {
-                cluster = new PersistedProviderFailureCluster(
-                    groupingKey,
-                    $"restored-provider-operation-{clusters.Count + 1}",
-                    occurredAt);
-                clusters.Add(cluster);
-            }
-            else if (occurredAt > cluster.LatestCompletionAt)
-            {
-                cluster.LatestCompletionAt = occurredAt;
-            }
-
-            ProviderFailureTranscriptBlockFactory.AppendAggregated(
-                CoordinatorThread,
-                item.Failure,
-                BackgroundTaskPresenter.BuildBackgroundAgentLabel(item.Thread),
-                _transcriptFontSize,
-                cluster.Scope,
-                occurredAt,
-                item.Thread.ThreadId);
-        }
-
-        if (restoredFailures.Length > 0)
-        {
-            SquadDashTrace.Write(
-                "UI",
-                $"Restored {restoredFailures.Length} provider failure(s) into {clusters.Count} consolidated transcript card(s).");
-        }
-    }
-
-    private static ProviderFailureContext BuildPersistedProviderFailureContext(string? detailText) =>
-        new(
-            Model: ExtractPersistedProviderContextValue(detailText, "Model/deployment"),
-            ProfileAlias: ExtractPersistedProviderContextValue(detailText, "Profile"),
-            ProviderBaseUrl: ExtractPersistedProviderContextValue(detailText, "Endpoint"),
-            ProviderType: ExtractPersistedProviderContextValue(detailText, "Provider"),
-            WireApi: ExtractPersistedProviderContextValue(detailText, "Protocol"),
-            RequestedModel: ExtractPersistedProviderContextValue(detailText, "Requested model"));
-
-    private static string? ExtractPersistedProviderContextValue(string? detailText, string label)
-    {
-        if (string.IsNullOrWhiteSpace(detailText))
-            return null;
-        var match = Regex.Match(
-            detailText,
-            $@"(?:^|[\r\n]|\s•\s){Regex.Escape(label)}:\s*(?<value>.*?)(?=\s+•\s+|[\r\n]|$)",
-            RegexOptions.IgnoreCase);
-        return match.Success ? match.Groups["value"].Value.Trim() : null;
-    }
-
-    private sealed class PersistedProviderFailureCluster(
-        string groupingKey,
-        string scope,
-        DateTimeOffset latestCompletionAt)
-    {
-        internal string GroupingKey { get; } = groupingKey;
-        internal string Scope { get; } = scope;
-        internal DateTimeOffset LatestCompletionAt { get; set; } = latestCompletionAt;
-    }
-
     private void HandleSubagentCancelled(SquadSdkEvent evt)
     {
         if (ShouldSuppressSilentBackgroundAgent(evt))
@@ -38322,7 +38230,6 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace?.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
         await _conversationManager.LoadWorkspaceConversationAsync();
-        RestoreProviderFailureAggregatesFromPersistedThreads();
         // Recovery evidence lives in the persisted transcript, which is workspace-hydrated only
         // here. Reconcile it before rebuilding any recovery card or Inbox action.
         await ReconcileInterruptedPlanTaskEvidenceAsync();
