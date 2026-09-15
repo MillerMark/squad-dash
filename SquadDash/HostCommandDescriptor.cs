@@ -17,4 +17,5 @@ internal sealed record HostCommandDescriptor(
     string Description,
     IReadOnlyList<HostCommandParameterDescriptor> Parameters,
     HostCommandResultBehavior ResultBehavior,
-    bool RequiresConfirmation = false);
+    bool RequiresConfirmation = false,
+    bool AllowFromInboxAction = false);

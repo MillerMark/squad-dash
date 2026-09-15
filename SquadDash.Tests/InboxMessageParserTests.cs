@@ -80,6 +80,43 @@ internal sealed class InboxMessageParserTests {
     }
 
     [Test]
+    public void TryExtract_HostCommandAction_PreservesStructuredParameters()
+    {
+        const string text = """
+            INBOX_MESSAGE_JSON:
+            {
+              "subject": "Category consolidation",
+              "from": "argus-weld",
+              "body": "Ready to merge.",
+              "actions": [
+                {
+                  "label": "Merge variants",
+                  "routeMode": "host_command",
+                  "hostCommand": {
+                    "command": "merge_feature_categories",
+                    "parameters": {
+                      "merges": [{ "source": "Plan Viewer", "target": "Plan Visualizer" }]
+                    }
+                  }
+                }
+              ]
+            }
+            """;
+
+        var result = InboxMessageParser.TryExtract(text, out _, out var dto);
+        var action = dto?.Actions.SingleOrDefault();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.True);
+            Assert.That(action, Is.Not.Null);
+            Assert.That(action!.RouteMode, Is.EqualTo(InboxAction.HostCommandRouteMode));
+            Assert.That(action.HostCommand!.Command, Is.EqualTo("merge_feature_categories"));
+            Assert.That(action.HostCommand.Parameters!["merges"].GetArrayLength(), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
     public void TryExtract_BlockAtStartWithTrailingProse_ParsesAndPreservesTrailingProse() {
         var text = $"""
             INBOX_MESSAGE_JSON:

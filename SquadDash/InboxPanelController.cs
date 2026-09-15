@@ -736,6 +736,14 @@ internal sealed class InboxPanelController
         btn.SetResourceReference(Button.BorderBrushProperty,  "QuickReplyBorder");
         btn.SetResourceReference(Button.FontSizeProperty,     "FontSizeBody");
 
+        var hint = action.Hint;
+        if (string.IsNullOrWhiteSpace(hint) &&
+            string.Equals(action.RouteMode, InboxAction.HostCommandRouteMode, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(action.HostCommand?.Command))
+            hint = $"Runs SquadDash host command: {action.HostCommand.Command}";
+        if (!string.IsNullOrWhiteSpace(hint))
+            btn.ToolTip = ToolTipHelper.MakeThemedToolTip(hint);
+
         bool alreadyUsed = msg.UsedActions.Contains(action.Label);
         if (alreadyUsed)
             btn.IsEnabled = false;

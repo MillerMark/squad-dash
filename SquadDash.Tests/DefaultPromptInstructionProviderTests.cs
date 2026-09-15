@@ -327,6 +327,20 @@ internal sealed class DefaultPromptInstructionProviderTests
     }
 
     [Test]
+    public void InboxInstruction_DefinesHostCommandActionsAsExplicitAndValidated()
+    {
+        var instruction = new DefaultPromptInstructionProvider().Get().InboxMessage;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("`\"host_command\"`"));
+            Assert.That(instruction, Does.Contain("`\"hostCommand\"`"));
+            Assert.That(instruction, Does.Contain("explicitly name an Inbox-enabled host operation"));
+            Assert.That(instruction, Does.Contain("validates eligibility and parameters"));
+        });
+    }
+
+    [Test]
     public void InboxInstruction_DefinesExistingProtocolAsManualTestKitDelivery()
     {
         var instruction = new DefaultPromptInstructionProvider().Get().InboxMessage;

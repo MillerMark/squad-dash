@@ -41,6 +41,53 @@ internal sealed class HostCommandRegistryTests {
         }));
     }
 
+    [Test]
+    public void TryResolveInboxAction_MergeCommand_ConvertsStructuredParameters()
+    {
+        var registry = new HostCommandRegistry();
+        using var parameters = System.Text.Json.JsonDocument.Parse(
+            """{"merges":[{"source":"Plan Viewer","target":"Plan Visualizer"}]}""");
+        var request = new InboxHostCommand
+        {
+            Command = "merge_feature_categories",
+            Parameters = parameters.RootElement.EnumerateObject()
+                .ToDictionary(property => property.Name, property => property.Value.Clone())
+        };
+
+        var resolved = registry.TryResolveInboxAction(
+            request, workspaceFolder: null, out var invocation, out var descriptor, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved, Is.True, error);
+            Assert.That(descriptor!.AllowFromInboxAction, Is.True);
+            Assert.That(invocation!.Command, Is.EqualTo("merge_feature_categories"));
+            Assert.That(invocation.Parameters!["merges"],
+                Is.EqualTo("""[{"source":"Plan Viewer","target":"Plan Visualizer"}]"""));
+        });
+    }
+
+    [TestCase("clear_approved", "not permitted")]
+    [TestCase("not_a_command", "Unknown")]
+    public void TryResolveInboxAction_NonEligibleCommand_IsRejected(string command, string expectedError)
+    {
+        var registry = new HostCommandRegistry();
+
+        var resolved = registry.TryResolveInboxAction(
+            new InboxHostCommand { Command = command },
+            workspaceFolder: null,
+            out var invocation,
+            out _,
+            out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved, Is.False);
+            Assert.That(invocation, Is.Null);
+            Assert.That(error, Does.Contain(expectedError));
+        });
+    }
+
     [TestCase("start_loop",        "Silent")]
     [TestCase("stop_loop",         "Silent")]
     [TestCase("get_queue_status",  "InjectResultAsContext")]

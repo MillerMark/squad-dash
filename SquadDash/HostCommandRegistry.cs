@@ -50,7 +50,8 @@ internal sealed class HostCommandRegistry {
             Name:           "merge_feature_categories",
             Description:    "Merges existing feature categories through one coordinated host operation across approvals, the canonical category list, and the Commit History cache. Use merges as a JSON array: [{\"source\":\"Commit Viewer\",\"target\":\"Commit History Visualizer\"}]. Never edit the category data files directly.",
             Parameters:     [new HostCommandParameterDescriptor("merges", "string", Required: true)],
-            ResultBehavior: HostCommandResultBehavior.Silent),
+            ResultBehavior: HostCommandResultBehavior.Silent,
+            AllowFromInboxAction: true),
     ];
 
     internal IReadOnlyList<HostCommandDescriptor> GetCommands(string? workspaceFolder) {
@@ -85,6 +86,67 @@ internal sealed class HostCommandRegistry {
 
         return ValidationResult.Fail(
             $"Missing required parameter(s) for '{descriptor.Name}': {string.Join(", ", missing)}");
+    }
+
+    internal bool TryResolveInboxAction(
+        InboxHostCommand? request,
+        string? workspaceFolder,
+        out HostCommandInvocation? invocation,
+        out HostCommandDescriptor? descriptor,
+        out string? error)
+    {
+        invocation = null;
+        descriptor = null;
+        error = null;
+
+        var commandName = request?.Command?.Trim();
+        if (string.IsNullOrWhiteSpace(commandName))
+        {
+            error = "The Inbox action does not specify a host command.";
+            return false;
+        }
+
+        descriptor = GetCommands(workspaceFolder).FirstOrDefault(command =>
+            string.Equals(command.Name, commandName, StringComparison.OrdinalIgnoreCase));
+        if (descriptor is null)
+        {
+            error = $"Unknown Inbox host command '{commandName}'.";
+            return false;
+        }
+
+        if (!descriptor.AllowFromInboxAction)
+        {
+            error = $"Host command '{descriptor.Name}' is not permitted from Inbox actions.";
+            descriptor = null;
+            return false;
+        }
+
+        var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (request?.Parameters is not null)
+        {
+            foreach (var (name, value) in request.Parameters)
+            {
+                if (string.IsNullOrWhiteSpace(name))
+                    continue;
+                parameters[name] = value.ValueKind == JsonValueKind.String
+                    ? value.GetString() ?? string.Empty
+                    : value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
+                        ? string.Empty
+                        : value.GetRawText();
+            }
+        }
+
+        invocation = new HostCommandInvocation(descriptor.Name, parameters);
+        var validation = Validate(invocation, descriptor);
+        if (!validation.IsValid)
+        {
+            error = validation.ErrorMessage;
+            invocation = null;
+            descriptor = null;
+            return false;
+        }
+
+        return true;
     }
 
     internal string BuildCatalogInstruction(string? workspaceFolder) {

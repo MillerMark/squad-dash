@@ -58064,6 +58064,12 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (string.Equals(action.RouteMode, InboxAction.HostCommandRouteMode, StringComparison.OrdinalIgnoreCase))
+            {
+                ExecuteInboxHostCommand(action, message);
+                return;
+            }
+
             _inboxStore?.MarkActionUsed(message.Id, action.Label);
 
             if (action.RouteMode == "done" || string.IsNullOrWhiteSpace(action.Prompt))
@@ -58125,6 +58131,45 @@ public partial class MainWindow : Window
         {
             HandleUiCallbackException(nameof(DispatchInboxAction), ex);
         }
+    }
+
+    private void ExecuteInboxHostCommand(InboxAction action, InboxMessage message)
+    {
+        if (_hostCommandExecutor is null)
+        {
+            ShowSystemTranscriptEntry("This Inbox action cannot run because host commands are not initialized.");
+            return;
+        }
+
+        if (!_hostCommandRegistry.TryResolveInboxAction(
+                action.HostCommand,
+                _currentWorkspace?.FolderPath,
+                out var invocation,
+                out var descriptor,
+                out var error) ||
+            invocation is null || descriptor is null)
+        {
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"Inbox host command rejected label='{action.Label}' reason={error ?? "unknown"}");
+            ShowSystemTranscriptEntry($"Inbox action failed: {error ?? "The host command is invalid."}");
+            return;
+        }
+
+        var execution = _hostCommandExecutor.Execute(
+            [invocation], _hostCommandRegistry, _currentWorkspace?.FolderPath).SingleOrDefault();
+        if (execution.Result?.Success != true)
+        {
+            var failure = execution.Result?.ErrorMessage ?? "The host command did not complete.";
+            SquadDashTrace.Write(TraceCategory.Inbox,
+                $"Inbox host command failed command={descriptor.Name} label='{action.Label}' reason={failure}");
+            ShowSystemTranscriptEntry($"Inbox action failed: {failure}");
+            return;
+        }
+
+        _inboxStore?.MarkActionUsed(message.Id, action.Label);
+        SquadDashTrace.Write(TraceCategory.Inbox,
+            $"Inbox host command completed command={descriptor.Name} label='{action.Label}' msgId={message.Id}");
+        ShowSystemTranscriptEntry($"Completed Inbox action “{action.Label}”.");
     }
 
     private async Task ShowCurrentApprovalCardFromInboxAsync(

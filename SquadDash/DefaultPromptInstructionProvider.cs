@@ -56,8 +56,9 @@ internal sealed class DefaultPromptInstructionProvider : IPromptInstructionProvi
             "**When an inbox message contains a proposal, architectural design, or any concrete plan that could be implemented**, always include at least one `start_named_agent` or `start_coordinator` action so the user can trigger implementation directly from the inbox. The action prompt must be fully self-contained with all relevant context (file paths, design decisions, open questions answered with the proposed defaults). Label it clearly, e.g. \"Implement this\" or \"Implement on a branch\".\n" +
             "Each action:\n"+
             "- `\"label\"` — button text shown to the user\n" +
-            "- `\"routeMode\"` — `\"start_named_agent\"`, `\"start_coordinator\"`, `\"draft\"`, or `\"done\"`\n" +
+            "- `\"routeMode\"` — `\"start_named_agent\"`, `\"start_coordinator\"`, `\"host_command\"`, `\"draft\"`, or `\"done\"`\n" +
             "- `\"targetAgent\"` — agent handle (required when routeMode is `\"start_named_agent\"`)\n" +
+            "- `\"hostCommand\"` — structured `{ \"command\": \"...\", \"parameters\": { ... } }` payload required when routeMode is `\"host_command\"`. Use this only when current task instructions explicitly name an Inbox-enabled host operation; never guess command names. The host validates eligibility and parameters before execution.\n" +
             "- `\"prompt\"` — **fully self-contained** prompt injected when the user clicks the button. " +
             "Must include all context (file paths, symptoms, findings) — no conversation history will be available. " +
             "For `\"draft\"` actions, `\"prompt\"` is the pre-fill text placed into the user's input box without sending. " +

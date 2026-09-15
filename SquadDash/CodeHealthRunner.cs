@@ -240,6 +240,7 @@ internal sealed class CodeHealthRunner {
         "  ]\n" +
         "}\n" +
         "Each action may include an optional \"hint\" field — a short tooltip string shown when the user hovers over the button.\n" +
+        "When task instructions name an Inbox-enabled host operation, use routeMode \"host_command\" with a structured \"hostCommand\" object containing \"command\" and \"parameters\". Do not guess command names or use this route for ordinary agent work.\n" +
         "Do NOT include any 'done' action whose label is purely acknowledgement-only — it records nothing and adds no value.\n\n";
 
     /// <summary>
@@ -270,6 +271,9 @@ internal sealed class CodeHealthRunner {
         "   with labeled placeholders so the user just fills in the blanks and sends.\n" +
         "   Each action may also include an optional `\"hint\"` field — a short tooltip string shown when the user hovers\n" +
         "   over the button.\n" +
+        "   When the task instructions explicitly name an Inbox-enabled host operation, use `\"routeMode\":\"host_command\"`\n" +
+        "   and a structured `\"hostCommand\"` object with `\"command\"` and `\"parameters\"`. This lets the host validate and\n" +
+        "   perform the already-determined operation when the user clicks; do not launch an agent merely to echo it.\n" +
         "\n" +
         "   Do NOT include any 'done' action whose label is purely acknowledgement-only (closing the message without recording a decision).\n" +
         "   Only include a `\"done\"` action when its label is genuinely meaningful (e.g. 'Mark resolved', 'Already fixed') and the\n" +

@@ -1030,6 +1030,18 @@ internal sealed class CodeHealthRunnerTests {
             .GetValue(null)!;
 
     [Test]
+    public void InboxAuthoringInstructions_DescribeDirectHostCommandActions()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(RealInboxPreamble, Does.Contain("host_command"));
+            Assert.That(RealInboxPreamble, Does.Contain("hostCommand"));
+            Assert.That(RealInboxReminder, Does.Contain("host_command"));
+            Assert.That(RealInboxReminder, Does.Contain("do not launch an agent merely to echo it"));
+        });
+    }
+
+    [Test]
     public void StripPreambleForDisplay_PlainText_ReturnedUnchanged() {
         const string prompt = "Scan all TODO comments and report findings.";
         var result = CodeHealthRunner.StripPreambleForDisplay(prompt);
