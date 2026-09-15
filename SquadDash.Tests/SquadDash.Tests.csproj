@@ -23,6 +23,7 @@
     <Compile Include="..\SquadDash\ReadAgentSatelliteCoalescer.cs" Link="Source\ReadAgentSatelliteCoalescer.cs" />
     <Compile Include="..\SquadDash\PlanPreflightBlockedException.cs" Link="Source\PlanPreflightBlockedException.cs" />
     <Compile Include="..\SquadDash\PlanPreflightRecoveryContent.cs" Link="Source\PlanPreflightRecoveryContent.cs" />
+    <Compile Include="..\SquadDash\PlanViewerTitleClipboardContent.cs" Link="Source\PlanViewerTitleClipboardContent.cs" />
     <Compile Include="..\SquadDash\QueuedPlanStart.cs" Link="Source\QueuedPlanStart.cs" />
     <Compile Include="..\SquadDash\PendingPlanGateEditor.cs" Link="Source\PendingPlanGateEditor.cs" />
     <Compile Include="..\SquadDash\PlanExecutionTransitionService.cs" Link="Source\PlanExecutionTransitionService.cs" />

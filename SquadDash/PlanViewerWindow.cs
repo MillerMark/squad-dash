@@ -95,6 +95,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private ScrollViewer? _graphScroll;
     private Canvas? _graphCanvas;
     private readonly PlanVisualizerViewportStore _viewportStore;
+    private readonly string? _squadFolderPath;
     private readonly string _viewportGroupId;
     private readonly bool _canPersistViewport;
     private readonly PlanVisualizerViewportState? _initialViewport;
@@ -318,6 +319,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onRetryValidation = onRetryValidation;
         _getSettings = getSettings;
         _getAssignableAgents = getAssignableAgents;
+        _squadFolderPath = squadFolderPath;
         _viewportStore = new PlanVisualizerViewportStore(squadFolderPath);
         _viewportGroupId = plan.Group.GroupId;
         _canPersistViewport = squadFolderPath is not null;
@@ -1889,6 +1891,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         root.Children.Add(hintBlock);
 
         _contentHolder ??= ApplyOuterBorder(titleText: group.GroupTitle);
+        if (TitleLabel is { } planTitle)
+            planTitle.ContextMenu = CreatePlanTitleContextMenu(plan, durablePlan);
         _contentHolder.Child = root;
 
         var tasksById = group.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
@@ -6155,6 +6159,34 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (hitTarget.ContextMenu is ContextMenu approvalMenu)
             AppendDeveloperNormalizeMenuItem(approvalMenu);
         return hitTarget;
+    }
+
+    private ContextMenu CreatePlanTitleContextMenu(PendingDecomposePlan plan, Plan? durablePlan)
+    {
+        var content = PlanViewerTitleClipboardContent.Create(
+            durablePlan, plan.Group.GroupTitle, _squadFolderPath);
+        var menu = CreateThemedMenu();
+        var copyName = CreateThemedMenuItem("Copy plan name");
+        copyName.Click += (_, _) => CopyPlanTitleText(content.Name);
+        menu.Items.Add(copyName);
+
+        var copyPath = CreateThemedMenuItem("Copy plan file path", content.FilePath is not null);
+        if (content.FilePath is { } filePath)
+            copyPath.Click += (_, _) => CopyPlanTitleText(filePath);
+        menu.Items.Add(copyPath);
+        return menu;
+    }
+
+    private static void CopyPlanTitleText(string text)
+    {
+        try
+        {
+            System.Windows.Clipboard.SetText(text);
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            SquadDashTrace.Write("PlanViewer", $"Could not copy plan reference to the clipboard: {ex.Message}");
+        }
     }
 
     private static ContextMenu CreateThemedMenu()

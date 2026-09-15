@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -21,6 +22,8 @@ internal class ChromedWindow : Window {
     /// </summary>
     protected const double CloseButtonHeight = 34;
 
+    protected TextBlock? TitleLabel { get; private set; }
+
     // Hover border state — populated by ApplyOuterBorder, consumed by the WndProc hook.
     private Border?          _hoverBorderInstance;
     private SolidColorBrush? _hoverBrushInstance;
@@ -29,6 +32,8 @@ internal class ChromedWindow : Window {
 
     private const int WM_MOUSEMOVE  = 0x0200;
     private const int WM_MOUSELEAVE = 0x02A3;
+    private const int WM_NCRBUTTONUP = 0x00A5;
+    private const int HTCAPTION = 2;
 
     /// <summary>
     /// Applies the standard SquadDash custom chrome to the window.
@@ -74,6 +79,23 @@ internal class ChromedWindow : Window {
     {
         switch (msg)
         {
+            case WM_NCRBUTTONUP:
+                if (wParam == HTCAPTION && TitleLabel is { ContextMenu: { } menu } titleLabel)
+                {
+                    var screenPoint = new Point(
+                        unchecked((short)lParam.ToInt64()),
+                        unchecked((short)(lParam.ToInt64() >> 16)));
+                    if (new Rect(titleLabel.RenderSize).Contains(titleLabel.PointFromScreen(screenPoint)))
+                    {
+                        // Keep native caption dragging; only replace the title's right-click menu.
+                        menu.PlacementTarget = titleLabel;
+                        menu.Placement = PlacementMode.MousePoint;
+                        menu.IsOpen = true;
+                        handled = true;
+                    }
+                }
+                break;
+
             case WM_MOUSEMOVE:
                 if (!_hoverActive && _hoverBorderInstance != null && _hoverBrushInstance != null)
                 {
@@ -177,6 +199,7 @@ internal class ChromedWindow : Window {
             titleLabel.SetBinding(TextBlock.TextProperty, new Binding(nameof(Title)) { Source = this });
             titleLabel.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeBody");
             titleLabel.SetResourceReference(TextBlock.ForegroundProperty,  "LabelText");
+            TitleLabel = titleLabel;
 
             closeBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
             closeBtn.VerticalAlignment   = VerticalAlignment.Stretch;
