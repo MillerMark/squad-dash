@@ -28,7 +28,7 @@ internal sealed class PlanViewerNavigationArchitectureTests
             Assert.That(source, Does.Contain("scroll.PreviewMouseLeftButtonDown += OnGraphPanMouseDown;")
                 .And.Contain("scroll.PreviewMouseMove += OnGraphPanMouseMove;")
                 .And.Contain("scroll.PreviewMouseLeftButtonUp += OnGraphPanMouseUp;"));
-            Assert.That(source, Does.Contain("AnnotationCursors.ClosedHand : Cursors.Hand")
+            Assert.That(source, Does.Contain("AnnotationCursors.ClosedHand : AnnotationCursors.OpenHand")
                 .And.Contain("_graphScroll.ForceCursor = true;")
                 .And.Contain("_panHorizontalOffset - delta.X")
                 .And.Contain("_panVerticalOffset - delta.Y"));
