@@ -96,6 +96,21 @@ internal sealed class TranscriptScrollController
     private bool _isProgrammaticScroll;
 
     /// <summary>
+    /// True while a UI operation outside the transcript is allowed to trigger a delayed
+    /// layout pass, but must not move the transcript viewport. WPF can report the final
+    /// offset correction from such a pass as a standalone <c>ScrollChanged</c> event with
+    /// <c>ExtentHeightChange == 0</c>, making it otherwise indistinguishable from a real
+    /// scroll gesture.
+    /// </summary>
+    private bool _isPreservingViewportThroughLayout;
+
+    /// <summary>
+    /// Identifies the newest pending viewport-preservation request. A superseded dispatcher
+    /// callback must not restore an older captured offset or clear the newer request's guard.
+    /// </summary>
+    private long _viewportPreservationVersion;
+
+    /// <summary>
     /// True while the initial transcript history is being loaded from disk into the
     /// <see cref="FlowDocument"/>. When set, <see cref="RequestScrollToEnd"/> and the
     /// extent-grow re-anchor inside <see cref="OnScrollChanged"/> are suppressed so that
@@ -624,6 +639,90 @@ internal sealed class TranscriptScrollController
     }
 
     /// <summary>
+    /// Runs an operation that may invalidate surrounding layout while preserving this
+    /// transcript's viewport through WPF's deferred Render pass.
+    /// </summary>
+    /// <remarks>
+    /// Queue-tab creation is one example: making the queue strip visible changes the space
+    /// available to the transcript. With a very large FlowDocument paragraph, WPF may spend
+    /// more than a second repaginating and then emit a large standalone vertical-offset
+    /// correction. The correction is layout-driven, not user input, so scroll classification
+    /// remains suppressed until a ContextIdle callback restores the captured position.
+    /// </remarks>
+    public void PreserveViewportThroughLayout(Action operation, string reason)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+
+        // Several composer updates can be nested in one UI action (for example, creating a
+        // queue slot and then showing its attachment strip). The outer request already owns
+        // the pre-layout anchor and deferred restore; recapturing after an intermediate
+        // property change could replace it with a transient offset.
+        if (_isPreservingViewportThroughLayout)
+        {
+            operation();
+            return;
+        }
+
+        var sv = EnsureScrollViewer();
+        if (sv is null)
+        {
+            operation();
+            return;
+        }
+
+        double capturedOffset = sv.VerticalOffset;
+        double capturedDistanceFromBottom = sv.ScrollableHeight - capturedOffset;
+        // Preserve the user's intent, not a transient layout measurement. During a
+        // shrink/re-expand cycle the controller can still be in follow-tail mode while WPF
+        // temporarily reports a gap larger than NearBottomThreshold. Treat an unlocked
+        // controller as bottom-anchored so this guard cannot turn that transient gap into a
+        // permanent reading lock.
+        bool capturedAtBottom = !IsUserScrolledAway
+                                || capturedDistanceFromBottom <= NearBottomThreshold;
+        long version = ++_viewportPreservationVersion;
+        _isPreservingViewportThroughLayout = true;
+
+        ScrollTrace(
+            "VIEWPORT PRESERVE BEGIN",
+            $"reason={reason}, offset={capturedOffset:0.#}px, distFromBottom={capturedDistanceFromBottom:0.#}px, atBottom={capturedAtBottom}");
+
+        try
+        {
+            operation();
+        }
+        catch
+        {
+            if (_viewportPreservationVersion == version)
+                _isPreservingViewportThroughLayout = false;
+            throw;
+        }
+
+        _ = _dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
+        {
+            // A newer preservation request owns the guard and will perform the final restore.
+            if (_viewportPreservationVersion != version)
+                return;
+
+            try
+            {
+                if (capturedAtBottom)
+                    ScrollToBottom();
+                else
+                    RestoreViewportAnchorOffset(capturedOffset);
+
+                ScrollTrace(
+                    "VIEWPORT PRESERVE END",
+                    $"reason={reason}, restored={(capturedAtBottom ? "bottom" : $"offset {capturedOffset:0.#}px")}");
+            }
+            finally
+            {
+                if (_viewportPreservationVersion == version)
+                    _isPreservingViewportThroughLayout = false;
+            }
+        });
+    }
+
+    /// <summary>
     /// Hides the floating button with a short fade-out. Call when the user clicks
     /// anywhere in the main transcript area (transcript <c>PreviewMouseDown</c>).
     /// </summary>
@@ -926,9 +1025,11 @@ internal sealed class TranscriptScrollController
         _inactiveSelectionAdorner.InvalidateHighlight();
 
         // Gate 1: programmatic scroll — we caused this, ignore.
-        if (_isProgrammaticScroll)
+        if (_isProgrammaticScroll || _isPreservingViewportThroughLayout)
         {
-            ScrollTrace("IGNORED", "programmatic scroll (our own)");
+            ScrollTrace("IGNORED", _isProgrammaticScroll
+                ? "programmatic scroll (our own)"
+                : "viewport-preserved layout reflow");
             return;
         }
 
