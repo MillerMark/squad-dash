@@ -1540,7 +1540,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var summaryBlock = new TextBlock
         {
-            Text         = group.Summary,
+            Text         = group.Summary ?? string.Empty,
             TextWrapping = TextWrapping.Wrap,
             FontWeight   = FontWeights.Normal,
             LineHeight   = 14d * _scaleFactor * 1.35d,
@@ -1551,25 +1551,45 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var summaryPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
         summaryPanel.Children.Add(summaryBlock);
-        if (group.Summary.Length > 360)
+        if (!string.IsNullOrEmpty(group.Summary))
         {
-            var collapsedHeight = summaryBlock.LineHeight * 3;
-            summaryBlock.MaxHeight = collapsedHeight;
-            summaryBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-
-            var toggleText = new TextBlock { Margin = new Thickness(0, 2, 0, 0) };
-            var toggleLink = new Hyperlink(new Run("More")) { Cursor = Cursors.Hand };
-            toggleLink.SetResourceReference(TextElement.ForegroundProperty, "ActionLinkText");
-            var expanded = false;
-            toggleLink.Click += (_, _) =>
+            void ConfigureSummaryToggle()
             {
-                expanded = !expanded;
-                summaryBlock.MaxHeight = expanded ? double.PositiveInfinity : collapsedHeight;
-                summaryBlock.TextTrimming = expanded ? TextTrimming.None : TextTrimming.CharacterEllipsis;
-                ((Run)toggleLink.Inlines.FirstInline!).Text = expanded ? "Less" : "More";
-            };
-            toggleText.Inlines.Add(toggleLink);
-            summaryPanel.Children.Add(toggleText);
+                if (!summaryBlock.IsLoaded || summaryBlock.ActualWidth <= 0)
+                    return;
+
+                summaryBlock.Loaded -= OnSummaryLoaded;
+                summaryBlock.SizeChanged -= OnSummarySizeChanged;
+
+                // Measure once at the arranged width, before applying any clipping.
+                var collapsedHeight = summaryBlock.LineHeight * 3;
+                summaryBlock.Measure(new Size(summaryBlock.ActualWidth, double.PositiveInfinity));
+                if (summaryBlock.DesiredSize.Height <= collapsedHeight + 0.5)
+                    return;
+
+                summaryBlock.MaxHeight = collapsedHeight;
+                summaryBlock.TextTrimming = TextTrimming.CharacterEllipsis;
+
+                var toggleText = new TextBlock { Margin = new Thickness(0, 2, 0, 0) };
+                var toggleLink = new Hyperlink(new Run("More")) { Cursor = Cursors.Hand };
+                toggleLink.SetResourceReference(TextElement.ForegroundProperty, "ActionLinkText");
+                var expanded = false;
+                toggleLink.Click += (_, _) =>
+                {
+                    expanded = !expanded;
+                    summaryBlock.MaxHeight = expanded ? double.PositiveInfinity : collapsedHeight;
+                    summaryBlock.TextTrimming = expanded ? TextTrimming.None : TextTrimming.CharacterEllipsis;
+                    ((Run)toggleLink.Inlines.FirstInline!).Text = expanded ? "Less" : "More";
+                };
+                toggleText.Inlines.Add(toggleLink);
+                summaryPanel.Children.Add(toggleText);
+            }
+
+            void OnSummaryLoaded(object sender, RoutedEventArgs e) => ConfigureSummaryToggle();
+            void OnSummarySizeChanged(object sender, SizeChangedEventArgs e) => ConfigureSummaryToggle();
+
+            summaryBlock.Loaded += OnSummaryLoaded;
+            summaryBlock.SizeChanged += OnSummarySizeChanged;
         }
         header.Children.Add(summaryPanel);
 
@@ -1582,45 +1602,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         hintBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         hintBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         _readingHint = hintBlock;
-
-        if (durablePlan is not null)
-        {
-            var metaPanel = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-
-            TextBlock MkMeta(string text)
-            {
-                var tb = new TextBlock { Text = text };
-                tb.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                tb.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-                return tb;
-            }
-            void AddMetaSep() => metaPanel.Children.Add(MkMeta(" · "));
-            void AddMeta(string text) => metaPanel.Children.Add(MkMeta(text));
-
-            var planIdBlock = new TextBlock
-            {
-                Text       = durablePlan.PlanId,
-                FontFamily = new FontFamily("Consolas, Courier New, monospace"),
-            };
-            planIdBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-            planIdBlock.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
-            metaPanel.Children.Add(planIdBlock);
-
-            var sourceLabel = durablePlan.Source switch
-            {
-                PlanSource.TasksJson         => "Plan",
-                PlanSource.DecomposeDecision => "Decomposition",
-                PlanSource.Inbox             => "Inbox",
-                PlanSource.Manual            => "Manual",
-                _                            => durablePlan.Source,
-            };
-            AddMetaSep(); AddMeta(durablePlan.Branch);
-            AddMetaSep(); AddMeta(sourceLabel);
-            if (durablePlan.Timestamps.StartedAt is { } metaStartedAt)  { AddMetaSep(); AddMeta($"Started: {metaStartedAt:MMM d, yyyy}"); }
-            if (durablePlan.Timestamps.CompletedAt is { } metaCompletedAt) { AddMetaSep(); AddMeta($"Completed: {metaCompletedAt:MMM d, yyyy}"); }
-
-            header.Children.Add(metaPanel);
-        }
 
         if (durablePlan?.InterruptionData is { } interruptionData && reviewAttention is null)
         {
