@@ -403,60 +403,40 @@ internal sealed class CodeHealthRunnerTests {
             "direct safety must inject a 'commit directly' instruction into the prompt");
     }
 
-    // ── Safety floor — global report-only overrides per-task branch ───────────
+    // ── Per-task safety is independent of global safety ───────────────────────
 
     [Test]
-    public async Task StartAsync_SafetyFloor_GlobalReportOnlyOverridesPerTaskBranch() {
+    public async Task StartAsync_TaskSafetyIsPreserved_RegardlessOfGlobalSafety(
+        [Values("report-only", "branch", "direct")] string globalSafety,
+        [Values("report-only", "branch", "direct")] string taskSafety) {
         var capturedPrompt = string.Empty;
+        CodeHealthReport? report = null;
         var config = MakeConfig(
-            tasks: [MakeTask("analysis", safety: "branch", instructions: "Analyse the diff.")],
-            safety: "report-only");
+            tasks: [MakeTask("analysis", safety: taskSafety, instructions: "Effective safety: {{safety}}")],
+            safety: globalSafety);
 
         var runner = MakeRunner(
+            onCompleted: r => report = r,
             executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
-        Assert.That(capturedPrompt, Does.Contain("report").IgnoreCase,
-            "global report-only must override per-task branch and inject report prefix");
-        Assert.That(capturedPrompt, Does.Not.Contain("Create branch").IgnoreCase,
-            "report-only floor must suppress the branch-creation instruction");
+        Assert.That(report, Is.Not.Null);
+        Assert.That(report!.TaskResults, Has.Count.EqualTo(1));
+        Assert.That(report.TaskResults[0].SafetyOverrideNote, Is.Null);
+        Assert.That(capturedPrompt, Does.Contain($"Effective safety: {taskSafety}"));
+        AssertSafetyInstructions(capturedPrompt, taskSafety);
     }
 
-    // ── Safety floor — global report-only overrides per-task direct ───────────
-
-    [Test]
-    public async Task StartAsync_SafetyFloor_GlobalReportOnlyOverridesPerTaskDirect() {
-        var capturedPrompt = string.Empty;
-        var config = MakeConfig(
-            tasks: [MakeTask("scan", safety: "direct", instructions: "Scan for issues.")],
-            safety: "report-only");
-
-        var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
-
-        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
-
-        Assert.That(capturedPrompt, Does.Contain("report").IgnoreCase,
-            "global report-only must override per-task direct and inject report prefix");
-    }
-
-    // ── Safety floor — global branch overrides per-task direct ───────────────
-
-    [Test]
-    public async Task StartAsync_SafetyFloor_GlobalBranchOverridesPerTaskDirect() {
-        var capturedPrompt = string.Empty;
-        var config = MakeConfig(
-            tasks: [MakeTask("refactor", safety: "direct", instructions: "Refactor module.")],
-            safety: "branch");
-
-        var runner = MakeRunner(
-            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
-
-        await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
-
-        Assert.That(capturedPrompt, Does.Contain("branch").IgnoreCase,
-            "global branch must override per-task direct and inject branch instruction");
+    private static void AssertSafetyInstructions(string prompt, string safety) {
+        Assert.Multiple(() => {
+            Assert.That(prompt.Contains("Create branch `codehealth/", StringComparison.Ordinal),
+                Is.EqualTo(safety == "branch"));
+            Assert.That(prompt.Contains("You may commit directly to the current branch.", StringComparison.Ordinal),
+                Is.EqualTo(safety == "direct"));
+            Assert.That(prompt.Contains("Do not modify any source files.", StringComparison.Ordinal),
+                Is.EqualTo(safety == "report-only"));
+        });
     }
 
     // ── Branch name includes date and task slug ───────────────────────────────
@@ -485,25 +465,40 @@ internal sealed class CodeHealthRunnerTests {
     // ── Safety override note ──────────────────────────────────────────────────
 
     [Test]
-    public async Task StartAsync_SafetyOverride_NoteRecordedInResult_WhenFloorApplies() {
+    public async Task StartAsync_SafetyOverride_HonoredRegardlessOfGlobalSafety(
+        [Values("report-only", "branch", "direct")] string globalSafety,
+        [Values("report-only", "branch", "direct")] string taskSafety,
+        [Values("report-only", "branch", "direct")] string safetyOverride) {
+        var capturedPrompt = string.Empty;
         CodeHealthReport? report = null;
         var config = MakeConfig(
-            tasks: [MakeTask("override-task", safety: "direct", instructions: "Do work.")],
-            safety: "branch");
+            tasks: [MakeTask("override-task", safety: taskSafety, instructions: "Effective safety: {{safety}}")],
+            safety: globalSafety);
+        var stateStore = new CodeHealthStateStore(_stateDir);
+        stateStore.SetSafetyOverride("override-task", safetyOverride);
 
-        var runner = MakeRunner(onCompleted: r => report = r);
+        var runner = MakeRunner(
+            stateStore: stateStore,
+            onCompleted: r => report = r,
+            executePromptAsync: (prompt, _) => { capturedPrompt = prompt; return Task.FromResult(-1); });
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
         Assert.That(report, Is.Not.Null);
-        Assert.That(report!.TaskResults[0].SafetyOverrideNote, Is.Not.Null.And.Not.Empty,
-            "SafetyOverrideNote must be set when the global floor overrides the task's declared safety");
-        Assert.That(report.TaskResults[0].SafetyOverrideNote, Does.Contain("branch"),
-            "SafetyOverrideNote must mention the effective safety level");
+        Assert.That(report!.TaskResults, Has.Count.EqualTo(1));
+        if (safetyOverride == taskSafety) {
+            Assert.That(report.TaskResults[0].SafetyOverrideNote, Is.Null);
+        } else {
+            Assert.That(report.TaskResults[0].SafetyOverrideNote,
+                Does.Contain($"overridden by user to '{safetyOverride}'"),
+                "Only a user override that changes task safety should produce an override note");
+        }
+        Assert.That(capturedPrompt, Does.Contain($"Effective safety: {safetyOverride}"));
+        AssertSafetyInstructions(capturedPrompt, safetyOverride);
     }
 
     [Test]
-    public async Task StartAsync_SafetyOverride_NoNote_WhenNoFloorApplied() {
+    public async Task StartAsync_SafetyOverride_NoNote_WhenNoUserOverride() {
         CodeHealthReport? report = null;
         var config = MakeConfig(
             tasks: [MakeTask("no-override-task", safety: "branch", instructions: "Do work.")],
@@ -519,19 +514,21 @@ internal sealed class CodeHealthRunnerTests {
     }
 
     [Test]
-    public async Task StartAsync_SafetyOverride_NoteIncluded_WhenGlobalReportOnlyOverridesDirect() {
+    public async Task StartAsync_SafetyOverride_NoNote_WhenUserOverrideMatchesIgnoringCase() {
         CodeHealthReport? report = null;
         var config = MakeConfig(
             tasks: [MakeTask("report-only-override", safety: "direct", instructions: "Do work.")],
             safety: "report-only");
+        var stateStore = new CodeHealthStateStore(_stateDir);
+        stateStore.SetSafetyOverride("report-only-override", "DIRECT");
 
-        var runner = MakeRunner(onCompleted: r => report = r);
+        var runner = MakeRunner(stateStore: stateStore, onCompleted: r => report = r);
 
         await runner.StartAsync(config, _workspaceDir, CancellationToken.None);
 
         Assert.That(report, Is.Not.Null);
-        Assert.That(report!.TaskResults[0].SafetyOverrideNote, Is.Not.Null.And.Not.Empty,
-            "SafetyOverrideNote must be set when report-only global floor overrides direct task safety");
+        Assert.That(report!.TaskResults[0].SafetyOverrideNote, Is.Null,
+            "Matching user overrides must not produce an override note");
     }
 
     // ── forceTaskIds — "Run Now" single-task behaviour ───────────────────────

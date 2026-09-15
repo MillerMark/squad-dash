@@ -114,17 +114,13 @@ internal sealed class CodeHealthRunner {
                     // Read safety override from state store (set by user via UI)
                     var safetyOverride = _stateStore.GetSafetyOverride(task.Id);
                     
-                    // Determine effective safety: override takes precedence, then task default, then global floor
-                    var baseSafety = safetyOverride ?? task.Safety;
-                    var effectiveSafety = ApplySafetyFloor(config.Safety, baseSafety);
+                    var effectiveSafety = safetyOverride ?? task.Safety;
                     
-                    if (!string.Equals(effectiveSafety, task.Safety, StringComparison.OrdinalIgnoreCase)) {
-                        string reason = safetyOverride != null
-                            ? $"overridden by user to '{safetyOverride}'"
-                            : $"downgraded by global floor ('{config.Safety}')";
-                        safetyOverrideNote = $"Safety '{reason}'.";
+                    if (safetyOverride is not null &&
+                        !string.Equals(safetyOverride, task.Safety, StringComparison.OrdinalIgnoreCase)) {
+                        safetyOverrideNote = $"Safety 'overridden by user to '{safetyOverride}''.";
                         SquadDashTrace.Write(TraceCategory.General,
-                            $"CodeHealthRunner: task '{task.Id}' effective safety '{effectiveSafety}' (declared '{task.Safety}', override '{safetyOverride}', floor '{config.Safety}').");
+                            $"CodeHealthRunner: task '{task.Id}' effective safety '{effectiveSafety}' (declared '{task.Safety}', override '{safetyOverride}').");
                     }
 
                     var lastReviewedSha = _stateStore.GetLastCommitSha(task.Id);
@@ -135,7 +131,7 @@ internal sealed class CodeHealthRunner {
                     // Generate dynamic branch name: codehealth/{taskId}/{YYYYMMDD-HHmmss}
                     var dynamicBranchName = $"codehealth/{task.Id}/{taskStartedAt:yyyyMMdd-HHmmss}";
                     
-                    var prompt = BuildPrompt(task, config.Safety, effectiveSafety, dynamicBranchName, 
+                    var prompt = BuildPrompt(task, effectiveSafety, dynamicBranchName,
                         taskStartedAt, lastReviewedSha, newCommitCount,
                         uncategorizedApprovals: _getUncategorizedApprovals?.Invoke() ?? string.Empty,
                         featureCategoryInventory: _getFeatureCategoryInventory?.Invoke() ?? string.Empty);
@@ -311,7 +307,7 @@ internal sealed class CodeHealthRunner {
         return prompt.Trim();
     }
 
-    private static string BuildPrompt(CodeHealthTask task, string globalSafety, string effectiveSafety, 
+    private static string BuildPrompt(CodeHealthTask task, string effectiveSafety,
         string dynamicBranchName, DateTimeOffset runDate, string? lastReviewedSha = null, int newCommitCount = 0,
         string? uncategorizedApprovals = null,
         string? featureCategoryInventory = null) {
@@ -487,16 +483,6 @@ internal sealed class CodeHealthRunner {
             result = result.Replace($"{{{{{kvp.Key}}}}}", kvp.Value, StringComparison.OrdinalIgnoreCase);
 
         return result;
-    }
-
-    private static string ApplySafetyFloor(string globalSafety, string taskSafety) {
-        static int Rank(string s) => s switch {
-            "report-only" => 2,
-            "branch"      => 1,
-            "direct"      => 0,
-            _             => 0,
-        };
-        return Rank(globalSafety) >= Rank(taskSafety) ? globalSafety : taskSafety;
     }
 
     private static bool NeedsCommitSha(IEnumerable<CodeHealthTask> tasks) =>

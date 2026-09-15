@@ -217,9 +217,7 @@ internal sealed class CodeHealthMdParserRoundTripTests {
 
             var rawConfig = CodeHealthMdParser.Parse(path)!;
             var task      = rawConfig.Tasks!.First(t => t.Id == "cleanup");
-            // Safety floor is applied based on global safety ("branch") — verify
-            // value is not more permissive than global.
-            Assert.That(task.Safety, Is.Not.Null);
+            Assert.That(task.Safety, Is.EqualTo(newSafety));
         }
         finally { DeleteTempFile(path); }
     }

@@ -355,22 +355,13 @@ internal static class CodeHealthMdParser {
         return new CodeHealthMdConfig(configured, enabledOnIdle, idleTimeout, maxTasks, safety, builtTasks);
     }
 
-    // ── Safety floor enforcement ───────────────────────────────────────────────
+    // ── Task safety default ────────────────────────────────────────────────────
 
     /// <summary>
-    /// Enforces the safety floor. A per-task safety may not be more permissive
-    /// than the global safety setting.
+    /// Preserves declared task safety, using the global setting only when task safety is empty.
     /// </summary>
-    internal static string EnforceSafetyFloor(string globalSafety, string taskSafety) {
-        if (string.IsNullOrEmpty(taskSafety))
-            return globalSafety;
-
-        return globalSafety switch {
-            "report-only" => "report-only",
-            "branch"      => taskSafety == "direct" ? "branch" : taskSafety,
-            _             => taskSafety,
-        };
-    }
+    internal static string ResolveTaskSafety(string globalSafety, string? taskSafety) =>
+        string.IsNullOrEmpty(taskSafety) ? globalSafety : taskSafety;
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -1139,7 +1130,7 @@ internal static class CodeHealthMdParser {
                 Id:                 Id,
                 Enabled:            Enabled,
                 Frequency:          Frequency,
-                Safety:             EnforceSafetyFloor(globalSafety, Safety),
+                Safety:             ResolveTaskSafety(globalSafety, Safety),
                 Title:              Title.Length > 0 ? Title : Id,
                 Instructions:       Instructions,
                 Options:            BuiltOptions,

@@ -82,7 +82,7 @@ Displayed next to the frequency picker when the task's effective safety is not t
 
 Hover over any chip to see a tooltip explaining what the safety level permits.
 
-> The *effective* safety is the stricter of the global floor (set in `.squad/maintenance.md` frontmatter) and the task's own setting. See [Safety model](../features/maintenance-mode.md#safety-model) for the full promotion rules.
+> Runtime safety follows the user override, when set, or the task's own setting. Global safety only supplies a default when task safety is missing or empty. See [Safety model](../features/maintenance-mode.md#safety-model).
 
 ### Last-run timestamp
 
@@ -132,7 +132,7 @@ Right-clicking on the panel background (not on a task row) opens a panel-level c
 | Item | What it does |
 |------|-------------|
 | **New Task** | Creates a new maintenance task in a user-owned file and opens it immediately in the [Task Editor](#task-editor). New tasks are saved separately from the default shipped tasks so your custom tasks are never overwritten by SquadDash updates. |
-| **Edit Maintenance File** | Opens `.squad/maintenance.md` in the markdown editor. Use this to add new tasks, change the global safety floor, or adjust the `idle_timeout`. |
+| **Edit Maintenance File** | Opens `.squad/maintenance.md` in the markdown editor. Use this to add new tasks, change the default safety for tasks without an explicit setting, or adjust the `idle_timeout`. |
 
 ---
 
@@ -151,7 +151,7 @@ Open it by:
 | **Title** | Human-readable name shown in the panel and in maintenance reports. |
 | **Enabled** | Whether this task participates in idle cycles. Equivalent to the row checkbox. |
 | **Frequency** | How often the task runs. See [Frequency values](../features/maintenance-mode.md#frequency-values) for the full list. |
-| **Safety** | Per-task safety level (`report-only`, `branch`, or `direct`). Cannot be less safe than the global floor. |
+| **Safety** | Per-task safety level (`report-only`, `branch`, or `direct`). Explicit settings are honored regardless of global safety. |
 | **Instructions** | The prompt sent to the agent when this task runs. Supports Ctrl+scroll to zoom, voice dictation (double-tap Ctrl), and AI revision shortcuts (Ctrl+Shift+A to revise, Ctrl+Shift+C to clean up). |
 
 Changes are saved back to the task's source file immediately when you click **Save**.
@@ -168,7 +168,7 @@ After a maintenance cycle completes, a notification banner appears at the top of
 
 ## Tips
 
-- Keep `safety: branch` as your global floor while getting started. Promote individual tasks to `direct` only when you are confident they will not make unintended edits.
+- Use `safety: branch` as a default for tasks without explicit safety while getting started. Review each task's own setting: the global default does not constrain it. Set individual tasks to `direct` only when you are confident they will not make unintended edits.
 - Right-click any task row and choose **Run Now** to force that task to execute immediately, bypassing its frequency history — useful for testing newly-created tasks.
 - Right-click the **Maintenance Tasks:** picker and choose **Simulate Idle** (or type `trigger_idle_cycle` in the prompt box) to simulate an idle window without waiting for the real timeout.
 - If you normally use **Manual runs only** but want a single maintenance cycle when you finish your next prompt, type `/maintenance` in the prompt box. The cycle fires at the next true idle point without changing the panel's mode setting. See [/maintenance — Run once on idle](../features/maintenance-mode.md#maintenance--run-once-on-idle) for details.

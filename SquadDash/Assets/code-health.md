@@ -11,8 +11,8 @@
 # Set enabled_on_idle: true to let Code Health run automatically while idle.
 # Leave enabled_on_idle: false for manual-only runs via the Code Health panel.
 # Set enabled: true on individual tasks to make them runnable.
-# Global safety floor: per-task safety cannot be less safe than this value.
-#   report-only < branch < direct
+# Global safety is only a default for tasks without their own safety setting.
+# Explicit task safety and user overrides are always honored.
 #
 # INBOX REPORTING
 # When a task produces a report (safety: report-only),

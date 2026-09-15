@@ -199,21 +199,23 @@ internal sealed class CodeHealthMdParserTests {
         finally { DeleteTempFile(path); }
     }
 
-    // ── Safety floor: global report-only ─────────────────────────────────────
+    // ── Explicit task safety is preserved ────────────────────────────────────
 
     [Test]
-    public void Parse_GlobalReportOnly_PerTaskDirectBecomesReportOnly() {
+    public void Parse_ExplicitTaskSafety_IsPreservedRegardlessOfGlobalSafety(
+        [Values("report-only", "branch", "direct")] string globalSafety,
+        [Values("report-only", "branch", "direct")] string taskSafety) {
         var path = WriteTempFile(
-            """
+            $"""
             ---
             configured: true
-            safety: report-only
+            safety: {globalSafety}
             tasks:
               - id: aggressive-task
                 enabled: true
                 frequency: always
-                safety: direct
-                title: "Should be downgraded"
+                safety: {taskSafety}
+                title: "Preserve task safety"
                 instructions: "Make sweeping changes."
             ---
             """);
@@ -222,27 +224,29 @@ internal sealed class CodeHealthMdParserTests {
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Has.Count.EqualTo(1));
 
-            Assert.That(config.Tasks[0].Safety, Is.EqualTo("report-only"),
-                "Global report-only floor must prevent per-task safety from escalating to direct");
+            Assert.That(config.Tasks[0].Safety, Is.EqualTo(taskSafety),
+                "Global safety must not override explicit task safety");
         }
         finally { DeleteTempFile(path); }
     }
 
-    // ── Safety floor: global branch ───────────────────────────────────────────
+    // ── Global safety is only a default ──────────────────────────────────────
 
     [Test]
-    public void Parse_GlobalBranch_PerTaskDirectDowngradedToBranch() {
+    public void Parse_MissingOrEmptyTaskSafety_UsesGlobalDefault(
+        [Values("report-only", "branch", "direct")] string globalSafety,
+        [Values("", "safety:")] string safetyDeclaration) {
         var path = WriteTempFile(
-            """
+            $"""
             ---
             configured: true
-            safety: branch
+            safety: {globalSafety}
             tasks:
               - id: risky-task
                 enabled: true
                 frequency: always
-                safety: direct
-                title: "Should be capped at branch"
+                {safetyDeclaration}
+                title: "Use global default"
                 instructions: "Directly commit changes."
             ---
             """);
@@ -251,8 +255,8 @@ internal sealed class CodeHealthMdParserTests {
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Has.Count.EqualTo(1));
 
-            Assert.That(config.Tasks[0].Safety, Is.EqualTo("branch"),
-                "Global branch floor must prevent per-task safety from escalating to direct");
+            Assert.That(config.Tasks[0].Safety, Is.EqualTo(globalSafety),
+                "Global safety supplies a default only when task safety is missing or empty");
         }
         finally { DeleteTempFile(path); }
     }
@@ -277,9 +281,8 @@ internal sealed class CodeHealthMdParserTests {
             var config = CodeHealthMdParser.Parse(path);
             Assert.That(config, Is.Not.Null);
             Assert.That(config!.Tasks, Is.Not.Null);
-            // report-only is already more restrictive than branch; must not be upgraded.
             Assert.That((config.Tasks ?? [])[0].Safety, Is.EqualTo("report-only"),
-                "A per-task safety more restrictive than the global floor must not be weakened");
+                "Explicit report-only safety must be preserved");
         }
         finally { DeleteTempFile(path); }
     }

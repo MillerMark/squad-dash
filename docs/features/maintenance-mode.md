@@ -38,7 +38,7 @@ configured: true          # Legacy marker for existing files
 enabled_on_idle: false    # Manual runs only; set true to run automatically while idle
 idle_timeout: 15          # Minutes of inactivity before a window triggers (default: 15)
 max_tasks_per_session: 5  # Max tasks to run per window; stops after this many (default: 5)
-safety: branch            # Global safety floor (see Safety Model below)
+safety: branch            # Default for tasks without safety (see Safety Model below)
 ---
 ```
 
@@ -70,7 +70,7 @@ Use the Code Health panel editor to customize a built-in task; SquadDash writes 
 |----------------|----------|----------|--------------------------------------------------------|
 | `enabled`      | yes      | `false`  | Whether this task can run                              |
 | `frequency`    | yes      | `daily`  | How often to run (see Frequency below)                 |
-| `safety`       | no       | global   | Per-task safety level; cannot exceed global floor      |
+| `safety`       | no       | global   | Per-task safety level; explicit values are always honored |
 | `title`        | no       | task ID  | Human-readable label shown in the Code Health panel    |
 | `instructions` | yes      | —        | Prompt text injected when the task runs                |
 
@@ -259,7 +259,7 @@ These same variables are also available for `after-commits` and `per-commit` tas
 
 ## Safety model
 
-Every task runs with an *effective safety level* determined by the stricter of the global floor and the task's own setting.
+Every task runs with an *effective safety level* equal to its user override, when set, or its own safety setting.
 
 | Level         | What the AI may do                                                              |
 |---------------|---------------------------------------------------------------------------------|
@@ -267,11 +267,7 @@ Every task runs with an *effective safety level* determined by the stricter of t
 | `branch`      | Creates branch `codehealth/<task-slug>/<timestamp>` before any edits. Commits go to that branch; the current branch is never touched. **Recommended default.**<br><br>⚠ **Multi-task sessions:** Each task receives a "create branch from the current HEAD" instruction. If a prior task in the same session committed to its branch, the next task branches from that branch — not from your main/default branch. A fix to inject an explicit base-branch checkout is tracked in the backlog. For now, verify multi-task `branch`-safety session outputs before merging. |
 | `direct`      | Commits directly to the current branch. Use only for tasks that are safe by design (e.g. writing only to `tasks.md`). |
 
-**Safety floor rule:** the global `safety:` value is a *floor*. A per-task setting cannot be less safe than the global value.
-
-```
-Rank:  report-only (2)  >  branch (1)  >  direct (0)
-```
+The global `safety:` value is only a default for tasks whose safety is missing or empty. It never raises or lowers explicit task safety or a user override.
 
 Examples:
 
@@ -279,13 +275,13 @@ Examples:
 |---------------|---------------|------------------|
 | `branch`      | `report-only` | `report-only`    |
 | `branch`      | `branch`      | `branch`         |
-| `branch`      | `direct`      | `branch` ⚠ promoted |
-| `report-only` | `branch`      | `report-only` ⚠ promoted |
+| `branch`      | `direct`      | `direct`         |
+| `report-only` | `branch`      | `branch`         |
+| `report-only` | `direct`      | `direct`         |
 | `direct`      | `direct`      | `direct`         |
+| `branch`      | omitted       | `branch`         |
 
-When a task's safety is promoted by the floor, a `⚠ Safety downgraded from '…' to '…' by global floor.` note appears in the maintenance report for that task.
-
-To allow `direct` on any task, you must set the **global** `safety: direct`.
+An override note appears in the maintenance report only when a user override differs from the task's declared safety. A task can run as `direct` regardless of the global safety setting.
 
 ---
 
@@ -311,7 +307,7 @@ The filename uses local time. Reports are automatically pruned to the **30 most 
 - ✅ Run Tests (run-tests) — 2m 11s
 - ✅ TODO / FIXME / HACK Scanner (todo-fixme-scan) — 47s
 - ❌ Code Smell Cleanup (code-smells) — error during execution
-  ⚠ Safety downgraded from 'direct' to 'branch' by global floor.
+  Safety 'overridden by user to 'branch''.
 
 ## Branches Created
 
