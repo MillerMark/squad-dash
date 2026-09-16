@@ -1138,7 +1138,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                 var label = new TextBlock {
                     Text         = opt.Label,
                     TextWrapping = TextWrapping.Wrap,
-                    Margin       = new Thickness(indentLeft, 4, 0, 2),
+                    Margin       = new Thickness(indentLeft, 8, 0, 2),
                 };
                 label.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
                 label.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
@@ -1196,7 +1196,10 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                 var optKey = opt.Key;
                 var tb = new TextBox {
                     Text   = _optionValues.GetValueOrDefault(opt.Key, opt.RawValue ?? string.Empty),
-                    Margin = new Thickness(indentLeft, 2, 0, 2),
+                    Margin = new Thickness(indentLeft, 2, 0, 6),
+                    MinWidth = 64,
+                    MaxWidth = 600,
+                    HorizontalAlignment = HorizontalAlignment.Left,
                 };
                 tb.SetResourceReference(TextBox.ForegroundProperty,  "LabelText");
                 tb.SetResourceReference(TextBox.BackgroundProperty,  "RosterPanelSurface");
