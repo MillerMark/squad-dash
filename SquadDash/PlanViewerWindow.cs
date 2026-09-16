@@ -1538,61 +1538,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             header.Children.Add(correctionStatus);
         }
 
-        var summaryBlock = new TextBlock
-        {
-            Text         = group.Summary ?? string.Empty,
-            TextWrapping = TextWrapping.Wrap,
-            FontWeight   = FontWeights.Normal,
-            LineHeight   = 14d * _scaleFactor * 1.35d,
-            Margin       = new Thickness(0),
-        };
-        summaryBlock.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        summaryBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-
-        var summaryPanel = new StackPanel { Margin = new Thickness(0, 0, 0, 6) };
-        summaryPanel.Children.Add(summaryBlock);
-        if (!string.IsNullOrEmpty(group.Summary))
-        {
-            void ConfigureSummaryToggle()
-            {
-                if (!summaryBlock.IsLoaded || summaryBlock.ActualWidth <= 0)
-                    return;
-
-                summaryBlock.Loaded -= OnSummaryLoaded;
-                summaryBlock.SizeChanged -= OnSummarySizeChanged;
-
-                // Measure once at the arranged width, before applying any clipping.
-                var collapsedHeight = summaryBlock.LineHeight * 3;
-                summaryBlock.Measure(new Size(summaryBlock.ActualWidth, double.PositiveInfinity));
-                if (summaryBlock.DesiredSize.Height <= collapsedHeight + 0.5)
-                    return;
-
-                summaryBlock.MaxHeight = collapsedHeight;
-                summaryBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-
-                var toggleText = new TextBlock { Margin = new Thickness(0, 2, 0, 0) };
-                var toggleLink = new Hyperlink(new Run("More")) { Cursor = Cursors.Hand };
-                toggleLink.SetResourceReference(TextElement.ForegroundProperty, "ActionLinkText");
-                var expanded = false;
-                toggleLink.Click += (_, _) =>
-                {
-                    expanded = !expanded;
-                    summaryBlock.MaxHeight = expanded ? double.PositiveInfinity : collapsedHeight;
-                    summaryBlock.TextTrimming = expanded ? TextTrimming.None : TextTrimming.CharacterEllipsis;
-                    ((Run)toggleLink.Inlines.FirstInline!).Text = expanded ? "Less" : "More";
-                };
-                toggleText.Inlines.Add(toggleLink);
-                summaryPanel.Children.Add(toggleText);
-            }
-
-            void OnSummaryLoaded(object sender, RoutedEventArgs e) => ConfigureSummaryToggle();
-            void OnSummarySizeChanged(object sender, SizeChangedEventArgs e) => ConfigureSummaryToggle();
-
-            summaryBlock.Loaded += OnSummaryLoaded;
-            summaryBlock.SizeChanged += OnSummarySizeChanged;
-        }
-        header.Children.Add(summaryPanel);
-
         var hintBlock = new TextBlock
         {
             Text         = "Arrows point from prerequisite → dependent.  ALL means every incoming step must finish.  Steps in the same stage with no arrow between them are independent and may run in any order.  Hold Space + drag to pan.  Ctrl + wheel to zoom.  Shift + wheel to scroll horizontally.",
@@ -6505,10 +6450,50 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_selectedElement is null)
         {
             _detailDocument.Blocks.Clear();
-            var placeholder = new Paragraph(new Run("Select an element to view details."));
-            placeholder.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-            placeholder.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            _detailDocument.Blocks.Add(placeholder);
+            var group = _plan?.Group;
+            var hint = new Paragraph(new Run(group is null
+                ? "Select an element to view details."
+                : "(Select an element to see details)"));
+            hint.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            hint.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            _detailDocument.Blocks.Add(hint);
+
+            if (group is not null)
+            {
+                var title = _durablePlan?.DisplayName ?? group.GroupTitle;
+                if (string.IsNullOrWhiteSpace(title))
+                    title = group.GroupTitle;
+                if (!string.IsNullOrWhiteSpace(title))
+                {
+                    var titleParagraph = new Paragraph(new Run(title))
+                    {
+                        FontWeight = FontWeights.SemiBold,
+                    };
+                    titleParagraph.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+                    titleParagraph.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    _detailDocument.Blocks.Add(titleParagraph);
+                }
+
+                if (!string.IsNullOrWhiteSpace(group.Branch))
+                {
+                    var branchLabel = new Run("Branch: ");
+                    branchLabel.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                    var branchValue = new Run(group.Branch);
+                    branchValue.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                    var branchParagraph = new Paragraph(branchLabel);
+                    branchParagraph.Inlines.Add(branchValue);
+                    branchParagraph.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    _detailDocument.Blocks.Add(branchParagraph);
+                }
+
+                if (!string.IsNullOrWhiteSpace(group.Summary))
+                {
+                    var summary = new Paragraph(new Run(group.Summary));
+                    summary.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                    summary.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                    _detailDocument.Blocks.Add(summary);
+                }
+            }
             AppendActiveReviewNote();
             PrependInspectorToolbar();
             return;
