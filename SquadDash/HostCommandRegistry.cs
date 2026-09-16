@@ -45,7 +45,8 @@ internal sealed class HostCommandRegistry {
             Name:           "organize_approvals",
             Description:    "Assigns feature groups to pending approval items. Use assignments parameter as a JSON array, not as an escaped string: {\"assignments\":[{\"sha\":\"abc1234\",\"group\":\"Feature Name\"},...]}. You may use existing groups or invent specific feature names.",
             Parameters:     [new HostCommandParameterDescriptor("assignments", "string", Required: true)],
-            ResultBehavior: HostCommandResultBehavior.Silent),
+            ResultBehavior: HostCommandResultBehavior.Silent,
+            AllowFromInboxAction: true),
         new HostCommandDescriptor(
             Name:           "merge_feature_categories",
             Description:    "Merges existing feature categories through one coordinated host operation across approvals, the canonical category list, and the Commit History cache. Use merges as a JSON array: [{\"source\":\"Commit Viewer\",\"target\":\"Commit History Visualizer\"}]. Never edit the category data files directly.",

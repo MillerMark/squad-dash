@@ -339,6 +339,8 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("`\"hostCommand\"`"));
             Assert.That(instruction, Does.Contain("explicitly name an Inbox-enabled host operation"));
             Assert.That(instruction, Does.Contain("validates eligibility and parameters"));
+            Assert.That(instruction, Does.Contain("applies that exact proposal without launching an agent or re-deriving it"));
+            Assert.That(instruction, Does.Not.Contain("always include at least one `start_named_agent` or `start_coordinator` action"));
         });
     }
 

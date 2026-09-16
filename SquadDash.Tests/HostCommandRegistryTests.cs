@@ -67,6 +67,32 @@ internal sealed class HostCommandRegistryTests {
         });
     }
 
+    [Test]
+    public void TryResolveInboxAction_OrganizeApprovalsCommand_ConvertsStructuredParameters()
+    {
+        var registry = new HostCommandRegistry();
+        using var parameters = System.Text.Json.JsonDocument.Parse(
+            """{"assignments":[{"sha":"abc1234","group":"Approvals Panel"}]}""");
+        var request = new InboxHostCommand
+        {
+            Command = "organize_approvals",
+            Parameters = parameters.RootElement.EnumerateObject()
+                .ToDictionary(property => property.Name, property => property.Value.Clone())
+        };
+
+        var resolved = registry.TryResolveInboxAction(
+            request, workspaceFolder: null, out var invocation, out var descriptor, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resolved, Is.True, error);
+            Assert.That(descriptor!.AllowFromInboxAction, Is.True);
+            Assert.That(invocation!.Command, Is.EqualTo("organize_approvals"));
+            Assert.That(invocation.Parameters!["assignments"],
+                Is.EqualTo("""[{"sha":"abc1234","group":"Approvals Panel"}]"""));
+        });
+    }
+
     [TestCase("clear_approved", "not permitted")]
     [TestCase("not_a_command", "Unknown")]
     public void TryResolveInboxAction_NonEligibleCommand_IsRejected(string command, string expectedError)
