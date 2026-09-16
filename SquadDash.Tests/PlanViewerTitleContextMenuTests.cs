@@ -15,7 +15,7 @@ internal sealed class PlanViewerTitleContextMenuTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(chrome, Does.Contain("protected TextBlock? TitleLabel { get; private set; }")
+            Assert.That(chrome, Does.Contain("protected TextBlock? TitleLabel { get; set; }")
                 .And.Contain("var titleLabel = new TextBlock")
                 .And.Contain("titleLabel.SetBinding(TextBlock.TextProperty, new Binding(nameof(Title)) { Source = this });")
                 .And.Contain("TitleLabel = titleLabel;")

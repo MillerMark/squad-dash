@@ -22,7 +22,7 @@ internal class ChromedWindow : Window {
     /// </summary>
     protected const double CloseButtonHeight = 34;
 
-    protected TextBlock? TitleLabel { get; private set; }
+    protected TextBlock? TitleLabel { get; set; }
 
     // Hover border state — populated by ApplyOuterBorder, consumed by the WndProc hook.
     private Border?          _hoverBorderInstance;

@@ -9,6 +9,57 @@ namespace SquadDash.Tests;
 internal sealed class InboxMessageWindowApprovalUpdateTests
 {
     [Test]
+    public void BuildInboxDetailsClipboardText_CopiesExactlyTwoLabeledLines()
+    {
+        Assert.That(
+            InboxMessageWindow.BuildInboxDetailsClipboardText("X", @"C:\Workspace\.squad\inbox\Y.json"),
+            Is.EqualTo($"Subject: X{Environment.NewLine}File: C:\\Workspace\\.squad\\inbox\\Y.json"));
+    }
+
+    [Test]
+    public void SubjectContextMenu_HasOnlyCopyInboxDetailsAndPreservesCaptionGestures() =>
+        WpfTestContext.Run(() =>
+        {
+            var message = new InboxMessage { Id = "copy-details", Subject = "Subject", Body = "Body", Actions = [] };
+            var resolverCalled = false;
+            var window = new InboxMessageWindow(message, (_, _) => { },
+                resolveMessageFilePath: id =>
+                {
+                    resolverCalled = true;
+                    return $@"C:\Workspace\.squad\inbox\{id}.json";
+                });
+            try
+            {
+                var chrome = (Grid)window.Content;
+                var root = (Grid)((Border)chrome.Children[0]).Child;
+                var header = root.Children.OfType<DockPanel>().Single();
+                var subject = header.Children.OfType<StackPanel>().Single().Children.OfType<TextBlock>().First();
+                var menu = subject.ContextMenu!;
+                var item = menu.Items.OfType<MenuItem>().Single();
+                var menuStyle = new Style(typeof(ContextMenu));
+                var itemStyle = new Style(typeof(MenuItem));
+                menu.Resources["ThemedContextMenuStyle"] = menuStyle;
+                item.Resources["ThemedMenuItemStyle"] = itemStyle;
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(subject.Text, Is.EqualTo(message.Subject));
+                    Assert.That(subject.FontWeight, Is.EqualTo(FontWeights.Bold));
+                    Assert.That(menu.Items, Has.Count.EqualTo(1));
+                    Assert.That(item.Header, Is.EqualTo("Copy Inbox Details"));
+                    Assert.That(menu.Style, Is.SameAs(menuStyle));
+                    Assert.That(item.Style, Is.SameAs(itemStyle));
+                    Assert.That(System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(subject), Is.False);
+                    Assert.That(resolverCalled, Is.False, "Resolve the path only when the copy action is invoked.");
+                });
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+
+    [Test]
     public void BuildMessageClipboardText_CopiesTheCompleteBody()
     {
         var message = new InboxMessage

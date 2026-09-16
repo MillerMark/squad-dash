@@ -48,6 +48,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Func<string, Dictionary<string, double>?>? _resolveLayoutNudgesForThumbnail;
     private readonly Func<string, bool>? _isPlanExecuted;
     private readonly string? _workspaceFolder;
+    private readonly Func<string, string?>? _resolveMessageFilePath;
     private readonly Func<string, Plan?>? _loadPlan;
     private readonly Action<string, PlanHumanReviewChecklistItem, bool>? _onHumanReviewSelectionChanged;
     private double _bodyFontSize;
@@ -80,7 +81,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? resolveAgentAvatar = null,
         string? workspaceFolder = null,
         Func<string, Plan?>? loadPlan = null,
-        Action<string, PlanHumanReviewChecklistItem, bool>? onHumanReviewSelectionChanged = null)
+        Action<string, PlanHumanReviewChecklistItem, bool>? onHumanReviewSelectionChanged = null,
+        Func<string, string?>? resolveMessageFilePath = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
         _lookupTask             = lookupTask;
@@ -99,6 +101,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _isPlanExecuted         = isPlanExecuted;
         _resolveAgentAvatar     = resolveAgentAvatar;
         _workspaceFolder        = workspaceFolder;
+        _resolveMessageFilePath = resolveMessageFilePath;
         _loadPlan               = loadPlan;
         _onHumanReviewSelectionChanged = onHumanReviewSelectionChanged;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
@@ -199,6 +202,32 @@ internal sealed class InboxMessageWindow : ChromedWindow
         };
         subjectLabel.SetResourceReference(TextBlock.FontSizeProperty,  "FontSizeNormal");
         subjectLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        var subjectContextMenu = new ContextMenu();
+        subjectContextMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+        var copyInboxDetailsItem = new MenuItem { Header = "Copy Inbox Details" };
+        copyInboxDetailsItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+        copyInboxDetailsItem.Click += (_, _) =>
+        {
+            var path = _resolveMessageFilePath?.Invoke(_message.Id);
+            if (string.IsNullOrEmpty(path))
+                path = string.IsNullOrEmpty(_workspaceFolder)
+                    ? _message.Id + ".json"
+                    : System.IO.Path.Combine(_workspaceFolder, ".squad", "inbox", _message.Id + ".json");
+
+            var text = BuildInboxDetailsClipboardText(_message.Subject, path);
+            try
+            {
+                Clipboard.SetText(text);
+            }
+            catch (System.Runtime.InteropServices.COMException ex)
+            {
+                SquadDashTrace.Write(TraceCategory.Inbox, $"Could not copy inbox details to the clipboard: {ex.Message}");
+            }
+        };
+        subjectContextMenu.Items.Add(copyInboxDetailsItem);
+        subjectLabel.ContextMenu = subjectContextMenu;
+        // Reuse the native caption right-click hook without changing caption gestures.
+        TitleLabel = subjectLabel;
         headerPanel.Children.Add(subjectLabel);
 
         var ts = StatusTimingPresentation.FormatRelativeTimestamp(message.Timestamp);
@@ -839,6 +868,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
         !string.IsNullOrWhiteSpace(message.Body)
             ? message.Body
             : message.Subject;
+
+    internal static string BuildInboxDetailsClipboardText(string subject, string filePath) =>
+        $"Subject: {subject}{Environment.NewLine}File: {filePath}";
 
     internal static void AttachBodyLinkCopyMenus(FlowDocument document, string? workspaceFolder)
     {
