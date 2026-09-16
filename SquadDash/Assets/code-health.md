@@ -861,20 +861,12 @@ tasks:
       archiveLowPriority:
         type: checkbox
         label: Archive unread low-priority items with little significant information
-        tooltip: >
-          Archives low-priority inbox messages whose content is a routine
-          success report (e.g. "all tests passed", "no issues found") and
-          that are older than the minimum age threshold.
+        tooltip: Archives low-priority inbox messages whose content is a routine success report (e.g. "all tests passed", "no issues found") and that are older than the minimum age threshold.
         value: true
       archiveOlderDuplicates:
         type: checkbox
-        label: >
-          Keep the most recent of a particular topic — archive older messages
-          even if they are unread (for mid priority or lower)
-        tooltip: >
-          When multiple inbox messages share the same subject/topic, keeps
-          only the newest one and archives the rest, as long as they are
-          mid-priority or lower and older than the minimum age threshold.
+        label: Keep the most recent of a particular topic — archive older messages even if they are unread (for mid priority or lower)
+        tooltip: When multiple inbox messages share the same subject/topic, keeps only the newest one and archives the rest, as long as they are mid-priority or lower and older than the minimum age threshold.
         value: true
       minAgeDays:
         type: number
@@ -991,12 +983,7 @@ tasks:
       minSeverity:
         type: select
         label: Minimum severity to report
-        tooltip: >
-          Findings below this severity are ignored entirely.
-          Critical = data persistence / I/O / security.
-          High = domain validation / business rules.
-          Medium = data transformations / domain construction.
-          Low = minor extractable logic.
+        tooltip: Findings below this severity are ignored entirely. Critical = data persistence / I/O / security. High = domain validation / business rules. Medium = data transformations / domain construction. Low = minor extractable logic.
         value: Medium
         choices:
           - Low
