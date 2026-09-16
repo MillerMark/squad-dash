@@ -1038,6 +1038,9 @@ internal sealed class CodeHealthRunnerTests {
             Assert.That(RealInboxPreamble, Does.Contain("hostCommand"));
             Assert.That(RealInboxReminder, Does.Contain("host_command"));
             Assert.That(RealInboxReminder, Does.Contain("do not launch an agent merely to echo it"));
+            Assert.That(RealInboxPreamble, Does.Contain("A hint is REQUIRED when the label uses jargon or an abbreviation"));
+            Assert.That(RealInboxReminder, Does.Contain("effect or important consequences are not obvious"));
+            Assert.That(RealInboxReminder, Does.Contain("omit it only for a genuinely self-explanatory label"));
         });
     }
 

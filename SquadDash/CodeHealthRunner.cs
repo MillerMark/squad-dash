@@ -239,7 +239,7 @@ internal sealed class CodeHealthRunner {
         "    { \"label\": \"Add to backlog\", \"routeMode\": \"start_coordinator\", \"prompt\": \"...\" }\n" +
         "  ]\n" +
         "}\n" +
-        "Each action may include an optional \"hint\" field — a short tooltip string shown when the user hovers over the button.\n" +
+        "Each action supports a \"hint\" field — a short plain-language tooltip shown on hover. A hint is REQUIRED when the label uses jargon or an abbreviation, or when its effect or important consequences are not obvious. Explain what clicking does and define unfamiliar terms; omit the hint only for a genuinely self-explanatory label.\n" +
         "When task instructions name an Inbox-enabled host operation, use routeMode \"host_command\" with a structured \"hostCommand\" object containing \"command\" and \"parameters\". Do not guess command names or use this route for ordinary agent work.\n" +
         "Do NOT include any 'done' action whose label is purely acknowledgement-only — it records nothing and adds no value.\n\n";
 
@@ -269,8 +269,9 @@ internal sealed class CodeHealthRunner {
         "   for usability and let the user act on your findings without typing. Use them whenever a natural follow-up\n" +
         "   choice exists. Consider `\"draft\"` actions when you need the user to answer questions: pre-fill the prompt\n" +
         "   with labeled placeholders so the user just fills in the blanks and sends.\n" +
-        "   Each action may also include an optional `\"hint\"` field — a short tooltip string shown when the user hovers\n" +
-        "   over the button.\n" +
+        "   Each action supports a `\"hint\"` tooltip. It is REQUIRED when the label uses jargon or an abbreviation, or\n" +
+        "   when its effect or important consequences are not obvious. Use plain language to explain what clicking does\n" +
+        "   and define unfamiliar terms; omit it only for a genuinely self-explanatory label.\n" +
         "   When the task instructions explicitly name an Inbox-enabled host operation, use `\"routeMode\":\"host_command\"`\n" +
         "   and a structured `\"hostCommand\"` object with `\"command\"` and `\"parameters\"`. This lets the host validate and\n" +
         "   perform the already-determined operation when the user clicks; do not launch an agent merely to echo it.\n" +
@@ -402,7 +403,7 @@ internal sealed class CodeHealthRunner {
         "    { \"label\": \"Add to backlog\", \"routeMode\": \"start_coordinator\", \"prompt\": \"...\" }\n" +
         "  ]\n" +
         "}\n" +
-        "Each action may include an optional \"hint\" field — a short tooltip shown when the user hovers over the button.\n" +
+        "Each action supports a \"hint\" tooltip. It is REQUIRED when the label uses jargon or an abbreviation, or when its effect or important consequences are not obvious. Explain what clicking does in plain language and define unfamiliar terms; omit it only for a genuinely self-explanatory label.\n" +
         "Do NOT include any 'done' action whose label is purely acknowledgement-only — it records nothing and adds no value.";
 
     /// <summary>

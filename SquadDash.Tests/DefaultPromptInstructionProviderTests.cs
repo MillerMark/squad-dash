@@ -345,6 +345,21 @@ internal sealed class DefaultPromptInstructionProviderTests
     }
 
     [Test]
+    public void InboxInstruction_RequiresHintsForJargonOrUnclearEffects()
+    {
+        var instruction = new DefaultPromptInstructionProvider().Get().InboxMessage;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("`\"hint\"`"));
+            Assert.That(instruction, Does.Contain("required whenever the label uses jargon or an abbreviation"));
+            Assert.That(instruction, Does.Contain("effect or important consequences are not obvious"));
+            Assert.That(instruction, Does.Contain("define unfamiliar terms in context"));
+            Assert.That(instruction, Does.Contain("It may be omitted only when the label is genuinely self-explanatory"));
+        });
+    }
+
+    [Test]
     public void InboxInstruction_DefinesExistingProtocolAsManualTestKitDelivery()
     {
         var instruction = new DefaultPromptInstructionProvider().Get().InboxMessage;
