@@ -17,7 +17,7 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
     }
 
     [Test]
-    public void SubjectContextMenu_HasOnlyCopyInboxDetailsAndPreservesCaptionGestures() =>
+    public void SubjectContextMenu_HasOnlyCopyMessageDetailsAndPreservesCaptionGestures() =>
         WpfTestContext.Run(() =>
         {
             var message = new InboxMessage { Id = "copy-details", Subject = "Subject", Body = "Body", Actions = [] };
@@ -46,7 +46,7 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
                     Assert.That(subject.Text, Is.EqualTo(message.Subject));
                     Assert.That(subject.FontWeight, Is.EqualTo(FontWeights.Bold));
                     Assert.That(menu.Items, Has.Count.EqualTo(1));
-                    Assert.That(item.Header, Is.EqualTo("Copy Inbox Details"));
+                    Assert.That(item.Header, Is.EqualTo("Copy Message Details"));
                     Assert.That(menu.Style, Is.SameAs(menuStyle));
                     Assert.That(item.Style, Is.SameAs(itemStyle));
                     Assert.That(System.Windows.Shell.WindowChrome.GetIsHitTestVisibleInChrome(subject), Is.False);

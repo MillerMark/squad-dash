@@ -28,7 +28,8 @@ internal sealed class InboxPanelControllerTests
         Action<string>?   onFilterPersisted              = null,
         Action<bool>?     onUnreadOnlyPersisted          = null,
         Action?           onFilterChangedForIntelliSense = null,
-        string[]?         agentSuggestions               = null)
+        string[]?         agentSuggestions               = null,
+        Func<string, string?>? resolveMessageFilePath     = null)
     {
         var listPanel         = new StackPanel();
         var scrollContainer   = new ScrollViewer { Content = listPanel };
@@ -62,8 +63,64 @@ internal sealed class InboxPanelControllerTests
             onFilterPersisted:              onFilterPersisted,
             onUnreadOnlyPersisted:          onUnreadOnlyPersisted,
             onFilterChangedForIntelliSense: onFilterChangedForIntelliSense,
-            agentSuggestions:               agentSuggestions);
+            agentSuggestions:               agentSuggestions,
+            resolveMessageFilePath:         resolveMessageFilePath);
     }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void RowContextMenu_HasThemedCopyMessageDetailsBeforeArchive(bool read) =>
+        WpfTestContext.Run(() =>
+        {
+            var resolverCalled = false;
+            var ctrl = BuildMinimal(resolveMessageFilePath: id =>
+            {
+                resolverCalled = true;
+                return $@"C:\Workspace\.squad\inbox\{id}.json";
+            });
+            var message = new InboxMessage { Id = "copy-details", Subject = "Subject", Read = read };
+            ctrl.Refresh([message]);
+
+            var menu = ctrl.FindVisibleMessageRow(message.Id)!.ContextMenu!;
+            var copyItem = menu.Items.OfType<MenuItem>().Single(i => Equals(i.Header, "Copy Message Details"));
+            var style = new Style(typeof(MenuItem));
+            copyItem.Resources["ThemedMenuItemStyle"] = style;
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(menu.Items.OfType<MenuItem>().Select(i => i.Header),
+                    Is.EqualTo(new[] { read ? "Mark as unread" : "Mark as read", "Copy Message Details", "Archive", "Delete" }));
+                Assert.That(menu.Items[1], Is.TypeOf<Separator>());
+                Assert.That(menu.Items[2], Is.SameAs(copyItem));
+                Assert.That(menu.Items[3], Is.TypeOf<Separator>());
+                Assert.That(copyItem.Style, Is.SameAs(style));
+                Assert.That(resolverCalled, Is.False, "Resolve the path only when the copy action is invoked.");
+            });
+        });
+
+    [Test]
+    public void RowContextMenu_WithoutResolver_StillOffersCopyMessageDetails() =>
+        WpfTestContext.Run(() =>
+        {
+            var ctrl = BuildMinimal();
+            var message = new InboxMessage { Id = "copy-details", Subject = "Subject" };
+            ctrl.Refresh([message]);
+
+            Assert.That(ctrl.FindVisibleMessageRow(message.Id)!.ContextMenu!.Items
+                .OfType<MenuItem>().Count(i => Equals(i.Header, "Copy Message Details")), Is.EqualTo(1));
+        });
+
+    [Test]
+    public void SimulatedRow_StillSuppressesContextMenu() =>
+        WpfTestContext.Run(() =>
+        {
+            var ctrl = BuildMinimal();
+            var message = new InboxMessage { Id = "simulated", Subject = "Subject" };
+            ctrl.AddSimulatedMessage("artifact", message);
+
+            Assert.That(ctrl.FindVisibleMessageRow(message.Id), Is.Not.Null);
+            Assert.That(ctrl.FindVisibleMessageRow(message.Id)!.ContextMenu, Is.Null);
+        });
 
     // ── PanelVisible initial state ────────────────────────────────────────────
 

@@ -204,7 +204,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         subjectLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         var subjectContextMenu = new ContextMenu();
         subjectContextMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
-        var copyInboxDetailsItem = new MenuItem { Header = "Copy Inbox Details" };
+        var copyInboxDetailsItem = new MenuItem { Header = "Copy Message Details" };
         copyInboxDetailsItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         copyInboxDetailsItem.Click += (_, _) =>
         {

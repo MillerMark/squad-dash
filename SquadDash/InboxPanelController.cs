@@ -35,6 +35,7 @@ internal sealed class InboxPanelController
     private readonly Action<InboxMessage>?    _addToNewChat;
     private readonly Action<InboxAttachment>? _openDecomposePlan;
     private readonly Action<InboxMessage>?    _addAsNote;
+    private readonly Func<string, string?>?   _resolveMessageFilePath;
     private Func<string, TaskItem?>?          _lookupTask;
 
     // ── Panel visibility and filter-persistence delegates ─────────────────────
@@ -93,7 +94,8 @@ internal sealed class InboxPanelController
         Action<string>?           onFilterPersisted              = null,
         Action<bool>?             onUnreadOnlyPersisted          = null,
         Action?                   onFilterChangedForIntelliSense = null,
-        string[]?                 agentSuggestions               = null)
+        string[]?                 agentSuggestions               = null,
+        Func<string, string?>?    resolveMessageFilePath         = null)
     {
         _listPanel              = listPanel;
         _listScrollContainer    = listScrollContainer;
@@ -123,6 +125,7 @@ internal sealed class InboxPanelController
         _onFilterPersisted               = onFilterPersisted;
         _onUnreadOnlyPersisted           = onUnreadOnlyPersisted;
         _onFilterChangedForIntelliSense  = onFilterChangedForIntelliSense;
+        _resolveMessageFilePath         = resolveMessageFilePath;
 
         _listScrollContainer.IsKeyboardFocusWithinChanged+= (_, _) =>
         {
@@ -987,6 +990,25 @@ internal sealed class InboxPanelController
             menu.Items.Add(markReadItem);
         }
 
+        menu.Items.Add(MakeSep());
+
+        var copyDetailsItem = MakeItem("Copy Message Details");
+        copyDetailsItem.Click += (_, _) =>
+        {
+            var path = _resolveMessageFilePath?.Invoke(msg.Id);
+            if (string.IsNullOrEmpty(path))
+                path = msg.Id + ".json";
+            var text = InboxMessageWindow.BuildInboxDetailsClipboardText(msg.Subject, path);
+            try
+            {
+                Clipboard.SetText(text);
+            }
+            catch (System.Runtime.InteropServices.COMException ex)
+            {
+                SquadDashTrace.Write(TraceCategory.Inbox, $"Could not copy message details to the clipboard: {ex.Message}");
+            }
+        };
+        menu.Items.Add(copyDetailsItem);
         menu.Items.Add(MakeSep());
 
         var archiveItem = MakeItem("Archive");

@@ -57925,7 +57925,8 @@ public partial class MainWindow : Window
                                         _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
                                     },
             onFilterChangedForIntelliSense: () => TryUpdateInboxIntelliSense(),
-            agentSuggestions:       _agentDisplayNames);
+            agentSuggestions:       _agentDisplayNames,
+            resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id));
 
         _inboxPanel.ClearFilterAction = () => { if (InboxFilterBox is not null) InboxFilterBox.Text = string.Empty; };
 
