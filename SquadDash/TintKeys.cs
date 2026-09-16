@@ -105,6 +105,7 @@ internal static class TintKeys
         "ImportantText",
         "LabelText",
         "TitleText",
+        "TaskTitle",
         "BodyText",
         "CodeText",
         "SubtleText",

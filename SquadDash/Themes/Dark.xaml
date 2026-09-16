@@ -135,6 +135,7 @@
     <SolidColorBrush x:Key="SubtleText" Color="#A9A096"/>
     <SolidColorBrush x:Key="SectionHeader" Color="#A1988E"/><!-- SubtleText stepped ~17% toward TitleText for lower-contrast section labels -->
     <SolidColorBrush x:Key="TitleText" Color="#797166"/>
+    <SolidColorBrush x:Key="TaskTitle" Color="#8C8275"/><!-- TitleText stepped ~20% toward LabelText for higher-contrast inspector task titles -->
     <SolidColorBrush x:Key="AgentRoleText" Color="#D4B880"/>
     <SolidColorBrush x:Key="AgentStatusText" Color="#CCA070"/>
     <SolidColorBrush x:Key="AgentDetailText" Color="#8A7868"/>

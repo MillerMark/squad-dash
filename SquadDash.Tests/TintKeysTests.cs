@@ -11,6 +11,7 @@ internal sealed class TintKeysTests {
             Assert.That(TintKeys.All, Does.Contain("InputSurface"));
             Assert.That(TintKeys.All, Does.Contain("PanelBorder"));
             Assert.That(TintKeys.All, Does.Contain("BodyText"));
+            Assert.That(TintKeys.All, Does.Contain("TaskTitle"));
             Assert.That(TintKeys.All, Does.Contain("ScrollBarThumbBrush"));
         });
     }
@@ -36,10 +37,9 @@ internal sealed class TintKeysTests {
 
     [Test]
     public void TintKeys_CountMatchesKnownTotal() {
-        // 30 surfaces + 1 textbox bg + 2 chrome + 23 borders/callout + 20 text + 4 scrollbar + 2 editor = 82
         // A lower count would indicate a duplicate in the source literal (silently dropped by HashSet)
         // or an accidental deletion.
-        Assert.That(TintKeys.All.Count, Is.EqualTo(85));
+        Assert.That(TintKeys.All.Count, Is.EqualTo(86));
     }
 
     [Test]
