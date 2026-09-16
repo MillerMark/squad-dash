@@ -75,10 +75,12 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
     private Grid                                          _instructionsHost       = null!;
     private Canvas?                                       _instructionsOverlay;
-    private System.Windows.Shapes.Rectangle?              _instructionsHighlight;
+    private System.Windows.Shapes.Path?                   _instructionsHighlight;
     private DispatcherTimer?                              _instructionsHoverTimer;
     private readonly List<(int CharStart, int CharLength)> _previewBlockSrcRanges  = new();
     private readonly List<Block>                           _previewBlocks          = new();
+    private readonly List<(Run Run, int CharStart, int CharLength)> _previewInlineSrcRanges = new();
+    private Run? _lastHoveredRun;
     private int                                            _lastHoveredBlockIdx    = -1;
 
     // ── Re-entrance guard ─────────────────────────────────────────────────────
@@ -210,6 +212,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _markdownPreview.PreviewMouseMove += OnMarkdownPreviewMouseMove;
         _markdownPreview.MouseLeave       += (_, _) => {
             _lastHoveredBlockIdx = -1;
+            _lastHoveredRun = null;
             ClearInstructionsHoverHighlight();
         };
 
@@ -840,37 +843,49 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
     private void UpdateMarkdownPreview() {
         var rawText = _instructionsPanel.GetText();
-
-        var segments             = ResolveConditionalSegments(rawText);
         var conditionalBrush     = GetConditionalTextBrush();
         var conditionalBgBrush   = GetConditionalBackgroundBrush();
 
+        _previewBlockSrcRanges.Clear();
+        _previewBlocks.Clear();
+        _previewInlineSrcRanges.Clear();
+        _markdownPreview.Document = BuildMarkdownPreview(
+            rawText, _optionValues, conditionalBrush, conditionalBgBrush,
+            _previewBlockSrcRanges, _previewInlineSrcRanges);
+        _previewBlocks.AddRange(_markdownPreview.Document.Blocks);
+        _lastHoveredBlockIdx = -1;
+        _lastHoveredRun = null;
+    }
+
+    internal static FlowDocument BuildMarkdownPreview(
+        string rawText, IReadOnlyDictionary<string, string> optionValues,
+        Brush conditionalBrush, Brush conditionalBgBrush,
+        List<(int CharStart, int CharLength)> blockSrcRanges,
+        List<(Run Run, int CharStart, int CharLength)> inlineSrcRanges) {
+        var segments = LoopMdParser.ResolveSegments(rawText, optionValues);
         var combined = new FlowDocument {
             FontFamily    = new FontFamily("Segoe UI, Segoe UI Emoji"),
-            FontSize      = Application.Current.Resources["FontSizeMedium"] is double sz ? sz : 13.0,
+            FontSize      = Application.Current?.Resources["FontSizeMedium"] is double sz ? sz : 13.0,
             PagePadding   = new Thickness(18),
             TextAlignment = TextAlignment.Left,
         };
         combined.SetResourceReference(FlowDocument.BackgroundProperty, "RosterPanelSurface");
         combined.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
 
-        _previewBlockSrcRanges.Clear();
-        _previewBlocks.Clear();
         int searchFrom = 0;
 
         foreach (var (segText, isConditional) in segments) {
             if (string.IsNullOrWhiteSpace(segText)) continue;
 
             // Locate this segment in rawText so we can compute block char offsets.
-            var searchKey  = segText.TrimStart('\n');
+            var searchKey  = segText;
             var segStart   = rawText.IndexOf(searchKey, searchFrom, StringComparison.Ordinal);
             if (segStart < 0) segStart = searchFrom;
             searchFrom = segStart + segText.Length;
 
-            // Split into sub-segments, separating system variable substitution spans
-            // so that substituted values can be highlighted distinctly.
             int subOffset = 0;
-            foreach (var (origPiece, resolvedPiece, isSystemVar) in SplitOnSystemVars(segText)) {
+            var inlineVariables = FindInlineSystemVars(segText, optionValues);
+            foreach (var (origPiece, resolvedPiece, isSystemVar) in SplitOnSystemVars(segText, optionValues, inlineVariables)) {
                 if (string.IsNullOrWhiteSpace(resolvedPiece)) {
                     subOffset += origPiece.Length;
                     continue;
@@ -878,9 +893,19 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
                 var pieceAbsStart  = segStart + subOffset;
                 var shouldHighlight = isConditional || isSystemVar;
+                var inlineReplacements = new Dictionary<string, (string Value, int CharStart, int CharLength)>();
+                var markdown = new StringBuilder(resolvedPiece);
+                // Opaque markers prevent option values (or names) from becoming Markdown syntax.
+                foreach (var variable in inlineVariables.Where(v =>
+                    v.Start >= subOffset && v.Start < subOffset + origPiece.Length).Reverse()) {
+                    var marker = "SQUADDASHVAR" + Guid.NewGuid().ToString("N");
+                    markdown.Remove(variable.Start - subOffset, variable.Length);
+                    markdown.Insert(variable.Start - subOffset, marker);
+                    inlineReplacements.Add(marker, (variable.Value, segStart + variable.Start, variable.Length));
+                }
 
                 try {
-                    var segDoc = MarkdownFlowDocumentBuilder.BuildWithMap(resolvedPiece, out var blockLineRanges);
+                    var segDoc = MarkdownFlowDocumentBuilder.BuildWithMap(markdown.ToString(), out var blockLineRanges);
                     var blocks = segDoc.Blocks.ToList();
                     for (int i = 0; i < blocks.Count; i++) {
                         var block = blocks[i];
@@ -889,7 +914,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                             // Map all blocks of the substitution back to the token's source position
                             srcRange = (pieceAbsStart, origPiece.Length);
                         } else {
-                            var origLines = origPiece.TrimStart('\n').Split('\n');
+                            var origLines = origPiece.Split('\n');
                             var range = i < blockLineRanges.Count ? blockLineRanges[i] : (StartLine: 0, EndLine: 0);
                             srcRange = ComputeBlockCharRange(origLines, pieceAbsStart, range);
                         }
@@ -899,20 +924,21 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
                             ApplyForeground(block, conditionalBrush);
                             ApplyBackground(block, conditionalBgBrush);
                         }
+                        ReplaceInlineSystemVars(block, inlineReplacements, inlineSrcRanges);
 
-                        _previewBlockSrcRanges.Add(srcRange);
-                        _previewBlocks.Add(block);
+                        blockSrcRanges.Add(srcRange);
                         combined.Blocks.Add(block);
                     }
                 }
-                catch {
+                catch (Exception ex) {
+                    SquadDashTrace.Write(TraceCategory.General,
+                        $"CodeHealthTaskEditorWindow: preview rendering failed: {ex.Message}");
                     var para = new Paragraph(new Run(resolvedPiece));
                     if (shouldHighlight) {
                         para.Foreground = conditionalBrush;
                         para.Background = conditionalBgBrush;
                     }
-                    _previewBlockSrcRanges.Add((pieceAbsStart, origPiece.Length));
-                    _previewBlocks.Add(para);
+                    blockSrcRanges.Add((pieceAbsStart, origPiece.Length));
                     combined.Blocks.Add(para);
                 }
 
@@ -920,8 +946,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             }
         }
 
-        _markdownPreview.Document = combined;
-        _lastHoveredBlockIdx = -1;
+        return combined;
     }
 
     private void OnPreviewBlockMouseEnter(int blockIdx) {
@@ -933,6 +958,21 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
     private void OnMarkdownPreviewMouseMove(object sender, MouseEventArgs e) {
         var mousePos = e.GetPosition(_markdownPreview);
+        var hoveredRun = e.OriginalSource as Run;
+        if (hoveredRun is null && FindPreviewDocumentVisual(_markdownPreview) is { } pageVisual) {
+            var offset = pageVisual.TranslatePoint(new Point(0, 0), _markdownPreview);
+            hoveredRun = FindInlineAtPoint(_previewInlineSrcRanges.Select(range => range.Run),
+                new Point(mousePos.X - offset.X, mousePos.Y - offset.Y));
+        }
+        var inlineRange = _previewInlineSrcRanges.Find(range => ReferenceEquals(range.Run, hoveredRun));
+        if (inlineRange.Run is not null) {
+            if (!ReferenceEquals(_lastHoveredRun, hoveredRun))
+                HighlightInstructionsRange(inlineRange.CharStart, inlineRange.CharLength, exact: true);
+            _lastHoveredRun = hoveredRun;
+            _lastHoveredBlockIdx = -1;
+            return;
+        }
+        _lastHoveredRun = null;
         int idx = FindHoveredBlockIndex(mousePos);
         if (idx == _lastHoveredBlockIdx) return;
         _lastHoveredBlockIdx = idx;
@@ -942,24 +982,38 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             ClearInstructionsHoverHighlight();
     }
 
+    internal static Run? FindInlineAtPoint(IEnumerable<Run> runs, Point documentPoint) {
+        foreach (var run in runs) {
+            if (!run.ContentStart.HasValidLayout) continue;
+            for (var pointer = run.ContentStart; pointer.CompareTo(run.ContentEnd) < 0;
+                 pointer = pointer.GetPositionAtOffset(1)) {
+                var start = pointer.GetCharacterRect(LogicalDirection.Forward);
+                var end = pointer.GetPositionAtOffset(1).GetCharacterRect(LogicalDirection.Backward);
+                if (start != Rect.Empty && end != Rect.Empty &&
+                    Rect.Union(start, end).Contains(documentPoint))
+                    return run;
+            }
+        }
+        return null;
+    }
+
     /// <summary>
     /// Finds the index of the block the mouse is currently over.
     /// <para>
     /// <see cref="TextPointer.GetCharacterRect"/> returns coordinates in the
-    /// <c>DocumentPageView</c> visual's coordinate space.  Mouse position from
+    /// document view's coordinate space.  Mouse position from
     /// <c>e.GetPosition(_markdownPreview)</c> is in the <see cref="FlowDocumentScrollViewer"/>
     /// viewport space.  These differ by however far the page visual has been scrolled.
-    /// We use <c>TranslatePoint</c> from the <c>DocumentPageView</c> visual to
+    /// We use <c>TranslatePoint</c> from the document view visual to
     /// <c>_markdownPreview</c> to compute the exact offset, then compare corrected Y values.
     /// </para>
     /// </summary>
     private int FindHoveredBlockIndex(Point mousePos) {
         if (_previewBlocks.Count == 0) return -1;
 
-        // Locate the DocumentPageView visual that renders the FlowDocument content.
+        // Locate the visual that renders the FlowDocument content.
         // Its coordinate system is the same one GetCharacterRect reports in.
-        var pageVisual = FindVisualDescendant(_markdownPreview,
-            v => v.GetType().Name == "DocumentPageView") as FrameworkElement;
+        var pageVisual = FindPreviewDocumentVisual(_markdownPreview);
         if (pageVisual == null) return -1;
 
         // offset = where the page visual's (0,0) appears in _markdownPreview viewport coords.
@@ -980,6 +1034,10 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         }
         return best;
     }
+
+    internal static FrameworkElement? FindPreviewDocumentVisual(FlowDocumentScrollViewer viewer) =>
+        FindVisualDescendant(viewer,
+            v => v.GetType().Name is "FlowDocumentView" or "DocumentPageView") as FrameworkElement;
 
     private static DependencyObject? FindVisualDescendant(
         DependencyObject parent, Func<DependencyObject, bool> predicate) {
@@ -1031,7 +1089,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         }
     }
 
-    private void HighlightInstructionsRange(int start, int length) {
+    private void HighlightInstructionsRange(int start, int length, bool exact = false) {
         ClearInstructionsHoverHighlight();
         if (length <= 0) return;
 
@@ -1051,16 +1109,27 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             ? Color.FromArgb(60, 255, 220, 80)
             : Color.FromArgb(50, 100, 180, 255);
 
-        double highlightWidth = Math.Max(editorBox.ActualWidth - (charTopLeft.X - origin.X), 0);
+        var geometry = new GeometryGroup { FillRule = FillRule.Nonzero };
+        if (exact) {
+            for (int i = start; i < start + length; i++) {
+                var left = editorBox.GetTextPointerAt(i).GetCharacterRect(LogicalDirection.Forward);
+                var right = editorBox.GetTextPointerAt(i + 1).GetCharacterRect(LogicalDirection.Backward);
+                if (left == Rect.Empty || right == Rect.Empty) continue;
+                var bounds = Rect.Union(left, right);
+                var location = editorBox.TranslatePoint(bounds.TopLeft, overlay);
+                geometry.Children.Add(new RectangleGeometry(new Rect(location, bounds.Size)));
+            }
+        } else {
+            double highlightWidth = Math.Max(editorBox.ActualWidth - (charTopLeft.X - origin.X), 0);
+            geometry.Children.Add(new RectangleGeometry(
+                new Rect(charTopLeft, new Size(highlightWidth, Math.Max(rect.Height, 14)))));
+        }
 
-        _instructionsHighlight = new System.Windows.Shapes.Rectangle {
-            Width             = highlightWidth,
-            Height            = Math.Max(rect.Height, 14),
+        _instructionsHighlight = new System.Windows.Shapes.Path {
+            Data              = geometry,
             Fill              = new SolidColorBrush(highlightColor),
             IsHitTestVisible  = false,
         };
-        Canvas.SetLeft(_instructionsHighlight, charTopLeft.X);
-        Canvas.SetTop(_instructionsHighlight,  charTopLeft.Y);
         overlay.Children.Add(_instructionsHighlight);
 
         _instructionsHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -1365,17 +1434,21 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
     /// <summary>
     /// Splits <paramref name="text"/> into sub-segments on <c>{{varname}}</c> tokens.
-    /// For each known variable, emits the substituted value with <c>IsSystemVar=true</c>
-    /// so the preview can apply conditional background highlighting to those spans.
+    /// Inline variables stay in their Markdown block; standalone substitutions retain
+    /// their separate blocks and conditional highlighting.
     /// </summary>
-    private IEnumerable<(string OriginalText, string ResolvedText, bool IsSystemVar)> SplitOnSystemVars(string text) {
+    private static IEnumerable<(string OriginalText, string ResolvedText, bool IsSystemVar)> SplitOnSystemVars(
+        string text, IReadOnlyDictionary<string, string> optionValues,
+        List<(int Start, int Length, string Value)> inlineVariables) {
         const string pattern = @"\{\{([^}#/][^}]*)\}\}";
         var offset = 0;
         foreach (Match m in Regex.Matches(text, pattern)) {
+            if (inlineVariables.Any(v => v.Start == m.Index))
+                continue;
             if (m.Index > offset)
                 yield return (text[offset..m.Index], text[offset..m.Index], false);
             var key = m.Groups[1].Value.Trim();
-            if (_optionValues.TryGetValue(key, out var val))
+            if (optionValues.TryGetValue(key, out var val))
                 yield return (m.Value, val, true);
             else
                 yield return (m.Value, m.Value, false);
@@ -1383,6 +1456,92 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         }
         if (offset < text.Length)
             yield return (text[offset..], text[offset..], false);
+    }
+
+    private static List<(int Start, int Length, string Value)> FindInlineSystemVars(
+        string text, IReadOnlyDictionary<string, string> optionValues) {
+        var variables = new List<(int Start, int Length, string Value)>();
+        var offset = 0;
+        var inCodeFence = false;
+        foreach (var line in text.Split('\n')) {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+                inCodeFence = !inCodeFence;
+            else if (!inCodeFence && !trimmed.StartsWith('|')) {
+                foreach (Match match in Regex.Matches(line, @"\{\{([^}#/][^}]*)\}\}")) {
+                    if (optionValues.TryGetValue(match.Groups[1].Value.Trim(), out var value) &&
+                        !value.Contains('\n') && !value.Contains('\r') &&
+                        (!string.IsNullOrWhiteSpace(line[..match.Index]) ||
+                         !string.IsNullOrWhiteSpace(line[(match.Index + match.Length)..]))) {
+                        variables.Add((offset + match.Index, match.Length, value));
+                    }
+                }
+            }
+            offset += line.Length + 1;
+        }
+        return variables;
+    }
+
+    private static void ReplaceInlineSystemVars(
+        Block block, Dictionary<string, (string Value, int CharStart, int CharLength)> replacements,
+        List<(Run Run, int CharStart, int CharLength)> sourceRanges) {
+        if (replacements.Count == 0) return;
+        switch (block) {
+            case Paragraph paragraph:
+                ReplaceInlines(paragraph.Inlines);
+                break;
+            case Section section:
+                foreach (var child in section.Blocks.ToList())
+                    ReplaceInlineSystemVars(child, replacements, sourceRanges);
+                break;
+            case List list:
+                foreach (var item in list.ListItems.ToList())
+                    foreach (var child in item.Blocks.ToList())
+                        ReplaceInlineSystemVars(child, replacements, sourceRanges);
+                break;
+        }
+
+        void ReplaceInlines(InlineCollection inlines) {
+            foreach (var inline in inlines.ToList()) {
+                if (inline is Span span) {
+                    ReplaceInlines(span.Inlines);
+                    continue;
+                }
+                if (inline is not Run run) continue;
+                var matches = Regex.Matches(run.Text, "SQUADDASHVAR[0-9a-f]{32}")
+                    .Where(match => replacements.ContainsKey(match.Value)).ToList();
+                if (matches.Count == 0) continue;
+
+                var formatted = new Span();
+                foreach (var property in new[] {
+                    TextElement.FontFamilyProperty, TextElement.FontSizeProperty,
+                    TextElement.FontWeightProperty, TextElement.FontStyleProperty,
+                    TextElement.ForegroundProperty, TextElement.BackgroundProperty,
+                }) {
+                    if (run.ReadLocalValue(property) == DependencyProperty.UnsetValue) continue;
+                    if (DependencyPropertyHelper.GetValueSource(run, property).IsExpression &&
+                        (property == TextElement.ForegroundProperty || property == TextElement.BackgroundProperty))
+                        formatted.SetResourceReference(property,
+                            property == TextElement.ForegroundProperty ? "CodeText" : "CodeSurface");
+                    else
+                        formatted.SetValue(property, run.GetValue(property));
+                }
+                int offset = 0;
+                foreach (var match in matches) {
+                    if (match.Index > offset)
+                        formatted.Inlines.Add(new Run(run.Text[offset..match.Index]));
+                    var replacement = replacements[match.Value];
+                    var code = MarkdownFlowDocumentBuilder.CreateInlineCodeRun(replacement.Value);
+                    formatted.Inlines.Add(code);
+                    sourceRanges.Add((code, replacement.CharStart, replacement.CharLength));
+                    offset = match.Index + match.Length;
+                }
+                if (offset < run.Text.Length)
+                    formatted.Inlines.Add(new Run(run.Text[offset..]));
+                inlines.InsertBefore(run, formatted);
+                inlines.Remove(run);
+            }
+        }
     }
 
     private bool IsDark() {

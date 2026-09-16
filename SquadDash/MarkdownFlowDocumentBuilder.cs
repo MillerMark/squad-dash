@@ -639,7 +639,7 @@ internal static class MarkdownFlowDocumentBuilder {
         return run;
     }
 
-    private static Run CreateInlineCodeRun(
+    internal static Run CreateInlineCodeRun(
         string text,
         FontWeight? fontWeight = null,
         FontStyle? fontStyle = null) {
