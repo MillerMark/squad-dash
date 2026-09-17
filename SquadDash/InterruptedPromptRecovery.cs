@@ -38,7 +38,11 @@ internal sealed record InterruptedPromptRecoveryState(
     InterruptedPromptQueueContext? QueueContext,
     int FailureCount,
     string ErrorMessage,
-    int? InactivitySeconds) {
+    int? InactivitySeconds,
+    string? FailureTitle = null,
+    string? FailureCategory = null,
+    DateTimeOffset? OriginalTurnStartedAt = null,
+    IReadOnlyList<string>? ActiveAgentThreadIds = null) {
 
     internal const int CurrentSchemaVersion = 1;
 }
@@ -74,6 +78,7 @@ internal sealed class InterruptedPromptRecoveryStore {
         return state with {
             Attachments = state.Attachments ?? Array.Empty<FollowUpAttachment>(),
             ActiveAgentLabels = state.ActiveAgentLabels ?? Array.Empty<string>(),
+            ActiveAgentThreadIds = state.ActiveAgentThreadIds ?? Array.Empty<string>(),
             FailureCount = Math.Max(1, state.FailureCount),
         };
     }
@@ -110,15 +115,30 @@ internal static partial class InterruptedPromptRecoveryPresentation {
     internal const string DismissAction = "Dismiss recovery";
     internal const string RunDoctorAction = "Run Squad Doctor";
 
-    internal static bool IsRecoverableInactivityTimeout(Exception exception) =>
-        exception is TimeoutException &&
-        exception.Message.Contains("without bridge activity", StringComparison.OrdinalIgnoreCase) &&
-        exception.Message.Contains("Timed out waiting for Squad", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsRecoverableInactivityTimeout(Exception exception) {
+        var message = exception.Message ?? string.Empty;
+        if (exception is TimeoutException &&
+            message.Contains("without bridge activity", StringComparison.OrdinalIgnoreCase) &&
+            message.Contains("Timed out waiting for Squad", StringComparison.OrdinalIgnoreCase)) {
+            return true;
+        }
+
+        // The SDK's overall request deadline is surfaced as InvalidOperationException rather
+        // than TimeoutException. It is still a recoverable interruption: agents and tools may
+        // have produced useful work before the session.idle deadline elapsed.
+        return SessionIdleTimeoutRegex().IsMatch(message) ||
+               message.Contains("Provider request timed out", StringComparison.OrdinalIgnoreCase);
+    }
 
     internal static int? ExtractInactivitySeconds(string errorMessage) {
         var match = InactivitySecondsRegex().Match(errorMessage ?? string.Empty);
-        return match.Success && int.TryParse(match.Groups[1].Value, out var seconds)
-            ? seconds
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var seconds))
+            return seconds;
+
+        var millisecondsMatch = TimeoutMillisecondsRegex().Match(errorMessage ?? string.Empty);
+        return millisecondsMatch.Success &&
+               long.TryParse(millisecondsMatch.Groups[1].Value, out var milliseconds)
+            ? (int)Math.Max(1, Math.Ceiling(milliseconds / 1000d))
             : null;
     }
 
@@ -150,6 +170,9 @@ internal static partial class InterruptedPromptRecoveryPresentation {
         var duration = state.InactivitySeconds is { } seconds
             ? FormatDuration(seconds)
             : "the inactivity limit";
+        var isBridgeInactivity = state.ErrorMessage.Contains(
+            "without bridge activity",
+            StringComparison.OrdinalIgnoreCase);
         var restoredText = restoredAfterRestart
             ? " SquadDash recovered the interrupted turn after restart."
             : string.Empty;
@@ -162,9 +185,25 @@ internal static partial class InterruptedPromptRecoveryPresentation {
             ? string.Empty
             : $" Previously active agents: {FormatNaturalList(activeAgents)}.";
         var doctorAction = state.FailureCount > 1 ? $" [{RunDoctorAction}]" : string.Empty;
-        return $"Squad stopped producing activity for {duration}, so SquadDash restarted the runtime.{restoredText}\n\n" +
-               $"SquadDash paused queued prompts and loop progress at this checkpoint.{activeAgentsText} Continuing will first inspect current changes and agent output, then resume only unfinished work.\n\n" +
+        var failureLead = isBridgeInactivity
+            ? $"Squad stopped producing activity for {duration}, so SquadDash restarted the runtime."
+            : $"{state.FailureTitle ?? "Provider request timed out"} after {duration} before Squad returned a complete answer.";
+        var timeoutClarification = isBridgeInactivity
+            ? string.Empty
+            : " This timeout does not by itself indicate that the model ran out of tokens or budget; SquadDash reports those conditions separately when the provider supplies them.";
+        return $"{failureLead}{restoredText}{timeoutClarification}\n\n" +
+               $"SquadDash marked this request Interrupted—recoverable and paused queued prompts and loop progress at this checkpoint.{activeAgentsText} Child-agent work may have produced partial edits or artifacts, and any later child report remains part of this recovery.\n\n" +
+               "Continuing will preserve the same request lineage, inspect existing changes and child-agent output, clean up temporary resources created by the interrupted run when identifiable, and continue only if the audit finds remaining work.\n\n" +
                $"[{BuildPrimaryActionLabel(state)}] [{EditPromptAction}] [{ViewDiagnosticsAction}] [{DismissAction}]{doctorAction}";
+    }
+
+    internal static string BuildResumeAttemptText(InterruptedPromptRecoveryState state) {
+        var target = CleanLabel(state.TargetAgentLabel);
+        var route = string.IsNullOrWhiteSpace(target)
+            ? "the preserved request"
+            : $"{target}'s preserved request";
+        return $"Attempting to recover the interrupted request from {route}. " +
+               "SquadDash is preserving its recovery lineage, partial edits, artifacts, and child-agent output while it determines whether any work remains.";
     }
 
     /// <summary>
@@ -205,8 +244,14 @@ internal static partial class InterruptedPromptRecoveryPresentation {
 
     internal static string BuildContinuationPrompt(InterruptedPromptRecoveryState state) {
         var builder = new StringBuilder();
-        builder.AppendLine("Continue the work interrupted by the previous runtime inactivity timeout.");
-        builder.AppendLine("Before changing anything, inspect the current working tree, recent tool output, agent threads, and any produced artifacts. Reconcile what already completed and resume only unfinished work; do not blindly repeat commands or edits that may already have succeeded.");
+        builder.AppendLine("Continue the same work interrupted by the previous timeout. This is a recovery of the existing request, not a new task.");
+        builder.AppendLine($"Recovery lineage: {state.RecoveryId}.");
+        builder.AppendLine("Before changing anything, inspect the current working tree, recent tool output, agent threads, and any produced artifacts. Reconcile what already completed and determine whether anything remains. Continue only work the audit finds unfinished; do not blindly repeat commands or edits that may already have succeeded.");
+        builder.AppendLine("Treat overlapping edits and artifacts as candidate work from this interrupted request unless evidence shows they predated it. Do not reject or abandon them merely because they are already present; audit them, adopt the valid work, and correct the remainder.");
+        builder.AppendLine("Inspect child-agent status and reports. Reuse completed child work, wait for or reconcile work still finishing, and clean up temporary processes, configuration files, and validation artifacts created solely for the interrupted run. Explicitly report anything that cannot be safely cleaned up.");
+
+        if (state.OriginalTurnStartedAt is { } startedAt)
+            builder.AppendLine($"The interrupted request began at {startedAt:O}; use that timestamp as one provenance clue when distinguishing task work from older user-owned changes.");
 
         var activeAgents = state.ActiveAgentLabels
             .Where(label => !string.IsNullOrWhiteSpace(label))
@@ -215,6 +260,15 @@ internal static partial class InterruptedPromptRecoveryPresentation {
         if (activeAgents.Length > 0) {
             builder.AppendLine();
             builder.AppendLine($"Previously active agents: {string.Join(", ", activeAgents)}. Reuse or resume their work when it remains available, and recover equivalent ownership if their prior runtime threads cannot be resumed.");
+        }
+
+        var activeThreadIds = (state.ActiveAgentThreadIds ?? Array.Empty<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (activeThreadIds.Length > 0) {
+            builder.AppendLine();
+            builder.AppendLine($"Previously active agent thread IDs: {string.Join(", ", activeThreadIds)}. Inspect and continue these exact threads before spawning replacements; the IDs are part of the preserved task lineage.");
         }
 
         if (state.QueueContext is { } queue) {
@@ -238,14 +292,29 @@ internal static partial class InterruptedPromptRecoveryPresentation {
 
     internal static string BuildDiagnosticsText(InterruptedPromptRecoveryState state, string? recoveryPath) {
         var builder = new StringBuilder();
-        builder.AppendLine("SquadDash detected a runtime inactivity timeout and restarted the bridge process.");
+        var isBridgeInactivity = state.ErrorMessage.Contains(
+            "without bridge activity",
+            StringComparison.OrdinalIgnoreCase);
+        builder.AppendLine(isBridgeInactivity
+            ? "SquadDash detected a runtime inactivity timeout and restarted the bridge process."
+            : "SquadDash detected that the provider or agent session reached its request deadline before returning a complete answer.");
+        if (!isBridgeInactivity)
+            builder.AppendLine("The reported timeout does not identify token, context, or account-budget exhaustion.");
         builder.AppendLine();
         builder.AppendLine($"Interrupted: {state.InterruptedAt.ToLocalTime():F}");
         builder.AppendLine($"Execution route: {state.ExecutionKind}");
         builder.AppendLine($"Target agent: {state.TargetAgentLabel ?? state.TargetAgentHandle ?? "Coordinator"}");
         if (state.ActiveAgentLabels.Count > 0)
             builder.AppendLine($"Previously active agents: {string.Join(", ", state.ActiveAgentLabels)}");
+        if ((state.ActiveAgentThreadIds?.Count ?? 0) > 0)
+            builder.AppendLine($"Previously active agent threads: {string.Join(", ", state.ActiveAgentThreadIds!)}");
         builder.AppendLine($"Failure count: {state.FailureCount}");
+        if (!string.IsNullOrWhiteSpace(state.FailureTitle))
+            builder.AppendLine($"Failure: {state.FailureTitle}");
+        if (!string.IsNullOrWhiteSpace(state.FailureCategory))
+            builder.AppendLine($"Failure category: {state.FailureCategory}");
+        if (state.OriginalTurnStartedAt is { } startedAt)
+            builder.AppendLine($"Original turn started: {startedAt.ToLocalTime():F}");
         if (!string.IsNullOrWhiteSpace(state.SessionId))
             builder.AppendLine($"Session: {state.SessionId}");
         if (!string.IsNullOrWhiteSpace(recoveryPath))
@@ -267,6 +336,10 @@ internal static partial class InterruptedPromptRecoveryPresentation {
     };
 
     private static string FormatDuration(int seconds) {
+        if (seconds >= 3600 && seconds % 3600 == 0) {
+            var hours = seconds / 3600;
+            return hours == 1 ? "1 hour" : $"{hours} hours";
+        }
         if (seconds >= 60 && seconds % 60 == 0) {
             var minutes = seconds / 60;
             return minutes == 1 ? "1 minute" : $"{minutes} minutes";
@@ -276,6 +349,12 @@ internal static partial class InterruptedPromptRecoveryPresentation {
 
     [GeneratedRegex(@"after\s+(\d+)\s+seconds", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex InactivitySecondsRegex();
+
+    [GeneratedRegex(@"Timeout\s+after\s+(\d+)ms\s+waiting\s+for\s+session\.idle", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SessionIdleTimeoutRegex();
+
+    [GeneratedRegex(@"Timeout\s+after\s+(\d+)ms", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex TimeoutMillisecondsRegex();
 }
 
 internal static partial class InterruptedPromptRecoveryDetector {
@@ -314,6 +393,11 @@ internal static partial class InterruptedPromptRecoveryDetector {
             .Select(label => label!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var activeThreadIds = relatedThreads
+            .Select(thread => thread.ThreadId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         var kind = directThread is null
             ? InterruptedPromptExecutionKind.Coordinator
             : InterruptedPromptExecutionKind.NamedAgentDirect;
@@ -324,6 +408,8 @@ internal static partial class InterruptedPromptRecoveryDetector {
             ? null
             : FirstNonEmpty(directThread.AgentDisplayName, directThread.Title, directThread.AgentName);
 
+        var errorMessage = traceFailure.Value.ErrorMessage;
+        var failure = ProviderFailurePresentation.Analyze(errorMessage);
         return new InterruptedPromptRecoveryState(
             InterruptedPromptRecoveryState.CurrentSchemaVersion,
             Guid.NewGuid().ToString("N"),
@@ -340,8 +426,12 @@ internal static partial class InterruptedPromptRecoveryDetector {
             "Squad",
             null,
             1,
-            traceFailure.Value.ErrorMessage,
-            traceFailure.Value.InactivitySeconds);
+            errorMessage,
+            traceFailure.Value.InactivitySeconds,
+            failure.Title,
+            failure.Category.ToString(),
+            turn.StartedAt,
+            activeThreadIds);
     }
 
     private static bool LooksLikeRuntimeFailure(string responseText) =>

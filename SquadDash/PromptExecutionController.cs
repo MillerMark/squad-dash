@@ -2263,13 +2263,13 @@ internal sealed class PromptExecutionController {
                     submittedAttachments,
                     ex.Message);
                 _clearRuntimeIssue();
-                MarkActiveToolsAsFailed("Runtime inactivity timeout; continuation is available.");
+                MarkActiveToolsAsFailed("Interrupted—recoverable: the provider or agent session timed out; continuation is available.");
                 _transcriptSink.AppendLine(
                     InterruptedPromptRecoveryPresentation.BuildCardText(recovery),
                     ThemeBrush("SystemWarningText"));
-                _updateLeadAgent("Waiting", string.Empty, "The runtime restarted. Continue the interrupted work when ready.");
+                _updateLeadAgent("Waiting", string.Empty, "The request was interrupted. Continue the preserved work when ready.");
                 _updateSessionState("Waiting");
-                _setInstallStatus("Runtime restarted. Continuation is available in the transcript.");
+                _setInstallStatus("Interrupted work can be resumed from the transcript.");
                 return;
             }
             if (TryHandlePlanRuntimeFailure?.Invoke(ex.Message) == true) {
@@ -2360,6 +2360,14 @@ internal sealed class PromptExecutionController {
             .Where(label => !string.IsNullOrWhiteSpace(label))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
+        var activeAgentThreadIds = agents
+            .Where(card => !card.IsLeadAgent)
+            .SelectMany(card => card.Threads)
+            .Where(thread => thread.IsCurrentBackgroundRun && thread.CompletedAt is null)
+            .Select(thread => thread.ThreadId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         var coordinator = agents.FirstOrDefault(card => card.IsLeadAgent);
         var recoveryStore = GetInterruptedPromptRecoveryStore(workspace);
         var priorRecovery = recoveryStore.Load();
@@ -2372,6 +2380,7 @@ internal sealed class PromptExecutionController {
                 queueItem.SourceTag,
                 queueItem.IsSystemInjected,
                 queueItem.DisplayLabel);
+        var failure = ProviderFailurePresentation.Analyze(errorMessage);
         var state = new InterruptedPromptRecoveryState(
             InterruptedPromptRecoveryState.CurrentSchemaVersion,
             Guid.NewGuid().ToString("N"),
@@ -2395,7 +2404,11 @@ internal sealed class PromptExecutionController {
             queueContext,
             Math.Max(1, (priorRecovery?.FailureCount ?? 0) + 1),
             errorMessage,
-            InterruptedPromptRecoveryPresentation.ExtractInactivitySeconds(errorMessage));
+            InterruptedPromptRecoveryPresentation.ExtractInactivitySeconds(errorMessage),
+            failure.Title,
+            failure.Category.ToString(),
+            _currentPromptStartedAt ?? _transcriptSink.CoordinatorThread.CurrentTurn?.StartedAt,
+            activeAgentThreadIds);
         recoveryStore.Save(state);
         _onInterruptedPromptRecoverySaved?.Invoke(state);
         return state;

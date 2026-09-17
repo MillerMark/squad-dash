@@ -206,6 +206,22 @@ internal sealed class WorkspaceIssueFactoryTests {
     }
 
     [Test]
+    public void CreateRuntimeIssue_WhenSessionIdleTimesOut_ShowsExactRecoverableCause() {
+        const string errorMessage = "Timeout after 3600000ms waiting for session.idle";
+
+        var issue = WorkspaceIssueFactory.CreateRuntimeIssue(errorMessage, null);
+
+        Assert.Multiple(() => {
+            Assert.That(issue.Title, Is.EqualTo("Provider request timed out"));
+            Assert.That(issue.Message, Does.Contain("allowed time"));
+            Assert.That(issue.Message, Does.Contain("does not indicate token or budget exhaustion"));
+            Assert.That(issue.DetailText, Does.Contain("preserve partial edits"));
+            Assert.That(issue.HelpWindowContent, Does.Contain(errorMessage));
+            Assert.That(issue.HelpWindowContent, Does.Contain("same request"));
+        });
+    }
+
+    [Test]
     public void CreateRuntimeIssue_WhenNullErrorMessage_ReturnsGenericFailureTitle() {
         var issue = WorkspaceIssueFactory.CreateRuntimeIssue(null!, null);
 

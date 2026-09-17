@@ -89,6 +89,31 @@ internal sealed class ProviderFailurePresentationTests
     }
 
     [Test]
+    public void Analyze_Timeout_DoesNotMisdiagnoseTokenOrBudgetExhaustion()
+    {
+        var result = ProviderFailurePresentation.Analyze(
+            "Timeout after 3600000ms waiting for session.idle");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Category, Is.EqualTo(ProviderFailureCategory.Timeout));
+            Assert.That(result.Title, Is.EqualTo("Provider request timed out"));
+            Assert.That(result.Explanation, Does.Contain("does not indicate token or budget exhaustion"));
+            Assert.That(result.Guidance, Does.Contain("preserved work"));
+        });
+    }
+
+    [TestCase(ProviderFailureCategory.Timeout, "Interrupted")]
+    [TestCase(ProviderFailureCategory.Authentication, "Failed")]
+    [TestCase(ProviderFailureCategory.RateLimitOrQuota, "Failed")]
+    public void RecoveryPolicy_MarksOnlyTimeoutAsRecoverableInterruption(
+        ProviderFailureCategory category,
+        string expectedStatus)
+    {
+        Assert.That(ProviderFailureRecoveryPolicy.BuildThreadStatus(category), Is.EqualTo(expectedStatus));
+    }
+
+    [Test]
     public void Analyze_CliStartupExit_DoesNotMisdiagnoseStderrWarningAsProfileFailure()
     {
         const string message = "Failed to connect to Copilot CLI: CLI server exited with code 1\n" +

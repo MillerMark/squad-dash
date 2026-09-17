@@ -17,14 +17,39 @@ internal sealed class InterruptedPromptRecoveryTests {
     }
 
     [Test]
-    public void IsRecoverableInactivityTimeout_RequiresKnownBridgeTimeout() {
+    public void IsRecoverableInactivityTimeout_RequiresKnownBridgeOrSessionTimeout() {
         Assert.Multiple(() => {
             Assert.That(InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(
                 new TimeoutException("Timed out waiting for Squad to finish responding after 600 seconds without bridge activity.")), Is.True);
             Assert.That(InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(
+                new InvalidOperationException("Timeout after 3600000ms waiting for session.idle")), Is.True);
+            Assert.That(InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(
+                new InvalidOperationException("Provider request timed out. The provider did not complete the request within the allowed time.")), Is.True);
+            Assert.That(InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(
                 new TimeoutException("Timed out opening a file.")), Is.False);
             Assert.That(InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(
                 new InvalidOperationException("Timed out waiting for Squad without bridge activity.")), Is.False);
+        });
+    }
+
+    [Test]
+    public void SessionIdleTimeout_PreservesExactReasonAndConvertsMillisecondsToDuration() {
+        const string error = "Timeout after 3600000ms waiting for session.idle";
+        var state = CreateState() with {
+            ErrorMessage = error,
+            InactivitySeconds = InterruptedPromptRecoveryPresentation.ExtractInactivitySeconds(error),
+            FailureTitle = "Provider request timed out",
+            FailureCategory = ProviderFailureCategory.Timeout.ToString(),
+        };
+
+        var card = InterruptedPromptRecoveryPresentation.BuildCardText(state);
+
+        Assert.Multiple(() => {
+            Assert.That(state.InactivitySeconds, Is.EqualTo(3600));
+            Assert.That(card, Does.Contain("Provider request timed out after 1 hour"));
+            Assert.That(card, Does.Contain("Interrupted—recoverable"));
+            Assert.That(card, Does.Contain("does not by itself indicate").And.Contain("tokens or budget"));
+            Assert.That(card, Does.Not.Contain("stopped producing activity"));
         });
     }
 
@@ -132,16 +157,42 @@ internal sealed class InterruptedPromptRecoveryTests {
         var state = CreateState(
             prompt: "Implement the cache fix",
             activeAgentLabels: ["Shuri", "Talia"],
-            queueContext: new InterruptedPromptQueueContext("q1", 7, "user", false, "Cache fix"));
+            queueContext: new InterruptedPromptQueueContext("q1", 7, "user", false, "Cache fix")) with {
+                ActiveAgentThreadIds = ["thread-shuri", "thread-talia"],
+            };
 
         var prompt = InterruptedPromptRecoveryPresentation.BuildContinuationPrompt(state);
 
         Assert.Multiple(() => {
+            Assert.That(prompt, Does.Contain($"Recovery lineage: {state.RecoveryId}"));
             Assert.That(prompt, Does.Contain("inspect the current working tree"));
-            Assert.That(prompt, Does.Contain("resume only unfinished work"));
+            Assert.That(prompt, Does.Contain("determine whether anything remains"));
+            Assert.That(prompt, Does.Contain("Continue only work the audit finds unfinished"));
+            Assert.That(prompt, Does.Contain("candidate work from this interrupted request"));
+            Assert.That(prompt, Does.Contain("Do not reject or abandon them merely because they are already present"));
+            Assert.That(prompt, Does.Contain("clean up temporary processes, configuration files, and validation artifacts"));
             Assert.That(prompt, Does.Contain("Previously active agents: Shuri, Talia"));
+            Assert.That(prompt, Does.Contain("Previously active agent thread IDs: thread-shuri, thread-talia"));
+            Assert.That(prompt, Does.Contain("continue these exact threads before spawning replacements"));
             Assert.That(prompt, Does.Contain("queue item #7 (Cache fix)"));
             Assert.That(prompt, Does.EndWith("Implement the cache fix"));
+        });
+    }
+
+    [Test]
+    public void ResumeAttemptText_ExplicitlyAnnouncesIncompleteWorkRecovery() {
+        var state = CreateState(
+            InterruptedPromptExecutionKind.NamedAgentDirect,
+            targetAgentHandle: "shuri",
+            targetAgentLabel: "Shuri");
+
+        var text = InterruptedPromptRecoveryPresentation.BuildResumeAttemptText(state);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Does.StartWith("Attempting to recover the interrupted request"));
+            Assert.That(text, Does.Contain("Shuri's preserved request"));
+            Assert.That(text, Does.Contain("determines whether any work remains"));
+            Assert.That(text, Does.Contain("partial edits").And.Contain("child-agent output"));
         });
     }
 
@@ -167,6 +218,12 @@ internal sealed class InterruptedPromptRecoveryTests {
             activeAgentLabels: ["Shuri"],
             attachments: [new FollowUpAttachment("abc123", "Relevant commit", "original")],
             failureCount: 2);
+        state = state with {
+            FailureTitle = "Provider request timed out",
+            FailureCategory = ProviderFailureCategory.Timeout.ToString(),
+            OriginalTurnStartedAt = DateTimeOffset.UtcNow.AddMinutes(-10),
+            ActiveAgentThreadIds = ["thread-shuri"],
+        };
 
         store.Save(state);
         var loaded = store.Load();
@@ -178,6 +235,10 @@ internal sealed class InterruptedPromptRecoveryTests {
             Assert.That(loaded.TargetAgentHandle, Is.EqualTo("shuri"));
             Assert.That(loaded.Attachments, Has.Count.EqualTo(1));
             Assert.That(loaded.FailureCount, Is.EqualTo(2));
+            Assert.That(loaded.FailureTitle, Is.EqualTo("Provider request timed out"));
+            Assert.That(loaded.FailureCategory, Is.EqualTo(ProviderFailureCategory.Timeout.ToString()));
+            Assert.That(loaded.OriginalTurnStartedAt, Is.EqualTo(state.OriginalTurnStartedAt));
+            Assert.That(loaded.ActiveAgentThreadIds, Is.EqualTo(new[] { "thread-shuri" }));
             Assert.That(File.Exists(store.PathForDiagnostics), Is.True);
         });
 

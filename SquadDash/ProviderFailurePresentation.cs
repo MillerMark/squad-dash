@@ -142,8 +142,8 @@ internal sealed record ProviderFailurePresentation(
         {
             category = ProviderFailureCategory.Timeout;
             title = "Provider request timed out";
-            explanation = "The provider did not complete the request within the allowed time.";
-            guidance = "Retry the operation. If it repeats, check provider health, network latency, and the configured timeout.";
+            explanation = "The provider or agent session did not complete the request within the allowed time. This error does not indicate token or budget exhaustion unless the provider reports that separately.";
+            guidance = "Resume from the preserved work. If it repeats, check provider health, network latency, model availability, and the configured request timeout.";
         }
         else if (ContainsAny(normalized, "econnrefused", "econnreset", "enotfound", "dns", "name resolution", "network error", "connection refused", "connection reset", "tls", "ssl", "certificate"))
         {
@@ -283,4 +283,13 @@ internal sealed record ProviderFailurePresentation(
         redacted = SecretQueryPattern.Replace(redacted, match => match.Groups[1].Value + "[REDACTED]");
         return OpenAiKeyPattern.Replace(redacted, "[REDACTED API KEY]");
     }
+}
+
+internal static class ProviderFailureRecoveryPolicy
+{
+    internal static bool IsRecoverableInterruption(ProviderFailureCategory category) =>
+        category == ProviderFailureCategory.Timeout;
+
+    internal static string BuildThreadStatus(ProviderFailureCategory category) =>
+        IsRecoverableInterruption(category) ? "Interrupted" : "Failed";
 }

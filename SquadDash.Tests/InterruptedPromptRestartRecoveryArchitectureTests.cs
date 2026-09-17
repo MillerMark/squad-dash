@@ -12,7 +12,7 @@ internal sealed class InterruptedPromptRestartRecoveryArchitectureTests
 
         Assert.That(start, Is.GreaterThanOrEqualTo(0));
         Assert.That(end, Is.GreaterThan(start));
-        Assert.That(source[start..end], Does.Contain("RetireDirectQuickReplyHandoffBlockers(\"bridge-inactivity-timeout\")"));
+        Assert.That(source[start..end], Does.Contain("RetireDirectQuickReplyHandoffBlockers(\"recoverable-prompt-timeout\")"));
     }
 
     [Test]

@@ -6816,9 +6816,13 @@ public partial class MainWindow : Window
         var agentLabel = BackgroundTaskPresenter.BuildBackgroundAgentLabel(thread);
         var failure = ProviderFailurePresentation.Analyze(evt.Message, BuildProviderFailureContext(evt));
         var summary = failure.BuildThreadSummary(agentLabel);
-        _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Failed", detailText: summary);
+        var status = ProviderFailureRecoveryPolicy.BuildThreadStatus(failure.Category);
+        var detail = ProviderFailureRecoveryPolicy.IsRecoverableInterruption(failure.Category)
+            ? summary + " Partial work and child-agent output remain available for recovery."
+            : summary;
+        _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: status, detailText: detail);
         thread.ErrorText = failure.RawError;
-        thread.DetailText = summary;
+        thread.DetailText = detail;
         RecordPlanAgentCompletion(thread, evt, succeeded: false);
         _agentThreadRegistry.FinalizeAgentThread(thread);
         ProviderFailureTranscriptBlockFactory.Append(thread, failure, agentLabel, _transcriptFontSize);
@@ -6834,7 +6838,7 @@ public partial class MainWindow : Window
         ScrollToEndIfAtBottom(CoordinatorThread);
         StopRequiredPlanWorkAfterProviderFailure(thread, failure, agentLabel);
         UpdateCompletedTimeFooters();
-        SquadDashTrace.Write("UI", $"Subagent failed {summary}");
+        SquadDashTrace.Write("UI", $"Subagent {status.ToLowerInvariant()} {summary}");
         CompleteDirectQuickReplyAgentThread(thread, "subagent_failed");
 
         _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
@@ -44376,11 +44380,10 @@ public partial class MainWindow : Window
         _interruptedPromptRecoveryHold = recovery;
         ClearRuntimeIssue();
 
-        // A bridge inactivity timeout is terminal for every direct handoff owned by
-        // that bridge process. Keep the durable recovery checkpoint as the only gate;
-        // otherwise an orphaned thread id can block restart and shutdown forever even
-        // though there is no process left that could complete the handoff.
-        RetireDirectQuickReplyHandoffBlockers("bridge-inactivity-timeout");
+        // The coordinator request is terminal even when child-agent work can continue briefly.
+        // Keep the durable recovery checkpoint as the only handoff gate; the recovery envelope
+        // retains the exact child thread IDs so their later output can still be reconciled.
+        RetireDirectQuickReplyHandoffBlockers("recoverable-prompt-timeout");
 
         if (IsNativeLoopRunning)
         {
@@ -44493,6 +44496,8 @@ public partial class MainWindow : Window
 
         var continuationPrompt = InterruptedPromptRecoveryPresentation.BuildContinuationPrompt(recovery);
         _pendingTranscriptAttachments = recovery.Attachments.ToArray();
+        ShowSystemTranscriptEntry(
+            InterruptedPromptRecoveryPresentation.BuildResumeAttemptText(recovery));
         SquadDashTrace.Write(
             "Recovery",
             $"Continuing interrupted prompt id={recovery.RecoveryId} kind={recovery.ExecutionKind} target={recovery.TargetAgentHandle ?? "(coordinator)"}");

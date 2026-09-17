@@ -208,6 +208,17 @@ internal static class WorkspaceIssueFactory {
                 HelpWindowContent: BuildBundledSdkRepairHelpText(normalizedMessage));
         }
 
+        var providerFailure = ProviderFailurePresentation.Analyze(normalizedMessage);
+        if (providerFailure.Category == ProviderFailureCategory.Timeout) {
+            return new WorkspaceIssuePresentation(
+                Title: providerFailure.Title,
+                Message: providerFailure.Explanation,
+                DetailText: "SquadDash can preserve partial edits and agent output and resume only the unfinished work.",
+                HelpButtonLabel: "View Timeout Details",
+                HelpWindowTitle: "Provider Timeout Diagnostics",
+                HelpWindowContent: BuildProviderTimeoutHelpText(providerFailure));
+        }
+
         return new WorkspaceIssuePresentation(
             Title: "Squad couldn't finish that prompt",
             Message: "The prompt stopped before Squad returned a complete answer.",
@@ -524,6 +535,22 @@ internal static class WorkspaceIssueFactory {
         builder.AppendLine();
         builder.AppendLine("Raw error");
         builder.AppendLine(rawError);
+        return builder.ToString().TrimEnd();
+    }
+
+    private static string BuildProviderTimeoutHelpText(ProviderFailurePresentation failure) {
+        var builder = new StringBuilder();
+        builder.AppendLine(failure.Explanation);
+        builder.AppendLine();
+        builder.AppendLine("What this means");
+        builder.AppendLine("The allowed request window elapsed before the provider session became idle. Work already performed by agents or tools may still be usable.");
+        builder.AppendLine("A timeout alone is not evidence that the model exhausted its token budget, context window, or account quota. SquadDash classifies those conditions separately when they appear in the provider error.");
+        builder.AppendLine();
+        builder.AppendLine("What to do");
+        builder.AppendLine("Use the recovery action in the transcript to inspect and continue the same request without discarding partial work.");
+        builder.AppendLine();
+        builder.AppendLine("Raw error");
+        builder.AppendLine(failure.RawError);
         return builder.ToString().TrimEnd();
     }
 
