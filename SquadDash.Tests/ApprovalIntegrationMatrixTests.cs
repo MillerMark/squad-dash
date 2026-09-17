@@ -97,7 +97,7 @@ internal sealed class ApprovalIntegrationMatrixTests
     // ═══════════════════════════════════════════════════════════════════════
 
     [Test]
-    public async Task RefreshEvidence_UpdatesBodyWithoutChangingGateState()
+    public async Task RefreshEvidence_UpdatesSnapshotWithoutChangingGateStateOrDecisionBody()
     {
         var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
         var snap = MakeSnapshot();
@@ -121,8 +121,13 @@ internal sealed class ApprovalIntegrationMatrixTests
 
         var msg = _inbox.GetById("approval-gate-PLAN-001");
         Assert.That(msg, Is.Not.Null);
-        Assert.That(msg!.Body, Does.Contain("3/5 steps"),
-            "Body should reflect updated progress");
+        var snapshot = msg!.Attachments.Single(attachment => attachment.Type == "approval-snapshot");
+        Assert.Multiple(() =>
+        {
+            Assert.That(msg.Body, Does.Not.Contain("3/5 steps"),
+                "Progress metadata should not interrupt the decision surface");
+            Assert.That(snapshot.Content, Does.Contain("\"CompletedTaskCount\":3"));
+        });
     }
 
     [Test]

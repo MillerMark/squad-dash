@@ -368,19 +368,21 @@ internal sealed class DefaultPromptInstructionProviderTests
         {
             Assert.That(instruction, Does.Contain("manual test kit"));
             Assert.That(instruction, Does.Contain("Inbox delivery is required"));
-            Assert.That(instruction, Does.Contain("numbered Setup, Open, and Act steps"));
-            Assert.That(instruction, Does.Contain("stable human-proof requirement ID"));
+            Assert.That(instruction, Does.Contain("one authoritative runbook"));
+            Assert.That(instruction, Does.Contain("shared setup once"));
+            Assert.That(instruction, Does.Contain("one independently verifiable claim"));
             Assert.That(instruction, Does.Contain("{{approval-check:requirement-id}}"));
-            Assert.That(instruction, Does.Contain("live checkbox shared with the approval Inbox item and transcript card"));
+            Assert.That(instruction, Does.Contain("approval decision surface"));
             Assert.That(instruction, Does.Contain("exact reproducible target identity"));
-            Assert.That(instruction, Does.Contain("established regression checks may use the user's familiar existing files"));
+            Assert.That(instruction, Does.Contain("Prepare fixtures mainly for new behavior"));
             Assert.That(instruction, Does.Contain("At the exact step"));
             Assert.That(instruction, Does.Contain("app://open-path:path/from/workspace/root"));
-            Assert.That(instruction, Does.Contain("active SquadDash workspace directory"));
-            Assert.That(instruction, Does.Contain("not from the Git repository root"));
-            Assert.That(instruction, Does.Contain("resolve and verify every linked file or folder"));
+            Assert.That(instruction, Does.Contain("active SquadDash workspace"));
+            Assert.That(instruction, Does.Contain("Resolve and verify every target"));
             Assert.That(instruction, Does.Contain("use an absolute path"));
             Assert.That(instruction, Does.Contain("file-or-folder"));
+            Assert.That(instruction, Does.Contain("do not duplicate the full procedure"));
+            Assert.That(instruction, Does.Contain("Do not use dangling references"));
             Assert.That(instruction, Does.Contain("INBOX_MESSAGE_JSON_FILE"));
         });
     }

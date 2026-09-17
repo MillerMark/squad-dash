@@ -110,6 +110,10 @@ public sealed record InboxAttachment
     [JsonPropertyName("taskId")]
     public string? TaskId { get; init; }
 
+    /// <summary>Inbox message ID (for inbox-message-ref attachment type).</summary>
+    [JsonPropertyName("inboxMessageId")]
+    public string? InboxMessageId { get; init; }
+
     /// <summary>Inline text or markdown content.</summary>
     [JsonPropertyName("content")]
     public string? Content { get; init; }

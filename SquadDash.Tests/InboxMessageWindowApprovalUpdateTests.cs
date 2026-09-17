@@ -129,6 +129,85 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
         });
 
     [Test]
+    public void InlineApprovalRunbookLink_OpensTheBoundKitMessage() =>
+        WpfTestContext.Run(() =>
+        {
+            var openedMessageId = string.Empty;
+            var message = new InboxMessage
+            {
+                Id = "approval-with-runbook",
+                Subject = "Approval needed",
+                Body = $"[Open the validation instructions]({DurableApprovalRequestManager.ApprovalRunbookLink})",
+                Actions = [],
+                Attachments =
+                [
+                    new InboxAttachment
+                    {
+                        Type = DurableApprovalRequestManager.RunbookAttachmentType,
+                        Label = DurableApprovalRequestManager.RunbookAttachmentLabel,
+                        InboxMessageId = "validation-kit",
+                    },
+                ],
+            };
+            var window = new InboxMessageWindow(
+                message,
+                (_, _) => { },
+                openInboxMessage: id => openedMessageId = id);
+            try
+            {
+                window.OpenInlineBodyLink(DurableApprovalRequestManager.ApprovalRunbookLink);
+
+                Assert.That(openedMessageId, Is.EqualTo("validation-kit"));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+
+    [Test]
+    public void OpenApprovalReview_RemainsEnabledAfterOpening() =>
+        WpfTestContext.Run(() =>
+        {
+            _ = Application.Current ?? new Application();
+            var invocationCount = 0;
+            var action = new InboxAction
+            {
+                Label = "Open approval review",
+                RouteMode = DurableApprovalRequestManager.ApprovalReviewRouteMode,
+            };
+            var message = new InboxMessage
+            {
+                Id = "approval-navigation",
+                Subject = "Approval needed",
+                Body = "Review this checkpoint.",
+                Actions = [action],
+            };
+            var window = new InboxMessageWindow(message, (_, _) => invocationCount++);
+            try
+            {
+                var chrome = (Grid)window.Content;
+                var root = (Grid)((Border)chrome.Children[0]).Child;
+                var actionRegion = root.Children.OfType<StackPanel>()
+                    .Single(panel => Grid.GetRow(panel) == 2);
+                var navigation = actionRegion.Children.OfType<WrapPanel>().First();
+                var button = navigation.Children.OfType<Button>().Single();
+
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(invocationCount, Is.EqualTo(1));
+                    Assert.That(button.IsEnabled, Is.True);
+                });
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+
+    [Test]
     public void AttachApprovalUpdatingOverlay_UsesMessageLayoutRootAndIsIdempotent() =>
         WpfTestContext.Run(() =>
         {

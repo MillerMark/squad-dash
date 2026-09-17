@@ -639,7 +639,7 @@ internal sealed class ApprovalWorkflowProbeTests
     // ═══════════════════════════════════════════════════════════════════════
 
     [Test]
-    public async Task InboxMessageBody_ContainsGateAndProgressInfo()
+    public async Task InboxMessageBody_ContainsConciseDecisionInfo()
     {
         var plan = MakeProbePlan(
             a1: PlanTaskStatus.Complete, a2: PlanTaskStatus.Complete,
@@ -653,7 +653,8 @@ internal sealed class ApprovalWorkflowProbeTests
         Assert.That(msg!.Body, Does.Contain("Review lanes A+B before post-gate work"));
         Assert.That(msg.Body, Does.Not.Contain("`GATE-1`"));
         Assert.That(msg.Body, Does.Contain("Probe Plan"));
-        Assert.That(msg.Body, Does.Contain("checkpoint(s) awaiting approval"));
+        Assert.That(msg.Body, Does.Contain("Review this checkpoint:"));
+        Assert.That(msg.Body, Does.Contain("Confirm each observed result"));
         Assert.That(msg.Priority, Is.EqualTo("high"));
         Assert.That(msg.Subject, Does.Contain("Approval needed"));
     }

@@ -53907,7 +53907,8 @@ public partial class MainWindow : Window
                                 workspaceFolder: _currentWorkspace?.FolderPath,
                                 loadPlan: planId => _planStore?.Load(planId),
                                 onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection,
-                                resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id));
+                                resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id),
+                                openInboxMessage: id => OpenOrFocusInboxMessage(id));
                             win.Owner = this;
                             _openInboxWindows.Add(win);
                             win.Closed += (_, _) => _openInboxWindows.Remove(win);
@@ -55738,7 +55739,8 @@ public partial class MainWindow : Window
             workspaceFolder: _currentWorkspace?.FolderPath,
             loadPlan: planId => _planStore?.Load(planId),
             onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection,
-            resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id));
+            resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id),
+            openInboxMessage: id => OpenOrFocusInboxMessage(id));
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed    += (_, _) => _openInboxWindows.Remove(win);
@@ -55841,7 +55843,8 @@ public partial class MainWindow : Window
             workspaceFolder: _currentWorkspace?.FolderPath,
             loadPlan: planId => _planStore?.Load(planId),
             onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection,
-            resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id));
+            resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id),
+            openInboxMessage: id => OpenOrFocusInboxMessage(id));
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
         win.Closed += (_, _) => _openInboxWindows.Remove(win);

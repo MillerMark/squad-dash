@@ -11,7 +11,7 @@ namespace SquadDash;
 /// interactive card outside the coordinator transcript lets unrelated plan work continue
 /// without inserting approval UI into an actively written conversation.
 /// </summary>
-internal sealed class PlanApprovalReviewWindow : Window
+internal sealed class PlanApprovalReviewWindow : ChromedWindow
 {
     private readonly TextBlock _status;
     private readonly FlowDocument _document;
@@ -25,6 +25,7 @@ internal sealed class PlanApprovalReviewWindow : Window
         string planTitle,
         ApprovalClickToken token,
         TranscriptApprovalCardBuilder.CardResult card)
+        : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.CanResize)
     {
         PlanId = planId;
         CurrentToken = token;
@@ -35,8 +36,6 @@ internal sealed class PlanApprovalReviewWindow : Window
         MinHeight = 420;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = true;
-
-        SetResourceReference(BackgroundProperty, "AppSurface");
 
         _status = new TextBlock
         {
@@ -68,7 +67,7 @@ internal sealed class PlanApprovalReviewWindow : Window
         DockPanel.SetDock(_status, Dock.Top);
         root.Children.Add(_status);
         root.Children.Add(viewer);
-        Content = root;
+        ApplyOuterBorder("AppSurface", Title).Child = root;
 
         Replace(planTitle, token, card);
     }

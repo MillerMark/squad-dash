@@ -211,7 +211,7 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
-    public async Task RefreshEvidence_UpdatesBody()
+    public async Task RefreshEvidence_UpdatesSnapshotWithoutAddingProgressNoiseToDecisionBody()
     {
         var plan = MakePlan();
         var snapshot = MakeSnapshot();
@@ -222,7 +222,12 @@ public class DurableApprovalRequestManagerTests
         await _manager.RefreshEvidenceAsync(updatedPlan, updatedSnapshot);
 
         var msg = _inbox.GetById("approval-gate-PLAN-001");
-        Assert.That(msg!.Body, Does.Contain("2/3"));
+        var snapshotAttachment = msg!.Attachments.Single(attachment => attachment.Type == "approval-snapshot");
+        Assert.Multiple(() =>
+        {
+            Assert.That(msg.Body, Does.Not.Contain("2/3"));
+            Assert.That(snapshotAttachment.Content, Does.Contain("\"CompletedTaskCount\":2"));
+        });
     }
 
     [Test]
@@ -361,7 +366,7 @@ public class DurableApprovalRequestManagerTests
         Assert.That(body, Does.Not.Contain("`GATE-001`"));
         Assert.That(body, Does.Contain("GATE-000"));
         Assert.That(body, Does.Contain("LGTM"));
-        Assert.That(body, Does.Contain("1 checkpoint(s) awaiting approval"));
+        Assert.That(body, Does.Contain("Review this checkpoint:"));
         Assert.That(body, Does.Contain("1 resolved checkpoint(s)"));
     }
 
@@ -382,12 +387,13 @@ public class DurableApprovalRequestManagerTests
 
         var body = DurableApprovalRequestManager.BuildBody(plan, ["GATE-001"], []);
 
-        Assert.That(body, Does.Contain("**Manual test instructions**")
-            .And.Contain("☐ Does clicking the item populate the detail panel?"));
+        Assert.That(body, Does.Contain("**Confirm each observed result**")
+            .And.Contain("☐ Does clicking the item populate the detail panel?")
+            .And.Not.Contain("**Manual test instructions**"));
     }
 
     [Test]
-    public void BuildBody_PlacesRecipeObservationCheckboxAndCleanupInHumanOrder()
+    public async Task AppendCheckpoint_MovesRecipeOutOfDecisionBodyAndIntoInstructionsAttachment()
     {
         var original = MakePlan();
         var gate = original.ApprovalGates[0] with
@@ -409,18 +415,31 @@ public class DurableApprovalRequestManagerTests
         };
         var plan = original with { ApprovalGates = [gate] };
 
-        var body = DurableApprovalRequestManager.BuildBody(plan, [gate.GateId], []);
+        var messageId = await _manager.AppendCheckpointAsync(plan, gate, MakeSnapshot());
+        var message = _inbox.GetById(messageId)!;
+        var instructions = message.Attachments.Single(attachment =>
+            attachment.Label == DurableApprovalRequestManager.GeneratedInstructionsAttachmentLabel).Content!;
 
-        var setup = body.IndexOf("**Set up:**", StringComparison.Ordinal);
-        var open = body.IndexOf("**Open and perform:**", StringComparison.Ordinal);
-        var observe = body.IndexOf("**Observe:**", StringComparison.Ordinal);
-        var checkbox = body.IndexOf("☐ Does the new result appear?", StringComparison.Ordinal);
-        var cleanup = body.IndexOf("**Clean up:**", StringComparison.Ordinal);
-        Assert.That(new[] { setup, open, observe, checkbox, cleanup }, Is.Ordered.And.All.GreaterThanOrEqualTo(0));
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Body, Does.Contain("☐ Does the new result appear?"));
+            Assert.That(message.Body, Does.Contain(
+                $"[Open the validation instructions]({DurableApprovalRequestManager.ApprovalRunbookLink})"));
+            Assert.That(message.Body, Does.Not.Contain("**Set up:**")
+                .And.Not.Contain("**Open and perform:**")
+                .And.Not.Contain("**Observe:**")
+                .And.Not.Contain("**Clean up:**"));
+        });
+
+        var setup = instructions.IndexOf("**Set up:**", StringComparison.Ordinal);
+        var open = instructions.IndexOf("**Open and perform:**", StringComparison.Ordinal);
+        var observe = instructions.IndexOf("**Observe:**", StringComparison.Ordinal);
+        var cleanup = instructions.IndexOf("**Clean up:**", StringComparison.Ordinal);
+        Assert.That(new[] { setup, open, observe, cleanup }, Is.Ordered.And.All.GreaterThanOrEqualTo(0));
     }
 
     [Test]
-    public void BuildBody_WithReviewSnapshot_PutsDetailedEvidenceInInboxMessage()
+    public async Task AppendCheckpoint_MovesDetailedEvidenceToProvenanceAttachment()
     {
         var plan = MakePlan();
         var changedFile = new ChangedFileEntry(
@@ -449,19 +468,127 @@ public class DurableApprovalRequestManagerTests
             AllChangedFiles = [changedFile],
         };
 
-        var body = DurableApprovalRequestManager.BuildBody(plan, ["GATE-001"], [], snapshot);
+        var messageId = await _manager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], snapshot);
+        var message = _inbox.GetById(messageId)!;
+        var evidence = message.Attachments.Single(attachment =>
+            attachment.Label == DurableApprovalRequestManager.ProvenanceAttachmentLabel).Content!;
 
         Assert.Multiple(() =>
         {
-            Assert.That(body, Does.Contain("Completed work ready for review"));
-            Assert.That(body, Does.Contain("Added exact artifact ownership and cleanup."));
-            Assert.That(body, Does.Contain("Claims and focused tests matched the changed files."));
-            Assert.That(body, Does.Contain("abc1234"));
-            Assert.That(body, Does.Contain("Changed files (1)"));
-            Assert.That(body, Does.Contain("src/SimulationSessionManager.cs"));
-            Assert.That(body, Does.Contain("Approval allows this work to continue"));
-            Assert.That(body, Does.Contain("Add Plan fixtures"));
-            Assert.That(body, Does.Not.Contain("GATE-001`:"));
+            Assert.That(message.Body, Does.Not.Contain("Added exact artifact ownership and cleanup.")
+                .And.Not.Contain("src/SimulationSessionManager.cs")
+                .And.Not.Contain("abc1234"));
+            Assert.That(evidence, Does.Contain("Completed work ready for review")
+                .And.Contain("Added exact artifact ownership and cleanup.")
+                .And.Contain("Claims and focused tests matched the changed files.")
+                .And.Contain("abc1234")
+                .And.Contain("Changed files (1)")
+                .And.Contain("src/SimulationSessionManager.cs")
+                .And.Contain("Approval allows this work to continue")
+                .And.Contain("Add Plan fixtures")
+                .And.Not.Contain("GATE-001`:"));
+        });
+    }
+
+    [Test]
+    public async Task AppendCheckpoint_LinksBoundManualTestKitAsAuthoritativeRunbook()
+    {
+        var original = MakePlan();
+        var gate = original.ApprovalGates[0] with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "native-result",
+                    "live-ui-observation",
+                    "Observe the generated result.",
+                    "Does the native result appear?",
+                    HumanVerificationAccessMode.Fixture,
+                    new HumanVerificationRecipe(
+                        "Prepare the fixture.",
+                        "Open and invoke it.",
+                        "Observe the result.",
+                        "Restore the fixture.")),
+            ],
+        };
+        var plan = original with { ApprovalGates = [gate] };
+        var kit = ManualTestKitApprovalBinding.BindForCompletedTask(
+            new InboxMessage
+            {
+                Id = "native-validation-kit",
+                Subject = "Native validation kit",
+                Body = "# Full runbook\n\n{{approval-check:native-result}}",
+                Timestamp = DateTimeOffset.UtcNow,
+            },
+            plan,
+            "T1");
+        _inbox.Save(kit);
+
+        var messageId = await _manager.AppendCheckpointAsync(plan, gate, MakeSnapshot());
+        var message = _inbox.GetById(messageId)!;
+        var runbook = message.Attachments.Single(attachment =>
+            attachment.Type == DurableApprovalRequestManager.RunbookAttachmentType);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(runbook.Label, Is.EqualTo(DurableApprovalRequestManager.RunbookAttachmentLabel));
+            Assert.That(runbook.InboxMessageId, Is.EqualTo(kit.Id));
+            Assert.That(message.Attachments, Has.None.Matches<InboxAttachment>(attachment =>
+                attachment.Label == DurableApprovalRequestManager.GeneratedInstructionsAttachmentLabel));
+            Assert.That(message.Body, Does.Contain("☐ Does the native result appear?")
+                .And.Not.Contain("Prepare the fixture.")
+                .And.Not.Contain("Open and invoke it."));
+        });
+    }
+
+    [Test]
+    public async Task AppendCheckpoint_LinksExternalRunbookFileDirectlyWhenKitProvidesOne()
+    {
+        var original = MakePlan();
+        var gate = original.ApprovalGates[0] with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "native-result",
+                    "live-ui-observation",
+                    "Observe the result.",
+                    "Does the native result appear?",
+                    HumanVerificationAccessMode.Fixture),
+            ],
+        };
+        var plan = original with { ApprovalGates = [gate] };
+        var kit = ManualTestKitApprovalBinding.BindForCompletedTask(
+            new InboxMessage
+            {
+                Id = "file-backed-validation-kit",
+                Subject = "Native validation kit",
+                Body = "{{approval-check:native-result}}",
+                Timestamp = DateTimeOffset.UtcNow,
+                Attachments =
+                [
+                    new InboxAttachment
+                    {
+                        Type = "file",
+                        Label = "Validation runbook",
+                        Path = @"C:\validation\Runbook.md",
+                    },
+                ],
+            },
+            plan,
+            "T1");
+        _inbox.Save(kit);
+
+        var messageId = await _manager.AppendCheckpointAsync(plan, gate, MakeSnapshot());
+        var message = _inbox.GetById(messageId)!;
+        var runbook = message.Attachments.Single(attachment =>
+            attachment.Label == DurableApprovalRequestManager.RunbookAttachmentLabel);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(runbook.Type, Is.EqualTo(DurableApprovalRequestManager.RunbookAttachmentType));
+            Assert.That(runbook.Path, Is.EqualTo(@"C:\validation\Runbook.md"));
+            Assert.That(runbook.InboxMessageId, Is.Null);
         });
     }
 

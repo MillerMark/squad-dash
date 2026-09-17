@@ -662,12 +662,16 @@ public sealed class PlanApprovalRuntimeTests
         await restored.RestoreAsync([first.UpdatedPlan]);
 
         var upgraded = _inbox.GetById(messageId)!;
+        var evidence = upgraded.Attachments.Single(attachment =>
+            attachment.Label == DurableApprovalRequestManager.ProvenanceAttachmentLabel).Content!;
         Assert.Multiple(() =>
         {
-            Assert.That(upgraded.Body, Does.Contain("Completed work ready for review"));
-            Assert.That(upgraded.Body, Does.Contain("Connected Task A to production."));
-            Assert.That(upgraded.Body, Does.Contain("The claim and focused tests matched."));
-            Assert.That(upgraded.Body, Does.Contain("abc1234"));
+            Assert.That(upgraded.Body, Does.Not.Contain("Connected Task A to production.")
+                .And.Not.Contain("abc1234"));
+            Assert.That(evidence, Does.Contain("Completed work ready for review")
+                .And.Contain("Connected Task A to production.")
+                .And.Contain("The claim and focused tests matched.")
+                .And.Contain("abc1234"));
             Assert.That(upgraded.Body, Does.Not.Contain("Open the plan for details"));
         });
     }

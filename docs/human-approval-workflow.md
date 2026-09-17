@@ -61,6 +61,13 @@ When no ungated eligible task remains — determined by `ApprovalGateReadinessEv
 | **Priority** | `high` while any gate is active. |
 | **Attachments** | `approval-gate` (durable state JSON) + `approval-snapshot` (review evidence). |
 
+The message body is intentionally a decision surface: it leads with the checkpoint being approved
+and the independently verifiable proof checkboxes. It does not repeat Setup/Open/Act/Observe/Cleanup
+recipes. A bound manual-test-kit message appears as **Open full validation runbook**; if no kit is
+bound, SquadDash moves the plan's recipe into **Open full test instructions**. Detailed completion,
+commit, changed-file, and downstream-task evidence appears separately under
+**Technical details** (whose document is headed "Provenance & implementation evidence").
+
 ### Lifecycle
 
 1. **First gate ready →** Message created with one active gate ID.
@@ -151,7 +158,9 @@ When a later checkpoint is appended, the durable request version advances and `L
 
 ## 8. Task & Commit Summaries
 
-The `ApprovalReviewSnapshot` presents structured evidence for every completed task within the gate boundary:
+The `ApprovalReviewSnapshot` presents structured evidence for every completed task within the gate
+boundary. The approval message exposes this material as a secondary provenance attachment so it does
+not interrupt the operator's decision flow:
 
 - **Per-task:** `TaskId`, `Title`, `CompletionSummary`, and a list of `ReviewCommitEntry` records.
 - **Per-commit:** `ShortSha` (7-char), `FullSha`, `Subject` (first line of commit message), optional `VerificationPassed` flag (✓ / ✗).

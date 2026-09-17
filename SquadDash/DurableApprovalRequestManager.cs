@@ -51,6 +51,11 @@ internal sealed class DurableApprovalRequestManager
     internal const string AttachmentType = "approval-gate";
     internal const string ApprovalRouteMode = "approval-gate";
     internal const string ApprovalReviewRouteMode = "approval-gate-review";
+    internal const string RunbookAttachmentType = "inbox-message-ref";
+    internal const string ApprovalRunbookLink = "app://open-approval-runbook";
+    internal const string RunbookAttachmentLabel = "Open full validation runbook";
+    internal const string GeneratedInstructionsAttachmentLabel = "Open full test instructions";
+    internal const string ProvenanceAttachmentLabel = "Technical details";
     private const string MessageFrom = "SquadDash";
 
     private static readonly JsonSerializerOptions StateSerializerOptions = new()
@@ -495,7 +500,7 @@ internal sealed class DurableApprovalRequestManager
         };
     }
 
-    private static IReadOnlyList<InboxAttachment> BuildAttachments(
+    private IReadOnlyList<InboxAttachment> BuildAttachments(
         DurableApprovalState state,
         ApprovalReviewSnapshot? snapshot,
         IReadOnlyList<InboxAttachment>? existingAttachments = null,
@@ -529,8 +534,82 @@ internal sealed class DurableApprovalRequestManager
                 attachments.Add(existingSnapshot);
         }
 
-        // Present one real, actionable attachment. The state and snapshot entries above are
-        // persistence envelopes and are deliberately hidden from the Inbox attachment strip.
+        // Keep the approval message a decision surface. A bound manual-test-kit message is the
+        // authoritative procedure; when no kit exists, put any inline recipe in its own attachment.
+        var runbooks = plan is null
+            ? []
+            : FindBoundManualTestKits(plan, state.ActiveGateIds);
+        if (runbooks.Count > 0)
+        {
+            foreach (var runbook in runbooks)
+            {
+                var runbookFile = runbook.Attachments.FirstOrDefault(attachment =>
+                    string.Equals(attachment.Type, "file", StringComparison.OrdinalIgnoreCase) &&
+                    attachment.Path?.EndsWith(".md", StringComparison.OrdinalIgnoreCase) == true &&
+                    (attachment.Label.Contains("runbook", StringComparison.OrdinalIgnoreCase) ||
+                     attachment.Label.Contains("instruction", StringComparison.OrdinalIgnoreCase)));
+                attachments.Add(runbookFile is not null
+                    ? runbookFile with
+                    {
+                        Type = RunbookAttachmentType,
+                        Label = runbooks.Count == 1
+                            ? RunbookAttachmentLabel
+                            : $"Open runbook: {runbook.Subject}",
+                        PlanGroupId = plan!.PlanId,
+                        PlanRevision = plan.Revision,
+                    }
+                    : new InboxAttachment
+                    {
+                        Type = RunbookAttachmentType,
+                        Label = runbooks.Count == 1
+                            ? RunbookAttachmentLabel
+                            : $"Open runbook: {runbook.Subject}",
+                        InboxMessageId = runbook.Id,
+                        PlanGroupId = plan!.PlanId,
+                        PlanRevision = plan.Revision,
+                    });
+            }
+        }
+        else if (plan is not null && BuildGeneratedInstructions(plan, state.ActiveGateIds) is { } instructions)
+        {
+            attachments.Add(new InboxAttachment
+            {
+                Type = RunbookAttachmentType,
+                Label = GeneratedInstructionsAttachmentLabel,
+                Content = instructions,
+                PlanGroupId = plan.PlanId,
+                PlanRevision = plan.Revision,
+            });
+        }
+        else if (existingAttachments is not null)
+        {
+            attachments.AddRange(existingAttachments.Where(attachment =>
+                string.Equals(attachment.Type, RunbookAttachmentType, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(attachment.Label, GeneratedInstructionsAttachmentLabel, StringComparison.Ordinal)));
+        }
+
+        if (plan is not null && snapshot is not null &&
+            BuildReviewEvidence(plan, state.ActiveGateIds, snapshot) is { } evidence)
+        {
+            attachments.Add(new InboxAttachment
+            {
+                Type = "text",
+                Label = ProvenanceAttachmentLabel,
+                Content = evidence,
+                PlanGroupId = plan.PlanId,
+                PlanRevision = plan.Revision,
+            });
+        }
+        else if (existingAttachments is not null)
+        {
+            var existingEvidence = existingAttachments.FirstOrDefault(attachment =>
+                string.Equals(attachment.Label, ProvenanceAttachmentLabel, StringComparison.Ordinal));
+            if (existingEvidence is not null)
+                attachments.Add(existingEvidence);
+        }
+
+        // The state and snapshot entries above are persistence envelopes and are deliberately
+        // hidden from the Inbox attachment strip. The plan graph remains secondary navigation.
         if (plan is not null)
         {
             attachments.Add(new InboxAttachment
@@ -553,10 +632,75 @@ internal sealed class DurableApprovalRequestManager
         return attachments;
     }
 
+    private IReadOnlyList<InboxMessage> FindBoundManualTestKits(
+        Plan plan,
+        IReadOnlyList<string> activeGateIds)
+    {
+        var candidates = _inbox.LoadAll()
+            .Select(message => (Message: message, Binding: ManualTestKitApprovalBinding.Read(message)))
+            .Where(candidate => candidate.Binding is not null &&
+                string.Equals(candidate.Binding.PlanId, plan.PlanId, StringComparison.Ordinal) &&
+                string.Equals(candidate.Binding.PlanRevision, plan.Revision, StringComparison.Ordinal))
+            .ToArray();
+
+        // LoadAll is newest-first. Select one authoritative delivery for each active gate while
+        // allowing one kit to cover several gates without producing duplicate links.
+        return activeGateIds
+            .Select(gateId => candidates.FirstOrDefault(candidate =>
+                candidate.Binding!.GateIds.Contains(gateId, StringComparer.Ordinal)).Message)
+            .Where(message => message is not null)
+            .Cast<InboxMessage>()
+            .DistinctBy(message => message.Id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    private static string? BuildGeneratedInstructions(
+        Plan plan,
+        IReadOnlyList<string> activeGateIds)
+    {
+        var parts = new List<string>();
+        foreach (var gateId in activeGateIds.OrderBy(gateId => GetGateOrder(plan, gateId)))
+        {
+            var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+                string.Equals(candidate.GateId, gateId, StringComparison.Ordinal));
+            if (gate is null)
+                continue;
+
+            var recipes = gate.ProofRequirements?
+                .Where(requirement => requirement.VerificationRecipe is not null)
+                .ToArray() ?? [];
+            for (var index = 0; index < recipes.Length; index++)
+            {
+                var requirement = recipes[index];
+                var recipe = requirement.VerificationRecipe!;
+                if (parts.Count > 0)
+                    parts.Add(string.Empty);
+                parts.Add($"## {requirement.Question ?? $"Check {index + 1}"}");
+                parts.Add($"1. **Set up:** {recipe.Setup}");
+                parts.Add($"2. **Open and perform:** {recipe.Open}");
+                parts.Add($"3. **Observe:** {recipe.Observe}");
+                parts.Add($"4. **Clean up:** {recipe.Cleanup}");
+            }
+        }
+
+        return parts.Count == 0 ? null : string.Join("\n", parts);
+    }
+
+    private static string? BuildReviewEvidence(
+        Plan plan,
+        IReadOnlyList<string> activeGateIds,
+        ApprovalReviewSnapshot snapshot)
+    {
+        var parts = new List<string> { "# Provenance & implementation evidence" };
+        AppendReviewEvidence(parts, plan, activeGateIds, snapshot);
+        return parts.Count == 1 ? null : string.Join("\n", parts);
+    }
+
     /// <summary>True for attachments intended for people rather than approval persistence.</summary>
     internal static bool IsPresentationAttachment(InboxAttachment attachment) =>
         !string.Equals(attachment.Type, AttachmentType, StringComparison.OrdinalIgnoreCase) &&
         !string.Equals(attachment.Type, "approval-snapshot", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(attachment.Type, RunbookAttachmentType, StringComparison.OrdinalIgnoreCase) &&
         !ManualTestKitApprovalBinding.IsBindingAttachment(attachment);
 
     internal static string BuildBody(
@@ -567,13 +711,14 @@ internal sealed class DurableApprovalRequestManager
     {
         var parts = new List<string>();
 
-        parts.Add($"**{plan.Title}**  ");
-        parts.Add($"Progress: {plan.Progress.CompletedCount}/{plan.Progress.TotalCount} steps");
+        parts.Add($"**Approval requested: {plan.Title}**");
 
         if (activeGateIds.Count > 0)
         {
             parts.Add("");
-            parts.Add($"**{activeGateIds.Count} checkpoint(s) awaiting approval:**");
+            parts.Add(activeGateIds.Count == 1
+                ? "Review this checkpoint:"
+                : $"Review these {activeGateIds.Count} checkpoints:");
             foreach (var gateId in activeGateIds.OrderBy(gateId => GetGateOrder(plan, gateId)))
             {
                 var gate = plan.ApprovalGates.FirstOrDefault(
@@ -589,36 +734,21 @@ internal sealed class DurableApprovalRequestManager
                     if (reviewItems.Count > 0)
                     {
                         parts.Add("");
-                        parts.Add("**Manual test instructions**");
-                        for (var itemIndex = 0; itemIndex < reviewItems.Count; itemIndex++)
+                        if (gate.ProofRequirements?.Any(requirement =>
+                                requirement.VerificationRecipe is not null ||
+                                !string.IsNullOrWhiteSpace(requirement.FixtureTaskId)) == true)
                         {
-                            var item = reviewItems[itemIndex];
-                            if (reviewItems.Count > 1)
-                                parts.Add($"**Check {itemIndex + 1}**");
-                            var requirement = gate.ProofRequirements?.FirstOrDefault(candidate =>
-                                string.Equals(candidate.RequirementId, item.RequirementId, StringComparison.Ordinal));
-                            var recipe = requirement?.VerificationRecipe;
-                            if (recipe is not null)
-                            {
-                                parts.Add($"1. **Set up:** {recipe.Setup}");
-                                parts.Add($"2. **Open and perform:** {recipe.Open}");
-                                parts.Add($"3. **Observe:** {recipe.Observe}");
-                            }
+                            parts.Add($"[Open the validation instructions]({ApprovalRunbookLink}), perform the procedure, then confirm each observed result.");
                             parts.Add("");
+                        }
+                        parts.Add("**Confirm each observed result**");
+                        foreach (var item in reviewItems)
+                        {
                             parts.Add($"- {(item.IsChecked ? "☑" : "☐")} {item.Text}");
-                            if (recipe is not null)
-                            {
-                                parts.Add("");
-                                parts.Add($"4. **Clean up:** {recipe.Cleanup}");
-                            }
-                            if (itemIndex + 1 < reviewItems.Count)
-                                parts.Add("");
                         }
                     }
                 }
             }
-
-            AppendReviewEvidence(parts, plan, activeGateIds, snapshot);
         }
 
         if (resolvedCheckpoints.Count > 0)

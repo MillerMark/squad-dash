@@ -967,7 +967,7 @@ internal sealed class ApprovalIntegrationTests
         Assert.That(body, Does.Not.Contain("`GATE-A`"));
         Assert.That(body, Does.Contain("GATE-OLD"));
         Assert.That(body, Does.Contain("Previously approved"));
-        Assert.That(body, Does.Contain("1 checkpoint(s) awaiting approval"));
+        Assert.That(body, Does.Contain("Review this checkpoint:"));
         Assert.That(body, Does.Contain("1 resolved checkpoint(s)"));
     }
 

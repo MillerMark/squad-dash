@@ -49,6 +49,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Func<string, bool>? _isPlanExecuted;
     private readonly string? _workspaceFolder;
     private readonly Func<string, string?>? _resolveMessageFilePath;
+    private readonly Action<string>? _openInboxMessage;
     private readonly Func<string, Plan?>? _loadPlan;
     private readonly Action<string, PlanHumanReviewChecklistItem, bool>? _onHumanReviewSelectionChanged;
     private double _bodyFontSize;
@@ -82,7 +83,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         string? workspaceFolder = null,
         Func<string, Plan?>? loadPlan = null,
         Action<string, PlanHumanReviewChecklistItem, bool>? onHumanReviewSelectionChanged = null,
-        Func<string, string?>? resolveMessageFilePath = null)
+        Func<string, string?>? resolveMessageFilePath = null,
+        Action<string>? openInboxMessage = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
         _lookupTask             = lookupTask;
@@ -102,6 +104,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _resolveAgentAvatar     = resolveAgentAvatar;
         _workspaceFolder        = workspaceFolder;
         _resolveMessageFilePath = resolveMessageFilePath;
+        _openInboxMessage       = openInboxMessage;
         _loadPlan               = loadPlan;
         _onHumanReviewSelectionChanged = onHumanReviewSelectionChanged;
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
@@ -263,7 +266,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         {
             if (att.Type == "decompose-plan" && !string.IsNullOrWhiteSpace(_planGroupId))
                 continue;
-            _attachmentsPanel.Children.Add(BuildAttachmentChip(att, this, _bodyFontSize, _lookupTask, openDecomposePlan));
+            _attachmentsPanel.Children.Add(BuildAttachmentChip(
+                att, this, _bodyFontSize, _lookupTask, openDecomposePlan, _openInboxMessage));
         }
 
         // ── Actions ───────────────────────────────────────────────────────────
@@ -963,11 +967,20 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 yield return link;
     }
 
-    private void OpenInlineBodyLink(string target)
+    internal void OpenInlineBodyLink(string target)
     {
         const string pathPrefix = "app://open-path:";
         try
         {
+            if (string.Equals(
+                    target,
+                    DurableApprovalRequestManager.ApprovalRunbookLink,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                OpenApprovalRunbook();
+                return;
+            }
+
             if (target.StartsWith(pathPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 var rawPath = Uri.UnescapeDataString(target[pathPrefix.Length..]).Trim();
@@ -1002,6 +1015,61 @@ internal sealed class InboxMessageWindow : ChromedWindow
             SquadDashTrace.Write("Shell", $"Inbox body link open failed: {ex.Message}");
             UIErrorHelper.ShowWarning("Open Failed", $"Could not open the linked target:\n{ex.Message}");
         }
+    }
+
+    private void OpenApprovalRunbook()
+    {
+        var runbook = _message.Attachments.FirstOrDefault(attachment =>
+            string.Equals(
+                attachment.Type,
+                DurableApprovalRequestManager.RunbookAttachmentType,
+                StringComparison.OrdinalIgnoreCase));
+        if (runbook is null)
+        {
+            UIErrorHelper.ShowWarning(
+                "Validation Instructions",
+                "The validation runbook is not available for this approval request.");
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(runbook.Path))
+        {
+            var expanded = Environment.ExpandEnvironmentVariables(runbook.Path);
+            var resolved = System.IO.Path.IsPathRooted(expanded)
+                ? System.IO.Path.GetFullPath(expanded)
+                : System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                    _workspaceFolder ?? Environment.CurrentDirectory,
+                    expanded));
+            if (!File.Exists(resolved) && !Directory.Exists(resolved))
+            {
+                UIErrorHelper.ShowWarning(
+                    "Open Failed",
+                    $"The validation runbook was not found:\n{resolved}");
+                return;
+            }
+
+            if (File.Exists(resolved) && resolved.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+                MarkdownDocumentWindow.Show(this, System.IO.Path.GetFileName(resolved), resolved);
+            else
+                Process.Start(new ProcessStartInfo(resolved) { UseShellExecute = true });
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(runbook.InboxMessageId) && _openInboxMessage is not null)
+        {
+            _openInboxMessage(runbook.InboxMessageId);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(runbook.Content))
+        {
+            MarkdownDocumentWindow.ShowContent(this, runbook.Label, runbook.Content);
+            return;
+        }
+
+        UIErrorHelper.ShowWarning(
+            "Validation Instructions",
+            "The validation runbook reference is incomplete.");
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
@@ -1111,7 +1179,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         {
             // Host-owned plan actions close/archive the message on success. Keep them enabled
             // when validation or branch setup fails so the user can correct the issue and retry.
-            if (!string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
+            if (!IsNavigationAction(action) &&
+                !string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
                 btn.IsEnabled = false;
             onActionClicked(action, msg);
         };
@@ -1123,6 +1192,10 @@ internal sealed class InboxMessageWindow : ChromedWindow
         string.Equals(
             action.RouteMode,
             DecomposePlanInbox.RecoveryEvidenceRouteMode,
+            StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(
+            action.RouteMode,
+            DurableApprovalRequestManager.ApprovalReviewRouteMode,
             StringComparison.OrdinalIgnoreCase);
 
     private static string GetPriorityLabel(string emoji) => emoji switch {
@@ -1137,7 +1210,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Window? owner,
         double fontSize,
         Func<string, TaskItem?>? lookupTask = null,
-        Action<InboxAttachment>? openDecomposePlan = null)
+        Action<InboxAttachment>? openDecomposePlan = null,
+        Action<string>? openInboxMessage = null)
     {
         var icon = att.Type switch
         {
@@ -1146,6 +1220,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
             "image"    => "🖼",
             "task-ref" => "✅",
             "text"     => "📝",
+            "inbox-message-ref" => "📖",
             "decompose-plan" => "🗺",
             _          => "📎",
         };
@@ -1173,6 +1248,14 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         switch (att.Type)
         {
+            case "inbox-message-ref":
+                if (openInboxMessage is not null && !string.IsNullOrWhiteSpace(att.InboxMessageId))
+                {
+                    chip.ToolTip = ToolTipHelper.MakeThemedToolTip("Open the authoritative validation runbook");
+                    chip.MouseLeftButtonUp += (_, _) => openInboxMessage(att.InboxMessageId);
+                }
+                break;
+
             case "decompose-plan":
                 if (openDecomposePlan is not null)
                 {

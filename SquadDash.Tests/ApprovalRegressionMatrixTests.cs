@@ -732,7 +732,7 @@ internal sealed class ApprovalRegressionMatrixTests
         Assert.That(body, Does.Contain("Second review OK"));
         Assert.That(body, Does.Contain("Third review OK"));
         Assert.That(body, Does.Contain("3 resolved checkpoint(s)"));
-        Assert.That(body, Does.Contain("1 checkpoint(s) awaiting approval"));
+        Assert.That(body, Does.Contain("Review this checkpoint:"));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
