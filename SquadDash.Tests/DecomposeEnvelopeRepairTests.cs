@@ -547,6 +547,9 @@ public class DecomposeEnvelopeRepairTests
             Assert.That(prompt, Does.Contain("use its absolute path"));
             Assert.That(prompt, Does.Contain("confirm each resolved file or folder exists"));
             Assert.That(prompt, Does.Contain("Do not repeat implementation work"));
+            Assert.That(prompt, Does.Contain("Correct every error below"));
+            Assert.That(prompt, Does.Contain("approval-check:requirement-id"));
+            Assert.That(prompt, Does.Contain("Return all corrections together"));
         });
     }
 }

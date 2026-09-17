@@ -217,7 +217,8 @@ internal sealed class ApprovalWorkflowProbeTests
         var msgAfter = _inbox.GetById(id);
         Assert.That(msgAfter, Is.Not.Null, "Message still exists after refresh");
         Assert.That(msgAfter!.Id, Is.EqualTo(id), "Message ID unchanged after evidence refresh");
-        Assert.That(msgAfter.Actions, Is.Not.Empty, "Actions still present after refresh");
+        Assert.That(msgAfter.Actions, Is.Empty,
+            "The refreshed message keeps its unchecked review controls inline");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -733,14 +734,11 @@ internal sealed class ApprovalWorkflowProbeTests
     }
 
     [Test]
-    public void BuildActions_ActiveGates_ReturnsOneAggregateAction()
+    public void BuildActions_UncheckedActiveGates_ReturnsNoSeparateReviewAction()
     {
         var plan = MakeProbePlan();
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-1", "GATE-2"]);
-        Assert.That(actions, Has.Count.EqualTo(1));
-        Assert.That(actions[0].Label, Is.EqualTo("Open approval review"));
-        Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
-        Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-1", "GATE-2" }));
+        Assert.That(actions, Is.Empty);
     }
 
     // ═══════════════════════════════════════════════════════════════════════

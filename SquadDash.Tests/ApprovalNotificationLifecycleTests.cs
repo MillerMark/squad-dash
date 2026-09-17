@@ -231,7 +231,7 @@ internal sealed class ApprovalNotificationLifecycleTests
     }
 
     [Test]
-    public async Task TemporaryActionDisabling_DurableMessageActionsRebuiltOnReplace()
+    public async Task UncheckedInlineReview_RemainsActionFreeWhenAnotherGateIsAdded()
     {
         var plan = MakePlan(
             t1Status: PlanTaskStatus.Complete,
@@ -242,7 +242,7 @@ internal sealed class ApprovalNotificationLifecycleTests
         var messageId = MessageIdFor(plan.PlanId);
 
         var beforeActions = _inbox.GetById(messageId)!.Actions;
-        Assert.That(beforeActions, Has.Count.GreaterThan(0));
+        Assert.That(beforeActions, Is.Empty);
 
         // Add second gate — actions should be rebuilt with new version
         var gate2 = new PlanApprovalGate("GATE-B", "Second", ["T3"], ["T4"], PlanGateStatus.AwaitingApproval);
@@ -254,9 +254,8 @@ internal sealed class ApprovalNotificationLifecycleTests
         await _durableManager.AppendCheckpointAsync(expanded, gate2, MakeSnapshot(gateId: "GATE-B"));
 
         var afterActions = _inbox.GetById(messageId)!.Actions;
-        Assert.That(afterActions, Has.Count.GreaterThan(0));
-        Assert.That(afterActions[0].Label, Is.EqualTo("Open approval review"),
-            "The refreshed action must keep routing the user to the detailed review card");
+        Assert.That(afterActions, Is.Empty,
+            "Adding a gate must not reintroduce a separate review-window action");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -355,7 +354,7 @@ internal sealed class ApprovalNotificationLifecycleTests
     }
 
     [Test]
-    public async Task RestartReplay_InboxMessageRetainsActionsAfterRestore()
+    public async Task RestartReplay_InboxMessageRetainsInlineReviewAfterRestore()
     {
         var plan = MakePlan(
             t1Status: PlanTaskStatus.Complete,
@@ -373,8 +372,8 @@ internal sealed class ApprovalNotificationLifecycleTests
 
         var messageId = MessageIdFor(plan.PlanId);
         var msg = _inbox.GetById(messageId)!;
-        Assert.That(msg.Actions, Has.Count.GreaterThan(0),
-            "Inbox message must retain actions after restart restore");
+        Assert.That(msg.Actions, Is.Empty,
+            "Unchecked observations remain on the Inbox message itself after restore");
         Assert.That(msg.Read, Is.False,
             "Unread status must be preserved for unresolved approval");
     }
@@ -586,7 +585,7 @@ internal sealed class ApprovalNotificationLifecycleTests
     }
 
     [Test]
-    public async Task AccumulatingGates_ActionLabelReflectsCount()
+    public async Task AccumulatingGates_DoesNotCreateSeparateReviewAction()
     {
         var plan = MakePlan(
             t1Status: PlanTaskStatus.Complete,
@@ -595,8 +594,7 @@ internal sealed class ApprovalNotificationLifecycleTests
 
         await _durableManager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], MakeSnapshot());
         var msg1 = _inbox.GetById(MessageIdFor("PLAN-001"))!;
-        Assert.That(msg1.Actions[0].Label, Is.EqualTo("Open approval review"),
-            "Inbox should route to the detailed review instead of approving directly");
+        Assert.That(msg1.Actions, Is.Empty);
 
         var gate2 = new PlanApprovalGate("GATE-B", "Second", ["T3"], ["T4"], PlanGateStatus.AwaitingApproval);
         var expanded = MakePlan(
@@ -606,8 +604,8 @@ internal sealed class ApprovalNotificationLifecycleTests
             extraGates: [gate2]);
         await _durableManager.AppendCheckpointAsync(expanded, gate2, MakeSnapshot(gateId: "GATE-B"));
         var msg2 = _inbox.GetById(MessageIdFor("PLAN-001"))!;
-        Assert.That(msg2.Actions[0].Label, Is.EqualTo("Open approval review"),
-            "Aggregated Inbox requests should still route to one detailed review card");
+        Assert.That(msg2.Actions, Is.Empty,
+            "Aggregated requests must remain one inline Inbox review surface");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1041,7 +1039,7 @@ internal sealed class ApprovalNotificationLifecycleTests
         // Inbox message created
         var msg = _inbox.GetById(advance.MessageId!)!;
         Assert.That(msg.Priority, Is.EqualTo("high"));
-        Assert.That(msg.Actions, Has.Count.GreaterThan(0));
+        Assert.That(msg.Actions, Is.Empty);
 
         // User approves
         var approveResult = await _runtime.ApproveAsync(

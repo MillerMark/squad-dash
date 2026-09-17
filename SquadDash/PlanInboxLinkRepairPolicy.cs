@@ -21,7 +21,7 @@ internal static class PlanInboxLinkRepairPolicy
         if (!hasInboxDelivery)
         {
             return new PlanInboxLinkRepairDecision(
-                "The Inbox-link repair response did not re-emit the required corrected " +
+                "The Inbox-delivery repair response did not re-emit the required corrected " +
                 "INBOX_MESSAGE_JSON or INBOX_MESSAGE_JSON_FILE delivery.",
                 pendingRepairError);
         }

@@ -48,8 +48,12 @@ public class InboxStore
         _workspaceFolder = Path.GetDirectoryName(squadFolder) ?? squadFolder;
     }
 
-    /// <summary>Returns all messages sorted newest-first.</summary>
-    public IReadOnlyList<InboxMessage> LoadAll()
+    /// <summary>
+    /// Returns user-facing messages sorted newest-first. A bound manual-test-kit message is an
+    /// internal source for the durable approval request, not a second item the reviewer must
+    /// manage, so it is hidden unless a host reconciliation path explicitly asks for it.
+    /// </summary>
+    public IReadOnlyList<InboxMessage> LoadAll(bool includeApprovalKitSources = false)
     {
         lock (_sync)
         {
@@ -59,6 +63,8 @@ public class InboxStore
                 .Select(TryReadMessage)
                 .Where(m => m is not null)
                 .Cast<InboxMessage>()
+                .Where(message => includeApprovalKitSources ||
+                    ManualTestKitApprovalBinding.Read(message) is null)
                 .OrderByDescending(m => m.Timestamp)
                 .ToList()
                 .AsReadOnly();

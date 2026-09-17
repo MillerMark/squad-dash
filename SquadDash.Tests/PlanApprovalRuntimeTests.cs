@@ -110,7 +110,7 @@ public sealed class PlanApprovalRuntimeTests
         });
         var message = _inbox.GetById(DurableApprovalRequestManager.BuildMessageId(plan.PlanId));
         Assert.That(message, Is.Not.Null);
-        Assert.That(message!.Actions, Has.Count.EqualTo(1));
+        Assert.That(message!.Actions, Is.Empty);
     }
 
     [Test]
@@ -608,16 +608,12 @@ public sealed class PlanApprovalRuntimeTests
 
         var freshToken = _runtime.Actions.GetCurrentToken(revised.PlanId);
         var message = _inbox.GetById(DurableApprovalRequestManager.BuildMessageId(revised.PlanId));
-        var action = message!.Actions.Single(candidate => string.Equals(
-            candidate.RouteMode,
-            DurableApprovalRequestManager.ApprovalReviewRouteMode,
-            StringComparison.Ordinal));
-        Assert.That(ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload), Is.True);
         Assert.Multiple(() =>
         {
             Assert.That(freshToken, Is.Not.Null);
             Assert.That(freshToken!.PlanRevision, Is.EqualTo("rev-2"));
-            Assert.That(payload!.ToClickToken().Matches(freshToken), Is.True);
+            Assert.That(message!.Actions, Is.Empty,
+                "The current token is owned by the runtime until the inline checklist is complete");
         });
 
         Assert.That(

@@ -179,18 +179,18 @@ Before authoring a plan:
   the SquadDash Inbox and reference it exactly from the gate. Screenshots replace interaction only for
   purely static visual claims.
 - Treat that preparation as a manual test kit, not merely a document-writing task. The task is not
-  complete until it sends a self-contained Inbox message with the exact reproducible test target,
-  using branch and commit when the target is committed, or workspace path, current HEAD, dirty-state
-  disclosure, and the applicable build/package/artifact identity when it is not,
-  prerequisites and AI-prepared state, numbered Setup/Open/Act steps, expected pass/fail observations
-  mapped to the gate's stable proof requirement IDs, failure-evidence collection and reporting steps,
-  and cleanup. Put the full instructions in the Inbox body. Beside each relevant step, embed a
+  complete until it sends the concise operator procedure that SquadDash will absorb into the single
+  durable approval Inbox message. Begin with the first action, put shared setup once, and group the
+  remaining steps by independently verifiable observation. Under each short heading include only the
+  necessary actions, contextual links, one clear expected result, and the matching stable approval
+  marker. Put cleanup beside a scenario only when needed. Move target identity, provenance, hashes,
+  rationale, and extended failure diagnostics outside the required operator path. Beside each relevant step, embed a
   descriptive inline link such as `[Open sample solution](app://open-path:path/to/sample.sln)` or
   `[Open fixture folder](app://open-path:path/to/fixture)`. A relative target is resolved from the active
   SquadDash workspace directory, not from the Git repository root or shell directory. Require the
   executor to resolve and verify every link target before delivery, and require an absolute path for an
-  artifact outside the active workspace. Attachments may duplicate useful entry points but never replace contextual inline
-  links. Require
+  artifact outside the active workspace. Attachments are optional troubleshooting/reference only and
+  must never hold steps required to complete approval. Require
   `INBOX_MESSAGE_JSON_FILE` when long or parser-sensitive content makes inline Inbox JSON fragile.
   A transcript-only promise, a prose-only path, or an action that starts another agent is not Inbox
   delivery. Make the human gate depend on this task and reuse the same proof IDs and fixture outputs.
@@ -200,10 +200,10 @@ Before authoring a plan:
   `Observe: the new result appears`; immediately followed by the checkbox question
   `Does the new result appear?` for `requirementId: new-result`; then `Cleanup: remove the temporary
   project/state`. The checkbox is host-rendered from the stable requirement ID—do not invent a second
-  disconnected checklist in prose. In the manual-test-kit Inbox body, put
+  disconnected checklist in prose. In the manual-test-kit source body, put
   `{{approval-check:new-result}}` on its own line at that exact location. SquadDash replaces it with
-  the host-owned control. The same persisted checkbox is shown in Inbox and transcript; the test-kit
-  slot is another synchronized view of that state.
+  the host-owned control in the durable approval message. The source kit is internal staging, not a
+  second user-facing Inbox document.
 - Prepare fixtures, sample projects, or sample files primarily for new behavior or for state that is
   unavailable, fragile, destructive, or expensive for the human to recreate. Do not duplicate an
   established regression environment merely for symmetry. Existing-behavior checks may direct the

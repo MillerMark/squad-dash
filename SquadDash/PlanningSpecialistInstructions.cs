@@ -158,19 +158,19 @@ internal static class PlanningSpecialistInstructions
                preparation task that a relative target is resolved from the active SquadDash workspace
                directory, not from the Git repository root or shell directory; the executor must verify every
                resolved target exists before delivery and must use an absolute path for an artifact outside the
-               active workspace. Attachments may duplicate
-               useful entry points but never replace contextual inline links. Require the
+               active workspace. Attachments are optional troubleshooting or reference material and must
+               never contain steps required for approval. Require the
                Inbox JSON file escape hatch for long or parser-sensitive content. A transcript-only promise,
                prose-only path, or action that starts another agent is not delivery. The following gate must
                depend on the preparation task and reuse its proof IDs and fixture outputs.
-               Design every gate recipe for SquadDash's chronological live approval form: Setup the
+               Design every gate recipe for SquadDash's single-message chronological approval form: Setup the
                prepared build; Open and perform the exact linked file/folder and interaction; Observe the
                expected result; place one atomic checkbox question for the stable requirementId immediately
                after that observation; then Cleanup. SquadDash binds that requirement to one persisted
-               checkbox shown in both the Inbox and transcript. Do not invent a disconnected prose checklist.
-               Require the manual-test-kit Inbox body to mark that exact location with
+               checkbox in the durable approval Inbox message. Do not invent a disconnected prose checklist.
+               Require the internal manual-test-kit source body to mark that exact location with
                `{{"{{approval-check:requirement-id}}"}}` on its own line, using the real stable requirement ID.
-               SquadDash replaces the marker with its host-owned synchronized checkbox.
+               SquadDash replaces the marker with its host-owned checkbox and never displays the raw token.
                Prepare fixtures primarily for new behavior or unavailable, fragile, destructive, or costly
                state. Established regression checks may use the reviewer's familiar existing files and may
                be grouped into one concise checklist. Prefer separate proof items for distinct new behavior.

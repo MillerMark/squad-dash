@@ -319,17 +319,19 @@ internal static class DecomposeEnvelopeRepairPrompt
         $$"""
 
 
-        The task's required Inbox delivery was withheld because at least one contextual link was broken:
+        The task's required Inbox delivery was withheld because its operator package did not validate.
+        Correct every error below before re-emitting it:
         {{validationError}}
 
         This delivery correction is the sole exception to the instruction above to return only the
         result envelope. After the corrected DECOMPOSE_STEP_RESULT_JSON, re-emit exactly one complete
-        INBOX_MESSAGE_JSON or INBOX_MESSAGE_JSON_FILE block containing the same useful manual-test
-        instructions with corrected links. Do not repeat implementation work. You may inspect only the
-        promised link targets needed to correct the message. Resolve every relative `app://open-path:`
+        INBOX_MESSAGE_JSON or INBOX_MESSAGE_JSON_FILE block containing the corrected concise manual-test
+        procedure. Do not repeat implementation work. You may inspect only the information needed to
+        correct the delivery. Use each required `{{"{{approval-check:requirement-id}}"}}` marker exactly
+        once with its real stable ID, immediately after that check's expected result. Resolve every relative `app://open-path:`
         target from the active SquadDash workspace directory, not from the Git repository root or the
         shell's current directory, and confirm each resolved file or folder exists before returning it.
         If a target is outside the active workspace, use its absolute path. Preserve the rest of the
-        valid Inbox content.
+        valid Inbox content. Return all corrections together; do not make the human reconcile partial attempts.
         """;
 }

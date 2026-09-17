@@ -14487,7 +14487,7 @@ public partial class MainWindow : Window
                             repairPlan, taskId, _CodeHealthGroupRunner.GetCurrentStepTitle());
                     ScheduleDecomposeSystemEntry(resultEnvelopeWasPresent
                         ? "⚙ The task result JSON did not match the required schema. " +
-                          "SquadDash is asking the AI to correct it once without repeating the work. " +
+                          "SquadDash is asking the AI to correct it without repeating the work. " +
                           $"Technical detail: {repairError}"
                         : $"{stepIdentity} is not yet accepted. " +
                           "SquadDash is requesting the missing result envelope without repeating the task. " +
@@ -15985,8 +15985,8 @@ public partial class MainWindow : Window
             }
         }
 
-        await _planApprovalRuntime.RestoreAsync(approvalPlans);
         BindExistingManualTestKitMessages(_planStore.LoadAll());
+        await _planApprovalRuntime.RestoreAsync(approvalPlans);
         PruneArchivedPlanFamilyArtifacts(approvalPlans);
         PlanRecoveryDecisionHandler.ArchiveObsoleteAppliedNotifications(_inboxStore);
         ReconcileDecomposeRecoveryInboxMessages();
@@ -16000,7 +16000,7 @@ public partial class MainWindow : Window
         if (_inboxStore is null || plans.Count == 0)
             return;
 
-        foreach (var message in _inboxStore.LoadAll())
+        foreach (var message in _inboxStore.LoadAll(includeApprovalKitSources: true))
         {
             var bound = ManualTestKitApprovalBinding.TryBindExistingMessage(message, plans);
             if (ReferenceEquals(bound, message))
@@ -58461,19 +58461,35 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            if (InboxOpenPathValidator.Validate(fileDto.Body, workspaceRoot) is { } fileLinkError)
-                errors.Add(fileLinkError);
+            ValidateInboxBody(fileDto.Body, errors, workspaceRoot);
         }
 
         if (InboxMessageParser.TryExtract(rawResponse, out var inlineExtraction) &&
             inlineExtraction?.Message is { } inlineDto)
         {
             hasInboxDelivery = true;
-            if (InboxOpenPathValidator.Validate(inlineDto.Body, workspaceRoot) is { } inlineLinkError)
-                errors.Add(inlineLinkError);
+            ValidateInboxBody(inlineDto.Body, errors, workspaceRoot);
         }
 
         return (hasInboxDelivery, DecomposeStepResultContractDiagnostics.Combine(errors));
+    }
+
+    private void ValidateInboxBody(string body, List<string> errors, string workspaceRoot)
+    {
+        if (InboxOpenPathValidator.Validate(body, workspaceRoot) is { } linkError)
+            errors.Add(linkError);
+
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (execution?.DecomposeGroupId is not { } planId ||
+            execution.RecoveryTaskId is not { } taskId ||
+            _planStore?.Load(planId) is not { } plan)
+            return;
+
+        if (ManualTestKitApprovalBinding.ValidateSourceBody(plan, taskId, body) is { } kitError)
+        {
+            errors.Add(kitError);
+            SquadDashTrace.Write(TraceCategory.Inbox, "APPROVAL_SETUP_ERROR: " + kitError);
+        }
     }
 
     private bool ShouldValidatePlanTaskInbox(string rawResponse) =>
@@ -58489,7 +58505,9 @@ public partial class MainWindow : Window
         if (!ShouldValidatePlanTaskInbox(rawResponse))
             return true;
 
-        error = InboxOpenPathValidator.Validate(message.Body, GetActiveArtifactWorkspaceRoot());
+        var errors = new List<string>();
+        ValidateInboxBody(message.Body, errors, GetActiveArtifactWorkspaceRoot());
+        error = DecomposeStepResultContractDiagnostics.Combine(errors);
         if (error is null)
             return true;
 
@@ -58505,7 +58523,9 @@ public partial class MainWindow : Window
         var result = _capturedDecomposeStepResult;
         if (result is null || _planStore?.Load(result.GroupId) is not { } plan ||
             !string.Equals(plan.Revision, result.Revision, StringComparison.Ordinal))
-            return message;
+            return _planStore is null
+                ? message
+                : ManualTestKitApprovalBinding.TryBindExistingMessage(message, _planStore.LoadAll());
 
         var bound = ManualTestKitApprovalBinding.BindForCompletedTask(message, plan, result.TaskId);
         if (!ReferenceEquals(bound, message))
@@ -58515,6 +58535,46 @@ public partial class MainWindow : Window
                 $"INBOX_SAVE: bound manual test kit to plan={plan.PlanId} task={result.TaskId}");
         }
         return bound;
+    }
+
+    private void ScheduleApprovalKitAbsorption(InboxMessage source)
+    {
+        var binding = ManualTestKitApprovalBinding.Read(source);
+        if (binding is null || _planStore?.Load(binding.PlanId) is not { } plan ||
+            _planApprovalRuntime is null || _inboxStore is null)
+            return;
+
+        _ = AbsorbApprovalKitAsync(source.Id, plan);
+    }
+
+    private async Task AbsorbApprovalKitAsync(string sourceMessageId, Plan plan)
+    {
+        try
+        {
+            await _planApprovalRuntime!.Requests.RefreshFromPlanAsync(plan);
+            var approvalMessageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
+            var approvalMessage = _inboxStore!.GetById(approvalMessageId);
+            if (approvalMessage is null)
+                return; // The gate is not active yet; retain the hidden source for later absorption.
+
+            foreach (var candidate in _inboxStore.LoadAll(includeApprovalKitSources: true)
+                         .Where(candidate => candidate.Id != approvalMessageId)
+                         .Where(candidate => ManualTestKitApprovalBinding.LooksLikeSourceForPlan(candidate, plan))
+                         .ToArray())
+                _inboxStore.Archive(candidate.Id);
+
+            _inboxPanel?.Refresh(_inboxStore.LoadAll());
+            RefreshOpenApprovalInboxWindows(approvalMessageId, approvalMessage);
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                $"Approval kit absorbed into message={approvalMessageId}; retired source={sourceMessageId}");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                $"APPROVAL_SETUP_ERROR: kit absorption failed source={sourceMessageId}: {ex}");
+        }
     }
 
     /// <summary>
@@ -58751,6 +58811,16 @@ public partial class MainWindow : Window
 
         _inboxStore.Save(message);
 
+        var isApprovalKitSource = ManualTestKitApprovalBinding.Read(message) is not null;
+        if (isApprovalKitSource)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                $"INBOX_SAVE: staged manual-test-kit source id={message.Id}; the durable approval message will present its procedure");
+            ScheduleApprovalKitAbsorption(message);
+            return message.Id;
+        }
+
         // Fetch the git SHA off the UI thread and patch the saved message once available.
         // Null is always acceptable — the SHA is informational only (inbox staleness display).
         var capturedStore = _inboxStore;
@@ -58847,6 +58917,16 @@ public partial class MainWindow : Window
         }
 
         _inboxStore.Save(message);
+
+        var isApprovalKitSource = ManualTestKitApprovalBinding.Read(message) is not null;
+        if (isApprovalKitSource)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                $"INBOX_SAVE: staged manual-test-kit file source id={message.Id}; the durable approval message will present its procedure");
+            ScheduleApprovalKitAbsorption(message);
+            return message.Id;
+        }
 
         var capturedStore = _inboxStore;
         var capturedRoot  = GetActiveArtifactWorkspaceRoot();

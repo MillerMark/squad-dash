@@ -52,6 +52,7 @@ internal sealed class DurableApprovalRequestManager
     internal const string ApprovalRouteMode = "approval-gate";
     internal const string ApprovalReviewRouteMode = "approval-gate-review";
     internal const string RunbookAttachmentType = "inbox-message-ref";
+    internal const string OperatorGuideAttachmentType = "approval-operator-guide";
     internal const string ApprovalRunbookLink = "app://open-approval-runbook";
     internal const string RunbookAttachmentLabel = "Open full validation runbook";
     internal const string GeneratedInstructionsAttachmentLabel = "Open full test instructions";
@@ -119,8 +120,8 @@ internal sealed class DurableApprovalRequestManager
                     // leaving it buried at the time of the first checkpoint.
                     Timestamp = DateTimeOffset.UtcNow,
                     Read = false,
-                    Body = BuildBody(plan, updatedGateIds, newState.ResolvedCheckpoints, reviewSnapshot),
-                    Actions = BuildActions(plan, newState),
+                    Body = BuildApprovalBody(plan, updatedGateIds, newState.ResolvedCheckpoints, reviewSnapshot),
+                    Actions = BuildApprovalActions(plan, newState),
                     Attachments = BuildAttachments(newState, reviewSnapshot, plan: plan),
                     Priority = "high",
                 };
@@ -144,9 +145,9 @@ internal sealed class DurableApprovalRequestManager
                     Timestamp = DateTimeOffset.UtcNow,
                     Read = false,
                     Priority = "high",
-                    Body = BuildBody(plan, [gate.GateId], [], snapshot),
+                    Body = BuildApprovalBody(plan, [gate.GateId], [], snapshot),
                     Attachments = BuildAttachments(state, snapshot, plan: plan),
-                    Actions = BuildActions(plan, state),
+                    Actions = BuildApprovalActions(plan, state),
                 };
                 _inbox.Save(message);
             }
@@ -182,8 +183,8 @@ internal sealed class DurableApprovalRequestManager
 
             var updated = existing with
             {
-                Body = BuildBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints, reviewSnapshot),
-                Actions = BuildActions(plan, state),
+                Body = BuildApprovalBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints, reviewSnapshot, existing.Attachments),
+                Actions = BuildApprovalActions(plan, state, existing.Attachments),
                 Attachments = BuildAttachments(state, reviewSnapshot, plan: plan),
             };
             _inbox.Save(updated);
@@ -215,8 +216,8 @@ internal sealed class DurableApprovalRequestManager
             var snapshot = DeserializeSnapshot(existing);
             _inbox.Save(existing with
             {
-                Body = BuildBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints, snapshot),
-                Actions = BuildActions(plan, state),
+                Body = BuildApprovalBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints, snapshot, existing.Attachments),
+                Actions = BuildApprovalActions(plan, state, existing.Attachments),
                 Attachments = BuildAttachments(
                     state, snapshot, existing.Attachments, plan),
             });
@@ -274,7 +275,7 @@ internal sealed class DurableApprovalRequestManager
                 {
                     Read = true,
                     Actions = [],
-                    Body = BuildBody(plan, [], newState.ResolvedCheckpoints),
+                    Body = BuildApprovalBody(plan, [], newState.ResolvedCheckpoints, existingAttachments: existing.Attachments),
                     Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments, plan: plan),
                 };
                 _inbox.Save(archived);
@@ -284,8 +285,8 @@ internal sealed class DurableApprovalRequestManager
                 var updated = existing with
                 {
                     Read = true,
-                    Body = BuildBody(plan, remainingGates, newState.ResolvedCheckpoints, reviewSnapshot),
-                    Actions = BuildActions(plan, newState),
+                    Body = BuildApprovalBody(plan, remainingGates, newState.ResolvedCheckpoints, reviewSnapshot, existing.Attachments),
+                    Actions = BuildApprovalActions(plan, newState, existing.Attachments),
                     Attachments = BuildAttachments(newState, snapshot: null, existingAttachments: existing.Attachments, plan: plan),
                 };
                 _inbox.Save(updated);
@@ -336,8 +337,8 @@ internal sealed class DurableApprovalRequestManager
             _inbox.Save(existing with
             {
                 Read = remaining.Length == 0,
-                Body = BuildBody(plan, remaining, history, reviewSnapshot),
-                Actions = BuildActions(plan, updatedState),
+                Body = BuildApprovalBody(plan, remaining, history, reviewSnapshot, existing.Attachments),
+                Actions = BuildApprovalActions(plan, updatedState, existing.Attachments),
                 Attachments = BuildAttachments(
                     updatedState,
                     snapshot: null,
@@ -534,13 +535,25 @@ internal sealed class DurableApprovalRequestManager
                 attachments.Add(existingSnapshot);
         }
 
-        // Keep the approval message a decision surface. A bound manual-test-kit message is the
-        // authoritative procedure; when no kit exists, put any inline recipe in its own attachment.
+        // The approval message is the operator's single working surface. Preserve the concise
+        // AI-authored guide as hidden host state so later refreshes can rebuild that surface
+        // without requiring the source kit to remain visible as a second Inbox item.
         var runbooks = plan is null
             ? []
             : FindBoundManualTestKits(plan, state.ActiveGateIds);
         if (runbooks.Count > 0)
         {
+            attachments.Add(new InboxAttachment
+            {
+                Type = OperatorGuideAttachmentType,
+                Label = "Approval operator guide",
+                Content = string.Join("\n\n", runbooks.Select(runbook => runbook.Body)),
+                PlanGroupId = plan!.PlanId,
+                PlanRevision = plan.Revision,
+            });
+
+            // A long file-backed runbook is optional troubleshooting/reference material. It is
+            // deliberately not the route to the required steps; those are in the message body.
             foreach (var runbook in runbooks)
             {
                 var runbookFile = runbook.Attachments.FirstOrDefault(attachment =>
@@ -548,34 +561,24 @@ internal sealed class DurableApprovalRequestManager
                     attachment.Path?.EndsWith(".md", StringComparison.OrdinalIgnoreCase) == true &&
                     (attachment.Label.Contains("runbook", StringComparison.OrdinalIgnoreCase) ||
                      attachment.Label.Contains("instruction", StringComparison.OrdinalIgnoreCase)));
-                attachments.Add(runbookFile is not null
-                    ? runbookFile with
+                if (runbookFile is not null)
+                {
+                    attachments.Add(runbookFile with
                     {
-                        Type = RunbookAttachmentType,
-                        Label = runbooks.Count == 1
-                            ? RunbookAttachmentLabel
-                            : $"Open runbook: {runbook.Subject}",
-                        PlanGroupId = plan!.PlanId,
-                        PlanRevision = plan.Revision,
-                    }
-                    : new InboxAttachment
-                    {
-                        Type = RunbookAttachmentType,
-                        Label = runbooks.Count == 1
-                            ? RunbookAttachmentLabel
-                            : $"Open runbook: {runbook.Subject}",
-                        InboxMessageId = runbook.Id,
+                        Type = "file",
+                        Label = "Detailed troubleshooting (optional)",
                         PlanGroupId = plan!.PlanId,
                         PlanRevision = plan.Revision,
                     });
+                }
             }
         }
         else if (plan is not null && BuildGeneratedInstructions(plan, state.ActiveGateIds) is { } instructions)
         {
             attachments.Add(new InboxAttachment
             {
-                Type = RunbookAttachmentType,
-                Label = GeneratedInstructionsAttachmentLabel,
+                Type = OperatorGuideAttachmentType,
+                Label = "Approval operator guide",
                 Content = instructions,
                 PlanGroupId = plan.PlanId,
                 PlanRevision = plan.Revision,
@@ -584,8 +587,9 @@ internal sealed class DurableApprovalRequestManager
         else if (existingAttachments is not null)
         {
             attachments.AddRange(existingAttachments.Where(attachment =>
-                string.Equals(attachment.Type, RunbookAttachmentType, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(attachment.Label, GeneratedInstructionsAttachmentLabel, StringComparison.Ordinal)));
+                string.Equals(attachment.Type, OperatorGuideAttachmentType, StringComparison.OrdinalIgnoreCase) ||
+                (string.Equals(attachment.Type, "file", StringComparison.OrdinalIgnoreCase) &&
+                 string.Equals(attachment.Label, "Detailed troubleshooting (optional)", StringComparison.Ordinal))));
         }
 
         if (plan is not null && snapshot is not null &&
@@ -636,7 +640,7 @@ internal sealed class DurableApprovalRequestManager
         Plan plan,
         IReadOnlyList<string> activeGateIds)
     {
-        var candidates = _inbox.LoadAll()
+        var candidates = _inbox.LoadAll(includeApprovalKitSources: true)
             .Select(message => (Message: message, Binding: ManualTestKitApprovalBinding.Read(message)))
             .Where(candidate => candidate.Binding is not null &&
                 string.Equals(candidate.Binding.PlanId, plan.PlanId, StringComparison.Ordinal) &&
@@ -679,7 +683,9 @@ internal sealed class DurableApprovalRequestManager
                 parts.Add($"1. **Set up:** {recipe.Setup}");
                 parts.Add($"2. **Open and perform:** {recipe.Open}");
                 parts.Add($"3. **Observe:** {recipe.Observe}");
-                parts.Add($"4. **Clean up:** {recipe.Cleanup}");
+                parts.Add($"{{{{approval-check:{requirement.RequirementId}}}}}");
+                if (!string.IsNullOrWhiteSpace(recipe.Cleanup))
+                    parts.Add($"4. **Clean up:** {recipe.Cleanup}");
             }
         }
 
@@ -701,13 +707,64 @@ internal sealed class DurableApprovalRequestManager
         !string.Equals(attachment.Type, AttachmentType, StringComparison.OrdinalIgnoreCase) &&
         !string.Equals(attachment.Type, "approval-snapshot", StringComparison.OrdinalIgnoreCase) &&
         !string.Equals(attachment.Type, RunbookAttachmentType, StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(attachment.Type, OperatorGuideAttachmentType, StringComparison.OrdinalIgnoreCase) &&
         !ManualTestKitApprovalBinding.IsBindingAttachment(attachment);
+
+    private string BuildApprovalBody(
+        Plan plan,
+        IReadOnlyList<string> activeGateIds,
+        IReadOnlyList<ResolvedCheckpointEntry> resolvedCheckpoints,
+        ApprovalReviewSnapshot? snapshot = null,
+        IReadOnlyList<InboxAttachment>? existingAttachments = null)
+    {
+        var operatorGuide = ResolveOperatorGuide(plan, activeGateIds, existingAttachments);
+        return BuildBody(plan, activeGateIds, resolvedCheckpoints, snapshot, operatorGuide);
+    }
+
+    private string? ResolveOperatorGuide(
+        Plan plan,
+        IReadOnlyList<string> activeGateIds,
+        IReadOnlyList<InboxAttachment>? existingAttachments = null)
+    {
+        var kits = FindBoundManualTestKits(plan, activeGateIds);
+        return kits.Count > 0
+            ? string.Join("\n\n", kits.Select(kit => kit.Body))
+            : existingAttachments?.FirstOrDefault(attachment => string.Equals(
+                attachment.Type,
+                OperatorGuideAttachmentType,
+                StringComparison.OrdinalIgnoreCase))?.Content
+              ?? BuildGeneratedInstructions(plan, activeGateIds);
+    }
+
+    private IReadOnlyList<InboxAction> BuildApprovalActions(
+        Plan plan,
+        DurableApprovalState state,
+        IReadOnlyList<InboxAttachment>? existingAttachments = null)
+    {
+        var guide = ResolveOperatorGuide(plan, state.ActiveGateIds, existingAttachments);
+        if (string.IsNullOrWhiteSpace(guide))
+            return BuildActions(plan, state);
+
+        var gates = state.ActiveGateIds
+            .Select(gateId => plan.ApprovalGates.FirstOrDefault(gate =>
+                string.Equals(gate.GateId, gateId, StringComparison.Ordinal)))
+            .Where(gate => gate is not null)
+            .Cast<PlanApprovalGate>()
+            .ToArray();
+        var checklist = PlanHumanReviewChecklist.Build(plan, gates);
+        var composed = ManualTestKitChecklistComposer.Compose(guide, checklist);
+        var setupValid = !composed.Contains(
+            ManualTestKitChecklistComposer.SetupErrorMarker,
+            StringComparison.Ordinal);
+        return BuildActions(plan, state, setupValid);
+    }
 
     internal static string BuildBody(
         Plan plan,
         IReadOnlyList<string> activeGateIds,
         IReadOnlyList<ResolvedCheckpointEntry> resolvedCheckpoints,
-        ApprovalReviewSnapshot? snapshot = null)
+        ApprovalReviewSnapshot? snapshot = null,
+        string? operatorGuide = null)
     {
         var parts = new List<string>();
 
@@ -716,35 +773,42 @@ internal sealed class DurableApprovalRequestManager
         if (activeGateIds.Count > 0)
         {
             parts.Add("");
-            parts.Add(activeGateIds.Count == 1
-                ? "Review this checkpoint:"
-                : $"Review these {activeGateIds.Count} checkpoints:");
-            foreach (var gateId in activeGateIds.OrderBy(gateId => GetGateOrder(plan, gateId)))
+            if (!string.IsNullOrWhiteSpace(operatorGuide))
             {
-                var gate = plan.ApprovalGates.FirstOrDefault(
-                    g => string.Equals(g.GateId, gateId, StringComparison.Ordinal));
-                var reason = gate?.Message ?? gateId;
-                var stepLabel = gate is null ? null : ResolveGateStepLabel(plan, gate);
-                parts.Add(string.IsNullOrWhiteSpace(stepLabel)
-                    ? $"- {reason}"
-                    : $"- **Step {stepLabel}:** {reason}");
-                if (gate is not null)
+                var gates = activeGateIds
+                    .Select(gateId => plan.ApprovalGates.FirstOrDefault(gate =>
+                        string.Equals(gate.GateId, gateId, StringComparison.Ordinal)))
+                    .Where(gate => gate is not null)
+                    .Cast<PlanApprovalGate>()
+                    .ToArray();
+                var checklist = PlanHumanReviewChecklist.Build(plan, gates);
+                parts.Add("Complete each short check below. Use the links at the step where they appear, then check the observed result.");
+                parts.Add("");
+                parts.Add(ManualTestKitChecklistComposer.Compose(operatorGuide.Trim(), checklist));
+            }
+            else
+            {
+                parts.Add(activeGateIds.Count == 1
+                    ? "Review this checkpoint:"
+                    : $"Review these {activeGateIds.Count} checkpoints:");
+                foreach (var gateId in activeGateIds.OrderBy(gateId => GetGateOrder(plan, gateId)))
                 {
-                    var reviewItems = PlanHumanReviewChecklist.Build(plan, [gate]);
-                    if (reviewItems.Count > 0)
+                    var gate = plan.ApprovalGates.FirstOrDefault(
+                        g => string.Equals(g.GateId, gateId, StringComparison.Ordinal));
+                    var reason = gate?.Message ?? gateId;
+                    var stepLabel = gate is null ? null : ResolveGateStepLabel(plan, gate);
+                    parts.Add(string.IsNullOrWhiteSpace(stepLabel)
+                        ? $"- {reason}"
+                        : $"- **Step {stepLabel}:** {reason}");
+                    if (gate is not null)
                     {
-                        parts.Add("");
-                        if (gate.ProofRequirements?.Any(requirement =>
-                                requirement.VerificationRecipe is not null ||
-                                !string.IsNullOrWhiteSpace(requirement.FixtureTaskId)) == true)
+                        var reviewItems = PlanHumanReviewChecklist.Build(plan, [gate]);
+                        if (reviewItems.Count > 0)
                         {
-                            parts.Add($"[Open the validation instructions]({ApprovalRunbookLink}), perform the procedure, then confirm each observed result.");
                             parts.Add("");
-                        }
-                        parts.Add("**Confirm each observed result**");
-                        foreach (var item in reviewItems)
-                        {
-                            parts.Add($"- {(item.IsChecked ? "☑" : "☐")} {item.Text}");
+                            parts.Add("**Confirm each observed result**");
+                            foreach (var item in reviewItems)
+                                parts.Add($"- {(item.IsChecked ? "☑" : "☐")} {item.Text}");
                         }
                     }
                 }
@@ -898,6 +962,12 @@ internal sealed class DurableApprovalRequestManager
     internal static IReadOnlyList<InboxAction> BuildActions(
         Plan plan,
         DurableApprovalState state)
+        => BuildActions(plan, state, approvalSetupValid: true);
+
+    private static IReadOnlyList<InboxAction> BuildActions(
+        Plan plan,
+        DurableApprovalState state,
+        bool approvalSetupValid)
     {
         if (state.ActiveGateIds.Count == 0)
             return [];
@@ -907,16 +977,7 @@ internal sealed class DurableApprovalRequestManager
             plan.Revision,
             state.Version,
             state.ActiveGateIds);
-        var actions = new List<InboxAction>
-        {
-            new InboxAction
-            {
-                Label = "Open approval review",
-                RouteMode = ApprovalReviewRouteMode,
-                Prompt = JsonSerializer.Serialize(payload, StateSerializerOptions),
-                Hint = "Open the detailed checklist in a separate modeless window. This does not approve the plan.",
-            },
-        };
+        var actions = new List<InboxAction>();
 
         var activeGates = state.ActiveGateIds
             .Select(gateId => plan.ApprovalGates.FirstOrDefault(gate =>
@@ -925,7 +986,7 @@ internal sealed class DurableApprovalRequestManager
             .Cast<PlanApprovalGate>()
             .ToArray();
         var checklist = PlanHumanReviewChecklist.Build(plan, activeGates);
-        if (checklist.Count == 0 || checklist.All(item => item.IsChecked))
+        if (approvalSetupValid && (checklist.Count == 0 || checklist.All(item => item.IsChecked)))
         {
             actions.Add(new InboxAction
             {

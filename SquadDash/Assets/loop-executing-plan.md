@@ -79,16 +79,17 @@ different product behaviors, do not guess: preserve safe completed work and repo
 the host-owned partial or failed task result so SquadDash can surface recovery.
 
 Use the manual-test-kit contract from the injected Inbox instructions whenever the assigned task
-prepares human validation. The Inbox body must be usable on its own and must place clickable file or
-folder links beside the steps that need them. Keep the later human gate's
-stable proof IDs visible in the expected-observation checklist. Resolve relative `app://open-path:`
+prepares human validation. Write a short operator procedure for SquadDash to absorb into the single
+durable approval Inbox message; do not create a second summary or a required external runbook. Begin
+with the first action, put shared setup once, and group the remaining actions by independently
+verifiable observation. Place clickable file or folder links beside the steps that need them. Resolve relative `app://open-path:`
 targets from the active SquadDash workspace directory—not the Git repository root or shell directory—
 and verify every target exists before returning the Inbox payload. Use an absolute path for any linked
 artifact outside the active workspace.
 Immediately after each proof's final expected pass/fail observation, put
-`{{approval-check:requirement-id}}` on its own line using that proof's exact stable ID. SquadDash owns
-the resulting live control and synchronizes it with the approval Inbox item and transcript card; do
-not substitute a Markdown checkbox.
+`{{approval-check:requirement-id}}` on its own line using that proof's exact stable ID. SquadDash turns
+it into the live checkbox in the approval Inbox message; do not substitute a Markdown checkbox or
+expose the marker as operator-facing text. Keep provenance and extended troubleshooting optional.
 
 The required step-result payload is:
 

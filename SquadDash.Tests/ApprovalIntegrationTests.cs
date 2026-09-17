@@ -1286,16 +1286,12 @@ internal sealed class ApprovalIntegrationTests
     // ═══════════════════════════════════════════════════════════════════════
 
     [Test]
-    public void BuildActions_ActiveGates_GeneratesAggregateApproveAction()
+    public void BuildActions_UncheckedActiveGates_UsesInlineReviewSurface()
     {
         var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-A", "GATE-B"]);
 
-        Assert.That(actions, Has.Count.EqualTo(1));
-        Assert.That(actions[0].Label, Is.EqualTo("Open approval review"));
-        Assert.That(actions[0].RouteMode, Is.EqualTo(DurableApprovalRequestManager.ApprovalReviewRouteMode));
-        Assert.That(ApprovalInboxActionPayload.TryParse(actions[0].Prompt, out var payload), Is.True);
-        Assert.That(payload!.GateIds, Is.EqualTo(new[] { "GATE-A", "GATE-B" }));
+        Assert.That(actions, Is.Empty);
     }
 
     [Test]
@@ -1356,7 +1352,8 @@ internal sealed class ApprovalIntegrationTests
 
         var msg = _inbox.GetById("approval-gate-PLAN-001");
         Assert.That(msg!.Read, Is.True, "An acted-on approval request should be marked read even while another gate remains");
-        Assert.That(msg.Actions, Has.Count.GreaterThan(0), "Actions must remain for active gates");
+        Assert.That(msg.Actions, Is.Empty,
+            "Unchecked active gates are completed directly in the Inbox body");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

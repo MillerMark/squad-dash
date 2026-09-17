@@ -63,6 +63,45 @@ internal sealed class ManualTestKitApprovalBindingTests
     }
 
     [Test]
+    public void TryBindExistingMessage_RecognizesApprovalMarkerWithoutManualTestWording()
+    {
+        var message = BuildMessage("{{approval-check:proof-one}}\n{{approval-check:proof-two}}") with
+        {
+            Subject = "Refreshed native target kit",
+        };
+
+        var bound = ManualTestKitApprovalBinding.TryBindExistingMessage(message, [BuildPlan()]);
+
+        Assert.That(ManualTestKitApprovalBinding.Read(bound)?.GateIds, Is.EqualTo(new[] { "GATE-1" }));
+    }
+
+    [Test]
+    public void ValidateSourceBody_ReportsAllMarkerErrorsForAutomaticRepair()
+    {
+        var error = ManualTestKitApprovalBinding.ValidateSourceBody(
+            BuildPlan(),
+            "TASK-1",
+            "{{approval-check:proof-one}}\n{{approval-check:proof-one}}\n{{approval-check:stale-proof}}");
+
+        Assert.That(error, Does.Contain("missing `{{approval-check:proof-two}}`")
+            .And.Contain("unknown approval marker `stale-proof`")
+            .And.Contain("approval marker `proof-one` appears 2 times")
+            .And.Contain("Re-emit the corrected kit")
+            .And.Contain("preserve the completed implementation work"));
+    }
+
+    [Test]
+    public void LooksLikeSourceForPlan_MatchesPartialSupersededKit()
+    {
+        var message = BuildMessage("{{approval-check:proof-one}}") with
+        {
+            Subject = "Refreshed native target kit",
+        };
+
+        Assert.That(ManualTestKitApprovalBinding.LooksLikeSourceForPlan(message, BuildPlan()), Is.True);
+    }
+
+    [Test]
     public void Compose_ReplacesExplicitSlotImmediatelyWithPersistedQuestion()
     {
         var body = """
@@ -95,6 +134,32 @@ internal sealed class ManualTestKitApprovalBindingTests
 
         Assert.That(result, Does.Contain(
             "- ❌ Fail: the result is missing.\n\n- ☐ Does it appear?\n\n\n**2. Other"));
+    }
+
+    [Test]
+    public void Compose_ReplacesUnmatchedProtocolMarkerWithBlockingSetupError()
+    {
+        var result = ManualTestKitChecklistComposer.Compose(
+            "Open the sample.\n{{approval-check:native-inactive-target}}",
+            []);
+
+        Assert.That(result, Does.Contain("Open the sample.")
+            .And.Contain(ManualTestKitChecklistComposer.SetupErrorMarker)
+            .And.Contain("native-inactive-target")
+            .And.Not.Contain("{{approval-check:"));
+    }
+
+    [Test]
+    public void Compose_DoesNotGuessMissingPlacementWhenKitUsesExplicitMarkers()
+    {
+        var result = ManualTestKitChecklistComposer.Compose(
+            "Unchanged proof-two.\n{{approval-check:proof-one}}",
+            [BuildItem("proof-one", "Does one appear?"), BuildItem("proof-two", "Does two appear?")]);
+
+        Assert.That(result, Does.Contain("- ☐ Does one appear?")
+            .And.Contain(ManualTestKitChecklistComposer.SetupErrorMarker)
+            .And.Contain("Does two appear?")
+            .And.Not.Contain("- ☐ Does two appear?"));
     }
 
     private static InboxMessage BuildMessage(string body) => new()

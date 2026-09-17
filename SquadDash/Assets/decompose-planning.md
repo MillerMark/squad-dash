@@ -310,33 +310,26 @@ not required. Use the exact property names below; do not substitute familiar sho
   If an isolated sample or other review material is genuinely needed, prepare that material in a
   separate task and place the atomic live observations in the following human approval gate.
 
-  When a separate manual-test-kit preparation task is actually warranted, it is complete only when it creates the promised material **and**
-  sends a self-contained Inbox message that the reviewer can follow without reconstructing context
-  from the transcript. Require the Inbox message to contain:
-  1. **Purpose and test target:** what is being verified and an exact reproducible identity appropriate
-     to its state. Use branch and commit for committed work. For uncommitted work, identify the workspace,
-     current HEAD, dirty state, and applicable build, package, artifact, or version without requiring a
-     commit merely to name the target.
-  2. **Prerequisites and prepared state:** what AI already built or created, what the human still needs,
-     and any install, launch, account, device, or environment assumptions.
-  3. **Setup, Open, and Act:** numbered, literal steps including paths, menus, commands, keyboard,
-     mouse, voice, or device actions. Do not summarize these as "exercise the feature."
-  4. **Observe:** one unambiguous expected pass/fail observation for every human proof requirement,
-     naming the matching stable `requirementId` so the Inbox checklist and approval gate agree.
-  5. **Failure capture:** the exact logs, trace categories, screenshots, recordings, error text, or
-     environment details to collect, where to find them, and how to report a failed check.
-  6. **Cleanup:** how to undo temporary installation, configuration, data, projects, files, or state.
+  When a separate manual-test-kit preparation task is actually warranted, it is complete only when it
+  creates the promised material and emits the concise operator procedure that SquadDash will absorb
+  into the durable approval Inbox message. The source kit is not a second user-facing document.
+  Optimize the procedure for immediate execution, not for audit completeness:
+  1. Put shared setup once, beginning with the first action the reviewer can take.
+  2. Give each independently verifiable observation a short heading.
+  3. Under that heading, include only the necessary actions, contextual links, and one clear expected
+     result followed immediately by its stable approval marker.
+  4. Put cleanup beside the scenario only when it is actually needed.
+  5. Keep failure reporting to one short instruction. Move provenance, hashes, implementation history,
+     rationale, and extended diagnostics to optional technical material outside the required path.
 
-  Put the full usable instructions in the Inbox body. At the exact step where a file or folder is
-  needed, place a descriptive inline Markdown link such as
-  `[Open test instructions](app://open-path:path/to/runbook.md)`,
+  At the exact step where a file or folder is needed, place a descriptive inline Markdown link such as
   `[Open sample solution](app://open-path:path/to/sample.sln)`, or
   `[Open fixture folder](app://open-path:path/to/fixture)`. A relative target is resolved from the
   active SquadDash workspace directory supplied for the task—not from the Git repository root or the
   shell's current directory. Require the executor to resolve and verify every target using that exact
   rule before Inbox delivery. Use an absolute path when an artifact is outside the active workspace.
-  Inbox `file` attachments may duplicate the most useful entry points as
-  secondary convenience, but they do not replace links embedded beside the relevant steps. Do not
+  An Inbox `file` attachment may provide optional troubleshooting or reference detail, but it must not
+  contain any step required for approval. Do not
   substitute a transcript promise, a non-clickable path mentioned only in prose, or an Inbox action
   that starts another agent. If long Markdown or complex JSON makes an inline Inbox payload fragile,
   use the supported
@@ -348,9 +341,9 @@ not required. Use the exact property names below; do not substitute familiar sho
   `[Open sample solution](app://open-path:samples/Feature/Feature.sln)` and invoke the feature;
   **Observe** the expected new result; answer the immediately following live checkbox question
   `Does the new result appear?` (`requirementId: "new-result"`); then **Clean up** the temporary
-  state. SquadDash binds that stable requirement to the same persisted checkbox in the Inbox and
-  transcript approval card. Do not add a separate prose checkbox with no durable gate identity.
-  In the manual-test-kit Inbox body, put `{{approval-check:new-result}}` on its own line at that
+  state. SquadDash binds that stable requirement to the persisted checkbox in the approval Inbox
+  message. Do not add a separate prose checkbox with no durable gate identity.
+  In the manual-test-kit source body, put `{{approval-check:new-result}}` on its own line at that
   exact location. SquadDash replaces the marker with the host-owned synchronized checkbox.
 
   Create fixtures, sample projects, and sample files primarily when the required

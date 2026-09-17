@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace SquadDash;
 
@@ -16,6 +17,10 @@ internal sealed record ManualTestKitApprovalBindingPayload(
 internal static class ManualTestKitApprovalBinding
 {
     internal const string AttachmentType = "manual-test-kit-approval-binding";
+    private const string ApprovalCheckTokenPrefix = "{{approval-check:";
+    private static readonly Regex ApprovalCheckTokenRegex = new(
+        @"\{\{approval-check:([^}\r\n]+)\}\}",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -92,6 +97,50 @@ internal static class ManualTestKitApprovalBinding
             candidates.Select(candidate => candidate.Gate.GateId).Distinct(StringComparer.Ordinal).ToArray());
     }
 
+    internal static string? ValidateSourceBody(Plan plan, string taskId, string body)
+    {
+        var expectedIds = plan.ApprovalGates
+            .Where(gate => gate.AfterTaskIds.Contains(taskId, StringComparer.Ordinal))
+            .SelectMany(gate => gate.ProofRequirements ?? [])
+            .Select(requirement => requirement.RequirementId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (expectedIds.Length == 0)
+            return null;
+
+        var actualIds = ApprovalCheckTokenRegex.Matches(body ?? string.Empty)
+            .Select(match => match.Groups[1].Value.Trim())
+            .ToArray();
+        var errors = new List<string>();
+        foreach (var expectedId in expectedIds.Where(expectedId =>
+                     !actualIds.Contains(expectedId, StringComparer.Ordinal)))
+            errors.Add($"missing `{{{{approval-check:{expectedId}}}}}`");
+        foreach (var unknownId in actualIds.Where(actualId =>
+                     !expectedIds.Contains(actualId, StringComparer.Ordinal)).Distinct(StringComparer.Ordinal))
+            errors.Add($"unknown approval marker `{unknownId}`");
+        foreach (var duplicate in actualIds.GroupBy(id => id, StringComparer.Ordinal).Where(group => group.Count() > 1))
+            errors.Add($"approval marker `{duplicate.Key}` appears {duplicate.Count()} times");
+
+        return errors.Count == 0
+            ? null
+            : "The manual test kit cannot be bound to the approval checklist: " + string.Join("; ", errors) +
+              ". Re-emit the corrected kit; preserve the completed implementation work.";
+    }
+
+    internal static bool LooksLikeSourceForPlan(InboxMessage message, Plan plan)
+    {
+        if (!ContainsManualTestKitIdentity(message.Subject, message.Body))
+            return false;
+
+        var proofIds = plan.ApprovalGates
+            .SelectMany(gate => gate.ProofRequirements ?? [])
+            .Select(requirement => requirement.RequirementId)
+            .ToHashSet(StringComparer.Ordinal);
+        return ApprovalCheckTokenRegex.Matches(message.Body ?? string.Empty)
+            .Select(match => match.Groups[1].Value.Trim())
+            .Any(proofIds.Contains);
+    }
+
     private static InboxMessage Bind(InboxMessage message, Plan plan, IReadOnlyList<string> gateIds)
     {
         var attachments = message.Attachments
@@ -116,7 +165,8 @@ internal static class ManualTestKitApprovalBinding
 
     private static bool ContainsManualTestKitIdentity(string subject, string body) =>
         subject.Contains("manual test", StringComparison.OrdinalIgnoreCase) ||
-        body.Contains("manual test kit", StringComparison.OrdinalIgnoreCase);
+        body.Contains("manual test kit", StringComparison.OrdinalIgnoreCase) ||
+        body.Contains(ApprovalCheckTokenPrefix, StringComparison.Ordinal);
 }
 
 /// <summary>
@@ -127,15 +177,18 @@ internal static class ManualTestKitApprovalBinding
 internal static class ManualTestKitChecklistComposer
 {
     private const string TokenPrefix = "{{approval-check:";
+    internal const string SetupErrorMarker = "**Approval setup error:**";
 
     internal static string Compose(
         string body,
         IReadOnlyList<PlanHumanReviewChecklistItem> items)
     {
-        if (string.IsNullOrEmpty(body) || items.Count == 0)
+        if (string.IsNullOrEmpty(body))
             return body;
 
         var lines = body.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').ToList();
+        var usesExplicitSlots = lines.Any(line =>
+            line.Trim().StartsWith(TokenPrefix, StringComparison.Ordinal));
         foreach (var item in items)
         {
             if (ContainsChecklistQuestion(lines, item.Text))
@@ -150,10 +203,45 @@ internal static class ManualTestKitChecklistComposer
                 continue;
             }
 
-            InsertAfterExistingObservation(lines, item, items);
+            // The proof-ID fallback is only for legacy kits that predate explicit slots. Once a
+            // kit uses the slot protocol, a missing slot is a contract error—not permission to
+            // guess a checkbox location from an incidental mention of the proof ID.
+            if (!usesExplicitSlots)
+                InsertAfterExistingObservation(lines, item, items);
+        }
+
+        // Approval slots are host protocol, never operator-facing prose. An unmatched slot means
+        // the validation contract is inconsistent, so replace it with an actionable error and
+        // record the exact protocol failure in the trace instead of silently hiding it.
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var trimmed = lines[index].Trim();
+            if (!trimmed.StartsWith(TokenPrefix, StringComparison.Ordinal) ||
+                !trimmed.EndsWith("}}", StringComparison.Ordinal))
+                continue;
+
+            var requirementId = trimmed[TokenPrefix.Length..^2];
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                $"APPROVAL_SETUP_ERROR: unmatched manual-test-kit marker requirementId={requirementId}");
+            lines[index] = BuildSetupError(
+                $"The validation kit contains an approval check named `{requirementId}` that does not match the active checkpoint.");
+        }
+
+        foreach (var item in items.Where(item => !ContainsChecklistQuestion(lines, item.Text)))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                $"APPROVAL_SETUP_ERROR: missing manual-test-kit placement gateId={item.GateId} requirementId={item.RequirementId}");
+            lines.Add(string.Empty);
+            lines.Add(BuildSetupError(
+                $"The required check “{item.Text}” could not be placed in these instructions."));
         }
         return string.Join("\n", lines);
     }
+
+    private static string BuildSetupError(string detail) =>
+        $"> ⚠ {SetupErrorMarker} {detail} Do not continue; ask SquadDash to repair the validation kit.";
 
     private static bool ContainsChecklistQuestion(IReadOnlyList<string> lines, string question) =>
         lines.Any(line =>

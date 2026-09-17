@@ -843,8 +843,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         IReadOnlyList<PlanHumanReviewChecklistItem> checklist = plan is null
             ? []
             : PlanHumanReviewChecklist.Build(plan, gates);
-        if (binding is not null)
-            body = ManualTestKitChecklistComposer.Compose(body, checklist);
+        body = ManualTestKitChecklistComposer.Compose(body, checklist);
 
         var document = MarkdownFlowDocumentBuilder.BuildInbox(
             body,

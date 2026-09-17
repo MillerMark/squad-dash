@@ -61,10 +61,11 @@ When no ungated eligible task remains — determined by `ApprovalGateReadinessEv
 | **Priority** | `high` while any gate is active. |
 | **Attachments** | `approval-gate` (durable state JSON) + `approval-snapshot` (review evidence). |
 
-The message body is intentionally a decision surface: it leads with the checkpoint being approved
-and the independently verifiable proof checkboxes. It does not repeat Setup/Open/Act/Observe/Cleanup
-recipes. A bound manual-test-kit message appears as **Open full validation runbook**; if no kit is
-bound, SquadDash moves the plan's recipe into **Open full test instructions**. Detailed completion,
+The message body is the reviewer's single working surface. It presents shared setup once, then places
+each short action sequence, contextual file link, expected observation, and live proof checkbox
+together. A bound manual-test-kit delivery is absorbed into this durable message and hidden as an
+internal source, so the reviewer does not receive a second kit message. A long file-backed runbook is
+optional troubleshooting only; it may not contain steps required for approval. Detailed completion,
 commit, changed-file, and downstream-task evidence appears separately under
 **Technical details** (whose document is headed "Provenance & implementation evidence").
 

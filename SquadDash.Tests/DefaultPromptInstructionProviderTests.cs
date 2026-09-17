@@ -93,10 +93,10 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("separate manual-test-kit preparation task is actually warranted"));
             Assert.That(instruction, Does.Contain("normal product or current workspace"));
             Assert.That(instruction, Does.Contain("without creating a parallel solution, document, dataset"));
-            Assert.That(instruction, Does.Contain("full usable instructions in the Inbox body"));
+            Assert.That(instruction, Does.Contain("durable approval Inbox message"));
             Assert.That(instruction, Does.Contain("[Open fixture folder](app://open-path:"));
             Assert.That(instruction, Does.Contain("app://open-path:"));
-            Assert.That(instruction, Does.Contain("do not replace links embedded beside the relevant steps"));
+            Assert.That(instruction, Does.Contain("optional troubleshooting or reference detail"));
             Assert.That(instruction, Does.Contain("same proof requirement IDs and fixture outputs"));
         });
     }
@@ -368,20 +368,19 @@ internal sealed class DefaultPromptInstructionProviderTests
         {
             Assert.That(instruction, Does.Contain("manual test kit"));
             Assert.That(instruction, Does.Contain("Inbox delivery is required"));
-            Assert.That(instruction, Does.Contain("one authoritative runbook"));
+            Assert.That(instruction, Does.Contain("single durable approval Inbox message"));
             Assert.That(instruction, Does.Contain("shared setup once"));
-            Assert.That(instruction, Does.Contain("one independently verifiable claim"));
+            Assert.That(instruction, Does.Contain("independently verifiable observation"));
             Assert.That(instruction, Does.Contain("{{approval-check:requirement-id}}"));
-            Assert.That(instruction, Does.Contain("approval decision surface"));
-            Assert.That(instruction, Does.Contain("exact reproducible target identity"));
-            Assert.That(instruction, Does.Contain("Prepare fixtures mainly for new behavior"));
+            Assert.That(instruction, Does.Contain("live checkbox in the approval message"));
+            Assert.That(instruction, Does.Contain("required path short and scannable"));
             Assert.That(instruction, Does.Contain("At the exact step"));
             Assert.That(instruction, Does.Contain("app://open-path:path/from/workspace/root"));
             Assert.That(instruction, Does.Contain("active SquadDash workspace"));
             Assert.That(instruction, Does.Contain("Resolve and verify every target"));
             Assert.That(instruction, Does.Contain("use an absolute path"));
             Assert.That(instruction, Does.Contain("file-or-folder"));
-            Assert.That(instruction, Does.Contain("do not duplicate the full procedure"));
+            Assert.That(instruction, Does.Contain("optional troubleshooting/reference only"));
             Assert.That(instruction, Does.Contain("Do not use dangling references"));
             Assert.That(instruction, Does.Contain("INBOX_MESSAGE_JSON_FILE"));
         });
@@ -399,7 +398,7 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("approved task explicitly requires Inbox delivery"));
             Assert.That(instruction, Does.Contain("not a second result payload"));
             Assert.That(instruction, Does.Contain("Do not claim the task complete"));
-            Assert.That(instruction, Does.Contain("stable proof IDs"));
+            Assert.That(instruction, Does.Contain("exact stable ID"));
             Assert.That(instruction, Does.Contain("active SquadDash workspace directory"));
             Assert.That(instruction, Does.Contain("verify every target exists"));
             Assert.That(instruction, Does.Contain("absolute path"));
