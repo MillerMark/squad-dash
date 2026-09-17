@@ -123,6 +123,52 @@ internal sealed class FloatingWindowPositionStoreTests
     // ── Round-trip: negative coordinates survive JSON ────────────────────────
 
     [Test]
+    public void PlanViewer_FreshStoreRestoresAllBoundsAndMatchesSavedSecondaryMonitor()
+    {
+        const string key = "PlanViewer:plan-in-other-workspace";
+        var bounds = new Rect(-1550, -1100, 1400, 1000);
+        var monitor = new Rect(-1920, -1200, 1920, 1200);
+        WriteEntries(new()
+        {
+            [key] = MakeEntry(
+                left: bounds.Left, top: bounds.Top, width: bounds.Width, height: bounds.Height,
+                monitorLeft: monitor.Left, monitorTop: monitor.Top,
+                monitorWidth: monitor.Width, monitorHeight: monitor.Height)
+        });
+
+        WpfTestContext.Run(() =>
+        {
+            // Reload the persisted file each time, as a new application instance would.
+            for (var restart = 0; restart < 2; restart++)
+            {
+                var store = new FloatingWindowPositionStore(_tempDir);
+                var window = new Window { Width = 1200, Height = 720 };
+                try
+                {
+                    var restored = store.TryRestoreCore(key, window, entry =>
+                    {
+                        Assert.That(new Rect(entry.MonitorLeft, entry.MonitorTop,
+                            entry.MonitorWidth, entry.MonitorHeight), Is.EqualTo(monitor));
+                        return monitor;
+                    });
+
+                    Assert.Multiple(() =>
+                    {
+                        Assert.That(restored, Is.True);
+                        Assert.That(new Rect(window.Left, window.Top, window.Width, window.Height),
+                            Is.EqualTo(bounds));
+                        Assert.That(window.WindowStartupLocation, Is.EqualTo(WindowStartupLocation.Manual));
+                    });
+                }
+                finally
+                {
+                    window.Close();
+                }
+            }
+        });
+    }
+
+    [Test]
     public void Load_DeserializesNegativeCoordinates_Correctly()
     {
         WriteEntries(new()

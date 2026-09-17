@@ -124,6 +124,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private AutomaticScrollTarget _automaticScrollTarget;
     private DateTime _lastViewerInteractionUtc = DateTime.MinValue;
     private bool _initialLayoutApplied;
+    private bool _windowGeometryRestored;
     private StagedPlanEditHistory? _editHistory;
     private bool _isInspectorEditing;
     private bool _focusPrimaryEditorAfterRebuild;
@@ -5361,10 +5362,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
             spinner.AccentColor = taskSpinnerColor;
     }
 
+    internal void RestoreWindowGeometry(FloatingWindowPositionStore positionStore)
+    {
+        _windowGeometryRestored = positionStore.TryRestore($"PlanViewer:{_viewportGroupId}", this);
+    }
+
     private void OnInitialContentRendered(object? sender, EventArgs e)
     {
         ContentRendered -= OnInitialContentRendered;
-        ApplyInitialWindowLayout();
+        // The host restores bounds before Show; content sizing must not overwrite them.
+        if (!_windowGeometryRestored)
+            ApplyInitialWindowLayout();
         _initialLayoutApplied = true;
         Dispatcher.BeginInvoke(() =>
         {
@@ -5389,14 +5397,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         const double windowBorderInsets = 3;
 
         var workArea = GetLogicalWorkArea();
-        var requiredGraphColumnWidth = _canvasContentWidth + graphHorizontalInsets;
+        var requiredGraphColumnWidth = _canvasContentWidth * _zoomFactor + graphHorizontalInsets;
         var idealWidth = requiredGraphColumnWidth / graphShare + splitterWidth + windowBorderInsets;
         Width = Math.Min(workArea.Width, Math.Max(MinWidth, idealWidth));
         UpdateLayout();
 
         var fixedHeight = CloseButtonHeight + windowBorderInsets +
                           (_header?.DesiredSize.Height ?? 0) +
-                          _canvasContentHeight + canvasVerticalInsets +
+                          _canvasContentHeight * _zoomFactor + canvasVerticalInsets +
                           (_readingHint?.DesiredSize.Height ?? 0);
         Height = Math.Min(workArea.Height, Math.Max(MinHeight, fixedHeight));
 

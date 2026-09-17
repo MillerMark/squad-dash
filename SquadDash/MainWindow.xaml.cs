@@ -13273,7 +13273,7 @@ public partial class MainWindow : Window
         win.Closed += (_, _) => _openPlanViewerWindows.RemoveAll(e =>
             ReferenceEquals(e.Window, win));
         win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"PlanViewer:{groupId}", win);
-        FloatingWindowPositionStore.Shared.TryRestore($"PlanViewer:{groupId}", win);
+        win.RestoreWindowGeometry(FloatingWindowPositionStore.Shared);
         win.Show();
         if (_currentWorkspace is not null)
         {

@@ -100,6 +100,63 @@ internal sealed class PlanViewerNavigationArchitectureTests
     }
 
     [Test]
+    public void RestoredWindowGeometry_WinsOverContentSizingBeforeViewportOffsetsAreRestored()
+    {
+        var source = ReadViewer();
+        var restore = Method(source, "internal void RestoreWindowGeometry(",
+            "private void OnInitialContentRendered(");
+        var initial = Method(source, "private void OnInitialContentRendered(",
+            "private void ApplyInitialWindowLayout(");
+        var host = ReadSource("MainWindow.xaml.cs");
+        var open = Method(host, "win.RestoreWindowGeometry(FloatingWindowPositionStore.Shared);",
+            "async Task<bool> ApplyFromViewerAsync(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restore, Does.Contain(
+                "_windowGeometryRestored = positionStore.TryRestore($\"PlanViewer:{_viewportGroupId}\", this);"));
+            Assert.That(initial, Does.Contain(
+                "if (!_windowGeometryRestored)\n            ApplyInitialWindowLayout();"));
+            Assert.That(initial.IndexOf("_initialLayoutApplied = true;", StringComparison.Ordinal),
+                Is.GreaterThan(initial.IndexOf("ApplyInitialWindowLayout();", StringComparison.Ordinal)));
+            Assert.That(initial.IndexOf("RestoreGraphViewport(_initialViewport);", StringComparison.Ordinal),
+                Is.GreaterThan(initial.IndexOf("Dispatcher.BeginInvoke(", StringComparison.Ordinal)));
+            Assert.That(initial, Does.Not.Contain("Height =").And.Not.Contain("Width =")
+                .And.Not.Contain("KeepWindowInside("));
+            Assert.That(open.IndexOf("win.Show();", StringComparison.Ordinal), Is.GreaterThan(0),
+                "Restore success must be recorded before Show can raise ContentRendered.");
+            Assert.That(host, Does.Contain(
+                "win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($\"PlanViewer:{groupId}\", win);")
+                .And.Contain("FloatingWindowPositionStore.Shared.Save($\"PlanViewer:{gid}\", planWin);"),
+                "Close and application shutdown must retain the same persistence keys.");
+        });
+    }
+
+    [Test]
+    public void FirstOpenSizing_UsesAlreadyRestoredZoomAndOnlyScalesGraphDimensions()
+    {
+        var source = ReadViewer();
+        var sizing = Method(source, "private void ApplyInitialWindowLayout(",
+            "private Rect GetLogicalWorkArea(");
+        var constructor = Method(source, "internal PlanViewerWindow(",
+            "Closing += (_, _) => SaveGraphViewport();");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(constructor.IndexOf("_zoomFactor = _initialViewport?.Zoom", StringComparison.Ordinal),
+                Is.GreaterThanOrEqualTo(0).And.LessThan(
+                    constructor.IndexOf("BuildContent(plan, durablePlan);", StringComparison.Ordinal)));
+            Assert.That(source, Does.Contain("LayoutTransform     = new ScaleTransform(_zoomFactor, _zoomFactor)"));
+            Assert.That(sizing, Does.Contain("_canvasContentWidth * _zoomFactor + graphHorizontalInsets")
+                .And.Contain("_canvasContentHeight * _zoomFactor + canvasVerticalInsets"));
+            Assert.That(sizing, Does.Contain("Math.Min(workArea.Width, Math.Max(MinWidth, idealWidth))")
+                .And.Contain("Math.Min(workArea.Height, Math.Max(MinHeight, fixedHeight))")
+                .And.Contain("KeepWindowInside(workArea);"),
+                "First-open and missing-monitor fallback must still fit the current work area.");
+        });
+    }
+
+    [Test]
     public void AutoScrollCoordinateAdapter_PreservesUnscaledTargetForSubsequentUpdates()
     {
         var adapter = Method(ReadViewer(), "private void EnsureZoomedAutomaticScrollTargetVisible(",
@@ -124,15 +181,17 @@ internal sealed class PlanViewerNavigationArchitectureTests
         return source[start..end];
     }
 
-    private static string ReadViewer()
+    private static string ReadViewer() => ReadSource("PlanViewerWindow.cs");
+
+    private static string ReadSource(string fileName)
     {
         for (var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
              directory is not null; directory = directory.Parent)
         {
-            var path = Path.Combine(directory.FullName, "SquadDash", "PlanViewerWindow.cs");
+            var path = Path.Combine(directory.FullName, "SquadDash", fileName);
             if (File.Exists(path))
                 return File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal);
         }
-        throw new FileNotFoundException("Could not locate PlanViewerWindow.cs.");
+        throw new FileNotFoundException($"Could not locate {fileName}.");
     }
 }
