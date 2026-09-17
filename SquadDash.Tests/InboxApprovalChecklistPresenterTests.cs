@@ -66,10 +66,16 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(border.BorderThickness, Is.EqualTo(new Thickness(1.5)));
             Assert.That(border.CornerRadius, Is.EqualTo(new CornerRadius(2)));
             Assert.That(((Viewbox)border.Child).Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(
+                checkbox.Margin.Top,
+                Is.EqualTo(2 + (expectedFontSize * InboxApprovalChecklistPresenter.ChecklistTopSpacingScale)));
             Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
             Assert.That(orderedLists, Has.Length.EqualTo(2));
             Assert.That(orderedLists[0].StartIndex, Is.EqualTo(1));
             Assert.That(orderedLists[1].StartIndex, Is.EqualTo(4));
+            Assert.That(
+                ((Paragraph)orderedLists[0].ListItems.First().Blocks.FirstBlock).Margin.Top,
+                Is.EqualTo(1 + (14 * MarkdownFlowDocumentBuilder.OrderedListItemTopSpacingScale)));
         });
     }
 

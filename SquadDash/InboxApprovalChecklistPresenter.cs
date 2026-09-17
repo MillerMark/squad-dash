@@ -17,6 +17,7 @@ namespace SquadDash;
 internal static class InboxApprovalChecklistPresenter
 {
     internal const double ChecklistFontScale = 1.10;
+    internal const double ChecklistTopSpacingScale = 0.50;
 
     internal static int Attach(
         FlowDocument document,
@@ -70,7 +71,7 @@ internal static class InboxApprovalChecklistPresenter
                 Margin = new Thickness(8, 2, 6, 0),
                 Child = checkIcon,
             };
-            checkBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+            checkBorder.SetResourceReference(Border.BorderBrushProperty, "CheckBoxBorder");
 
             var content = new Grid();
             content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -85,7 +86,11 @@ internal static class InboxApprovalChecklistPresenter
                 Content = content,
                 IsChecked = item.IsChecked,
                 Tag = item,
-                Margin = new Thickness(0, 2, 0, 2),
+                Margin = new Thickness(
+                    0,
+                    2 + (checklistFontSize * ChecklistTopSpacingScale),
+                    0,
+                    2),
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 VerticalContentAlignment = VerticalAlignment.Top,
                 FontSize = checklistFontSize,

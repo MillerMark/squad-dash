@@ -31,6 +31,8 @@ internal static class InlineCodeIdentifierParser
 }
 
 internal static class MarkdownFlowDocumentBuilder {
+    internal const double OrderedListItemTopSpacingScale = 0.75;
+
     private static readonly Brush DefaultForegroundBrush    = new SolidColorBrush(Color.FromRgb(0x32, 0x2A, 0x23));
     private static readonly Brush DefaultQuoteFillBrush     = new SolidColorBrush(Color.FromRgb(0xF6, 0xF1, 0xE8));
     private static readonly Brush DefaultQuoteBorderBrush   = new SolidColorBrush(Color.FromRgb(0xD5, 0xCA, 0xBA));
@@ -212,6 +214,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 document.Blocks.Add(BuildOrderedList(
                     listItems,
                     startIndexValue,
+                    baseFontSize,
                     styleCodeIdentifiers,
                     onLinkClicked));
                 blockLineRanges.Add((startIndex, index));
@@ -354,6 +357,7 @@ internal static class MarkdownFlowDocumentBuilder {
     private static List BuildOrderedList(
         IEnumerable<string> items,
         int startIndex,
+        double baseFontSize,
         bool styleCodeIdentifiers,
         Action<string>? onLinkClicked) {
         var list = new List {
@@ -364,7 +368,11 @@ internal static class MarkdownFlowDocumentBuilder {
         };
         foreach (var item in items) {
             var paragraph = new Paragraph {
-                Margin = new Thickness(0, 1, 0, 1)
+                Margin = new Thickness(
+                    0,
+                    1 + (baseFontSize * OrderedListItemTopSpacingScale),
+                    0,
+                    1)
             };
             AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked);
             list.ListItems.Add(new ListItem(paragraph));
