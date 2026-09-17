@@ -75,7 +75,8 @@ internal sealed class PlanValidationEvidencePolicyTests
                     "Select a non-default value and save.",
                     "Restart SquadDash and reopen Options.",
                     "Confirm the same value remains selected.",
-                    "Restore the original value."))]);
+                    "Restore the original value."),
+                Title: "Restart persistence")]);
 
         Assert.That(PlanValidationEvidencePolicy.Validate(Validation, result), Is.Null);
     }

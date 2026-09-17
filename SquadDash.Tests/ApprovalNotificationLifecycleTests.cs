@@ -155,6 +155,13 @@ internal sealed class ApprovalNotificationLifecycleTests
             gateAStatus: PlanGateStatus.AwaitingApproval,
             lifecycleStatus: PlanLifecycleStatus.AwaitingApproval);
         await _durableManager.AppendCheckpointAsync(plan, plan.ApprovalGates[0], MakeSnapshot());
+        var messageId = MessageIdFor(plan.PlanId);
+        var oldTimestamp = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
+        _inbox.Save(_inbox.GetById(messageId)! with
+        {
+            Timestamp = oldTimestamp,
+            Read = true,
+        });
 
         var edited = PlanGateManager.UpdateReviewContract(
             plan,
@@ -165,7 +172,7 @@ internal sealed class ApprovalNotificationLifecycleTests
                 "human-review", "human-observation", "Inspect the architecture boundary.")]);
         await _durableManager.RefreshFromPlanAsync(edited);
 
-        var message = _inbox.GetById(MessageIdFor(plan.PlanId));
+        var message = _inbox.GetById(messageId);
         var state = _durableManager.GetState(plan.PlanId);
         Assert.Multiple(() =>
         {
@@ -173,6 +180,8 @@ internal sealed class ApprovalNotificationLifecycleTests
             Assert.That(message!.Body, Does.Contain("Clarified architecture review"));
             Assert.That(message.Body, Does.Contain(
                 "Does the architecture satisfy the clarified review contract?"));
+            Assert.That(message.Timestamp, Is.GreaterThan(oldTimestamp));
+            Assert.That(message.Read, Is.False);
             Assert.That(state!.ActiveGateIds, Is.EqualTo(new[] { "GATE-A" }));
             Assert.That(state.Archived, Is.False);
         });

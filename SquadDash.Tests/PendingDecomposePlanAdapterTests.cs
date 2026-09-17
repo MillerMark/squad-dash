@@ -293,7 +293,8 @@ internal sealed class PendingDecomposePlanAdapterTests
                                 "Enable the feature.",
                                 "Restart and reopen the workspace.",
                                 "Confirm the feature remains visible.",
-                                "Disable the feature.")),
+                                "Disable the feature."),
+                            Title: "Restart visibility"),
                     ]),
             ],
         };
@@ -313,6 +314,8 @@ internal sealed class PendingDecomposePlanAdapterTests
                 Is.EqualTo(HumanVerificationAccessMode.Recipe));
             Assert.That(reconstructed.Group.ApprovalGates[0].ProofRequirements![0].VerificationRecipe?.Open,
                 Is.EqualTo("Restart and reopen the workspace."));
+            Assert.That(reconstructed.Group.ApprovalGates[0].ProofRequirements![0].Title,
+                Is.EqualTo("Restart visibility"));
             Assert.That(reconstructed.Group.ApprovalGates[0].BeforeTaskIds, Is.Not.Null);
             Assert.That(reconstructed.Group.ApprovalGates[0].BeforeTaskIds, Is.Empty);
             Assert.That(PendingDecomposePlanStore.ComputeRevision(reconstructed.Group),

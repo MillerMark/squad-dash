@@ -154,7 +154,10 @@ internal sealed record PlanTaskProofRequirement(
                                                 string? FixtureTaskId = null,
     [property: JsonPropertyName("fixtureOutputId")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? FixtureOutputId = null);
+                                                string? FixtureOutputId = null,
+    [property: JsonPropertyName("title")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? Title = null);
 
 internal sealed record PlanTaskProofEvidence(
     [property: JsonPropertyName("requirementId")] string RequirementId,

@@ -411,7 +411,8 @@ public class DurableApprovalRequestManagerTests
                         "Build and install the prepared package.",
                         "Open the sample and invoke the feature.",
                         "The new result appears.",
-                        "Remove the sample and temporary package.")),
+                        "Remove the sample and temporary package."),
+                    Title: "Generated result"),
             ],
         };
         var plan = original with { ApprovalGates = [gate] };
@@ -424,6 +425,8 @@ public class DurableApprovalRequestManagerTests
         Assert.Multiple(() =>
         {
             Assert.That(message.Body, Does.Contain("☐ Does the new result appear?")
+                .And.Contain("## Generated result")
+                .And.Not.Contain("## Does the new result appear?")
                 .And.Contain("**Set up:**")
                 .And.Contain("**Open and perform:**")
                 .And.Contain("**Observe:**")
@@ -436,6 +439,61 @@ public class DurableApprovalRequestManagerTests
         var observe = instructions.IndexOf("**Observe:**", StringComparison.Ordinal);
         var cleanup = instructions.IndexOf("**Clean up:**", StringComparison.Ordinal);
         Assert.That(new[] { setup, open, observe, cleanup }, Is.Ordered.And.All.GreaterThanOrEqualTo(0));
+    }
+
+    [Test]
+    public async Task AppendCheckpoint_GroupsSharedWorkflowButKeepsIndependentCheckboxes()
+    {
+        var original = MakePlan();
+        var sharedSetup = "Build and install the prepared package.";
+        var sharedAction = "Open the sample and invoke the feature once.";
+        var sharedCleanup = "Remove the sample and temporary package.";
+        var gate = original.ApprovalGates[0] with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "editor-result",
+                    "live-ui-observation",
+                    "Observe the editor result.",
+                    "Does the result appear in the editor?",
+                    HumanVerificationAccessMode.Recipe,
+                    new HumanVerificationRecipe(
+                        sharedSetup,
+                        sharedAction,
+                        "The result appears in the editor.",
+                        sharedCleanup),
+                    Title: "Editor result"),
+                new PlanTaskProofRequirement(
+                    "completion-status",
+                    "live-ui-observation",
+                    "Observe completion status.",
+                    "Does the status report completion?",
+                    HumanVerificationAccessMode.Recipe,
+                    new HumanVerificationRecipe(
+                        sharedSetup,
+                        sharedAction,
+                        "The status reports completion.",
+                        sharedCleanup),
+                    Title: "Completion status"),
+            ],
+        };
+        var plan = original with { ApprovalGates = [gate] };
+
+        var messageId = await _manager.AppendCheckpointAsync(plan, gate, MakeSnapshot());
+        var body = _inbox.GetById(messageId)!.Body;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(body, Does.Contain("## Shared verification workflow"));
+            Assert.That(body.Split(sharedSetup).Length - 1, Is.EqualTo(1));
+            Assert.That(body.Split(sharedAction).Length - 1, Is.EqualTo(1));
+            Assert.That(body.Split(sharedCleanup).Length - 1, Is.EqualTo(1));
+            Assert.That(body, Does.Contain("**Observe — Editor result:** The result appears in the editor.")
+                .And.Contain("☐ Does the result appear in the editor?")
+                .And.Contain("**Observe — Completion status:** The status reports completion.")
+                .And.Contain("☐ Does the status report completion?"));
+        });
     }
 
     [Test]
@@ -508,7 +566,8 @@ public class DurableApprovalRequestManagerTests
                         "Prepare the fixture.",
                         "Open and invoke it.",
                         "Observe the result.",
-                        "Restore the fixture.")),
+                        "Restore the fixture."),
+                    Title: "Native result"),
             ],
         };
         var plan = original with { ApprovalGates = [gate] };
@@ -517,7 +576,7 @@ public class DurableApprovalRequestManagerTests
             {
                 Id = "native-validation-kit",
                 Subject = "Native validation kit",
-                Body = "# Full runbook\n\n{{approval-check:native-result}}",
+                Body = "## Does the native result appear?\n\n{{approval-check:native-result}}",
                 Timestamp = DateTimeOffset.UtcNow,
             },
             plan,
@@ -535,7 +594,8 @@ public class DurableApprovalRequestManagerTests
             Assert.That(_inbox.LoadAll(), Has.None.Matches<InboxMessage>(candidate => candidate.Id == kit.Id));
             Assert.That(_inbox.LoadAll(includeApprovalKitSources: true),
                 Has.Some.Matches<InboxMessage>(candidate => candidate.Id == kit.Id));
-            Assert.That(message.Body, Does.Contain("# Full runbook")
+            Assert.That(message.Body, Does.Contain("## Native result")
+                .And.Not.Contain("## Does the native result appear?")
                 .And.Contain("☐ Does the native result appear?"));
         });
     }

@@ -91,6 +91,23 @@ internal sealed class ManualTestKitApprovalBindingTests
     }
 
     [Test]
+    public void ValidateSourceBody_RejectsProcedureThatDelegatesRequiredStepsToRunbook()
+    {
+        var body = """
+            Follow the delivered Runbook.md Setup instructions.
+            {{approval-check:proof-one}}
+            {{approval-check:proof-two}}
+            """;
+
+        var error = ManualTestKitApprovalBinding.ValidateSourceBody(
+            BuildPlan(),
+            "TASK-1",
+            body);
+
+        Assert.That(error, Does.Contain("delegates work to another procedure"));
+    }
+
+    [Test]
     public void LooksLikeSourceForPlan_MatchesPartialSupersededKit()
     {
         var message = BuildMessage("{{approval-check:proof-one}}") with
@@ -115,6 +132,64 @@ internal sealed class ManualTestKitApprovalBindingTests
         var result = ManualTestKitChecklistComposer.Compose(body, [BuildItem("proof-one", "Does it appear?")]);
 
         Assert.That(result, Does.Contain("The result is visible.\n- ☐ Does it appear?\n## Cleanup"));
+    }
+
+    [Test]
+    public void Compose_UsesProofTitleForHeadingAndQuestionOnlyForCheckbox()
+    {
+        var body = """
+            ## Does applying the response update the inactive Razor component?
+            1. Open the prepared solution.
+            2. Observe the inactive component.
+            {{approval-check:native-inactive-target}}
+            """;
+        var item = BuildItem(
+            "native-inactive-target",
+            "Does applying the response update the inactive Razor component?",
+            "Inactive Razor target routing");
+
+        var result = ManualTestKitChecklistComposer.Compose(body, [item]);
+
+        Assert.That(result, Does.StartWith("## Inactive Razor target routing\n")
+            .And.Contain("- ☐ Does applying the response update the inactive Razor component?")
+            .And.Not.Contain("## Does applying"));
+    }
+
+    [Test]
+    public void Compose_PreservesSharedWorkflowHeadingAndSeparateAtomicCheckboxes()
+    {
+        var body = """
+            ## Generate and inspect the result
+            1. Open the prepared solution and invoke the feature once.
+            **Observe:** The result appears in the editor.
+            {{approval-check:proof-one}}
+            **Observe:** The status indicator reports completion.
+            {{approval-check:proof-two}}
+            2. Clean up the shared fixture.
+            """;
+
+        var result = ManualTestKitChecklistComposer.Compose(
+            body,
+            [
+                BuildItem("proof-one", "Does the result appear?", "Editor result"),
+                BuildItem("proof-two", "Does the status report completion?", "Completion status"),
+            ]);
+
+        Assert.That(result, Does.StartWith("## Generate and inspect the result\n")
+            .And.Contain("- ☐ Does the result appear?")
+            .And.Contain("- ☐ Does the status report completion?")
+            .And.Not.Contain("## Editor result")
+            .And.Not.Contain("## Completion status"));
+    }
+
+    [Test]
+    public void Compose_LegacyProofWithoutTitleHumanizesStableId()
+    {
+        var result = ManualTestKitChecklistComposer.Compose(
+            "## Does it route correctly?\n{{approval-check:native-inactive-target}}",
+            [BuildItem("native-inactive-target", "Does it route correctly?")]);
+
+        Assert.That(result, Does.StartWith("## Native inactive target\n"));
     }
 
     [Test]
@@ -170,9 +245,12 @@ internal sealed class ManualTestKitApprovalBindingTests
         Attachments = [new InboxAttachment { Type = "file", Label = "Runbook", Path = "runbook.md" }],
     };
 
-    private static PlanHumanReviewChecklistItem BuildItem(string requirementId, string question) =>
+    private static PlanHumanReviewChecklistItem BuildItem(
+        string requirementId,
+        string question,
+        string? title = null) =>
         new("GATE-1", requirementId, requirementId, question,
-            PlanHumanReviewChecklist.UncommittedCandidate, false, false, null);
+            PlanHumanReviewChecklist.UncommittedCandidate, false, false, null, title);
 
     private static Plan BuildPlan()
     {

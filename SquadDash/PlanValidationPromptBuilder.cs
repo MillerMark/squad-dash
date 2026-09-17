@@ -145,9 +145,10 @@ internal static class PlanValidationPromptBuilder
         sb.AppendLine();
         sb.AppendLine("For needs-human-proof, set passed to false and include one to seven humanProofRequirements. Each item must use " +
                       "proofType live-ui-observation, restart-observation, or human-observation; provide a unique lowercase hyphenated requirementId, a short " +
-                      "description of what the observation proves, an atomic yes/no question, and accessMode directly-reachable or recipe. " +
+                      "title naming the scenario, a description of what the observation proves, an atomic yes/no question, and accessMode directly-reachable or recipe. " +
+                      "The title must be a concise noun phrase, not a question or a copy of the checkbox question. " +
                       "Use this item shape: { \"requirementId\": \"...\", \"proofType\": \"human-observation\", " +
-                      "\"description\": \"what this observation proves\", \"question\": \"Did the expected behavior occur?\", " +
+                      "\"title\": \"Expected behavior\", \"description\": \"what this observation proves\", \"question\": \"Did the expected behavior occur?\", " +
                       "\"accessMode\": \"directly-reachable\" }. Recipe access must include verificationRecipe with " +
                       "nonempty setup, open, observe, and cleanup fields. Include only observations that are still genuinely missing. " +
                       "For passed or failed, return an empty humanProofRequirements array.");

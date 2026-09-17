@@ -51,7 +51,8 @@ internal static class PendingDecomposePlanAdapter
                         requirement.AccessMode,
                         requirement.VerificationRecipe,
                         requirement.FixtureTaskId,
-                        requirement.FixtureOutputId)).ToArray(),
+                        requirement.FixtureOutputId,
+                        requirement.Title)).ToArray(),
                 AmendmentGateId: t.AmendmentGateId,
                 DisplayStepLabel: (index + 1).ToString(),
                 ExecutionMode: t.ExecutionMode,
@@ -111,7 +112,8 @@ internal static class PendingDecomposePlanAdapter
                         requirement.AccessMode,
                         requirement.VerificationRecipe,
                         requirement.FixtureTaskId,
-                        requirement.FixtureOutputId)).ToArray(),
+                        requirement.FixtureOutputId,
+                        requirement.Title)).ToArray(),
                 AfterTaskIdsSpecified: g.AfterTaskIds is not null,
                 BeforeTaskIdsSpecified: g.BeforeTaskIds is not null)).ToArray()
             : [];
@@ -167,7 +169,8 @@ internal static class PendingDecomposePlanAdapter
                         requirement.AccessMode,
                         requirement.VerificationRecipe,
                         requirement.FixtureTaskId,
-                        requirement.FixtureOutputId)).ToArray(),
+                        requirement.FixtureOutputId,
+                        requirement.Title)).ToArray(),
                 AmendmentGateId: t.AmendmentGateId,
                 ExecutionMode: t.ExecutionMode,
                 VerificationLevel: t.VerificationLevel,
@@ -197,7 +200,8 @@ internal static class PendingDecomposePlanAdapter
                             requirement.AccessMode,
                             requirement.VerificationRecipe,
                             requirement.FixtureTaskId,
-                            requirement.FixtureOutputId)).ToArray()))
+                            requirement.FixtureOutputId,
+                            requirement.Title)).ToArray()))
                 .ToArray()
             : null;
 

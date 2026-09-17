@@ -7319,9 +7319,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var before = AddEditorField(panel, "Before step IDs", string.Join(Environment.NewLine, gate.BeforeTaskIds ?? []), 64);
         var proofs = AddEditorField(
             panel,
-            "Proof requirements (ID | type | description | question)",
+            "Proof requirements (ID | type | title | description | question)",
             string.Join(Environment.NewLine, (gate.ProofRequirements ?? []).Select(value =>
-                $"{value.RequirementId} | {value.ProofType} | {value.Description} | {value.Question}")),
+                $"{value.RequirementId} | {value.ProofType} | {value.Title} | {value.Description} | {value.Question}")),
             100);
         var gateId = gate.GateId;
         AddEditorActions(panel, status, () =>
@@ -7457,16 +7457,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var result = new List<DecomposedTaskProofRequirement>();
         foreach (var line in ParseEditorLines(value))
         {
-            var parts = line.Split('|', 4, StringSplitOptions.TrimEntries);
+            var parts = line.Split('|', 5, StringSplitOptions.TrimEntries);
             if (parts.Length < 3 || parts.Take(3).Any(string.IsNullOrWhiteSpace))
             {
                 requirements = [];
-                error = "Each proof requirement must be: ID | type | description | optional question.";
+                error = "Each proof requirement must be: ID | type | title | description | optional question.";
                 return false;
             }
             result.Add(new DecomposedTaskProofRequirement(
-                parts[0], parts[1], parts[2],
-                parts.Length == 4 && !string.IsNullOrWhiteSpace(parts[3]) ? parts[3] : null));
+                parts[0], parts[1], parts.Length >= 4 ? parts[3] : string.Empty,
+                parts.Length == 5 && !string.IsNullOrWhiteSpace(parts[4]) ? parts[4] : null,
+                Title: parts[2]));
         }
         requirements = result;
         error = null;
@@ -9162,6 +9163,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var proofEditors = new System.Collections.Generic.List<(
             PlanTaskProofRequirement Requirement,
+            TextBox Title,
             TextBox Description,
             TextBox Question)>();
         var proofRequirements = gate.ProofRequirements?.ToArray() ?? [];
@@ -9178,6 +9180,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             var requirement = proofRequirements[index];
             var suffix = proofRequirements.Length == 1 ? string.Empty : $" {index + 1}";
+            var proofTitle = AddEditor(
+                $"Scenario title{suffix}",
+                PlanHumanReviewChecklist.ResolveDisplayTitle(
+                    requirement.Title,
+                    requirement.RequirementId),
+                36);
             var description = AddEditor(
                 $"Human proof requirement{suffix} ({requirement.ProofType})",
                 requirement.Description,
@@ -9186,7 +9194,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 $"Proof-specific question{suffix} (optional)",
                 requirement.Question,
                 42);
-            proofEditors.Add((requirement, description, proofQuestion));
+            proofEditors.Add((requirement, proofTitle, description, proofQuestion));
         }
 
         var status = new TextBlock
@@ -9224,6 +9232,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 .Where(item => !string.IsNullOrWhiteSpace(item.Description.Text))
                 .Select(item => item.Requirement with
                 {
+                    Title = item.Title.Text,
                     Description = item.Description.Text,
                     Question = string.IsNullOrWhiteSpace(item.Question.Text)
                         ? null

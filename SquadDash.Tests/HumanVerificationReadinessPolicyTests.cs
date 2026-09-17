@@ -4,6 +4,31 @@ namespace SquadDash.Tests;
 internal sealed class HumanVerificationReadinessPolicyTests
 {
     [Test]
+    public void Evaluate_RejectsRecipeThatPointsReviewerAtOtherInstructions()
+    {
+        var proof = new DecomposedTaskProofRequirement(
+            "live-check",
+            "live-ui-observation",
+            "Observe the feature.",
+            "Does it work?",
+            HumanVerificationAccessMode.Recipe,
+            new HumanVerificationRecipe(
+                "Follow the delivered Runbook.md Setup instructions.",
+                "Open the application.",
+                "Observe the result.",
+                "Close the application."));
+        var group = MakeGroup([
+            MakeTask("REVIEW-20260825-001", proofRequirements: [proof]),
+        ]);
+
+        var findings = HumanVerificationReadinessPolicy.Evaluate(group);
+
+        Assert.That(findings, Has.Some.Matches<HumanVerificationReadinessFinding>(finding =>
+            finding.Severity == "error" &&
+            finding.Message.Contains("delegates work to another procedure", StringComparison.Ordinal)));
+    }
+
+    [Test]
     public void MissingAccessDeclaration_IsAWarningForLegacyPlans()
     {
         var group = MakeGroup([

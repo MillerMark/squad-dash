@@ -18,8 +18,8 @@ internal sealed class PlanHumanProofCoverageReviewTests
             Assert.That(normalized, Does.Contain("human-observable promise"));
             Assert.That(normalized, Does.Contain("headless tests do not establish direct human observation"));
             Assert.That(normalized, Does.Contain("invalid human-only task shell"));
-            Assert.That(normalized, Does.Contain("Markdown runbook"));
-            Assert.That(normalized, Does.Contain("through the SquadDash Inbox"));
+            Assert.That(normalized, Does.Contain("must not create a separate operator runbook"));
+            Assert.That(normalized, Does.Contain("durable approval Inbox message"));
             Assert.That(normalized, Does.Contain("sample project"));
             Assert.That(normalized, Does.Contain("Do not classify a task as a human-only shell merely because"));
             Assert.That(normalized, Does.Contain("only when the task explicitly asks AI to perform or claim the human interaction"));

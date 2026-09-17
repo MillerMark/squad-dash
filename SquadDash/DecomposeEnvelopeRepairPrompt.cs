@@ -327,7 +327,12 @@ internal static class DecomposeEnvelopeRepairPrompt
         result envelope. After the corrected DECOMPOSE_STEP_RESULT_JSON, re-emit exactly one complete
         INBOX_MESSAGE_JSON or INBOX_MESSAGE_JSON_FILE block containing the corrected concise manual-test
         procedure. Do not repeat implementation work. You may inspect only the information needed to
-        correct the delivery. Use each required `{{"{{approval-check:requirement-id}}"}}` marker exactly
+        correct the delivery. The approval message itself must state every required operator action;
+        do not tell the reviewer to follow a runbook, another Inbox message, kit instructions, linked
+        steps, or an unspecified file/location. A direct artifact link supports the inline action but
+        never replaces it. Do not create a separate operator runbook. Compose the approval procedure as
+        a whole; group requirements with shared setup, actions, and cleanup, while keeping every expected
+        observation and approval marker independent. Use each required `{{"{{approval-check:requirement-id}}"}}` marker exactly
         once with its real stable ID, immediately after that check's expected result. Resolve every relative `app://open-path:`
         target from the active SquadDash workspace directory, not from the Git repository root or the
         shell's current directory, and confirm each resolved file or folder exists before returning it.

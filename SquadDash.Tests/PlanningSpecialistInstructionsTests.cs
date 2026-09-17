@@ -57,7 +57,8 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("strong candidate for focused regression coverage"));
             Assert.That(charter, Does.Contain("does not itself justify another"));
             Assert.That(charter, Does.Contain("only meaningful outcome is a human observation"));
-            Assert.That(charter, Does.Contain("Markdown runbook"));
+            Assert.That(charter, Does.Contain("Do not create a separate operator runbook"));
+            Assert.That(charter, Does.Contain("group proofs that share setup, actions, and cleanup"));
             Assert.That(charter, Does.Contain("SquadDash Inbox"));
             Assert.That(charter, Does.Contain("chronologically in\n  the durable approval Inbox message"));
             Assert.That(charter, Does.Contain("source kit is internal staging"));
@@ -115,11 +116,12 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("strong candidates for focused regression coverage"));
             Assert.That(guidance, Does.Contain("extra task, validation node, approval gate, or planning halt"));
             Assert.That(guidance, Does.Contain("only meaningful outcome is a human observation"));
-            Assert.That(guidance, Does.Contain("Markdown runbook"));
-            Assert.That(guidance, Does.Contain("SquadDash Inbox"));
+            Assert.That(guidance, Does.Contain("Do not create a separate operator runbook"));
+            Assert.That(guidance, Does.Contain("Never merge several observations into one compound checkbox"));
+            Assert.That(guidance, Does.Contain("durable approval Inbox message"));
             Assert.That(guidance, Does.Contain("Established regression checks may use the reviewer's familiar existing files"));
             Assert.That(guidance, Does.Contain("not a deterministic reason to reject or halt a plan"));
-            Assert.That(guidance, Does.Contain("single-message chronological approval form"));
+            Assert.That(guidance, Does.Contain("Compose the complete approval procedure"));
             Assert.That(guidance, Does.Contain("checkbox in the durable approval Inbox message"));
             Assert.That(guidance, Does.Contain("{{approval-check:requirement-id}}"));
             Assert.That(guidance, Does.Contain("not from the Git repository root or shell directory"));

@@ -266,13 +266,16 @@ not required. Use the exact property names below; do not substitute familiar sho
 - `tasks[].outputs[].description`: required non-empty description of the produced contract.
 - `tasks[].inputs`: optional list of output IDs from prerequisite tasks that this task must consume.
   A consumer may name several outputs, and one output may have several consumers.
-- `tasks[].proofRequirements`: optional list of stable `{ "requirementId", "proofType", "description", "question" }`
+- `tasks[].proofRequirements`: optional list of stable `{ "requirementId", "proofType", "title", "description", "question" }`
   contracts. Supported worker/host types are `ai-assessed`, `automated-test`, `build`, and
   `host-recorded`. Human-only types are `live-ui-observation`, `restart-observation`, and
   `human-observation`. Do not describe a live observation as an automated test. SquadDash moves
   human-only requirements to a generated approval checkpoint after the task; the task worker is
   never asked to fabricate proof it cannot observe. A complete step result must return matching
-  `proofEvidence` only for the worker/host requirements that remain on the task. `question` is
+  `proofEvidence` only for the worker/host requirements that remain on the task. `title` is required
+  for every human-only requirement in a newly proposed plan. Make it a concise scenario noun phrase
+  of at most eight words, never a question or a copy of `question`; SquadDash uses it as the section
+  heading. `question` is
   optional for stored-plan compatibility, but supply it for every human-only requirement. Every
   human-only requirement must be atomic: its `question` must contain exactly one independently
   verifiable true/false claim, where true means the check passed and false means it failed. If a
@@ -299,7 +302,7 @@ not required. Use the exact property names below; do not substitute familiar sho
   reconstructed environment is needed—provide a concise setup/open/act/observe/cleanup recipe and do
   not create a separate preparation task. Create an AI-executable preparation task only when useful
   review material must actually be produced, such as a disposable fixture, sample project, sample
-  files, test data, diagnostic instrumentation, or a nontrivial runbook. Use `accessMode: "fixture"`
+  files, test data, or diagnostic instrumentation. Use `accessMode: "fixture"`
   with exact `fixtureTaskId` and `fixtureOutputId` references when a fixture is produced. A screenshot
   is not a substitute for interaction unless the required outcome concerns only static appearance.
 
@@ -311,13 +314,20 @@ not required. Use the exact property names below; do not substitute familiar sho
   separate task and place the atomic live observations in the following human approval gate.
 
   When a separate manual-test-kit preparation task is actually warranted, it is complete only when it
-  creates the promised material and emits the concise operator procedure that SquadDash will absorb
+  creates the promised material and emits the concise approval procedure that SquadDash will absorb
   into the durable approval Inbox message. The source kit is not a second user-facing document.
-  Optimize the procedure for immediate execution, not for audit completeness:
+  The approval message itself must state every required action. Never use a required step to tell the
+  reviewer to follow a runbook, another Inbox message, kit instructions, linked steps, or an unspecified
+  file or capture location. A contextual artifact link supports the action written beside it; it does not
+  replace that action. Optimize the procedure for immediate execution, not for audit completeness:
   1. Put shared setup once, beginning with the first action the reviewer can take.
-  2. Give each independently verifiable observation a short heading.
-  3. Under that heading, include only the necessary actions, contextual links, and one clear expected
-     result followed immediately by its stable approval marker.
+  2. Compose the entire procedure after considering every proof requirement. Group by the workflow the
+     reviewer performs, not automatically one section per checkbox. When requirements share setup,
+     actions, and cleanup, show those steps once and place each independent observation immediately
+     before its own stable approval marker. Never merge them into a compound checkbox.
+  3. For a single-proof workflow, use the proof requirement's exact short `title` as its heading. For
+     a shared workflow, author one concise heading describing the common activity. Never repeat a full
+     checkbox `question` as the heading.
   4. Put cleanup beside the scenario only when it is actually needed.
   5. Keep failure reporting to one short instruction. Move provenance, hashes, implementation history,
      rationale, and extended diagnostics to optional technical material outside the required path.
@@ -336,7 +346,7 @@ not required. Use the exact property names below; do not substitute familiar sho
   `INBOX_MESSAGE_JSON_FILE` escape hatch. The following human gate must depend on this preparation
   task and reference the same proof requirement IDs and fixture outputs.
 
-  Design each proof recipe for the chronological live form SquadDash renders in the durable approval
+  Design the complete approval procedure for the chronological live form SquadDash renders in the durable approval
   Inbox message. Example: **Set up** the prepared build; **Open and perform**
   `[Open sample solution](app://open-path:samples/Feature/Feature.sln)` and invoke the feature;
   **Observe** the expected new result; answer the immediately following live checkbox question
@@ -377,6 +387,8 @@ not required. Use the exact property names below; do not substitute familiar sho
   missing, the plan is not ready for approval.
 - `tasks[].proofRequirements[].requirementId`: required unique lowercase kebab-case identifier.
 - `tasks[].proofRequirements[].proofType`: required supported proof type listed above.
+- `tasks[].proofRequirements[].title`: required for human-only proof in every newly proposed plan;
+  use a concise scenario noun phrase of at most eight words, distinct from the checkbox question.
 - `tasks[].proofRequirements[].description`: required non-empty evidence contract.
 - `tasks[].proofRequirements[].question`: optional except that every human-only requirement should
   supply one atomic true/false question.
@@ -412,7 +424,7 @@ not required. Use the exact property names below; do not substitute familiar sho
   shape. Approval records the reviewer's identity, note, time, and a durable internal attestation.
   Use this explicitly when the desired checkpoint boundary differs from the producing task's exit.
   Each entry must likewise be one atomic true/false verification item.
-- `approvalGates[].proofRequirements[].requirementId`, `.proofType`, `.description`, `.question`,
+- `approvalGates[].proofRequirements[].requirementId`, `.proofType`, `.title`, `.description`, `.question`,
   `.accessMode`, `.verificationRecipe`, `.fixtureTaskId`, and `.fixtureOutputId`: use the same exact
   fields and rules as task proof requirements; every gate proof must be human-only.
 - `approvalGates[].presentationAnchor`: optional host-managed display hint; the Plan Visualizer sets

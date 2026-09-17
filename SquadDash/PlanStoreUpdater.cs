@@ -1871,12 +1871,16 @@ internal static class PlanStoreUpdater
             var question = string.IsNullOrWhiteSpace(requirement.Question)
                 ? null
                 : requirement.Question.Trim();
+            var title = string.IsNullOrWhiteSpace(requirement.Title)
+                ? null
+                : requirement.Title.Trim();
             if (!string.Equals(normalizedId, requirement.RequirementId, StringComparison.Ordinal) &&
                 !string.IsNullOrWhiteSpace(requirement.RequirementId))
                 idMap[requirement.RequirementId] = normalizedId;
             if (!string.Equals(normalizedId, requirement.RequirementId, StringComparison.Ordinal) ||
                 !string.Equals(description, requirement.Description, StringComparison.Ordinal) ||
-                !string.Equals(question, requirement.Question, StringComparison.Ordinal))
+                !string.Equals(question, requirement.Question, StringComparison.Ordinal) ||
+                !string.Equals(title, requirement.Title, StringComparison.Ordinal))
                 anyChanged = true;
 
             return requirement with
@@ -1884,6 +1888,7 @@ internal static class PlanStoreUpdater
                 RequirementId = normalizedId,
                 Description = description,
                 Question = question,
+                Title = title,
             };
         }).ToArray();
 
@@ -2617,7 +2622,12 @@ internal static class PlanStoreUpdater
             requirement.RequirementId,
             requirement.ProofType,
             requirement.Description,
-            requirement.Question)).ToArray();
+            requirement.Question,
+            requirement.AccessMode,
+            requirement.VerificationRecipe,
+            requirement.FixtureTaskId,
+            requirement.FixtureOutputId,
+            requirement.Title)).ToArray();
 
     private static IReadOnlyList<PlanAgentAssignment>? MapAgentAssignments(
         IReadOnlyList<DecomposedAgentAssignment>? assignments) =>

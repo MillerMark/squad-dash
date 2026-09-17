@@ -369,8 +369,9 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("manual test kit"));
             Assert.That(instruction, Does.Contain("Inbox delivery is required"));
             Assert.That(instruction, Does.Contain("single durable approval Inbox message"));
-            Assert.That(instruction, Does.Contain("shared setup once"));
-            Assert.That(instruction, Does.Contain("independently verifiable observation"));
+            Assert.That(instruction, Does.Contain("must not create a separate operator runbook"));
+            Assert.That(instruction, Does.Contain("group requirements by the workflow"));
+            Assert.That(instruction, Does.Contain("never merge observations into a compound checkbox"));
             Assert.That(instruction, Does.Contain("{{approval-check:requirement-id}}"));
             Assert.That(instruction, Does.Contain("live checkbox in the approval message"));
             Assert.That(instruction, Does.Contain("required path short and scannable"));

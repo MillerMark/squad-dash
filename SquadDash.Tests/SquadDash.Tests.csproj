@@ -41,8 +41,10 @@
     <Compile Include="..\SquadDash\PlanProofCapabilityPolicy.cs" Link="Source\PlanProofCapabilityPolicy.cs" />
     <Compile Include="..\SquadDash\HumanApprovalIdentityResolver.cs" Link="Source\HumanApprovalIdentityResolver.cs" />
     <Compile Include="..\SquadDash\ApprovalResolvedTooltipPresentation.cs" Link="Source\ApprovalResolvedTooltipPresentation.cs" />
+    <Compile Include="..\SquadDash\ApprovalOperatorGuidePolicy.cs" Link="Source\ApprovalOperatorGuidePolicy.cs" />
     <Compile Include="..\SquadDash\PlanValidationResult.cs" Link="Source\PlanValidationResult.cs" />
     <Compile Include="..\SquadDash\PlanHumanProofCoverageReview.cs" Link="Source\PlanHumanProofCoverageReview.cs" />
+    <Compile Include="..\SquadDash\PlanHumanProofTitlePolicy.cs" Link="Source\PlanHumanProofTitlePolicy.cs" />
     <Compile Include="..\SquadDash\PlanProposalTranscriptPolicy.cs" Link="Source\PlanProposalTranscriptPolicy.cs" />
     <Compile Include="..\SquadDash\PlanValidationPromptBuilder.cs" Link="Source\PlanValidationPromptBuilder.cs" />
     <Compile Include="..\SquadDash\PlanValidationProviderFailurePresentation.cs" Link="Source\PlanValidationProviderFailurePresentation.cs" />

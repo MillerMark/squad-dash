@@ -9712,6 +9712,9 @@ public partial class MainWindow : Window
             group = normalizedGroup;
         }
 
+        preflightDiagnostics.AddRange(
+            PlanHumanProofTitlePolicy.ValidateAiAuthoredPlan(group));
+
         SquadDashTrace.Write(TraceCategory.General,
             $"TASKS_JSON parsed from ordinary response for group '{group.GroupId}' — staging for approval.");
         if (!CodeHealthGroupRunner.HasNoDependencyCycle(group, out var cycleIds))
@@ -13818,7 +13821,8 @@ public partial class MainWindow : Window
                     requirement.AccessMode,
                     requirement.VerificationRecipe,
                     requirement.FixtureTaskId,
-                    requirement.FixtureOutputId))
+                    requirement.FixtureOutputId,
+                    requirement.Title))
                 .ToArray();
         }
         string? proofContext = null;

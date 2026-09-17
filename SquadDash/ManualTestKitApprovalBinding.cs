@@ -120,6 +120,7 @@ internal static class ManualTestKitApprovalBinding
             errors.Add($"unknown approval marker `{unknownId}`");
         foreach (var duplicate in actualIds.GroupBy(id => id, StringComparer.Ordinal).Where(group => group.Count() > 1))
             errors.Add($"approval marker `{duplicate.Key}` appears {duplicate.Count()} times");
+        errors.AddRange(ApprovalOperatorGuidePolicy.Validate(body));
 
         return errors.Count == 0
             ? null
@@ -170,7 +171,7 @@ internal static class ManualTestKitApprovalBinding
 }
 
 /// <summary>
-/// Materializes host-owned checklist slots in an Inbox runbook. New messages use an explicit
+/// Materializes host-owned checklist slots in an Inbox approval procedure. New messages use an explicit
 /// {{approval-check:requirement-id}} marker. The proof-ID fallback keeps already-delivered kits
 /// usable without guessing across plans or requirements.
 /// </summary>
@@ -191,8 +192,12 @@ internal static class ManualTestKitChecklistComposer
             line.Trim().StartsWith(TokenPrefix, StringComparison.Ordinal));
         foreach (var item in items)
         {
-            if (ContainsChecklistQuestion(lines, item.Text))
+            var checklistIndex = FindChecklistQuestionIndex(lines, item.Text);
+            if (checklistIndex >= 0)
+            {
+                ReplaceSectionHeading(lines, checklistIndex, item);
                 continue;
+            }
 
             var token = TokenPrefix + item.RequirementId + "}}";
             var tokenIndex = lines.FindIndex(line =>
@@ -200,6 +205,7 @@ internal static class ManualTestKitChecklistComposer
             if (tokenIndex >= 0)
             {
                 lines[tokenIndex] = $"- ☐ {item.Text}";
+                ReplaceSectionHeading(lines, tokenIndex, item);
                 continue;
             }
 
@@ -207,7 +213,12 @@ internal static class ManualTestKitChecklistComposer
             // kit uses the slot protocol, a missing slot is a contract error—not permission to
             // guess a checkbox location from an incidental mention of the proof ID.
             if (!usesExplicitSlots)
+            {
                 InsertAfterExistingObservation(lines, item, items);
+                checklistIndex = FindChecklistQuestionIndex(lines, item.Text);
+                if (checklistIndex >= 0)
+                    ReplaceSectionHeading(lines, checklistIndex, item);
+            }
         }
 
         // Approval slots are host protocol, never operator-facing prose. An unmatched slot means
@@ -228,7 +239,7 @@ internal static class ManualTestKitChecklistComposer
                 $"The validation kit contains an approval check named `{requirementId}` that does not match the active checkpoint.");
         }
 
-        foreach (var item in items.Where(item => !ContainsChecklistQuestion(lines, item.Text)))
+        foreach (var item in items.Where(item => FindChecklistQuestionIndex(lines, item.Text) < 0))
         {
             SquadDashTrace.Write(
                 TraceCategory.Inbox,
@@ -243,12 +254,63 @@ internal static class ManualTestKitChecklistComposer
     private static string BuildSetupError(string detail) =>
         $"> ⚠ {SetupErrorMarker} {detail} Do not continue; ask SquadDash to repair the validation kit.";
 
-    private static bool ContainsChecklistQuestion(IReadOnlyList<string> lines, string question) =>
-        lines.Any(line =>
-            string.Equals(line.Trim(), $"- ☐ {question}", StringComparison.Ordinal) ||
-            string.Equals(line.Trim(), $"- ☑ {question}", StringComparison.Ordinal) ||
-            string.Equals(line.Trim(), $"☐ {question}", StringComparison.Ordinal) ||
-            string.Equals(line.Trim(), $"☑ {question}", StringComparison.Ordinal));
+    private static int FindChecklistQuestionIndex(IReadOnlyList<string> lines, string question)
+    {
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var line = lines[index].Trim();
+            if (string.Equals(line, $"- ☐ {question}", StringComparison.Ordinal) ||
+                string.Equals(line, $"- ☑ {question}", StringComparison.Ordinal) ||
+                string.Equals(line, $"☐ {question}", StringComparison.Ordinal) ||
+                string.Equals(line, $"☑ {question}", StringComparison.Ordinal))
+                return index;
+        }
+        return -1;
+    }
+
+    private static void ReplaceSectionHeading(
+        IList<string> lines,
+        int checklistIndex,
+        PlanHumanReviewChecklistItem item)
+    {
+        for (var index = checklistIndex - 1; index >= 0; index--)
+        {
+            var line = lines[index].Trim();
+            if (line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                // A section may deliberately contain one shared workflow followed by several atomic
+                // observations. Preserve its AI-authored common heading instead of allowing the last
+                // checkbox processed to rename the entire section.
+                var nextHeading = Enumerable.Range(index + 1, lines.Count - index - 1)
+                    .FirstOrDefault(candidate => lines[candidate].Trim().StartsWith("## ", StringComparison.Ordinal));
+                var sectionEnd = nextHeading == 0 ? lines.Count : nextHeading;
+                var approvalSlotCount = Enumerable.Range(index + 1, sectionEnd - index - 1)
+                    .Count(candidate => IsApprovalSlot(lines[candidate]));
+                if (approvalSlotCount > 1)
+                    return;
+
+                lines[index] = $"## {PlanHumanReviewChecklist.ResolveDisplayTitle(item.Title, item.RequirementId)}";
+                return;
+            }
+
+            // Do not cross into an earlier observation if malformed input omitted this section's
+            // heading. The source remains readable and the checkbox-placement validator still
+            // reports actual marker defects.
+            if (line.StartsWith("- ☐ ", StringComparison.Ordinal) ||
+                line.StartsWith("- ☑ ", StringComparison.Ordinal))
+                return;
+        }
+    }
+
+    private static bool IsApprovalSlot(string line)
+    {
+        var trimmed = line.Trim();
+        return trimmed.StartsWith(TokenPrefix, StringComparison.Ordinal) ||
+               trimmed.StartsWith("- ☐ ", StringComparison.Ordinal) ||
+               trimmed.StartsWith("- ☑ ", StringComparison.Ordinal) ||
+               trimmed.StartsWith("☐ ", StringComparison.Ordinal) ||
+               trimmed.StartsWith("☑ ", StringComparison.Ordinal);
+    }
 
     private static void InsertAfterExistingObservation(
         List<string> lines,

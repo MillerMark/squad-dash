@@ -113,7 +113,8 @@ internal static class PlanningSpecialistInstructions
                field names and these parser-critical contracts: task IDs are
                `{groupId}-NNN`; validation IDs use the `validationId` field and
                `{groupId}-VAL-NNN`; command or hybrid validations use `commands`; proof requirements
-               use `requirementId`, `proofType`, and `description`. Also check dependency references,
+               use `requirementId`, `proofType`, and `description`; every human-only proof must also
+               provide a concise scenario `title` distinct from its atomic checkbox `question`. Also check dependency references,
                validation boundaries, and any declared audit frontier. Confirm that completion proof reuses
                task-level evidence and that a final verification or audit is present only for a material
                remaining gap, never as overlapping ceremonial work. Limit each human review checkpoint to
@@ -134,10 +135,9 @@ internal static class PlanningSpecialistInstructions
                inevitably failing completion audit.
                Reject any task whose only meaningful outcome is a human observation. Replace that shell
                with an AI-executable preparation task followed by a human gate. The preparation task should
-               produce a Markdown runbook—plain-language, step-by-step Setup, Open, Act, Observe, and Cleanup
-               instructions—and deliver or attach it through the SquadDash Inbox. Where appropriate, also
-               produce a disposable fixture, sample project, sample files, test data, or diagnostics as
-               declared outputs and reference them exactly from the gate.
+               produce any required disposable fixture, sample project, sample files, test data, or diagnostics
+               and author one concise, self-contained approval procedure for SquadDash to absorb into the
+               durable approval Inbox message. Do not create a separate operator runbook.
                Classify validation using the current executor's real capability boundary. Repository,
                command, deterministic test, and genuinely available browser/service automation may be
                AI-reachable. Native or host-embedded application interaction, inaccessible build/install/
@@ -152,8 +152,11 @@ internal static class PlanningSpecialistInstructions
                and applicable build, package, or artifact without requiring a commit merely for identity.
                Include prerequisites and AI-prepared state, numbered Setup/Open/Act steps, expected pass/fail observations mapped to
                stable gate proof ID, exact failure-evidence capture and reporting instructions, and Cleanup.
+               Every required action must appear directly in the approval message. A recipe that tells the
+               reviewer to follow a runbook, another Inbox message, kit instructions, linked steps, or an
+               unspecified file/location is invalid and must be rewritten before the gate can activate.
                Put the full instructions in the Inbox body and embed a descriptive inline link beside each
-               step that needs a runbook, solution, project, sample file, or folder. Use the existing
+               step that needs a supporting reference, solution, project, sample file, or folder. Use the existing
                `[Open label](app://open-path:path/from/workspace/root)` Inbox syntax. State explicitly in the
                preparation task that a relative target is resolved from the active SquadDash workspace
                directory, not from the Git repository root or shell directory; the executor must verify every
@@ -163,10 +166,14 @@ internal static class PlanningSpecialistInstructions
                Inbox JSON file escape hatch for long or parser-sensitive content. A transcript-only promise,
                prose-only path, or action that starts another agent is not delivery. The following gate must
                depend on the preparation task and reuse its proof IDs and fixture outputs.
-               Design every gate recipe for SquadDash's single-message chronological approval form: Setup the
-               prepared build; Open and perform the exact linked file/folder and interaction; Observe the
-               expected result; place one atomic checkbox question for the stable requirementId immediately
-               after that observation; then Cleanup. SquadDash binds that requirement to one persisted
+               Compose the complete approval procedure only after considering every proof requirement. Group
+               requirements by the workflow the reviewer actually performs, not automatically one section per
+               checkbox. When several requirements share Setup, Open, Act, and Cleanup, show those actions once,
+               then show each independent expected observation followed immediately by its own stable approval
+               marker. Never merge several observations into one compound checkbox. For a single-proof workflow,
+               use the proof requirement's exact short `title` as the heading, never its full `question`; for a
+               shared workflow, author one concise heading that describes the common activity. SquadDash binds
+               every requirement to its own persisted
                checkbox in the durable approval Inbox message. Do not invent a disconnected prose checklist.
                Require the internal manual-test-kit source body to mark that exact location with
                `{{"{{approval-check:requirement-id}}"}}` on its own line, using the real stable requirement ID.

@@ -95,10 +95,13 @@ internal static class PlanValidationResultParser
         return payload with
         {
             HumanProofRequirements = requirements.Select(requirement =>
-                string.IsNullOrWhiteSpace(requirement.Description) &&
-                !string.IsNullOrWhiteSpace(requirement.Question)
-                    ? requirement with { Description = requirement.Question!.Trim() }
-                    : requirement).ToArray(),
+                requirement with
+                {
+                    Description = string.IsNullOrWhiteSpace(requirement.Description) &&
+                                  !string.IsNullOrWhiteSpace(requirement.Question)
+                        ? requirement.Question!.Trim()
+                        : requirement.Description,
+                }).ToArray(),
         };
     }
 }
@@ -169,9 +172,16 @@ internal static class PlanValidationEvidencePolicy
             return $"Validation {validation.ValidationId} returned more than seven human review checks.";
         if (requirements.Any(requirement =>
                 string.IsNullOrWhiteSpace(requirement.RequirementId) ||
+                string.IsNullOrWhiteSpace(requirement.Title) ||
                 string.IsNullOrWhiteSpace(requirement.Description) ||
                 string.IsNullOrWhiteSpace(requirement.Question)))
             return $"Validation {validation.ValidationId} returned an incomplete human review check.";
+        if (requirements.Any(requirement =>
+                !PlanHumanProofTitlePolicy.TryValidateTitle(
+                    requirement.Title,
+                    requirement.Question,
+                    out _)))
+            return $"Validation {validation.ValidationId} returned a human review title that is not a concise scenario label.";
         if (requirements.GroupBy(requirement => requirement.RequirementId, StringComparer.Ordinal)
                 .Any(group => group.Count() > 1))
             return $"Validation {validation.ValidationId} returned duplicate human review requirement IDs.";

@@ -59,6 +59,8 @@ internal static class HumanVerificationReadinessPolicy
             if (!IsComplete(proof.VerificationRecipe))
                 findings.Add(new(targetId, proof.RequirementId, "error",
                     "Recipe access requires nonempty Setup, Open, Observe, and Cleanup instructions."));
+            else
+                AddOperatorGuideFindings(targetId, proof, findings);
             return;
         }
 
@@ -99,6 +101,19 @@ internal static class HumanVerificationReadinessPolicy
         if (!IsComplete(proof.VerificationRecipe))
             findings.Add(new(targetId, proof.RequirementId, "warning",
                 "The fixture reference is structurally valid, but human-facing Setup, Open, Observe, and Cleanup instructions are incomplete."));
+        else
+            AddOperatorGuideFindings(targetId, proof, findings);
+    }
+
+    private static void AddOperatorGuideFindings(
+        string targetId,
+        DecomposedTaskProofRequirement proof,
+        ICollection<HumanVerificationReadinessFinding> findings)
+    {
+        var recipe = proof.VerificationRecipe!;
+        var body = string.Join('\n', recipe.Setup, recipe.Open, recipe.Observe, recipe.Cleanup);
+        foreach (var error in ApprovalOperatorGuidePolicy.Validate(body))
+            findings.Add(new(targetId, proof.RequirementId, "error", error));
     }
 
     private static bool IsComplete(HumanVerificationRecipe? recipe) =>

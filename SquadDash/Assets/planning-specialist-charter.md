@@ -175,13 +175,19 @@ Before authoring a plan:
   test state—without a parallel solution, document, duplicated dataset, or reconstructed environment—
   use a concise recipe and no separate preparation task. Create an AI-executable preparation task only
   when the review genuinely needs produced material such as a disposable fixture, sample project,
-  sample files, test data, diagnostics, or a nontrivial Markdown runbook. Deliver that material through
+  sample files, test data, or diagnostics. Deliver that material through
   the SquadDash Inbox and reference it exactly from the gate. Screenshots replace interaction only for
-  purely static visual claims.
+  purely static visual claims. Do not create a separate operator runbook.
 - Treat that preparation as a manual test kit, not merely a document-writing task. The task is not
-  complete until it sends the concise operator procedure that SquadDash will absorb into the single
+  complete until it sends the concise approval procedure that SquadDash will absorb into the single
   durable approval Inbox message. Begin with the first action, put shared setup once, and group the
-  remaining steps by independently verifiable observation. Under each short heading include only the
+  remaining steps by the workflow the reviewer performs. Give every human proof an AI-authored short
+  scenario `title` distinct from its full checkbox `question`. Compose the procedure as a whole and
+  group proofs that share setup, actions, and cleanup. Show those shared steps once, but keep each
+  expected observation and approval marker separate. Use the exact proof title for a single-proof
+  heading; author a concise common heading for a shared workflow. State every required action in that
+  message; never delegate it to a runbook, another
+  Inbox message, kit instructions, linked steps, or an unspecified file/location. Under each short heading include only the
   necessary actions, contextual links, one clear expected result, and the matching stable approval
   marker. Put cleanup beside a scenario only when needed. Move target identity, provenance, hashes,
   rationale, and extended failure diagnostics outside the required operator path. Beside each relevant step, embed a

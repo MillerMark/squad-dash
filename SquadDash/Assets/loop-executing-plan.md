@@ -79,10 +79,16 @@ different product behaviors, do not guess: preserve safe completed work and repo
 the host-owned partial or failed task result so SquadDash can surface recovery.
 
 Use the manual-test-kit contract from the injected Inbox instructions whenever the assigned task
-prepares human validation. Write a short operator procedure for SquadDash to absorb into the single
-durable approval Inbox message; do not create a second summary or a required external runbook. Begin
-with the first action, put shared setup once, and group the remaining actions by independently
-verifiable observation. Place clickable file or folder links beside the steps that need them. Resolve relative `app://open-path:`
+prepares human validation. Write a short approval procedure for SquadDash to absorb into the single
+durable approval Inbox message; do not create a second summary or a separate operator runbook. Compose
+the whole procedure after considering every proof requirement. Begin with the first action and group
+requirements by the workflow the reviewer performs. Put shared setup, actions, and cleanup once, then
+place every independent expected observation immediately before its own approval marker; never merge
+them into one compound checkbox. Use a proof's exact short scenario `title` for a single-proof heading,
+or author a concise common heading for a shared workflow. Never repeat a full checkbox `question` there.
+State every required action directly; do not
+tell the reviewer to follow a runbook, another Inbox message, kit instructions, linked steps, or an
+unspecified location. Place clickable file or folder links beside the steps that need them. Resolve relative `app://open-path:`
 targets from the active SquadDash workspace directory—not the Git repository root or shell directory—
 and verify every target exists before returning the Inbox payload. Use an absolute path for any linked
 artifact outside the active workspace.

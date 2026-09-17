@@ -180,10 +180,19 @@ internal sealed class DurableApprovalRequestManager
             var state = DeserializeState(existing);
             if (state is null) return;
             var reviewSnapshot = MergeSnapshots(DeserializeSnapshot(existing), snapshot);
+            var body = BuildApprovalBody(
+                plan,
+                state.ActiveGateIds,
+                state.ResolvedCheckpoints,
+                reviewSnapshot,
+                existing.Attachments);
+            var presentationChanged = !string.Equals(body, existing.Body, StringComparison.Ordinal);
 
             var updated = existing with
             {
-                Body = BuildApprovalBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints, reviewSnapshot, existing.Attachments),
+                Timestamp = presentationChanged ? DateTimeOffset.UtcNow : existing.Timestamp,
+                Read = presentationChanged ? false : existing.Read,
+                Body = body,
                 Actions = BuildApprovalActions(plan, state, existing.Attachments),
                 Attachments = BuildAttachments(state, reviewSnapshot, plan: plan),
             };
@@ -214,9 +223,18 @@ internal sealed class DurableApprovalRequestManager
             var state = DeserializeState(existing);
             if (state is null) return;
             var snapshot = DeserializeSnapshot(existing);
+            var body = BuildApprovalBody(
+                plan,
+                state.ActiveGateIds,
+                state.ResolvedCheckpoints,
+                snapshot,
+                existing.Attachments);
+            var presentationChanged = !string.Equals(body, existing.Body, StringComparison.Ordinal);
             _inbox.Save(existing with
             {
-                Body = BuildApprovalBody(plan, state.ActiveGateIds, state.ResolvedCheckpoints, snapshot, existing.Attachments),
+                Timestamp = presentationChanged ? DateTimeOffset.UtcNow : existing.Timestamp,
+                Read = presentationChanged ? false : existing.Read,
+                Body = body,
                 Actions = BuildApprovalActions(plan, state, existing.Attachments),
                 Attachments = BuildAttachments(
                     state, snapshot, existing.Attachments, plan),
@@ -673,17 +691,34 @@ internal sealed class DurableApprovalRequestManager
             var recipes = gate.ProofRequirements?
                 .Where(requirement => requirement.VerificationRecipe is not null)
                 .ToArray() ?? [];
-            for (var index = 0; index < recipes.Length; index++)
+            var workflows = recipes.GroupBy(requirement =>
             {
-                var requirement = recipes[index];
                 var recipe = requirement.VerificationRecipe!;
+                return (recipe.Setup.Trim(), recipe.Open.Trim(), recipe.Cleanup.Trim());
+            });
+            foreach (var workflow in workflows)
+            {
+                var requirements = workflow.ToArray();
+                var recipe = requirements[0].VerificationRecipe!;
                 if (parts.Count > 0)
                     parts.Add(string.Empty);
-                parts.Add($"## {requirement.Question ?? $"Check {index + 1}"}");
+                parts.Add(requirements.Length == 1
+                    ? $"## {PlanHumanReviewChecklist.ResolveDisplayTitle(
+                        requirements[0].Title,
+                        requirements[0].RequirementId)}"
+                    : "## Shared verification workflow");
                 parts.Add($"1. **Set up:** {recipe.Setup}");
                 parts.Add($"2. **Open and perform:** {recipe.Open}");
-                parts.Add($"3. **Observe:** {recipe.Observe}");
-                parts.Add($"{{{{approval-check:{requirement.RequirementId}}}}}");
+                foreach (var requirement in requirements)
+                {
+                    var observeLabel = requirements.Length == 1
+                        ? "3. **Observe:**"
+                        : $"**Observe — {PlanHumanReviewChecklist.ResolveDisplayTitle(
+                            requirement.Title,
+                            requirement.RequirementId)}:**";
+                    parts.Add($"{observeLabel} {requirement.VerificationRecipe!.Observe}");
+                    parts.Add($"{{{{approval-check:{requirement.RequirementId}}}}}");
+                }
                 if (!string.IsNullOrWhiteSpace(recipe.Cleanup))
                     parts.Add($"4. **Clean up:** {recipe.Cleanup}");
             }

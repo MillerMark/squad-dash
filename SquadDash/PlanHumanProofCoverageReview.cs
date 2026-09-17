@@ -70,11 +70,10 @@ internal static class PlanHumanProofCoverageReview
         A task whose only meaningful outcome is one or more human observations is an invalid
         human-only task shell even when those observations are correctly routed to a gate. Require
         the planner to replace it with an AI-executable preparation task followed by the human gate.
-        The preparation task should produce a Markdown runbook (plain-language, step-by-step Setup,
-        Open, Act, Observe, and Cleanup instructions) and deliver or attach it through the SquadDash
-        Inbox. When normal product state is insufficient or costly to recreate, it should also
-        produce a declared fixture, sample project, sample files, test data, or diagnostics that the
-        gate references exactly. A screenshot is sufficient only for a purely static visual claim.
+        The preparation task should produce any required fixture, sample project, sample files, test
+        data, or diagnostics and author one concise, self-contained approval procedure for SquadDash
+        to absorb into the durable approval Inbox message. It must not create a separate operator
+        runbook. A screenshot is sufficient only for a purely static visual claim.
 
         Do not classify a task as a human-only shell merely because it contains human proof, uses
         verification execution mode, has no declared output, or has a title such as smoke test. Read

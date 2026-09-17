@@ -260,6 +260,7 @@ internal sealed class PlanValidationSchedulingTests
                 {
                   "requirementId": "observe-output",
                   "proofType": "human-observation",
+                  "title": "Running application output",
                   "question": "Does the output appear in the running application?",
                   "accessMode": "directly-reachable"
                 }
@@ -586,7 +587,7 @@ internal sealed class PlanValidationSchedulingTests
             Assert.That(prompt, Does.Contain("A produces the declared output."));
             Assert.That(prompt, Does.Contain("abc1234"));
             Assert.That(prompt, Does.Contain(
-                "must contain requirementId, proofType, description, question, and"));
+                "must contain requirementId, proofType, title, description, question,"));
             Assert.That(prompt, Does.Contain("requirementId must be lowercase and hyphenated"));
         });
     }

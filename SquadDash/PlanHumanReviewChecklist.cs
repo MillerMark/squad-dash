@@ -10,7 +10,8 @@ internal sealed record PlanHumanReviewChecklistItem(
     string CandidateCommit,
     bool IsChecked,
     bool WasPreviouslyChecked,
-    string? PreviouslyCheckedCommit);
+    string? PreviouslyCheckedCommit,
+    string? Title = null);
 
 /// <summary>Builds atomic, commit-scoped human review items for current and legacy plans.</summary>
 internal static class PlanHumanReviewChecklist
@@ -56,7 +57,7 @@ internal static class PlanHumanReviewChecklist
                 };
                 foreach (var presented in presentedDefinitions)
                     AddChecklistItem(result, gate, definition.RequirementId,
-                        presented.Item1, presented.Item2, candidate);
+                        presented.Item1, presented.Item2, candidate, definition.Title);
             }
         }
         return result;
@@ -68,28 +69,30 @@ internal static class PlanHumanReviewChecklist
         string requirementId,
         string itemId,
         string text,
-        string candidate)
+        string candidate,
+        string? title)
     {
-                var current = gate.HumanReviewSelections?
-                    .LastOrDefault(selection =>
-                        string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
-                        CandidateCommitsMatch(selection.CandidateCommit, candidate));
-                var previous = gate.HumanReviewSelections?
-                    .Where(selection =>
-                        selection.IsChecked &&
-                        string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
-                        !CandidateCommitsMatch(selection.CandidateCommit, candidate))
-                    .OrderByDescending(selection => selection.UpdatedAt)
-                    .FirstOrDefault();
-                result.Add(new PlanHumanReviewChecklistItem(
-                    gate.GateId,
-                    itemId,
-                    requirementId,
-                    text,
-                    candidate,
-                    current?.IsChecked == true,
-                    previous is not null,
-                    previous?.CandidateCommit));
+        var current = gate.HumanReviewSelections?
+            .LastOrDefault(selection =>
+                string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
+                CandidateCommitsMatch(selection.CandidateCommit, candidate));
+        var previous = gate.HumanReviewSelections?
+            .Where(selection =>
+                selection.IsChecked &&
+                string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
+                !CandidateCommitsMatch(selection.CandidateCommit, candidate))
+            .OrderByDescending(selection => selection.UpdatedAt)
+            .FirstOrDefault();
+        result.Add(new PlanHumanReviewChecklistItem(
+            gate.GateId,
+            itemId,
+            requirementId,
+            text,
+            candidate,
+            current?.IsChecked == true,
+            previous is not null,
+            previous?.CandidateCommit,
+            ResolveDisplayTitle(title, requirementId)));
     }
 
     /// <summary>
@@ -131,10 +134,10 @@ internal static class PlanHumanReviewChecklist
             : interruptionCommit.Trim();
     }
 
-    private static IReadOnlyList<(string ItemId, string RequirementId, string Text)> BuildDefinitions(
+    private static IReadOnlyList<(string ItemId, string RequirementId, string Text, string? Title)> BuildDefinitions(
         PlanApprovalGate gate)
     {
-        var definitions = new List<(string, string, string)>();
+        var definitions = new List<(string, string, string, string?)>();
         if (gate.ProofRequirements is { Count: > 0 })
         {
             foreach (var requirement in gate.ProofRequirements)
@@ -150,7 +153,7 @@ internal static class PlanHumanReviewChecklist
                     var itemId = parts.Count == 1
                         ? requirement.RequirementId
                         : $"{requirement.RequirementId}#{index + 1}";
-                    definitions.Add((itemId, requirement.RequirementId, parts[index]));
+                    definitions.Add((itemId, requirement.RequirementId, parts[index], requirement.Title));
                 }
             }
         }
@@ -160,9 +163,29 @@ internal static class PlanHumanReviewChecklist
             var source = string.IsNullOrWhiteSpace(gate.Question) ? gate.Message : gate.Question!;
             var parts = SplitLegacyQuestions(source);
             for (var index = 0; index < parts.Count; index++)
-                definitions.Add(($"legacy#{index + 1}", "legacy", parts[index]));
+                definitions.Add(($"legacy#{index + 1}", "legacy", parts[index], null));
         }
         return definitions;
+    }
+
+    /// <summary>
+    /// Uses the AI-authored title when present. Legacy proof contracts have no semantic title,
+    /// so their stable identifier is only mechanically made readable; SquadDash does not pretend
+    /// to summarize the question itself.
+    /// </summary>
+    internal static string ResolveDisplayTitle(string? title, string requirementId)
+    {
+        if (!string.IsNullOrWhiteSpace(title))
+            return title.Trim();
+
+        var words = (requirementId ?? string.Empty).Split(
+            ['-', '_'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (words.Length == 0)
+            return "Review";
+
+        var result = string.Join(' ', words).ToLowerInvariant();
+        return char.ToUpperInvariant(result[0]) + result[1..];
     }
 
     internal static IReadOnlyList<string> SplitLegacyQuestions(string text)
