@@ -1,4 +1,4 @@
-﻿---
+---
 # Workspace-wide Code Health settings only.
 # Built-in tasks are supplied by SquadDash; customize them in code-health-overrides.md.
 # Add workspace-specific tasks in code-health-custom.md.
