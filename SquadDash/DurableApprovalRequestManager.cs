@@ -658,11 +658,30 @@ internal sealed class DurableApprovalRequestManager
         Plan plan,
         IReadOnlyList<string> activeGateIds)
     {
-        var candidates = _inbox.LoadAll(includeApprovalKitSources: true)
+        var boundCandidates = _inbox.LoadAll(
+                includeApprovalKitSources: true,
+                includeArchive: true)
             .Select(message => (Message: message, Binding: ManualTestKitApprovalBinding.Read(message)))
             .Where(candidate => candidate.Binding is not null &&
                 string.Equals(candidate.Binding.PlanId, plan.PlanId, StringComparison.Ordinal) &&
                 string.Equals(candidate.Binding.PlanRevision, plan.Revision, StringComparison.Ordinal))
+            .Select(candidate => (
+                candidate.Message,
+                Binding: candidate.Binding!,
+                Error: ManualTestKitApprovalBinding.ValidateSourceBodyForGates(
+                    plan,
+                    candidate.Binding!.GateIds,
+                    candidate.Message.Body)))
+            .ToArray();
+        foreach (var rejected in boundCandidates.Where(candidate => candidate.Error is not null))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                $"APPROVAL_SETUP_ERROR: ignored invalid stored approval procedure source id={rejected.Message.Id}: {rejected.Error}");
+        }
+        var candidates = boundCandidates
+            .Where(candidate => candidate.Error is null)
+            .Select(candidate => (candidate.Message, candidate.Binding))
             .ToArray();
 
         // LoadAll is newest-first. Select one authoritative delivery for each active gate while

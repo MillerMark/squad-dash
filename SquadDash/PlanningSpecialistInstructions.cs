@@ -175,6 +175,10 @@ internal static class PlanningSpecialistInstructions
                shared workflow, author one concise heading that describes the common activity. SquadDash binds
                every requirement to its own persisted
                checkbox in the durable approval Inbox message. Do not invent a disconnected prose checklist.
+               Put any exact prompt, command, path fragment, response, or other text the reviewer must copy,
+               type, paste, or submit in its own fenced `text` or appropriate-language block immediately after
+               the instruction that introduces it. Include only the copy-ready text inside the fence; SquadDash
+               renders the block with its standard copy button.
                Require the internal manual-test-kit source body to mark that exact location with
                `{{"{{approval-check:requirement-id}}"}}` on its own line, using the real stable requirement ID.
                SquadDash replaces the marker with its host-owned checkbox and never displays the raw token.

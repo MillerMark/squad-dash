@@ -43,7 +43,8 @@ internal static class MarkdownFlowDocumentBuilder {
         Application.Current?.Resources[key] as Brush ?? fallback;
 
     public static FlowDocument Build(string markdown, double baseFontSize = 0) =>
-        BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: false, onLinkClicked: null);
+        BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: false,
+            copyableCodeBlocks: false, onLinkClicked: null);
 
     /// <summary>
     /// Builds Inbox Markdown and automatically gives camelCase/PascalCase identifiers the same
@@ -54,7 +55,8 @@ internal static class MarkdownFlowDocumentBuilder {
         string markdown,
         double baseFontSize = 0,
         Action<string>? onLinkClicked = null) =>
-        BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true, onLinkClicked);
+        BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true,
+            copyableCodeBlocks: true, onLinkClicked);
 
     /// <summary>
     /// Adds Inbox-style inline content to an existing WPF text surface. Explicit backtick spans
@@ -69,13 +71,15 @@ internal static class MarkdownFlowDocumentBuilder {
     /// normalised input that produced it.  Use this to map rendered blocks back to source.
     /// </summary>
     public static FlowDocument BuildWithMap(string markdown, out List<(int StartLine, int EndLine)> blockLineRanges, double baseFontSize = 0) =>
-        BuildWithMapCore(markdown, out blockLineRanges, baseFontSize, styleCodeIdentifiers: false, onLinkClicked: null);
+        BuildWithMapCore(markdown, out blockLineRanges, baseFontSize, styleCodeIdentifiers: false,
+            copyableCodeBlocks: false, onLinkClicked: null);
 
     private static FlowDocument BuildWithMapCore(
         string markdown,
         out List<(int StartLine, int EndLine)> blockLineRanges,
         double baseFontSize,
         bool styleCodeIdentifiers,
+        bool copyableCodeBlocks,
         Action<string>? onLinkClicked) {
         blockLineRanges = new List<(int, int)>();
 
@@ -121,7 +125,10 @@ internal static class MarkdownFlowDocumentBuilder {
                     index++;
                 }
 
-                document.Blocks.Add(BuildCodeBlock(string.Join(Environment.NewLine, codeLines)));
+                var code = string.Join(Environment.NewLine, codeLines);
+                document.Blocks.Add(copyableCodeBlocks
+                    ? CopyableCodeBlockBuilder.Build(code, baseFontSize)
+                    : BuildFlowCodeBlock(code));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
@@ -354,6 +361,24 @@ internal static class MarkdownFlowDocumentBuilder {
         return list;
     }
 
+    private static Block BuildFlowCodeBlock(string code) {
+        // Non-Inbox documents retain selectable flow content so selection can span the block.
+        var paragraph = new Paragraph {
+            Padding    = new Thickness(12, 10, 12, 10),
+            Margin     = new Thickness(0, 2, 0, 10),
+            FontFamily = new FontFamily("Consolas"),
+        };
+        paragraph.SetResourceReference(TextElement.BackgroundProperty, "CodeSurface");
+        paragraph.SetResourceReference(TextElement.ForegroundProperty, "CodeText");
+
+        var codeLines = code.Split('\n');
+        for (var index = 0; index < codeLines.Length; index++) {
+            if (index > 0) paragraph.Inlines.Add(new LineBreak());
+            paragraph.Inlines.Add(new Run(codeLines[index]));
+        }
+        return paragraph;
+    }
+
     private static List BuildOrderedList(
         IEnumerable<string> items,
         int startIndex,
@@ -378,26 +403,6 @@ internal static class MarkdownFlowDocumentBuilder {
             list.ListItems.Add(new ListItem(paragraph));
         }
         return list;
-    }
-
-    private static Block BuildCodeBlock(string code) {
-        // Use a flow Paragraph (not BlockUIContainer wrapping a TextBox) so the text
-        // participates in FlowDocumentScrollViewer selection and is included when the
-        // user copies a selection that spans the code block.
-        var paragraph = new Paragraph {
-            Padding    = new Thickness(12, 10, 12, 10),
-            Margin     = new Thickness(0, 2, 0, 10),
-            FontFamily = new FontFamily("Consolas"),
-        };
-        paragraph.SetResourceReference(TextElement.BackgroundProperty, "CodeSurface");
-        paragraph.SetResourceReference(TextElement.ForegroundProperty, "CodeText");
-
-        var codeLines = code.Split('\n');
-        for (var i = 0; i < codeLines.Length; i++) {
-            if (i > 0) paragraph.Inlines.Add(new LineBreak());
-            paragraph.Inlines.Add(new Run(codeLines[i]));
-        }
-        return paragraph;
     }
 
     private static bool TryReadTable(string[] lines, ref int index, out List<string[]> rows) {

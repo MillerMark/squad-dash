@@ -99,8 +99,20 @@ internal static class ManualTestKitApprovalBinding
 
     internal static string? ValidateSourceBody(Plan plan, string taskId, string body)
     {
-        var expectedIds = plan.ApprovalGates
+        var gateIds = plan.ApprovalGates
             .Where(gate => gate.AfterTaskIds.Contains(taskId, StringComparer.Ordinal))
+            .Select(gate => gate.GateId)
+            .ToArray();
+        return ValidateSourceBodyForGates(plan, gateIds, body);
+    }
+
+    internal static string? ValidateSourceBodyForGates(
+        Plan plan,
+        IReadOnlyList<string> gateIds,
+        string body)
+    {
+        var expectedIds = plan.ApprovalGates
+            .Where(gate => gateIds.Contains(gate.GateId, StringComparer.Ordinal))
             .SelectMany(gate => gate.ProofRequirements ?? [])
             .Select(requirement => requirement.RequirementId)
             .Distinct(StringComparer.Ordinal)

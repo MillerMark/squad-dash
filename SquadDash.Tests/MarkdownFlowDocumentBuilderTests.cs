@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
 using SquadDash;
 
@@ -158,6 +159,28 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
                 Does.Contain("Consolas"));
             Assert.That(runs.Single(run => run.Text == "PlanViewerWindow.cs").FontFamily.Source,
                 Does.Contain("Consolas"));
+        });
+    }
+
+    [Test]
+    public void BuildInbox_FencedCopyReadyTextUsesTranscriptCodeSurface()
+    {
+        const string prompt = "In this component, make IncrementCount add 2.";
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(
+            $"Submit exactly:\n\n```text\n{prompt}\n```",
+            baseFontSize: 13.0);
+
+        var container = doc.Blocks.OfType<BlockUIContainer>().Single();
+        var grid = (Grid)container.Child;
+        var textBox = grid.Children.OfType<TextBox>().Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(textBox.Text, Is.EqualTo(prompt));
+            Assert.That(textBox.Tag, Is.EqualTo("codeblock"));
+            Assert.That(textBox.IsReadOnly, Is.True);
+            Assert.That(textBox.ContextMenu?.Items.OfType<MenuItem>().Select(item => item.Header),
+                Does.Contain("Copy"));
         });
     }
 

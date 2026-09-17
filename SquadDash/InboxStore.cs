@@ -53,13 +53,21 @@ public class InboxStore
     /// internal source for the durable approval request, not a second item the reviewer must
     /// manage, so it is hidden unless a host reconciliation path explicitly asks for it.
     /// </summary>
-    public IReadOnlyList<InboxMessage> LoadAll(bool includeApprovalKitSources = false)
+    public IReadOnlyList<InboxMessage> LoadAll(
+        bool includeApprovalKitSources = false,
+        bool includeArchive = false)
     {
         lock (_sync)
         {
             EnsureInboxDirectory();
-            return Directory
-                .EnumerateFiles(_inboxFolder, "*.json", SearchOption.TopDirectoryOnly)
+            var files = Directory.EnumerateFiles(
+                _inboxFolder, "*.json", SearchOption.TopDirectoryOnly);
+            var archiveFolder = Path.Combine(_inboxFolder, ArchiveSubfolder);
+            if (includeArchive && Directory.Exists(archiveFolder))
+                files = files.Concat(Directory.EnumerateFiles(
+                    archiveFolder, "*.json", SearchOption.TopDirectoryOnly));
+
+            return files
                 .Select(TryReadMessage)
                 .Where(m => m is not null)
                 .Cast<InboxMessage>()

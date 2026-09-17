@@ -197,6 +197,9 @@ Before authoring a plan:
   executor to resolve and verify every link target before delivery, and require an absolute path for an
   artifact outside the active workspace. Attachments are optional troubleshooting/reference only and
   must never hold steps required to complete approval. Require
+  exact prompts, commands, responses, or other text the reviewer must copy, type, paste, or submit to
+  appear alone in a fenced `text` or appropriate-language block immediately after its introducing step.
+  SquadDash renders that copy-ready block with its standard copy button. Require
   `INBOX_MESSAGE_JSON_FILE` when long or parser-sensitive content makes inline Inbox JSON fragile.
   A transcript-only promise, a prose-only path, or an action that starts another agent is not Inbox
   delivery. Make the human gate depend on this task and reuse the same proof IDs and fixture outputs.

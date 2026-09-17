@@ -332,6 +332,11 @@ not required. Use the exact property names below; do not substitute familiar sho
   5. Keep failure reporting to one short instruction. Move provenance, hashes, implementation history,
      rationale, and extended diagnostics to optional technical material outside the required path.
 
+  Put any exact prompt, command, path fragment, response, or other text the reviewer must copy, type,
+  paste, or submit in its own fenced `text` or appropriate-language block immediately after the step
+  that introduces it. Put only the copy-ready text inside the fence; SquadDash renders that block with
+  its standard copy button.
+
   At the exact step where a file or folder is needed, place a descriptive inline Markdown link such as
   `[Open sample solution](app://open-path:path/to/sample.sln)`, or
   `[Open fixture folder](app://open-path:path/to/fixture)`. A relative target is resolved from the

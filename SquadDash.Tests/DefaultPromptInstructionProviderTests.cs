@@ -372,6 +372,7 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("must not create a separate operator runbook"));
             Assert.That(instruction, Does.Contain("group requirements by the workflow"));
             Assert.That(instruction, Does.Contain("never merge observations into a compound checkbox"));
+            Assert.That(instruction, Does.Contain("copy-ready block with its standard copy button"));
             Assert.That(instruction, Does.Contain("{{approval-check:requirement-id}}"));
             Assert.That(instruction, Does.Contain("live checkbox in the approval message"));
             Assert.That(instruction, Does.Contain("required path short and scannable"));

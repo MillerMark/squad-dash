@@ -601,6 +601,61 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
+    public async Task RefreshEvidence_RetainsNewestValidProcedureAfterItsHiddenSourceIsArchived()
+    {
+        var original = MakePlan();
+        var gate = original.ApprovalGates[0] with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "native-result",
+                    "live-ui-observation",
+                    "Observe the generated result.",
+                    "Does the native result appear?",
+                    HumanVerificationAccessMode.Fixture,
+                    new HumanVerificationRecipe(
+                        "Follow the delivered Runbook.md Setup instructions.",
+                        "Follow the Inbox Open steps.",
+                        "Observe the result.",
+                        "Clean up through the kit instructions."),
+                    Title: "Native result"),
+            ],
+        };
+        var plan = original with { ApprovalGates = [gate] };
+        var procedure = ManualTestKitApprovalBinding.BindForCompletedTask(
+            new InboxMessage
+            {
+                Id = "concise-procedure",
+                Subject = "Native validation procedure",
+                Body = "## Native result\nOpen the sample directly and observe the result.\n{{approval-check:native-result}}",
+                Timestamp = DateTimeOffset.UtcNow,
+            },
+            plan,
+            "T1");
+        _inbox.Save(procedure);
+
+        var messageId = await _manager.AppendCheckpointAsync(plan, gate, MakeSnapshot());
+        _inbox.Archive(procedure.Id);
+        await _manager.RefreshEvidenceAsync(plan, MakeSnapshot());
+        var message = _inbox.GetById(messageId)!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_inbox.LoadAll(includeApprovalKitSources: true),
+                Has.None.Matches<InboxMessage>(candidate => candidate.Id == procedure.Id));
+            Assert.That(_inbox.LoadAll(includeApprovalKitSources: true, includeArchive: true),
+                Has.Some.Matches<InboxMessage>(candidate => candidate.Id == procedure.Id));
+            Assert.That(message.Body, Does.Contain("Open the sample directly")
+                .And.Not.Contain("Follow the delivered Runbook")
+                .And.Not.Contain("Follow the Inbox Open steps"));
+            Assert.That(message.Attachments.Single(attachment =>
+                    attachment.Type == DurableApprovalRequestManager.OperatorGuideAttachmentType).Content,
+                Is.EqualTo(procedure.Body));
+        });
+    }
+
+    [Test]
     public async Task AppendCheckpoint_KeepsExternalRunbookAsOptionalTroubleshooting()
     {
         var original = MakePlan();

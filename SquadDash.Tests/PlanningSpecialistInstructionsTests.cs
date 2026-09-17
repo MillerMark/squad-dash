@@ -118,6 +118,7 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("only meaningful outcome is a human observation"));
             Assert.That(guidance, Does.Contain("Do not create a separate operator runbook"));
             Assert.That(guidance, Does.Contain("Never merge several observations into one compound checkbox"));
+            Assert.That(guidance, Does.Contain("renders the block with its standard copy button"));
             Assert.That(guidance, Does.Contain("durable approval Inbox message"));
             Assert.That(guidance, Does.Contain("Established regression checks may use the reviewer's familiar existing files"));
             Assert.That(guidance, Does.Contain("not a deterministic reason to reject or halt a plan"));

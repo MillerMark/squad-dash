@@ -95,7 +95,10 @@ artifact outside the active workspace.
 Immediately after each proof's final expected pass/fail observation, put
 `{{approval-check:requirement-id}}` on its own line using that proof's exact stable ID. SquadDash turns
 it into the live checkbox in the approval Inbox message; do not substitute a Markdown checkbox or
-expose the marker as operator-facing text. Keep provenance and extended troubleshooting optional.
+expose the marker as operator-facing text. Put any exact prompt, command, response, or other text the
+reviewer must copy, type, paste, or submit alone in a fenced `text` or appropriate-language block
+immediately after its introducing step; SquadDash renders it with the standard copy button. Keep
+provenance and extended troubleshooting optional.
 
 The required step-result payload is:
 
