@@ -53,6 +53,9 @@ internal sealed class InboxApprovalChecklistPresenterTests
         var label = content.Children.OfType<TextBlock>().Single();
         var list = document.Blocks.OfType<List>()
             .Single(candidate => candidate.MarkerStyle == TextMarkerStyle.None);
+        var orderedLists = document.Blocks.OfType<List>()
+            .Where(candidate => candidate.MarkerStyle == TextMarkerStyle.Decimal)
+            .ToArray();
         Assert.Multiple(() =>
         {
             Assert.That(label.Text, Is.EqualTo(item.Text));
@@ -64,6 +67,9 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(border.CornerRadius, Is.EqualTo(new CornerRadius(2)));
             Assert.That(((Viewbox)border.Child).Visibility, Is.EqualTo(Visibility.Visible));
             Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
+            Assert.That(orderedLists, Has.Length.EqualTo(2));
+            Assert.That(orderedLists[0].StartIndex, Is.EqualTo(1));
+            Assert.That(orderedLists[1].StartIndex, Is.EqualTo(4));
         });
     }
 

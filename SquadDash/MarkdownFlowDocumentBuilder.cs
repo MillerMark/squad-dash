@@ -172,6 +172,13 @@ internal static class MarkdownFlowDocumentBuilder {
 
             if (IsOrderedListItem(trimmed)) {
                 var dotIdx = trimmed.IndexOf(". ", StringComparison.Ordinal);
+                var startIndexValue = int.TryParse(
+                    trimmed.AsSpan(0, dotIdx),
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var parsedStartIndex) && parsedStartIndex > 0
+                        ? parsedStartIndex
+                        : 1;
                 var currentItem = new System.Text.StringBuilder(trimmed[(dotIdx + 2)..].Trim());
                 var listItems   = new List<string>();
                 while (index + 1 < lines.Length) {
@@ -202,7 +209,11 @@ internal static class MarkdownFlowDocumentBuilder {
                     }
                 }
                 listItems.Add(currentItem.ToString());
-                document.Blocks.Add(BuildOrderedList(listItems, styleCodeIdentifiers, onLinkClicked));
+                document.Blocks.Add(BuildOrderedList(
+                    listItems,
+                    startIndexValue,
+                    styleCodeIdentifiers,
+                    onLinkClicked));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
@@ -342,10 +353,12 @@ internal static class MarkdownFlowDocumentBuilder {
 
     private static List BuildOrderedList(
         IEnumerable<string> items,
+        int startIndex,
         bool styleCodeIdentifiers,
         Action<string>? onLinkClicked) {
         var list = new List {
             MarkerStyle = TextMarkerStyle.Decimal,
+            StartIndex  = startIndex,
             Margin      = new Thickness(24, 2, 0, 2),
             Padding     = new Thickness(4, 0, 0, 0),
         };
