@@ -39,7 +39,8 @@ internal sealed class CommitViewerWindow : ChromedWindow
     {
         Title = $"Changes - {displayName}";
         _heading.Text = displayName;
-        _status.Text = "Captured tool edit";
+        _status.Text = ToolTranscriptFormatter.IsCapturedContentSnapshot(unifiedDiffText)
+            ? "Captured file content (previous content unavailable)" : "Captured tool edit";
         var summary = ToolTranscriptFormatter.TryBuildEditDiffSummary(
             new ToolTranscriptDescriptor("edit", DisplayText: displayName), unifiedDiffText);
         _fileList.Items.Add(CreateFileItem(new CommitFile(
@@ -339,7 +340,12 @@ internal sealed class CommitViewerWindow : ChromedWindow
 
         var summary = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        if (file.IsBinary)
+        if (ToolTranscriptFormatter.IsCapturedContentSnapshot(_suppliedPatch))
+        {
+            summary.Text = "Content";
+            summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        }
+        else if (file.IsBinary)
         {
             summary.Text = "binary";
             summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");

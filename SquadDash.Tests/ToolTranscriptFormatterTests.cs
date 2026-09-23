@@ -1,7 +1,122 @@
+using System.Text.Json;
+
 namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class ToolTranscriptFormatterTests {
+    // Runtime success messages deliberately do not contain the captured change.
+    internal static IEnumerable<TestCaseData> FileEditCaptures() {
+        yield return new TestCaseData("edit", CapturedEditPatch, null, 3, 2, false);
+        yield return new TestCaseData("apply_patch", CapturedEditPatch, null, 3, 2, false);
+        yield return new TestCaseData("create",
+            "--- /dev/null\n+++ b/src/file.cs\n@@ -0,0 +1,2 @@\n+first\n+last", null, 2, 0, true);
+        yield return new TestCaseData("edit", "File src/file.cs updated with changes.",
+            """{"path":"src/file.cs","old_str":"old\n","new_str":"new\nextra\n"}""", 2, 1, false);
+        yield return new TestCaseData("create", "Created file src/file.cs with 11 characters",
+            """{"path":"src/file.cs","file_text":"first\nlast\n"}""", 2, 0, true);
+        yield return new TestCaseData("functions.create", "Created file src/file.cs with 0 characters",
+            """{"path":"src/file.cs","file_text":""}""", 0, 0, true);
+        yield return new TestCaseData("write_file", "File written.",
+            """{"file_path":"src/file.cs","content":"first\n\nlast\n"}""", 0, 0, false);
+        yield return new TestCaseData("write", "File written.",
+            """{"path":"src/file.cs","content":"first\nlast"}""", 0, 0, false);
+        yield return new TestCaseData("str_replace_editor", "File src/file.cs updated with changes.",
+            """{"command":"str_replace","path":"src/file.cs","old_str":"old","new_str":"new"}""", 1, 1, false);
+        yield return new TestCaseData("str_replace_editor", "Created file src/file.cs with 6 characters",
+            """{"command":"create","path":"src/file.cs","file_text":"first\n"}""", 1, 0, true);
+        const string update = "*** Begin Patch\n*** Update File: src/file.cs\n@@\n-old\n+new\n*** End Patch";
+        yield return new TestCaseData("apply_patch", "Modified 1 file(s): src/file.cs",
+            JsonSerializer.Serialize(update), 1, 1, false);
+        yield return new TestCaseData("functions.apply_patch", "Modified 1 file(s): src/file.cs",
+            JsonSerializer.Serialize(new { input = update }), 1, 1, false);
+        const string add = "*** Begin Patch\n*** Add File: src/file.cs\n+first\n+\n+last\n*** End Patch";
+        yield return new TestCaseData("apply_patch", "Added 1 file(s): src/file.cs",
+            JsonSerializer.Serialize(new { patch = add }), 3, 0, true);
+    }
+
+    [TestCaseSource(nameof(FileEditCaptures))]
+    public void CapturedArguments_SupplyPatchForSuccessOnlyOutput(
+        string tool, string output, string? args, int added, int removed, bool isNew) {
+        var descriptor = new ToolTranscriptDescriptor(tool);
+        var patch = ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, output, args);
+        Assert.Multiple(() => {
+            Assert.That(ToolTranscriptFormatter.IsEditToolName(tool), Is.True);
+            Assert.That(patch, Is.Not.Null);
+            Assert.That(ToolTranscriptFormatter.TryBuildEditDiffSummary(descriptor, output, args),
+                Is.EqualTo(new ToolEditDiffSummary("file.cs", added, removed, isNew, false)));
+            Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, patch), Is.EqualTo(patch),
+                "Synthesized captures must themselves be complete, valid unified diffs.");
+        });
+    }
+
+    [TestCase("create")]
+    [TestCase("functions.create")]
+    [TestCase("create_file")]
+    public void CreateTool_KeepsItsFileIcon(string tool) {
+        Assert.That(ToolTranscriptFormatter.ResolveToolIconKey(tool), Is.EqualTo("ToolIcon_create"));
+    }
+
+    [Test]
+    public void CapturedArguments_PreferActualOutputWithKnownLineLocations() {
+        var descriptor = new ToolTranscriptDescriptor("edit", Path: "src/file.cs");
+        const string args = """{"path":"src/file.cs","old_str":"old","new_str":"new"}""";
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, CapturedEditPatch, args),
+            Is.EqualTo(CapturedEditPatch));
+    }
+
+    [Test]
+    public void CapturedArguments_CompleteInputStillWorksWhenOutputWasTruncated() {
+        var descriptor = new ToolTranscriptDescriptor("create");
+        const string args = """{"path":"src/file.cs","file_text":"first\nlast\n"}""";
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor,
+            "[SquadDash truncated 100 characters from live tool output.]", args),
+            Does.EndWith("+first\n+last"));
+    }
+
+    [Test]
+    public void CapturedArguments_MultiFileAndMultiHunkSelectCorrectFile() {
+        const string input = """
+            *** Begin Patch
+            *** Add File: other/file.cs
+            +unrelated
+            *** Update File: src/file.cs
+            @@ first anchor
+            -old
+            +new
+             context
+            @@ second anchor
+            -last
+            +updated
+            *** End of File
+            *** End Patch
+            """;
+        var args = JsonSerializer.Serialize(new { input });
+        var descriptor = new ToolTranscriptDescriptor("apply_patch", Path: @"D:\repo\src\file.cs");
+        var patch = ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, "Modified 2 file(s)", args);
+        Assert.Multiple(() => {
+            Assert.That(patch, Does.Contain("-old\n+new\n context"));
+            Assert.That(patch, Does.Contain("-last\n+updated"));
+            Assert.That(patch, Does.Not.Contain("unrelated"));
+            Assert.That(patch, Does.Contain("original line location unavailable"));
+            Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, patch), Is.EqualTo(patch));
+            Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+                new ToolTranscriptDescriptor("apply_patch", DisplayText: "file.cs"), "Modified 2 file(s)", args), Is.Null);
+        });
+    }
+
+    [TestCase("create", """{"path":"src/file.cs"}""")]
+    [TestCase("create", """{"path":"src/file.cs","file_text":"cut off""")]
+    [TestCase("edit", """{"path":"src/file.cs","old_str":"old"}""")]
+    [TestCase("str_replace_editor", """{"command":"view","path":"src/file.cs","file_text":"not an edit"}""")]
+    [TestCase("powershell", """{"path":"src/file.cs","content":"not a file tool"}""")]
+    [TestCase("write_powershell", """{"path":"src/file.cs","content":"not a file tool"}""")]
+    [TestCase("apply_patch", """{"input":"*** Begin Patch\n*** Add File: src/file.cs\n+cut off"}""")]
+    [TestCase("apply_patch", """{"input":"*** Begin Patch\n*** Delete File: src/file.cs\n*** End Patch"}""")]
+    public void CapturedArguments_MissingOrIncompleteContentDoesNotInventDiff(string tool, string args) {
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+            new ToolTranscriptDescriptor(tool), "Succeeded", args), Is.Null);
+    }
+
     private static readonly string CapturedEditPatch = """
         diff --git a/src/file.cs b/src/file.cs
         index 0000000..1111111 100644

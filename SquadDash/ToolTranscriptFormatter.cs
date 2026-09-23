@@ -3,6 +3,7 @@ using System.Text;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 
 namespace SquadDash;
 
@@ -14,6 +15,7 @@ namespace SquadDash;
 
 internal static class ToolTranscriptFormatter {
     public const int DefaultPreviewLineLimit = 20;
+    private const string CapturedContentLabel = "captured full content; previous content unavailable";
     private static readonly Regex SystemNotificationRegex = new(
         @"<system_notification>\s*.*?\s*</system_notification>\s*",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
@@ -74,6 +76,8 @@ internal static class ToolTranscriptFormatter {
     };
 
     internal static string ResolveToolIconKey(string? toolName) {
+        if (NormalizeFileToolName(toolName) is "create" or "create_file")
+            return "ToolIcon_create";
         if (IsEditToolName(toolName))
             return "ToolIcon_edit";
 
@@ -487,17 +491,27 @@ internal static class ToolTranscriptFormatter {
     }
 
     public static bool IsEditToolName(string? toolName) =>
-        string.Equals(toolName?.Trim(), "edit", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(toolName?.Trim(), "apply_patch", StringComparison.OrdinalIgnoreCase);
+        NormalizeFileToolName(toolName) is "edit" or "apply_patch" or "create" or
+            "write" or "write_file" or "create_file" or "str_replace_editor";
+
+    private static string NormalizeFileToolName(string? toolName) =>
+        (toolName?.Trim().Split('.').LastOrDefault() ?? string.Empty).ToLowerInvariant();
 
     private static readonly Regex UnifiedDiffHunkRegex = new(
         @"^@@ -\d+(?:,(?<old>\d+))? \+\d+(?:,(?<new>\d+))? @@(?:.*)$",
         RegexOptions.Compiled);
 
-    internal static string? TryExtractEditUnifiedDiff(ToolTranscriptDescriptor descriptor, string? outputText) {
-        if ((!IsEditToolName(descriptor.ToolName) &&
-             !string.Equals(descriptor.ToolName.Trim(), "create", StringComparison.OrdinalIgnoreCase)) ||
-            string.IsNullOrWhiteSpace(outputText))
+    internal static string? TryExtractEditUnifiedDiff(
+        ToolTranscriptDescriptor descriptor, string? outputText, string? argsJson = null) {
+        if (!IsEditToolName(descriptor.ToolName))
+            return null;
+
+        return TryExtractOutputDiff(descriptor, outputText) ??
+            TryBuildArgumentDiff(descriptor, argsJson);
+    }
+
+    private static string? TryExtractOutputDiff(ToolTranscriptDescriptor descriptor, string? outputText) {
+        if (string.IsNullOrWhiteSpace(outputText))
             return null;
 
         var lines = outputText.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
@@ -572,6 +586,147 @@ internal static class ToolTranscriptFormatter {
         return matches.Length == 1 ? matches[0].Text : null;
     }
 
+    private static string? TryBuildArgumentDiff(ToolTranscriptDescriptor descriptor, string? argsJson) {
+        if (string.IsNullOrWhiteSpace(argsJson))
+            return null;
+
+        try {
+            using var document = JsonDocument.Parse(argsJson);
+            var args = document.RootElement;
+            var tool = NormalizeFileToolName(descriptor.ToolName);
+            if (tool == "apply_patch") {
+                var input = args.ValueKind == JsonValueKind.String
+                    ? args.GetString()
+                    : GetArgumentString(args, "patch", "input");
+                var unified = TryConvertApplyPatch(input);
+                return TryExtractOutputDiff(descriptor, unified);
+            }
+
+            var path = GetArgumentString(args, "path", "file_path") ?? descriptor.Path;
+            if (string.IsNullOrWhiteSpace(path) || path.IndexOfAny(['\r', '\n']) >= 0)
+                return null;
+
+            var command = GetArgumentString(args, "command");
+            if (tool == "str_replace_editor" && command is not ("create" or "str_replace"))
+                return null;
+
+            if (tool is "create" or "create_file" or "write" or "write_file" || command == "create") {
+                var content = GetArgumentString(args, "file_text", "content");
+                if (content is null)
+                    return null;
+                // Overwriting tools only capture the new content, not the original file.
+                var isNew = tool is "create" or "create_file" || command == "create";
+                return BuildCapturedHunk(path, ContentLines(content).Select(line => (isNew ? "+" : " ") + line).ToArray(),
+                    isNew, fullContent: !isNew);
+            }
+
+            var oldText = GetArgumentString(args, "old_str", "old_string");
+            var newText = GetArgumentString(args, "new_str", "new_string");
+            if (oldText is null || newText is null)
+                return null;
+            return BuildCapturedHunk(path,
+                ContentLines(oldText).Select(line => "-" + line)
+                    .Concat(ContentLines(newText).Select(line => "+" + line)).ToArray(), isNew: false);
+        }
+        catch (JsonException ex) {
+            SquadDashTrace.Write("Transcript", $"Cannot reconstruct captured file edit arguments: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static string? GetArgumentString(JsonElement args, params string[] names) {
+        if (args.ValueKind != JsonValueKind.Object)
+            return null;
+        foreach (var name in names)
+            if (args.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
+                return value.GetString();
+        return null;
+    }
+
+    private static string[] ContentLines(string content) {
+        if (content.Length == 0)
+            return [];
+        var lines = content.ReplaceLineEndings("\n").Split('\n');
+        return lines[^1].Length == 0 ? lines[..^1] : lines;
+    }
+
+    private static string BuildCapturedHunk(
+        string path, IReadOnlyList<string> lines, bool isNew, bool fullContent = false) {
+        var oldCount = lines.Count(line => line.StartsWith('-') || line.StartsWith(' '));
+        var newCount = lines.Count(line => line.StartsWith('+') || line.StartsWith(' '));
+        var label = fullContent ? CapturedContentLabel
+            : isNew ? "captured new file" : "captured edit; original line location unavailable";
+        var normalizedPath = path.Replace('\\', '/');
+        return $"--- {(isNew ? "/dev/null" : "a/" + normalizedPath)}\n+++ b/{normalizedPath}\n" +
+            $"@@ -{(oldCount == 0 ? 0 : 1)},{oldCount} +{(newCount == 0 ? 0 : 1)},{newCount} @@ {label}" +
+            (lines.Count == 0 ? string.Empty : "\n" + string.Join("\n", lines));
+    }
+
+    internal static bool IsCapturedContentSnapshot(string? patch) =>
+        patch?.ReplaceLineEndings("\n").Split('\n').Any(line =>
+            line.StartsWith("@@ ", StringComparison.Ordinal) &&
+            line.EndsWith("@@ " + CapturedContentLabel, StringComparison.Ordinal)) == true;
+
+    private static string? TryConvertApplyPatch(string? input) {
+        if (string.IsNullOrWhiteSpace(input))
+            return null;
+        var lines = input.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
+        if (lines[0] != "*** Begin Patch" || lines[^1] != "*** End Patch")
+            return null;
+
+        var patches = new List<string>();
+        for (var index = 1; index < lines.Length - 1;) {
+            var isNew = lines[index].StartsWith("*** Add File: ", StringComparison.Ordinal);
+            var isUpdate = lines[index].StartsWith("*** Update File: ", StringComparison.Ordinal);
+            if (!isNew && !isUpdate) {
+                // Delete arguments contain no previous content to display.
+                if (lines[index].StartsWith("*** Delete File: ", StringComparison.Ordinal)) {
+                    index++;
+                    continue;
+                }
+                return null;
+            }
+            var path = lines[index++][(isNew ? "*** Add File: ".Length : "*** Update File: ".Length)..];
+            if (string.IsNullOrWhiteSpace(path))
+                return null;
+            if (index < lines.Length && lines[index].StartsWith("*** Move to: ", StringComparison.Ordinal))
+                index++;
+
+            var hunks = new List<string>();
+            var body = new List<string>();
+            var sawHunk = isNew;
+            void FlushHunk() {
+                if (body.Count == 0 && !isNew)
+                    return;
+                var patch = BuildCapturedHunk(path, body, isNew);
+                hunks.Add(hunks.Count == 0 ? patch : patch[(patch.IndexOf("\n@@", StringComparison.Ordinal) + 1)..]);
+                body.Clear();
+            }
+
+            while (index < lines.Length - 1 && !lines[index].StartsWith("*** ", StringComparison.Ordinal)) {
+                var line = lines[index++];
+                if (!isNew && (line == "@@" || line.StartsWith("@@ ", StringComparison.Ordinal))) {
+                    FlushHunk();
+                    sawHunk = true;
+                }
+                else if (sawHunk && line.Length > 0 &&
+                         (line[0] == '+' || (!isNew && line[0] is '-' or ' '))) {
+                    body.Add(line);
+                }
+                else {
+                    return null;
+                }
+            }
+            if (index < lines.Length && lines[index] == "*** End of File")
+                index++;
+            FlushHunk();
+            if (!sawHunk || hunks.Count == 0)
+                return null;
+            patches.Add(string.Join("\n", hunks));
+        }
+        return string.Join("\n", patches);
+    }
+
     private static bool MatchesDiffPath(string path, string target) =>
         string.Equals(path, target, StringComparison.OrdinalIgnoreCase) ||
         (!Path.IsPathRooted(target) && path.EndsWith("/" + target, StringComparison.OrdinalIgnoreCase)) ||
@@ -595,16 +750,20 @@ internal static class ToolTranscriptFormatter {
         line.StartsWith("copy from ", StringComparison.Ordinal) ||
         line.StartsWith("copy to ", StringComparison.Ordinal);
 
-    public static ToolEditDiffSummary? TryBuildEditDiffSummary(ToolTranscriptDescriptor descriptor, string? outputText) {
-        var patch = TryExtractEditUnifiedDiff(descriptor, outputText);
-        if (!IsEditToolName(descriptor.ToolName) && patch is null)
+    public static ToolEditDiffSummary? TryBuildEditDiffSummary(
+        ToolTranscriptDescriptor descriptor, string? outputText, string? argsJson = null) {
+        var patch = TryExtractEditUnifiedDiff(descriptor, outputText, argsJson);
+        if (NormalizeFileToolName(descriptor.ToolName) is not ("edit" or "apply_patch") && patch is null)
             return null;
 
-        var displayName = ResolveEditDisplayName(descriptor, outputText);
+        var displayDescriptor = patch is null ? descriptor
+            : descriptor with { DisplayText = TryExtractEditTargetPath(patch), Path = null };
+        var displayName = ResolveEditDisplayName(displayDescriptor, outputText);
         if (string.IsNullOrWhiteSpace(displayName))
             return null;
 
-        var normalized = (outputText ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n');
+        var normalized = (TryExtractOutputDiff(descriptor, outputText) is not null
+            ? outputText! : patch ?? outputText ?? string.Empty).ReplaceLineEndings("\n");
         var lines = normalized.Split('\n');
         var addedLineCount = 0;
         var removedLineCount = 0;

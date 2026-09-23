@@ -298,6 +298,7 @@
     <Compile Include="..\SquadDash\StartupBlockedDialogPolicy.cs" Link="Source\StartupBlockedDialogPolicy.cs" />
     <Compile Include="..\SquadDash\StartupFolderParser.cs" Link="Source\StartupFolderParser.cs" />
     <Compile Include="..\SquadDash\ToolTranscriptFormatter.cs" Link="Source\ToolTranscriptFormatter.cs" />
+    <Compile Include="..\SquadDash\ToolEditLinkPresenter.cs" Link="Source\ToolEditLinkPresenter.cs" />
     <Compile Include="..\SquadDash\ToolTranscriptData.cs" Link="Source\ToolTranscriptData.cs" />
     <Compile Include="..\SquadDash\RuntimeSlotStateStore.cs" Link="Source\RuntimeSlotStateStore.cs" />
     <Compile Include="..\SquadDash\RuntimeSlotDeploymentPolicy.cs" Link="Source\RuntimeSlotDeploymentPolicy.cs" />
@@ -471,7 +472,7 @@
     <Compile Include="..\SquadDash\PlanVisualizerViewportStore.cs" Link="Source\PlanVisualizerViewportStore.cs" />
     <Compile Include="..\SquadDash\CommitViewerCodeFontStore.cs" Link="Source\CommitViewerCodeFontStore.cs" />
     <Compile Include="..\SquadDash\CommitViewerWindow.cs" Link="Source\CommitViewerWindow.cs" />
-    <Compile Include="..\SquadDash\DiffHoverPopup.cs" Link="Source\DiffHoverPopup.cs" />
+    <Compile Include="..\SquadDash\DiffLinePresenter.cs" Link="Source\DiffLinePresenter.cs" />
     <Compile Include="..\SquadDash\DecomposePlanInbox.cs" Link="Source\DecomposePlanInbox.cs" />
     <Compile Include="..\SquadDash\DecomposeRecoveryInboxReconciler.cs" Link="Source\DecomposeRecoveryInboxReconciler.cs" />
     <Compile Include="..\SquadDash\DecomposePlanningInstructions.cs" Link="Source\DecomposePlanningInstructions.cs" />

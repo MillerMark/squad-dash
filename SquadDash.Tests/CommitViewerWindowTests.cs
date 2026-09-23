@@ -14,6 +14,104 @@ namespace SquadDash.Tests;
 [NonParallelizable]
 internal sealed class CommitViewerWindowTests
 {
+    [TestCaseSource(typeof(ToolTranscriptFormatterTests), nameof(ToolTranscriptFormatterTests.FileEditCaptures))]
+    public void TranscriptFileLink_ClickOpensCapturedPatchViewer(
+        string tool, string output, string? args, int added, int removed, bool isNew) =>
+        WpfTestContext.Run(() =>
+        {
+            var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var resources = new ResourceDictionary
+            {
+                ["FontSizeBody"] = 13.0, ["FontSizeNormal"] = 13.0,
+                ["FontSizeSmall"] = 12.0, ["FontSizeSubtitle"] = 18.0
+            };
+            app.Resources.MergedDictionaries.Add(resources);
+            CommitViewerWindow? viewer = null;
+            try
+            {
+                var message = new TextBlock();
+                message.Resources["TaskLinkText"] = Brushes.CornflowerBlue;
+                var rendered = ToolEditLinkPresenter.TryRender(message, new ToolTranscriptDescriptor(tool),
+                    output, args, async (name, patch) =>
+                        viewer = await CommitViewerWindow.CreateFromPatchAsync(name, patch));
+                Assert.That(rendered, Is.True);
+                message.Measure(new Size(800, 100));
+                message.Arrange(new Rect(0, 0, 800, 100));
+                var link = message.Inlines.OfType<Hyperlink>().Single();
+                Assert.Multiple(() =>
+                {
+                    Assert.That(link.Inlines.OfType<Run>().Single().Text, Is.EqualTo("file.cs"));
+                    Assert.That(link.Cursor, Is.SameAs(Cursors.Hand));
+                    Assert.That(link.Foreground, Is.SameAs(message.Resources["TaskLinkText"]));
+                    Assert.That(link.ToolTip, Is.TypeOf<ToolTip>());
+                    // TextRange omits nested Hyperlink text in TextBlock; inspect its runs separately.
+                    Assert.That(string.Concat(message.Inlines.OfType<Run>().Select(run => run.Text)),
+                        Is.EqualTo(tool is "write" or "write_file" ? " (captured content)" :
+                            $" +{added} -{removed}" + (isNew ? " ➕" : "")));
+                });
+                message.Resources["TaskLinkText"] = Brushes.DarkBlue;
+                Assert.That(link.Foreground, Is.SameAs(message.Resources["TaskLinkText"]), "Link follows theme changes.");
+                var click = new RoutedEventArgs(Hyperlink.ClickEvent);
+                link.RaiseEvent(click);
+                Assert.That(click.Handled, Is.True, "The click must not toggle the surrounding expander.");
+                Assert.That(viewer, Is.Not.Null);
+                Assert.That(viewer!.Title, Is.EqualTo("Changes - file.cs"));
+                if (tool is "write" or "write_file")
+                {
+                    Assert.That(ViewerField<TextBlock>(viewer, "_status").Text,
+                        Is.EqualTo("Captured file content (previous content unavailable)"));
+                    var file = (ListBoxItem)ViewerField<ListBox>(viewer, "_fileList").Items[0];
+                    Assert.That(((TextBlock)((Grid)file.Content).Children[1]).Text, Is.EqualTo("Content"));
+                }
+                var diff = ViewerField<StackPanel>(viewer, "_diffPanel");
+                Assert.That(diff.Children.OfType<TextBlock>().Count(line => Equals(line.Tag, DiffLineKind.Added)),
+                    Is.EqualTo(added));
+                Assert.That(diff.Children.OfType<TextBlock>().Count(line => Equals(line.Tag, DiffLineKind.Removed)),
+                    Is.EqualTo(removed));
+            }
+            finally
+            {
+                viewer?.Close();
+                app.Resources.MergedDictionaries.Remove(resources);
+            }
+        });
+
+    [Test]
+    public void TranscriptFileLink_DeletedFileRetainsStrikethroughAndFallbackHasNoLink() =>
+        WpfTestContext.Run(() =>
+        {
+            var descriptor = new ToolTranscriptDescriptor("edit", Path: "file.cs");
+            var message = new TextBlock();
+            ToolEditLinkPresenter.TryRender(message, descriptor,
+                "--- a/file.cs\n+++ /dev/null\n@@ -1 +0,0 @@\n-old", null, (_, _) => Task.CompletedTask);
+            Assert.That(message.Inlines.OfType<Hyperlink>().Single().Inlines.OfType<Run>().Single().TextDecorations,
+                Is.EqualTo(TextDecorations.Strikethrough));
+            message.Inlines.Clear();
+            ToolEditLinkPresenter.TryRender(message, descriptor, "File updated.", null, (_, _) => Task.CompletedTask);
+            Assert.That(message.Inlines.OfType<Hyperlink>(), Is.Empty);
+        });
+
+    [Test]
+    public void TranscriptRendering_AllThreadsUseCapturedArgumentsAndNormalTimingTooltip()
+    {
+        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (directory is not null &&
+               !File.Exists(Path.Combine(directory.FullName, "SquadDash", "MainWindow.xaml.cs")))
+            directory = directory.Parent;
+        Assert.That(directory, Is.Not.Null);
+        var source = File.ReadAllText(Path.Combine(directory!.FullName, "SquadDash", "MainWindow.xaml.cs"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("expander.Content = detailPanel;\n\n        AttachToolTimingTooltip(headerPanel, entry);")
+                .Or.Contain("expander.Content = detailPanel;\r\n\r\n        AttachToolTimingTooltip(headerPanel, entry);"));
+            Assert.That(source, Does.Not.Contain("DiffHoverPopup"));
+            Assert.That(source, Does.Contain("ToolEditLinkPresenter.TryRender(entry.MessageTextBlock, entry.Descriptor, entry.OutputText, entry.ArgsJson,"));
+            Assert.That(source, Does.Contain("_agentThreadRegistry.SetToolEntry(toolCallId, entry);"));
+            Assert.That(source, Does.Contain("entry.IsCompleted &&\n            entry.Success &&")
+                .Or.Contain("entry.IsCompleted &&\r\n            entry.Success &&"));
+        });
+    }
+
     [Test]
     public void EveryLaunch_ConnectsNavigationToTheExistingEnvironmentZoomHandler()
     {

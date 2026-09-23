@@ -45718,7 +45718,7 @@ public partial class MainWindow : Window
         foreach (var entry in block.ToolEntries)
         {
             if (!entry.IsCompleted || !entry.Success) continue;
-            var diff = ToolTranscriptFormatter.TryBuildEditDiffSummary(entry.Descriptor, entry.OutputText);
+            var diff = ToolTranscriptFormatter.TryBuildEditDiffSummary(entry.Descriptor, entry.OutputText, entry.ArgsJson);
             if (diff is null) continue;
             added   += diff.AddedLineCount;
             removed += diff.RemovedLineCount;
@@ -46274,73 +46274,7 @@ public partial class MainWindow : Window
         detailPanel.Children.Add(detailTextBox);
         expander.Content = detailPanel;
 
-        // Wire up diff hover popup for file-edit tool entries.
-        if (ToolTranscriptFormatter.IsEditToolName(descriptor.ToolName)) {
-            DiffHoverPopup? diffPopup = null;
-            headerPanel.MouseEnter += (sender, _) => {
-                if (!entry.IsCompleted || string.IsNullOrWhiteSpace(entry.OutputText))
-                    return;
-
-                var diffLines = DiffHoverPopup.ParseDiff(entry.OutputText);
-                if (diffLines.Count == 0)
-                    return;
-
-                // Compute above-vs-below placement using work-area-aware screen geometry.
-                // Above:  bottom of popup flush with top of entry (preferred — shows the entry
-                //         and everything below it unobscured).
-                // Below:  popup top starts 1.5 row-heights below the entry top so the hovered
-                //         entry and the first half-row of the next entry are both visible.
-                var physTopLeft    = headerPanel.PointToScreen(new Point(0, 0));
-                var physBottomLeft = headerPanel.PointToScreen(new Point(0, headerPanel.ActualHeight));
-                var physWa         = NativeMethods.GetWorkAreaForPhysicalPoint((int)physTopLeft.X, (int)physTopLeft.Y);
-
-                var logTopLeft  = DpiHelper.PhysicalToLogical(headerPanel, physTopLeft);
-                var logWaTop    = DpiHelper.PhysicalToLogical(headerPanel, new Point(physWa.Left, physWa.Top));
-                var logWaBottom = DpiHelper.PhysicalToLogical(headerPanel, new Point(physWa.Left, physWa.Bottom));
-
-                double entryTopY    = logTopLeft.Y;
-                double rowHeight    = DpiHelper.PhysicalToLogical(headerPanel, physBottomLeft).Y - entryTopY;
-                double estimatedH   = DiffHoverPopup.EstimateHeight(diffLines.Count);
-                double waTop        = logWaTop.Y;
-                double waBottom     = logWaBottom.Y;
-
-                // Prefer above: bottom of popup = top of entry (2px gap).
-                double aboveTop = entryTopY - estimatedH - 2;
-                double popupTop = aboveTop >= waTop
-                    ? aboveTop
-                    : Math.Min(entryTopY + 1.5 * rowHeight, waBottom - estimatedH);
-
-                double popupLeft = logTopLeft.X + 12;
-
-                diffPopup = new DiffHoverPopup {
-                    PlacementTarget  = headerPanel,
-                    HorizontalOffset = popupLeft,
-                    VerticalOffset   = popupTop
-                };
-                diffPopup.MouseLeave += (_, _) => {
-                    diffPopup.IsOpen = false;
-                    diffPopup = null;
-                };
-                diffPopup.ShowDiff(diffLines);
-            };
-
-            headerPanel.MouseLeave += (_, e) => {
-                // Defer one Render frame so WPF has time to propagate IsMouseOver
-                // to the popup border before we decide whether to close.
-                Dispatcher.InvokeAsync(() =>
-                {
-                    if (diffPopup != null && !diffPopup.IsMouseOver && !headerPanel.IsMouseOver)
-                    {
-                        diffPopup.IsOpen = false;
-                        diffPopup = null;
-                    }
-                }, System.Windows.Threading.DispatcherPriority.Render);
-            };
-        }
-        else
-        {
-            AttachToolTimingTooltip(headerPanel, entry);
-        }
+        AttachToolTimingTooltip(headerPanel, entry);
 
         block.ContentPanel.Children.Add(expander);
         return entry;
@@ -46557,55 +46491,16 @@ public partial class MainWindow : Window
 
         if (entry.IsCompleted &&
             entry.Success &&
-            ToolTranscriptFormatter.TryBuildEditDiffSummary(entry.Descriptor, entry.OutputText) is { } diffSummary)
-        {
-            var fileRun = new Run(diffSummary.DisplayName);
-            if (diffSummary.IsDeletedFile)
-                fileRun.TextDecorations = TextDecorations.Strikethrough;
-
-            if (ToolTranscriptFormatter.TryExtractEditUnifiedDiff(entry.Descriptor, entry.OutputText) is { } patch)
-            {
-                var fileLink = new Hyperlink(fileRun)
+            ToolEditLinkPresenter.TryRender(entry.MessageTextBlock, entry.Descriptor, entry.OutputText, entry.ArgsJson,
+                async (displayName, patch) =>
                 {
-                    Cursor = Cursors.Hand,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip("View this captured edit")
-                };
-                fileLink.SetResourceReference(TextElement.ForegroundProperty, "TaskLinkText");
-                fileLink.Click += async (_, e) =>
-                {
-                    e.Handled = true;
-                    var viewer = await CommitViewerWindow.CreateFromPatchAsync(diffSummary.DisplayName, patch);
+                    var viewer = await CommitViewerWindow.CreateFromPatchAsync(displayName, patch);
                     viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);
                     if (CanShowOwnedWindow())
                         viewer.Owner = this;
                     viewer.Show();
-                };
-                entry.MessageTextBlock.Inlines.Add(fileLink);
-            }
-            else
-            {
-                fileRun.SetResourceReference(TextElement.ForegroundProperty,
-                    diffSummary.IsDeletedFile ? "DiffDeletedFileText" : "TableCellText");
-                entry.MessageTextBlock.Inlines.Add(fileRun);
-            }
-            entry.MessageTextBlock.Inlines.Add(new Run(" "));
-            var addedRun = new Run($"+{diffSummary.AddedLineCount}")
-            {
-                FontWeight = FontWeights.SemiBold
-            };
-            addedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffAddedSummary");
-            entry.MessageTextBlock.Inlines.Add(addedRun);
-            entry.MessageTextBlock.Inlines.Add(new Run(" "));
-            var removedRun = new Run($"-{diffSummary.RemovedLineCount}")
-            {
-                FontWeight = FontWeights.SemiBold
-            };
-            removedRun.SetResourceReference(TextElement.ForegroundProperty, "DiffRemovedSummary");
-            entry.MessageTextBlock.Inlines.Add(removedRun);
-
-            if (diffSummary.IsNewFile)
-                entry.MessageTextBlock.Inlines.Add(new Run(" ➕"));
-
+                }))
+        {
             return;
         }
 
