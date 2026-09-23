@@ -10,11 +10,12 @@ namespace SquadDash;
 
 internal sealed class CommitViewerWindow : ChromedWindow
 {
-    private readonly string _repositoryPath;
+    private readonly string? _repositoryPath;
     private readonly IReadOnlyList<CommitViewerEntry> _commits;
     private string _commitSha;
     private readonly string? _baselineSha;
     private readonly string? _initialFilePath;
+    private readonly string? _suppliedPatch;
     private readonly ListBox _commitList = new();
     private readonly ListBox _fileList = new();
     private readonly StackPanel _diffPanel = new();
@@ -29,13 +30,37 @@ internal sealed class CommitViewerWindow : ChromedWindow
         IReadOnlyList<CommitViewerEntry> commits,
         string? baselineSha = null,
         string? initialFilePath = null)
+        : this(repositoryPath, commits, baselineSha, initialFilePath, null)
+    {
+    }
+
+    private CommitViewerWindow(string displayName, string unifiedDiffText)
+        : this(null, [], null, null, unifiedDiffText)
+    {
+        Title = $"Changes - {displayName}";
+        _heading.Text = displayName;
+        _status.Text = "Captured tool edit";
+        var summary = ToolTranscriptFormatter.TryBuildEditDiffSummary(
+            new ToolTranscriptDescriptor("edit", DisplayText: displayName), unifiedDiffText);
+        _fileList.Items.Add(CreateFileItem(new CommitFile(
+            displayName, summary?.AddedLineCount ?? 0, summary?.RemovedLineCount ?? 0, false)));
+        _fileList.SelectedIndex = 0;
+    }
+
+    private CommitViewerWindow(
+        string? repositoryPath,
+        IReadOnlyList<CommitViewerEntry> commits,
+        string? baselineSha,
+        string? initialFilePath,
+        string? suppliedPatch)
         : base(captionHeight: CloseButtonHeight)
     {
         _repositoryPath = repositoryPath;
         _commits = commits;
-        _commitSha = commits[0].Sha;
+        _commitSha = suppliedPatch is null ? commits[0].Sha : string.Empty;
         _baselineSha = baselineSha;
         _initialFilePath = initialFilePath;
+        _suppliedPatch = suppliedPatch;
         var defaultCodeFontSize = (double)Application.Current.Resources["FontSizeNormal"];
         _codeFontSize = _codeFontStore.Load(defaultCodeFontSize);
         _codeHeaderFontRatio = (double)Application.Current.Resources["FontSizeSmall"] / defaultCodeFontSize;
@@ -156,6 +181,13 @@ internal sealed class CommitViewerWindow : ChromedWindow
         var window = new CommitViewerWindow(repositoryRoot, [new CommitViewerEntry(commitSha)]);
         await window.LoadCommitAsync();
         return window;
+    }
+
+    internal static Task<CommitViewerWindow> CreateFromPatchAsync(string displayName, string unifiedDiffText)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
+        ArgumentNullException.ThrowIfNull(unifiedDiffText);
+        return Task.FromResult(new CommitViewerWindow(displayName, unifiedDiffText));
     }
 
     internal static async Task<CommitViewerWindow> CreateAsync(
@@ -335,6 +367,11 @@ internal sealed class CommitViewerWindow : ChromedWindow
     private async void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_fileList.SelectedItem is not ListBoxItem { Tag: CommitFile file }) return;
+        if (_suppliedPatch is not null)
+        {
+            RenderDiff(_suppliedPatch);
+            return;
+        }
         ShowMessage("Loading diff…");
         try
         {
@@ -358,10 +395,15 @@ internal sealed class CommitViewerWindow : ChromedWindow
             return;
         }
 
+        var inHunk = false;
         foreach (var rawLine in text.Replace("\r\n", "\n").Split('\n'))
         {
-            var kind = rawLine.StartsWith('+') && !rawLine.StartsWith("+++") ? DiffLineKind.Added
-                : rawLine.StartsWith('-') && !rawLine.StartsWith("---") ? DiffLineKind.Removed
+            if (rawLine.StartsWith("diff ", StringComparison.Ordinal))
+                inHunk = false;
+            if (rawLine.StartsWith("@@", StringComparison.Ordinal))
+                inHunk = true;
+            var kind = inHunk && rawLine.StartsWith('+') ? DiffLineKind.Added
+                : inHunk && rawLine.StartsWith('-') ? DiffLineKind.Removed
                 : rawLine.StartsWith("@@") || rawLine.StartsWith("diff ") || rawLine.StartsWith("index ") ||
                   rawLine.StartsWith("---") || rawLine.StartsWith("+++") ? DiffLineKind.Header
                 : DiffLineKind.Context;
@@ -413,7 +455,9 @@ internal sealed class CommitViewerWindow : ChromedWindow
     }
 
     private Task<string> RunGitAsync(params string[] arguments) =>
-        CommitViewerGit.RunAsync(_repositoryPath, arguments);
+        CommitViewerGit.RunAsync(
+            _repositoryPath ?? throw new InvalidOperationException("Captured patch viewers do not use git."),
+            arguments);
 
     private static List<CommitFile> ParseNumStat(string text)
     {

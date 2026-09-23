@@ -2,6 +2,171 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class ToolTranscriptFormatterTests {
+    private static readonly string CapturedEditPatch = """
+        diff --git a/src/file.cs b/src/file.cs
+        index 0000000..1111111 100644
+        --- a/src/file.cs
+        +++ b/src/file.cs
+        @@ -1,2 +1,3 @@
+        -old
+        +new
+        +extra
+         context
+        @@ -10 +11 @@
+        ---old prefix
+        \ No newline at end of file
+        +++new prefix
+        \ No newline at end of file
+        """.ReplaceLineEndings("\n");
+
+    [TestCase("edit")]
+    [TestCase("apply_patch")]
+    [TestCase("APPLY_PATCH")]
+    public void TryExtractEditUnifiedDiff_StripsToolChromeAndPreservesCompleteHunks(string toolName) {
+        var output = "File updated successfully.\r\n```diff\r\n" +
+            CapturedEditPatch.Replace("\n", "\r\n") + "\r\n```\r\nDone.";
+
+        var patch = ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+            new ToolTranscriptDescriptor(toolName, DisplayText: @"src\file.cs"), output);
+
+        Assert.That(patch, Is.EqualTo(CapturedEditPatch));
+    }
+
+    [TestCase("edit")]
+    [TestCase("apply_patch")]
+    [TestCase("create")]
+    public void TryExtractEditUnifiedDiff_NewFileRetainsAllAddedContent(string toolName) {
+        const string patch = """
+            diff --git a/src/new.cs b/src/new.cs
+            new file mode 100644
+            --- /dev/null
+            +++ b/src/new.cs
+            @@ -0,0 +1,3 @@
+            +first
+            +
+            +last
+            """;
+        var descriptor = new ToolTranscriptDescriptor(toolName, DisplayText: @"src\new.cs");
+
+        Assert.Multiple(() => {
+            Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, patch), Is.EqualTo(patch.ReplaceLineEndings("\n")));
+            var summary = ToolTranscriptFormatter.TryBuildEditDiffSummary(descriptor, patch);
+            Assert.That(summary, Is.EqualTo(new ToolEditDiffSummary("new.cs", 3, 0, true, false)));
+        });
+    }
+
+    [Test]
+    public void TryExtractEditUnifiedDiff_DeletedFileUsesOldPath() {
+        const string patch = """
+            diff --git a/src/old.cs b/src/old.cs
+            deleted file mode 100644
+            --- a/src/old.cs
+            +++ /dev/null
+            @@ -1,2 +0,0 @@
+            -first
+            -last
+            """;
+        var descriptor = new ToolTranscriptDescriptor("apply_patch", DisplayText: @"src\old.cs");
+
+        Assert.Multiple(() => {
+            Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, patch), Is.EqualTo(patch.ReplaceLineEndings("\n")));
+            Assert.That(ToolTranscriptFormatter.TryBuildEditDiffSummary(descriptor, patch),
+                Is.EqualTo(new ToolEditDiffSummary("old.cs", 0, 2, false, true)));
+        });
+    }
+
+    [TestCase(@"src\file.cs")]
+    [TestCase(@"..\src\file.cs")]
+    [TestCase(@"D:\repo\src\file.cs")]
+    [TestCase("file.cs")]
+    public void TryExtractEditUnifiedDiff_MultiFileOutputSelectsOnlyNamedFile(string displayPath) {
+        var otherPatch = CapturedEditPatch.Replace("src/file.cs", "other/second.cs").Replace("+extra\n", "")
+            .Replace("+1,3", "+1,2");
+        var output = otherPatch + "\n" + CapturedEditPatch;
+        var descriptor = new ToolTranscriptDescriptor("apply_patch", DisplayText: displayPath);
+
+        Assert.Multiple(() => {
+            Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, output), Is.EqualTo(CapturedEditPatch));
+            var summary = ToolTranscriptFormatter.TryBuildEditDiffSummary(descriptor, output);
+            Assert.That(summary!.AddedLineCount, Is.EqualTo(5), "The tool summary still totals every edited file.");
+            Assert.That(summary.RemovedLineCount, Is.EqualTo(4));
+        });
+    }
+
+    [Test]
+    public void TryExtractEditUnifiedDiff_MultiFileOutputWithoutDescriptorUsesFirstFile() {
+        var output = CapturedEditPatch + "\n" + CapturedEditPatch.Replace("src/file.cs", "other/second.cs");
+        var descriptor = new ToolTranscriptDescriptor("apply_patch");
+
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, output), Is.EqualTo(CapturedEditPatch));
+    }
+
+    [Test]
+    public void TryExtractEditUnifiedDiff_AmbiguousBasenameDoesNotLinkWrongFile() {
+        var output = CapturedEditPatch + "\n" + CapturedEditPatch.Replace("src/file.cs", "other/file.cs");
+
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+            new ToolTranscriptDescriptor("apply_patch", DisplayText: "file.cs"), output), Is.Null);
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+            new ToolTranscriptDescriptor("apply_patch", DisplayText: "file.cs", Path: @"D:\repo\src\file.cs"), output),
+            Is.EqualTo(CapturedEditPatch));
+    }
+
+    [Test]
+    public void TryExtractEditUnifiedDiff_AcceptsUnifiedHeadersWithoutGitHeader() {
+        const string patch = "--- old.cs\tbefore\n+++ old.cs\tafter\n@@ -1 +1 @@\n-before\n+after";
+
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+            new ToolTranscriptDescriptor("edit", DisplayText: "old.cs"), "Updated:\n" + patch + "\n\nDone."),
+            Is.EqualTo(patch));
+    }
+
+    [Test]
+    public void TryExtractEditUnifiedDiff_HandlesQuotedPathsAndDeletionTimestamps() {
+        const string patch = "--- \"a/src/my file.cs\"\tbefore\n+++ /dev/null\tafter\n@@ -1 +0,0 @@\n-removed";
+
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+            new ToolTranscriptDescriptor("edit", DisplayText: @"src\my file.cs"), patch), Is.EqualTo(patch));
+    }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("   ")]
+    [TestCase("File updated successfully.")]
+    [TestCase("*** Begin Patch\n*** Update File: src/file.cs\n@@\n-old\n+new\n*** End Patch")]
+    [TestCase("--- a/src/file.cs\n+++ b/src/file.cs\n@@ -1,2 +1 @@\n-old\n+new")]
+    [TestCase("--- a/src/file.cs\n+++ b/src/file.cs\n@@ -1 +1 @@\n-old")]
+    [TestCase("--- a/src/file.cs\n+++ b/src/file.cs\n@@ -1 +1 @@\n-old\n+new\n+unexpected")]
+    [TestCase("--- a/src/file.cs\n+++ b/src/file.cs\n@@ -1,9999999999999999 +1 @@\n-old\n+new")]
+    public void TryExtractEditUnifiedDiff_MissingOrIncompleteCaptureFallsBackToPlainText(string? output) {
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+            new ToolTranscriptDescriptor("edit", DisplayText: @"src\file.cs"), output), Is.Null);
+    }
+
+    [TestCase("[SquadDash truncated 123 characters from live tool output. Use a narrower view if you need the omitted text.]")]
+    [TestCase("\u2026 [123 chars truncated]")]
+    public void TryExtractEditUnifiedDiff_TruncationNoticeRejectsEvenCompletePrefix(string note) {
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+            new ToolTranscriptDescriptor("edit", DisplayText: @"src\file.cs"), CapturedEditPatch + "\n\n" + note),
+            Is.Null);
+    }
+
+    [Test]
+    public void TryExtractEditUnifiedDiff_LiveLimiterCannotProducePartialEditLink() {
+        var descriptor = new ToolTranscriptDescriptor("edit", DisplayText: @"src\file.cs");
+        var retained = ToolTranscriptOutputLimiter.TrimForLiveTranscript(CapturedEditPatch, 100);
+
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, retained), Is.Null);
+    }
+
+    [Test]
+    public void TryBuildEditDiffSummary_CreateWithoutDiffKeepsOriginalPresentation() {
+        Assert.That(ToolTranscriptFormatter.TryBuildEditDiffSummary(
+            new ToolTranscriptDescriptor("create", DisplayText: "file.cs"), "File created successfully."), Is.Null);
+        Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+            new ToolTranscriptDescriptor("powershell", DisplayText: "file.cs"), CapturedEditPatch), Is.Null);
+    }
+
     [Test]
     public void BuildRunningText_PrefersDescriptionForPowerShell() {
         var descriptor = new ToolTranscriptDescriptor(

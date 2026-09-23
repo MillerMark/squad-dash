@@ -25,13 +25,89 @@ internal sealed class CommitViewerWindowTests
         Assert.That(directory, Is.Not.Null);
         var source = File.ReadAllText(Path.Combine(directory!.FullName, "SquadDash", "MainWindow.xaml.cs"));
         var launches = Regex.Matches(source,
-            @"var viewer = await CommitViewerWindow\.Create(?:Range)?Async\([\s\S]*?\);(?<wiring>[\s\S]*?)viewer\.Show\(\);");
+            @"var viewer = await CommitViewerWindow\.Create(?:Range|FromPatch)?Async\([\s\S]*?\);(?<wiring>[\s\S]*?)viewer\.Show\(\);");
 
         Assert.That(launches, Is.Not.Empty);
         foreach (Match launch in launches)
             Assert.That(launch.Groups["wiring"].Value,
                 Does.Contain("viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);"));
     }
+
+    [TestCase("--- a/file.cs\n+++ b/file.cs\n@@ -1 +1 @@\n---old\n+++new", 1, 1)]
+    [TestCase("--- /dev/null\n+++ b/file.cs\n@@ -0,0 +1,2 @@\n+first\n+second", 2, 0)]
+    [TestCase("--- a/file.cs\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-first\n-second", 0, 2)]
+    [TestCase("", 0, 0)]
+    [TestCase(" \r\n ", 0, 0)]
+    public void CreateFromPatchAsync_RendersSuppliedContentWithoutRepositoryOrCommits(
+        string patch, int added, int removed) =>
+        WpfTestContext.Run(() =>
+        {
+            var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var fonts = new ResourceDictionary
+            {
+                ["FontSizeBody"] = 13.0, ["FontSizeNormal"] = 13.0,
+                ["FontSizeSmall"] = 12.0, ["FontSizeSubtitle"] = 18.0
+            };
+            app.Resources.MergedDictionaries.Add(fonts);
+            CommitViewerWindow? window = null;
+            try
+            {
+                var creation = CommitViewerWindow.CreateFromPatchAsync("file.cs", patch);
+                Assert.That(creation.IsCompletedSuccessfully, Is.True, "No asynchronous git loading is needed.");
+                window = creation.GetAwaiter().GetResult();
+                var files = ViewerField<ListBox>(window, "_fileList");
+                var commits = ViewerField<ListBox>(window, "_commitList");
+                var diff = ViewerField<StackPanel>(window, "_diffPanel");
+                Assert.Multiple(() =>
+                {
+                    Assert.That(ViewerField<string?>(window, "_repositoryPath"), Is.Null);
+                    Assert.That(ViewerField<string>(window, "_commitSha"), Is.Empty);
+                    Assert.That(ViewerField<IReadOnlyList<CommitViewerEntry>>(window, "_commits"), Is.Empty);
+                    Assert.That(commits.Items.Count, Is.Zero);
+                    Assert.That(commits.Parent, Is.Null);
+                    Assert.That(files.Items.Count, Is.EqualTo(1));
+                    Assert.That(files.SelectedIndex, Is.Zero);
+                    Assert.That(ViewerField<TextBlock>(window, "_heading").Text, Is.EqualTo("file.cs"));
+                    Assert.That(window.Title, Is.EqualTo("Changes - file.cs"));
+                    var row = (Grid)((ListBoxItem)files.Items[0]).Content;
+                    Assert.That(((TextBlock)row.Children[0]).Text, Is.EqualTo("file.cs"));
+                    var summary = (TextBlock)row.Children[1];
+                    Assert.That(new TextRange(summary.ContentStart, summary.ContentEnd).Text,
+                        Is.EqualTo($"+{added}  -{removed}"));
+                });
+
+                void AssertDiff()
+                {
+                    var lines = diff.Children.OfType<TextBlock>().ToArray();
+                    if (string.IsNullOrWhiteSpace(patch))
+                    {
+                        Assert.That(lines.Single().Text, Is.EqualTo("No text diff is available for this file."));
+                        return;
+                    }
+                    Assert.That(lines.Select(line => new TextRange(line.ContentStart, line.ContentEnd).Text),
+                        Is.EqualTo(patch.Split('\n')));
+                    Assert.That(lines.Count(line => Equals(line.Tag, DiffLineKind.Added)), Is.EqualTo(added));
+                    Assert.That(lines.Count(line => Equals(line.Tag, DiffLineKind.Removed)), Is.EqualTo(removed));
+                    foreach (var line in lines.Where(line => Equals(line.Tag, DiffLineKind.Added) ||
+                                                            Equals(line.Tag, DiffLineKind.Removed)))
+                        Assert.That(line.FontSize, Is.EqualTo(ViewerField<double>(window, "_codeFontSize")));
+                }
+
+                AssertDiff();
+                files.SelectedIndex = -1;
+                files.SelectedIndex = 0;
+                AssertDiff();
+                var ex = Assert.Throws<TargetInvocationException>(() =>
+                    InvokeViewer(window, "RunGitAsync", (object)new[] { "--version" }));
+                Assert.That(ex!.InnerException, Is.TypeOf<InvalidOperationException>(),
+                    "Patch mode must reject git before starting any process.");
+            }
+            finally
+            {
+                window?.Close();
+                app.Resources.MergedDictionaries.Remove(fonts);
+            }
+        });
 
     [TestCase(0.75, false)]
     [TestCase(1.0, false)]

@@ -46560,13 +46560,34 @@ public partial class MainWindow : Window
             ToolTranscriptFormatter.TryBuildEditDiffSummary(entry.Descriptor, entry.OutputText) is { } diffSummary)
         {
             var fileRun = new Run(diffSummary.DisplayName);
-            fileRun.SetResourceReference(TextElement.ForegroundProperty,
-                diffSummary.IsDeletedFile ? "DiffDeletedFileText" : "TableCellText");
-
             if (diffSummary.IsDeletedFile)
                 fileRun.TextDecorations = TextDecorations.Strikethrough;
 
-            entry.MessageTextBlock.Inlines.Add(fileRun);
+            if (ToolTranscriptFormatter.TryExtractEditUnifiedDiff(entry.Descriptor, entry.OutputText) is { } patch)
+            {
+                var fileLink = new Hyperlink(fileRun)
+                {
+                    Cursor = Cursors.Hand,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip("View this captured edit")
+                };
+                fileLink.SetResourceReference(TextElement.ForegroundProperty, "TaskLinkText");
+                fileLink.Click += async (_, e) =>
+                {
+                    e.Handled = true;
+                    var viewer = await CommitViewerWindow.CreateFromPatchAsync(diffSummary.DisplayName, patch);
+                    viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);
+                    if (CanShowOwnedWindow())
+                        viewer.Owner = this;
+                    viewer.Show();
+                };
+                entry.MessageTextBlock.Inlines.Add(fileLink);
+            }
+            else
+            {
+                fileRun.SetResourceReference(TextElement.ForegroundProperty,
+                    diffSummary.IsDeletedFile ? "DiffDeletedFileText" : "TableCellText");
+                entry.MessageTextBlock.Inlines.Add(fileRun);
+            }
             entry.MessageTextBlock.Inlines.Add(new Run(" "));
             var addedRun = new Run($"+{diffSummary.AddedLineCount}")
             {

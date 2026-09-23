@@ -22,6 +22,30 @@ internal sealed class WorkspaceConversationStoreTests {
     [TearDown]
     public void TearDown() => _workspace.Dispose();
 
+    [TestCase(1, false, true)]
+    [TestCase(4, false, false)]
+    [TestCase(1, true, false)]
+    public void CapturedEditPatch_RoundTripsOrDegradesWhenRetentionRemovesContent(
+        int ageDays, bool oversized, bool canOpen) {
+        var startedAt = DateTimeOffset.UtcNow.AddDays(-ageDays);
+        var descriptor = new ToolTranscriptDescriptor("edit", DisplayText: "file.cs");
+        const string patch = "--- a/file.cs\n+++ b/file.cs\n@@ -1 +1 @@\n-old\n+new";
+        var output = oversized ? patch + "\n" + new string('x', 100_001) : patch;
+        var tool = new TranscriptToolRecord("edit-1", descriptor, null, startedAt, startedAt.AddSeconds(1),
+            null, output, null, IsCompleted: true, Success: true);
+        _store.Save(_workspacePath, new WorkspaceConversationState(
+            "patch-session", DateTimeOffset.UtcNow, "", [],
+            [new TranscriptTurnRecord(startedAt, startedAt.AddSeconds(1), "Edit file", "", "", true, [tool])]));
+
+        var restored = _store.Load(_workspacePath).Turns.Single().Tools.Single();
+        var liveOutput = ToolTranscriptOutputLimiter.TrimForLiveTranscript(restored.Descriptor, restored.OutputText);
+        var extracted = ToolTranscriptFormatter.TryExtractEditUnifiedDiff(restored.Descriptor, liveOutput);
+
+        Assert.That(extracted, canOpen ? Is.EqualTo(patch) : Is.Null);
+        if (ageDays > 3)
+            Assert.That(restored.OutputText, Is.Null);
+    }
+
     [Test]
     public void SaveAndLoad_RoundTripsConversationStateForWorkspace() {
         var startedAt = DateTimeOffset.UtcNow.AddDays(-2);

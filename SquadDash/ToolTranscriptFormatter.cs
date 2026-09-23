@@ -490,8 +490,114 @@ internal static class ToolTranscriptFormatter {
         string.Equals(toolName?.Trim(), "edit", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(toolName?.Trim(), "apply_patch", StringComparison.OrdinalIgnoreCase);
 
+    private static readonly Regex UnifiedDiffHunkRegex = new(
+        @"^@@ -\d+(?:,(?<old>\d+))? \+\d+(?:,(?<new>\d+))? @@(?:.*)$",
+        RegexOptions.Compiled);
+
+    internal static string? TryExtractEditUnifiedDiff(ToolTranscriptDescriptor descriptor, string? outputText) {
+        if ((!IsEditToolName(descriptor.ToolName) &&
+             !string.Equals(descriptor.ToolName.Trim(), "create", StringComparison.OrdinalIgnoreCase)) ||
+            string.IsNullOrWhiteSpace(outputText))
+            return null;
+
+        var lines = outputText.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        // Never present a retained prefix as the complete edit, even if it ends at a hunk boundary.
+        if (lines.Any(line => line.StartsWith("[SquadDash truncated ", StringComparison.Ordinal) ||
+                              (line.StartsWith("\u2026 [", StringComparison.Ordinal) &&
+                               line.EndsWith(" chars truncated]", StringComparison.Ordinal))))
+            return null;
+
+        var patches = new List<(string Path, string Text)>();
+        for (var index = 0; index < lines.Length; index++) {
+            var start = index;
+            if (lines[index].StartsWith("diff --git ", StringComparison.Ordinal)) {
+                index++;
+                while (index < lines.Length && IsUnifiedDiffMetadata(lines[index]))
+                    index++;
+            }
+            if (index + 1 >= lines.Length ||
+                !lines[index].StartsWith("--- ", StringComparison.Ordinal) ||
+                !lines[index + 1].StartsWith("+++ ", StringComparison.Ordinal))
+                continue;
+
+            var newPath = NormalizeDiffPath(lines[index + 1][4..]);
+            var path = newPath == "/dev/null" ? NormalizeDiffPath(lines[index][4..]) : newPath;
+            index += 2;
+            var sawHunk = false;
+            while (index < lines.Length && lines[index].StartsWith("@@", StringComparison.Ordinal)) {
+                var match = UnifiedDiffHunkRegex.Match(lines[index]);
+                if (!match.Success ||
+                    !TryGetHunkCount(match.Groups["old"], out var oldRemaining) ||
+                    !TryGetHunkCount(match.Groups["new"], out var newRemaining))
+                    return null;
+                sawHunk = true;
+                index++;
+                while (oldRemaining > 0 || newRemaining > 0) {
+                    if (index >= lines.Length || lines[index].Length == 0)
+                        return null;
+                    var line = lines[index++];
+                    switch (line[0]) {
+                        case ' ': oldRemaining--; newRemaining--; break;
+                        case '-': oldRemaining--; break;
+                        case '+': newRemaining--; break;
+                        case '\\' when line == @"\ No newline at end of file": continue;
+                        default: return null;
+                    }
+                    if (oldRemaining < 0 || newRemaining < 0)
+                        return null;
+                }
+                if (index < lines.Length && lines[index] == @"\ No newline at end of file")
+                    index++;
+            }
+            if (index < lines.Length && (lines[index].StartsWith('+') || lines[index].StartsWith('-')) &&
+                !(lines[index].StartsWith("--- ", StringComparison.Ordinal) &&
+                  index + 1 < lines.Length && lines[index + 1].StartsWith("+++ ", StringComparison.Ordinal)))
+                return null;
+            if (sawHunk && path is not null)
+                patches.Add((path, string.Join("\n", lines[start..index])));
+            index--;
+        }
+
+        var target = descriptor.Path ?? descriptor.DisplayText;
+        if (string.IsNullOrWhiteSpace(target))
+            return patches.FirstOrDefault().Text;
+
+        var normalizedTarget = target.Replace('\\', '/');
+        while (normalizedTarget.StartsWith("./", StringComparison.Ordinal) ||
+               normalizedTarget.StartsWith("../", StringComparison.Ordinal))
+            normalizedTarget = normalizedTarget[(normalizedTarget.IndexOf('/') + 1)..];
+        var matches = patches.Where(patch =>
+            MatchesDiffPath(patch.Path.Replace('\\', '/'), normalizedTarget))
+            .ToArray();
+        return matches.Length == 1 ? matches[0].Text : null;
+    }
+
+    private static bool MatchesDiffPath(string path, string target) =>
+        string.Equals(path, target, StringComparison.OrdinalIgnoreCase) ||
+        (!Path.IsPathRooted(target) && path.EndsWith("/" + target, StringComparison.OrdinalIgnoreCase)) ||
+        (!Path.IsPathRooted(path) && target.EndsWith("/" + path, StringComparison.OrdinalIgnoreCase));
+
+    private static bool TryGetHunkCount(Group group, out int count) {
+        count = 1;
+        return !group.Success || int.TryParse(group.Value, out count);
+    }
+
+    private static bool IsUnifiedDiffMetadata(string line) =>
+        line.StartsWith("index ", StringComparison.Ordinal) ||
+        line.StartsWith("new file mode ", StringComparison.Ordinal) ||
+        line.StartsWith("deleted file mode ", StringComparison.Ordinal) ||
+        line.StartsWith("old mode ", StringComparison.Ordinal) ||
+        line.StartsWith("new mode ", StringComparison.Ordinal) ||
+        line.StartsWith("similarity index ", StringComparison.Ordinal) ||
+        line.StartsWith("dissimilarity index ", StringComparison.Ordinal) ||
+        line.StartsWith("rename from ", StringComparison.Ordinal) ||
+        line.StartsWith("rename to ", StringComparison.Ordinal) ||
+        line.StartsWith("copy from ", StringComparison.Ordinal) ||
+        line.StartsWith("copy to ", StringComparison.Ordinal);
+
     public static ToolEditDiffSummary? TryBuildEditDiffSummary(ToolTranscriptDescriptor descriptor, string? outputText) {
-        if (!IsEditToolName(descriptor.ToolName))
+        var patch = TryExtractEditUnifiedDiff(descriptor, outputText);
+        if (!IsEditToolName(descriptor.ToolName) && patch is null)
             return null;
 
         var displayName = ResolveEditDisplayName(descriptor, outputText);
@@ -503,11 +609,18 @@ internal static class ToolTranscriptFormatter {
         var addedLineCount = 0;
         var removedLineCount = 0;
 
+        var inHunk = false;
         foreach (var line in lines) {
-            if (line.StartsWith("+++", StringComparison.Ordinal) ||
-                line.StartsWith("---", StringComparison.Ordinal)) {
+            if (line.StartsWith("diff --git ", StringComparison.Ordinal))
+                inHunk = false;
+            if (line.StartsWith("@@", StringComparison.Ordinal)) {
+                inHunk = true;
                 continue;
             }
+            if (patch is null
+                ? line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal)
+                : !inHunk)
+                continue;
 
             if (line.StartsWith('+'))
                 addedLineCount++;
@@ -578,10 +691,11 @@ internal static class ToolTranscriptFormatter {
     }
 
     private static string? NormalizeDiffPath(string value) {
-        var normalized = value.Trim().Trim('"');
+        var normalized = value.Trim();
         var tabIndex = normalized.IndexOf('\t');
         if (tabIndex >= 0)
             normalized = normalized[..tabIndex];
+        normalized = normalized.Trim('"');
 
         if (normalized.StartsWith("a/", StringComparison.Ordinal) ||
             normalized.StartsWith("b/", StringComparison.Ordinal))
