@@ -123,6 +123,30 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
     }
 
     [Test]
+    public void CompletionSummary_LinksEveryBulletUsingTheSameLabelsAsGraphNodes()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var populateTask = ExtractMethod(source, "private void PopulateTaskDetail(PlanTask task, Plan? plan)");
+        var buildContent = ExtractMethod(source, "private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain(
+                "private Dictionary<string, string> _taskOrdinalById = new(StringComparer.Ordinal);"));
+            Assert.That(buildContent, Does.Contain(
+                "_taskOrdinalById = new Dictionary<string, string>(StringComparer.Ordinal);"));
+            Assert.That(buildContent, Does.Contain("_taskOrdinalById = group.Tasks")
+                .And.Contain("string.Equals(candidate.TaskId, task.Id, StringComparison.Ordinal))?.DisplayStepLabel")
+                .And.Contain("?? (index + 1).ToString()")
+                .And.Contain("_taskOrdinalById[task.Id], activityState)"));
+            Assert.That(populateTask, Does.Contain("foreach (var item in completionItems)")
+                .And.Contain("PlanCompletionSummaryFormatter.CreateParagraph(")
+                .And.Contain("item, _taskOrdinalById, CreateTaskLink)")
+                .And.Not.Contain("new Paragraph(new Run(item))"));
+        });
+    }
+
+    [Test]
     public void ChangedFiles_AreNonWrappingScrollableLinksWithStatusColors()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));

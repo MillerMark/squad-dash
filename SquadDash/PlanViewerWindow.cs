@@ -203,6 +203,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private CommittedColumnReorder? _lastCommittedColumnOrder;
     private readonly Dictionary<string, List<PlanGraphConnectorGroup>> _connectorsByTask = new(StringComparer.Ordinal);
     private Dictionary<string, Border> _borderByTask = new(StringComparer.Ordinal);
+    private Dictionary<string, string> _taskOrdinalById = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Point> _taskCardPositions = new(StringComparer.Ordinal);
     private Dictionary<string, double> _taskNudges = new(StringComparer.Ordinal);
     private readonly Dictionary<string, double> _naturalTaskSlotTops = new(StringComparer.Ordinal);
@@ -744,6 +745,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _plan = plan;
         _durablePlan = durablePlan;
         _borderByTask = new Dictionary<string, Border>(StringComparer.Ordinal);
+        _taskOrdinalById = new Dictionary<string, string>(StringComparer.Ordinal);
         _inspectorHistory.Clear();
         _inspectorHistoryIndex = -1;
         var activeBranch       = _activeBranch;
@@ -2953,7 +2955,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var taskActivityById = durablePlan is null
             ? new Dictionary<string, PlanTaskActivityState>(StringComparer.Ordinal)
             : PlanTaskActivityResolver.Resolve(durablePlan);
-        var taskOrdinalById = group.Tasks
+        _taskOrdinalById = group.Tasks
             .Select((task, index) => (task.Id, StepLabel:
                 durablePlan?.Tasks.FirstOrDefault(candidate =>
                     string.Equals(candidate.TaskId, task.Id, StringComparison.Ordinal))?.DisplayStepLabel
@@ -3144,7 +3146,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var stepLabel = new TextBlock
             {
                 Text = PlanTaskActivityPresentation.BuildStepLabel(
-                    taskOrdinalById[task.Id], activityState),
+                    _taskOrdinalById[task.Id], activityState),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Margin = new Thickness(20 * _scaleFactor, 5, 20 * _scaleFactor, 0),
             };
@@ -7561,7 +7563,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             summaryList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
             summaryList.Margin = new Thickness(0, 0, 0, 12);
             foreach (var item in completionItems)
-                summaryList.ListItems.Add(new ListItem(new Paragraph(new Run(item))));
+                summaryList.ListItems.Add(new ListItem(PlanCompletionSummaryFormatter.CreateParagraph(
+                    item, _taskOrdinalById, CreateTaskLink)));
             _detailDocument.Blocks.Add(summaryList);
         }
 
