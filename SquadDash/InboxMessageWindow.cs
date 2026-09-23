@@ -64,7 +64,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     public InboxMessageWindow(
         InboxMessage message,
-        Action<InboxAction, InboxMessage> onActionClicked,
+        Func<InboxAction, InboxMessage, Task<bool>> onActionClicked,
         Func<string, TaskItem?>? lookupTask = null,
         Action<string, InboxMessage>? attachSelectedTextToChat = null,
         Action<string, InboxMessage>? attachSelectedTextToNewChat = null,
@@ -1110,11 +1110,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
         }
     }
 
-    private static FrameworkElement BuildActionButton(
+    internal static FrameworkElement BuildActionButton(
         InboxAction action,
         InboxMessage msg,
         double fontSize,
-        Action<InboxAction, InboxMessage> onActionClicked)
+        Func<InboxAction, InboxMessage, Task<bool>> onActionClicked)
     {
         if (string.Equals(
                 action.RouteMode,
@@ -1130,7 +1130,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
                         : action.Hint),
             };
             link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-            link.Click += (_, _) => onActionClicked(action, msg);
+            link.Click += async (_, _) => await onActionClicked(action, msg);
             var text = new TextBlock
             {
                 Margin = new Thickness(0, 5, 14, 8),
@@ -1174,14 +1174,25 @@ internal sealed class InboxMessageWindow : ChromedWindow
         if (alreadyUsed)
             btn.IsEnabled = false;
 
-        btn.Click += (_, _) =>
+        btn.Click += async (_, _) =>
         {
+            if (!btn.IsEnabled)
+                return;
             // Host-owned plan actions close/archive the message on success. Keep them enabled
             // when validation or branch setup fails so the user can correct the issue and retry.
             if (!IsNavigationAction(action) &&
                 !string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
                 btn.IsEnabled = false;
-            onActionClicked(action, msg);
+            var succeeded = false;
+            try
+            {
+                succeeded = await onActionClicked(action, msg);
+            }
+            finally
+            {
+                if (string.Equals(action.RouteMode, InboxAction.HostCommandRouteMode, StringComparison.OrdinalIgnoreCase))
+                    btn.IsEnabled = !succeeded && !msg.UsedActions.Contains(action.Label);
+            }
         };
 
         return btn;
@@ -1680,7 +1691,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     /// </summary>
     internal void CompleteApprovalUpdate(
         InboxMessage updatedMessage,
-        Action<InboxAction, InboxMessage> onActionClicked)
+        Func<InboxAction, InboxMessage, Task<bool>> onActionClicked)
     {
         _message = updatedMessage;
         var bodyScrollViewer = FindScrollViewer(_bodyViewer);

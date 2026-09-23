@@ -29,7 +29,7 @@ internal sealed class InboxPanelController
     private readonly Action<string>            _markUnread;
     private readonly Action<string>            _archive;
     private readonly Action<string>            _delete;
-    private readonly Action<InboxAction, InboxMessage> _onActionClicked;
+    private readonly Func<InboxAction, InboxMessage, Task<bool>> _onActionClicked;
     private readonly Action<InboxMessage, Action?> _openMessageWindow;
     private readonly Action<InboxMessage>?    _addToChat;
     private readonly Action<InboxMessage>?    _addToNewChat;
@@ -79,7 +79,7 @@ internal sealed class InboxPanelController
         Action<string>           archive,
         Action<string>           delete,
         WrapPanel                viewerActionsPanel,
-        Action<InboxAction, InboxMessage> onActionClicked,
+        Func<InboxAction, InboxMessage, Task<bool>> onActionClicked,
         Action<InboxMessage, Action?> openMessageWindow,
         Func<string, TaskItem?>?  lookupTask                     = null,
         Action<InboxMessage>?     addToChat                      = null,
@@ -696,7 +696,7 @@ internal sealed class InboxPanelController
         _viewerBorder.Visibility = Visibility.Visible;
     }
 
-    private FrameworkElement BuildActionButton(InboxAction action, InboxMessage msg)
+    internal FrameworkElement BuildActionButton(InboxAction action, InboxMessage msg)
     {
         if (string.Equals(
                 action.RouteMode,
@@ -712,7 +712,7 @@ internal sealed class InboxPanelController
                         : action.Hint),
             };
             link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-            link.Click += (_, _) => _onActionClicked(action, msg);
+            link.Click += async (_, _) => await _onActionClicked(action, msg);
             var text = new TextBlock
             {
                 Margin = new Thickness(0, 5, 14, 8),
@@ -751,11 +751,22 @@ internal sealed class InboxPanelController
         if (alreadyUsed)
             btn.IsEnabled = false;
 
-        btn.Click += (_, _) =>
+        btn.Click += async (_, _) =>
         {
+            if (!btn.IsEnabled)
+                return;
             if (!string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
                 btn.IsEnabled = false;
-            _onActionClicked(action, msg);
+            var succeeded = false;
+            try
+            {
+                succeeded = await _onActionClicked(action, msg);
+            }
+            finally
+            {
+                if (string.Equals(action.RouteMode, InboxAction.HostCommandRouteMode, StringComparison.OrdinalIgnoreCase))
+                    btn.IsEnabled = !succeeded && !msg.UsedActions.Contains(action.Label);
+            }
         };
 
         return btn;

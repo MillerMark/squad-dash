@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
+using System.Windows.Threading;
 
 namespace SquadDash.Tests;
 
@@ -29,7 +30,8 @@ internal sealed class InboxPanelControllerTests
         Action<bool>?     onUnreadOnlyPersisted          = null,
         Action?           onFilterChangedForIntelliSense = null,
         string[]?         agentSuggestions               = null,
-        Func<string, string?>? resolveMessageFilePath     = null)
+        Func<string, string?>? resolveMessageFilePath     = null,
+        Func<InboxAction, InboxMessage, Task<bool>>? onActionClicked = null)
     {
         var listPanel         = new StackPanel();
         var scrollContainer   = new ScrollViewer { Content = listPanel };
@@ -53,7 +55,7 @@ internal sealed class InboxPanelControllerTests
             archive:                _ => { },
             delete:                 _ => { },
             viewerActionsPanel:     actionsPanel,
-            onActionClicked:        (_, _) => { },
+            onActionClicked:        onActionClicked ?? ((_, _) => Task.FromResult(true)),
             openMessageWindow:      (_, _) => { },
             initialPanelVisible:            initialPanelVisible,
             syncBorderVisibility:           syncBorderVisibility,
@@ -66,6 +68,72 @@ internal sealed class InboxPanelControllerTests
             agentSuggestions:               agentSuggestions,
             resolveMessageFilePath:         resolveMessageFilePath);
     }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void HostAction_FailureAllowsRetry_AndSuccessKeepsButtonDisabled(bool popOut) =>
+        WpfTestContext.Run(() =>
+        {
+            _ = Application.Current ?? new Application();
+            var action = new InboxAction { Label = "Apply", RouteMode = InboxAction.HostCommandRouteMode };
+            var message = new InboxMessage { Id = "host-retry", Actions = [action] };
+            var completion = new TaskCompletionSource<bool>();
+            var calls = 0;
+            Task<bool> Dispatch(InboxAction clicked, InboxMessage source)
+            {
+                Assert.That(clicked, Is.SameAs(action));
+                Assert.That(source, Is.SameAs(message));
+                calls++;
+                return completion.Task;
+            }
+            var button = (Button)(popOut
+                ? InboxMessageWindow.BuildActionButton(action, message, 13, Dispatch)
+                : BuildMinimal(onActionClicked: Dispatch).BuildActionButton(action, message));
+
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(button.IsEnabled, Is.False, "Keep the button disabled while execution is pending.");
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(calls, Is.EqualTo(1), "Do not dispatch a duplicate pending action.");
+
+            completion.SetResult(false);
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Assert.That(button.IsEnabled, Is.True, "Failure must allow retry on the same button.");
+            Assert.That(message.UsedActions, Is.Empty);
+
+            completion = new TaskCompletionSource<bool>();
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(calls, Is.EqualTo(2));
+            Assert.That(button.IsEnabled, Is.False);
+            completion.SetResult(true);
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Assert.That(button.IsEnabled, Is.False, "Successful actions remain consumed.");
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(calls, Is.EqualTo(2));
+        });
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void HostAction_AlreadyUsed_DoesNotDispatch(bool popOut) =>
+        WpfTestContext.Run(() =>
+        {
+            _ = Application.Current ?? new Application();
+            var action = new InboxAction { Label = "Apply", RouteMode = InboxAction.HostCommandRouteMode };
+            var message = new InboxMessage { Id = "host-used", Actions = [action], UsedActions = ["Apply"] };
+            var calls = 0;
+            Task<bool> Dispatch(InboxAction _, InboxMessage __)
+            {
+                calls++;
+                return Task.FromResult(false);
+            }
+            var button = (Button)(popOut
+                ? InboxMessageWindow.BuildActionButton(action, message, 13, Dispatch)
+                : BuildMinimal(onActionClicked: Dispatch).BuildActionButton(action, message));
+
+            Assert.That(button.IsEnabled, Is.False);
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(calls, Is.Zero);
+            Assert.That(button.IsEnabled, Is.False);
+        });
 
     [TestCase(false)]
     [TestCase(true)]

@@ -22,7 +22,7 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
         {
             var message = new InboxMessage { Id = "copy-details", Subject = "Subject", Body = "Body", Actions = [] };
             var resolverCalled = false;
-            var window = new InboxMessageWindow(message, (_, _) => { },
+            var window = new InboxMessageWindow(message, (_, _) => Task.FromResult(true),
                 resolveMessageFilePath: id =>
                 {
                     resolverCalled = true;
@@ -151,7 +151,7 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
             };
             var window = new InboxMessageWindow(
                 message,
-                (_, _) => { },
+                (_, _) => Task.FromResult(true),
                 openInboxMessage: id => openedMessageId = id);
             try
             {
@@ -183,7 +183,7 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
                 Body = "Review this checkpoint.",
                 Actions = [action],
             };
-            var window = new InboxMessageWindow(message, (_, _) => invocationCount++);
+            var window = new InboxMessageWindow(message, (_, _) => Task.FromResult(++invocationCount > 0));
             try
             {
                 var chrome = (Grid)window.Content;
@@ -251,12 +251,12 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
                 Body = "Approval complete.",
                 Actions = [],
             };
-            var window = new InboxMessageWindow(before, (_, _) => { });
+            var window = new InboxMessageWindow(before, (_, _) => Task.FromResult(true));
 
             window.BeginApprovalUpdate();
             Assert.That(window.IsApprovalUpdateInProgress, Is.True);
 
-            window.CompleteApprovalUpdate(after, (_, _) => { });
+            window.CompleteApprovalUpdate(after, (_, _) => Task.FromResult(true));
             Assert.That(window.IsApprovalUpdateInProgress, Is.False);
         });
 
@@ -277,7 +277,7 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
                     new InboxAction { Label = "Continue Working" },
                 ],
             };
-            var window = new InboxMessageWindow(message, (_, _) => { });
+            var window = new InboxMessageWindow(message, (_, _) => Task.FromResult(true));
 
             window.SetDecisionActionsEnabled(false);
             Assert.That(window.AreDecisionActionsEnabled, Is.False);

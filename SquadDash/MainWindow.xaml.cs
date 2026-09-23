@@ -57885,7 +57885,7 @@ public partial class MainWindow : Window
             t.Text.Contains(taskId, StringComparison.OrdinalIgnoreCase));
     }
 
-    private async void DispatchInboxAction(InboxAction action, InboxMessage message)
+    private async Task<bool> DispatchInboxAction(InboxAction action, InboxMessage message)
     {
         try
         {
@@ -57897,7 +57897,7 @@ public partial class MainWindow : Window
                 if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
                     throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
                 await ShowCurrentApprovalCardFromInboxAsync(payload, message);
-                return;
+                return true;
             }
 
             if (string.Equals(
@@ -57908,7 +57908,7 @@ public partial class MainWindow : Window
                 if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
                     throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
                 await HandleApprovalClickAsync(payload.ToClickToken());
-                return;
+                return true;
             }
 
             if (string.Equals(action.RouteMode, DecomposePlanInbox.RecoveryRouteMode, StringComparison.OrdinalIgnoreCase))
@@ -57917,12 +57917,12 @@ public partial class MainWindow : Window
                 {
                     ShowSystemTranscriptEntry(
                         "This plan recovery request has already been resolved. Open the plan to see its current state.");
-                    return;
+                    return false;
                 }
                 message = preparedMessage;
                 var actionKey = message.Id + "\u001f" + action.Label;
                 if (!_decomposeInboxActionsInProgress.Add(actionKey))
-                    return;
+                    return false;
                 var recoveryWindows = _openInboxWindows
                     .Where(window => string.Equals(window.MessageId, message.Id, StringComparison.Ordinal))
                     .ToArray();
@@ -57930,8 +57930,10 @@ public partial class MainWindow : Window
                     window.SetDecisionActionsEnabled(false);
                 try
                 {
-                    if (await TryApplyDecomposeRecoveryFromResponseAsync(action.Prompt))
+                    var applied = await TryApplyDecomposeRecoveryFromResponseAsync(action.Prompt);
+                    if (applied)
                         _inboxStore?.MarkActionUsed(message.Id, action.Label);
+                    return applied;
                 }
                 finally
                 {
@@ -57939,7 +57941,6 @@ public partial class MainWindow : Window
                     foreach (var window in recoveryWindows)
                         window.SetDecisionActionsEnabled(true);
                 }
-                return;
             }
 
             if (string.Equals(
@@ -57951,14 +57952,14 @@ public partial class MainWindow : Window
                     evidenceDecision is null)
                     throw new InvalidOperationException("This completed-work review link is malformed.");
                 await OpenInterruptedTaskReviewAsync(evidenceDecision.GroupId, evidenceDecision.Revision);
-                return;
+                return true;
             }
 
             if (string.Equals(action.RouteMode, DecomposePlanInbox.ActionRouteMode, StringComparison.OrdinalIgnoreCase))
             {
                 var actionKey = message.Id + "\u001f" + action.Label;
                 if (!_decomposeInboxActionsInProgress.Add(actionKey))
-                    return;
+                    return false;
                 try
                 {
                     if (!DecomposeDecisionParser.TryParse(action.Prompt, out var decision) || decision is null)
@@ -57968,10 +57969,10 @@ public partial class MainWindow : Window
                     {
                         ShowSystemTranscriptEntry(
                             "Wait for the current prompt to finish before applying the task plan.");
-                        return;
+                        return false;
                     }
                     if (_currentWorkspace is null)
-                        return;
+                        return false;
                     var plan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath).Load(decision.GroupId);
                     if (plan is null || !string.Equals(plan.Revision, decision.Revision, StringComparison.Ordinal))
                         throw new InvalidOperationException("This task-plan action is stale because the pending plan changed or was already handled.");
@@ -57981,25 +57982,24 @@ public partial class MainWindow : Window
                 {
                     _decomposeInboxActionsInProgress.Remove(actionKey);
                 }
-                return;
+                return true;
             }
 
             if (string.Equals(action.RouteMode, InboxAction.HostCommandRouteMode, StringComparison.OrdinalIgnoreCase))
             {
-                ExecuteInboxHostCommand(action, message);
-                return;
+                return ExecuteInboxHostCommand(action, message);
             }
 
             _inboxStore?.MarkActionUsed(message.Id, action.Label);
 
             if (action.RouteMode == "done" || string.IsNullOrWhiteSpace(action.Prompt))
-                return;
+                return true;
 
             if (action.RouteMode == "draft")
             {
                 HandleDraftQuickReply(action.Prompt, entry: null);
                 this.Activate();
-                return;
+                return true;
             }
 
             var filePath    = _inboxStore?.GetMessageFilePath(message.Id);
@@ -58027,7 +58027,7 @@ public partial class MainWindow : Window
                         BuildInboxActionHandoffContext(action, message, filePath, commitCount),
                         addToHistory: true,
                         clearPromptBox: false);
-                    return;
+                    return true;
                 }
 
                 var context = BuildInboxActionHandoffContext(action, message, filePath, commitCount);
@@ -58035,13 +58035,14 @@ public partial class MainWindow : Window
                 var item = EnqueuePrompt(deferredPrompt, isSystemInjected: true, forceAtTail: true);
                 if (item is not null)
                     AttachInboxMessageFollowUp(message, item.Id);
-                return;
+                return item is not null;
             }
 
             var coordContext = BuildInboxActionHandoffContext(action, message, filePath, commitCount);
             var coordItem = EnqueuePrompt(coordContext, isSystemInjected: true, forceAtTail: true);
             if (coordItem is not null)
                 AttachInboxMessageFollowUp(message, coordItem.Id);
+            return coordItem is not null;
         }
         catch (PlanPreflightBlockedException ex)
         {
@@ -58051,14 +58052,15 @@ public partial class MainWindow : Window
         {
             HandleUiCallbackException(nameof(DispatchInboxAction), ex);
         }
+        return false;
     }
 
-    private void ExecuteInboxHostCommand(InboxAction action, InboxMessage message)
+    private bool ExecuteInboxHostCommand(InboxAction action, InboxMessage message)
     {
         if (_hostCommandExecutor is null)
         {
             ShowSystemTranscriptEntry("This Inbox action cannot run because host commands are not initialized.");
-            return;
+            return false;
         }
 
         if (!_hostCommandRegistry.TryResolveInboxAction(
@@ -58072,7 +58074,7 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.Inbox,
                 $"Inbox host command rejected label='{action.Label}' reason={error ?? "unknown"}");
             ShowSystemTranscriptEntry($"Inbox action failed: {error ?? "The host command is invalid."}");
-            return;
+            return false;
         }
 
         var execution = _hostCommandExecutor.Execute(
@@ -58083,13 +58085,14 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.Inbox,
                 $"Inbox host command failed command={descriptor.Name} label='{action.Label}' reason={failure}");
             ShowSystemTranscriptEntry($"Inbox action failed: {failure}");
-            return;
+            return false;
         }
 
         _inboxStore?.MarkActionUsed(message.Id, action.Label);
         SquadDashTrace.Write(TraceCategory.Inbox,
             $"Inbox host command completed command={descriptor.Name} label='{action.Label}' msgId={message.Id}");
         ShowSystemTranscriptEntry($"Completed Inbox action “{action.Label}”.");
+        return true;
     }
 
     private async Task ShowCurrentApprovalCardFromInboxAsync(
@@ -58198,8 +58201,7 @@ public partial class MainWindow : Window
                 if (exception.RequiresRepositoryInitialization &&
                     !await InitializeRepositoryForPlanAsync())
                     return false;
-                DispatchInboxAction(action, message);
-                return true;
+                return await DispatchInboxAction(action, message);
             },
             viewChanges: () => _ = ShowPlanPreflightChangesAsync(exception),
             isWorkspaceClean: exception.RequiresRepositoryInitialization

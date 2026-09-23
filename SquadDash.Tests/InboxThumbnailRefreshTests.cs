@@ -100,7 +100,7 @@ internal sealed class InboxThumbnailRefreshTests
 
         return new InboxMessageWindow(
             message,
-            (_, _) => { },
+            (_, _) => Task.FromResult(true),
             resolvePlanGroupForThumbnail: resolvePlanGroupForThumbnail);
     }
 

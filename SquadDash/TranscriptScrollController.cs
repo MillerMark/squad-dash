@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 
@@ -222,6 +223,8 @@ internal sealed class TranscriptScrollController
         // causes the visual tree to be rebuilt). That gives us a new PART_ContentHost
         // ScrollViewer we must re-subscribe to, or all subsequent scroll events are lost.
         _outputTextBox.Loaded += OnOutputTextBoxLoaded;
+        _outputTextBox.PreviewMouseWheel += OnOutputTextBoxPreviewMouseWheel;
+        _outputTextBox.PreviewKeyDown += OnOutputTextBoxPreviewKeyDown;
 
         // If the control is already in the visual tree, wire immediately so we don't
         // wait for the next Loaded event.
@@ -362,6 +365,7 @@ internal sealed class TranscriptScrollController
     /// </param>
     public void OnThreadSelected(bool scrollToStart, bool scrollToEnd = true)
     {
+        CancelPendingViewportPreservation("thread selection");
         ScrollTrace("THREAD SWITCH", $"scrollToStart={scrollToStart} scrollToEnd={scrollToEnd} → IsUserScrolledAway reset to false");
 
         // Thread switch always re-enables auto-scroll regardless of previous state.
@@ -419,6 +423,7 @@ internal sealed class TranscriptScrollController
     /// </param>
     public void ScrollToOffset(double targetOffset)
     {
+        CancelPendingViewportPreservation("prompt navigation");
         var sv = EnsureScrollViewer();
         if (sv is null)
             return;
@@ -521,6 +526,7 @@ internal sealed class TranscriptScrollController
     /// </summary>
     public void ScrollToBottom()
     {
+        CancelPendingViewportPreservation("scroll-to-bottom");
         var executeSw = Stopwatch.StartNew();
         IsUserScrolledAway = false;
         _pendingScrollRequest = false;
@@ -572,6 +578,7 @@ internal sealed class TranscriptScrollController
     /// </summary>
     public void ForceScrollToBottom()
     {
+        CancelPendingViewportPreservation("forced scroll-to-bottom");
         ScrollTrace("PROMPT SUBMITTED", "forced scroll to bottom (overrides lock)");
         IsUserScrolledAway = false;
         _pendingScrollRequest = false;
@@ -730,12 +737,14 @@ internal sealed class TranscriptScrollController
 
     public void ScrollPageUp()
     {
+        CancelPendingViewportPreservation("page up");
         var sv = EnsureScrollViewer();
         sv?.PageUp();
     }
 
     public void ScrollPageDown()
     {
+        CancelPendingViewportPreservation("page down");
         var sv = EnsureScrollViewer();
         sv?.PageDown();
     }
@@ -774,6 +783,16 @@ internal sealed class TranscriptScrollController
             ShowScrollButton();
         else if (!IsUserScrolledAway && wasScrolledAway)
             HideScrollButton(immediate: true);
+    }
+
+    private void CancelPendingViewportPreservation(string reason)
+    {
+        if (!_isPreservingViewportThroughLayout)
+            return;
+
+        _viewportPreservationVersion++;
+        _isPreservingViewportThroughLayout = false;
+        ScrollTrace("VIEWPORT PRESERVE CANCEL", reason);
     }
 
     /// <summary>
@@ -917,11 +936,13 @@ internal sealed class TranscriptScrollController
         if (_sv is not null)
         {
             _sv.ScrollChanged -= OnScrollChanged;
+            _sv.PreviewMouseDown -= OnScrollViewerPreviewMouseDown;
             SquadDashTrace.Write(TraceCategory.Scroll, "WireScrollViewer: old ScrollViewer instance detached (template was re-applied).");
         }
 
         _sv = newSv;
         _sv.ScrollChanged += OnScrollChanged;
+        _sv.PreviewMouseDown += OnScrollViewerPreviewMouseDown;
         _inactiveSelectionAdorner.RefreshScrollViewerSubscription();
 
         // After re-wiring, correct IsUserScrolledAway to match the actual scroll
@@ -960,6 +981,33 @@ internal sealed class TranscriptScrollController
             WireScrollViewer();
         return _sv;
     }
+
+    private void OnOutputTextBoxPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (e.Delta != 0)
+            CancelPendingViewportPreservation("mouse wheel");
+    }
+
+    private void OnOutputTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (IsScrollNavigationKey(key))
+            CancelPendingViewportPreservation($"keyboard ({key})");
+    }
+
+    private void OnScrollViewerPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton is MouseButton.Left or MouseButton.Middle)
+            CancelPendingViewportPreservation($"pointer ({e.ChangedButton})");
+    }
+
+    private static bool IsScrollNavigationKey(Key key) =>
+        key is Key.PageUp
+            or Key.PageDown
+            or Key.Home
+            or Key.End
+            or Key.Up
+            or Key.Down;
 
     // -------------------------------------------------------------------------
     // Private — user-scroll detection
