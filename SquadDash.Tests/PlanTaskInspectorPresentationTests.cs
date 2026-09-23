@@ -79,6 +79,44 @@ internal sealed class PlanTaskInspectorPresentationTests
             Assert.That(summary, Is.Not.Null);
             Assert.That(summary!.State, Is.EqualTo(PlanTaskActivityState.Executing));
             Assert.That(summary.Label, Is.EqualTo("Working now"));
+            Assert.That(summary.ColorKey, Is.EqualTo("ActivePanelTitle"));
+            Assert.That(summary.ColorKey, Is.Not.EqualTo("ActivePanelBorder"));
+            Assert.That(summary.ShouldShowCallout, Is.True);
+        });
+    }
+
+    [TestCase(PlanTaskStatus.Executing, false, PlanTaskActivityState.Executing,
+        "Working now", "This step is actively receiving implementation work.", "ActivePanelTitle")]
+    [TestCase(PlanTaskStatus.Executing, true, PlanTaskActivityState.Assessing,
+        "Assessing existing work", "SquadDash is checking repository state before continuing this step.", "ActivePanelTitle")]
+    [TestCase(PlanTaskStatus.Verifying, false, PlanTaskActivityState.Verifying,
+        "Verifying now", "SquadDash is independently checking the candidate work for this step.", "ActivePanelTitle")]
+    [TestCase(PlanTaskStatus.VerificationPending, false, PlanTaskActivityState.VerificationPending,
+        "Verification pending", "Candidate work is saved and waiting for its verification pass.", "PriorityMid")]
+    [TestCase(PlanTaskStatus.Reworking, false, PlanTaskActivityState.Reworking,
+        "Correcting now", "This step is receiving requested correction work.", "PriorityMid")]
+    public void ActivitySummary_UsesTextAccent(
+        string status,
+        bool isRecoveryAssessmentActive,
+        PlanTaskActivityState expectedState,
+        string expectedLabel,
+        string expectedDescription,
+        string expectedColorKey)
+    {
+        var selectedTask = MakeTask("task-001", status);
+        var plan = MakePlan(tasks: [selectedTask]);
+
+        var summary = PlanTaskInspectorPresentation.BuildActivitySummary(
+            selectedTask, plan, isRecoveryAssessmentActive: isRecoveryAssessmentActive);
+
+        Assert.That(summary, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(summary!.State, Is.EqualTo(expectedState));
+            Assert.That(summary.Label, Is.EqualTo(expectedLabel));
+            Assert.That(summary.Description, Is.EqualTo(expectedDescription));
+            Assert.That(summary.ColorKey, Is.EqualTo(expectedColorKey));
+            Assert.That(summary.ColorKey, Is.Not.EqualTo("ActivePanelBorder"));
             Assert.That(summary.ShouldShowCallout, Is.True);
         });
     }

@@ -78,19 +78,19 @@ internal static class PlanTaskInspectorPresentation
                 state,
                 "Working now",
                 "This step is actively receiving implementation work.",
-                "ActivePanelBorder",
+                "ActivePanelTitle",
                 ShouldShowCallout: true),
             PlanTaskActivityState.Assessing => new(
                 state,
                 "Assessing existing work",
                 "SquadDash is checking repository state before continuing this step.",
-                "ActivePanelBorder",
+                "ActivePanelTitle",
                 ShouldShowCallout: true),
             PlanTaskActivityState.Verifying => new(
                 state,
                 "Verifying now",
                 "SquadDash is independently checking the candidate work for this step.",
-                "ActivePanelBorder",
+                "ActivePanelTitle",
                 ShouldShowCallout: true),
             PlanTaskActivityState.VerificationPending => new(
                 state,
