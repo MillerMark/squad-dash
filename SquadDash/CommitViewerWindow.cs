@@ -68,13 +68,13 @@ internal sealed class CommitViewerWindow : ChromedWindow
         Title = baselineSha is not null
             ? $"Changes {ShortSha(baselineSha)}..{ShortSha(_commitSha)}"
             : commits.Count == 1 ? $"Commit {ShortSha(_commitSha)}" : $"Evidence · {commits.Count} commits";
-        Width = commits.Count > 1 ? 1400 : 1120;
-        Height = 760;
+        Width = CommitViewerLayout.GetDefaultWindowWidth(commits.Count);
+        Height = CommitViewerLayout.DefaultWindowHeight;
         MinWidth = 720;
         MinHeight = 440;
         ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        if (commits.Count > 1) Loaded += (_, _) => SizeForActiveMonitor();
+        Loaded += OnFirstLoaded;
 
         _heading.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
         _heading.FontWeight = FontWeights.SemiBold;
@@ -263,6 +263,12 @@ internal sealed class CommitViewerWindow : ChromedWindow
         return window;
     }
 
+    private void OnFirstLoaded(object sender, RoutedEventArgs e)
+    {
+        Loaded -= OnFirstLoaded;
+        SizeForActiveMonitor();
+    }
+
     private void SizeForActiveMonitor()
     {
         var handle = new WindowInteropHelper(Owner ?? this).Handle;
@@ -271,9 +277,43 @@ internal sealed class CommitViewerWindow : ChromedWindow
         if (monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref info))
         {
             var dpi = VisualTreeHelper.GetDpi(this);
-            var workingWidth = (info.Work.Right - info.Work.Left) / dpi.DpiScaleX;
-            Width = CommitViewerLayout.CalculateWindowWidth(workingWidth, MinWidth);
+            var workArea = new Rect(
+                info.Work.Left / dpi.DpiScaleX,
+                info.Work.Top / dpi.DpiScaleY,
+                (info.Work.Right - info.Work.Left) / dpi.DpiScaleX,
+                (info.Work.Bottom - info.Work.Top) / dpi.DpiScaleY);
+            ApplyWorkAreaSizing(workArea);
+            return;
         }
+
+        SquadDashTrace.Write("CommitViewer", "Could not resolve active monitor work area; using primary work area.");
+        ApplyWorkAreaSizing(SystemParameters.WorkArea);
+    }
+
+    private void ApplyWorkAreaSizing(Rect workArea)
+    {
+        var desiredWidth = Width;
+        var desiredHeight = Height;
+        var desiredLeft = double.IsFinite(Left)
+            ? Left
+            : workArea.Left + Math.Max(0, (workArea.Width - desiredWidth) / 2);
+        var desiredTop = double.IsFinite(Top)
+            ? Top
+            : workArea.Top + Math.Max(0, (workArea.Height - desiredHeight) / 2);
+        var clamped = CommitViewerLayout.ClampWindowBounds(
+            new Rect(desiredLeft, desiredTop, desiredWidth, desiredHeight),
+            workArea,
+            MinWidth,
+            MinHeight);
+
+        // On small/high-DPI screens the work area can be smaller than our usual minimum.
+        MinWidth = Math.Min(MinWidth, clamped.Width);
+        MinHeight = Math.Min(MinHeight, clamped.Height);
+        Width = clamped.Width;
+        Height = clamped.Height;
+        Left = clamped.Left;
+        Top = clamped.Top;
+        WindowStartupLocation = WindowStartupLocation.Manual;
     }
 
     private async void CommitList_SelectionChanged(object sender, SelectionChangedEventArgs e)

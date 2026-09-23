@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
@@ -14,6 +15,51 @@ namespace SquadDash.Tests;
 [NonParallelizable]
 internal sealed class CommitViewerWindowTests
 {
+    [TestCase(null)]
+    [TestCase("null")]
+    [TestCase(ToolTranscriptFormatterTests.AbsolutePlanPath)]
+    public void TranscriptFileLink_AbsolutePlanAdditionOpensNamedPatchViewer(string? displayText) =>
+        WpfTestContext.Run(() =>
+        {
+            var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var fonts = new ResourceDictionary
+            {
+                ["FontSizeBody"] = 13.0, ["FontSizeNormal"] = 13.0,
+                ["FontSizeSmall"] = 12.0, ["FontSizeSubtitle"] = 18.0
+            };
+            app.Resources.MergedDictionaries.Add(fonts);
+            CommitViewerWindow? viewer = null;
+            try
+            {
+                var message = new TextBlock();
+                Assert.That(ToolEditLinkPresenter.TryRender(message,
+                    new ToolTranscriptDescriptor("apply_patch", DisplayText: displayText),
+                    ToolTranscriptFormatterTests.AbsolutePlanOutput,
+                    JsonSerializer.Serialize(ToolTranscriptFormatterTests.AbsolutePlanInput),
+                    async (name, patch) =>
+                        viewer = await CommitViewerWindow.CreateFromPatchAsync(name, patch)), Is.True);
+                var link = message.Inlines.OfType<Hyperlink>().Single();
+                Assert.That(link.Inlines.OfType<Run>().Single().Text, Is.EqualTo("plan.md"));
+                link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+                Assert.That(viewer, Is.Not.Null);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(viewer!.Title, Is.EqualTo("Changes - plan.md"));
+                    Assert.That(ViewerField<string>(viewer, "_suppliedPatch"),
+                        Is.EqualTo(ToolTranscriptFormatterTests.AbsolutePlanOutput));
+                    Assert.That(ViewerField<StackPanel>(viewer, "_diffPanel").Children.OfType<TextBlock>()
+                        .Count(line => Equals(line.Tag, DiffLineKind.Added)), Is.EqualTo(17));
+                    Assert.That(viewer.Width, Is.EqualTo(1680));
+                    Assert.That(viewer.Height, Is.EqualTo(1140));
+                });
+            }
+            finally
+            {
+                viewer?.Close();
+                app.Resources.MergedDictionaries.Remove(fonts);
+            }
+        });
+
     [TestCaseSource(typeof(ToolTranscriptFormatterTests), nameof(ToolTranscriptFormatterTests.FileEditCaptures))]
     public void TranscriptFileLink_ClickOpensCapturedPatchViewer(
         string tool, string output, string? args, int added, int removed, bool isNew) =>
@@ -199,6 +245,183 @@ internal sealed class CommitViewerWindowTests
                     InvokeViewer(window, "RunGitAsync", (object)new[] { "--version" }));
                 Assert.That(ex!.InnerException, Is.TypeOf<InvalidOperationException>(),
                     "Patch mode must reject git before starting any process.");
+            }
+            finally
+            {
+                window?.Close();
+                app.Resources.MergedDictionaries.Remove(fonts);
+            }
+        });
+
+    [Test]
+    public void Constructors_UseLargerDefaultWindowSizesAcrossViewerModes() =>
+        WpfTestContext.Run(() =>
+        {
+            var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var fonts = new ResourceDictionary
+            {
+                ["FontSizeBody"] = 13.0, ["FontSizeNormal"] = 13.0,
+                ["FontSizeSmall"] = 12.0, ["FontSizeSubtitle"] = 18.0
+            };
+            app.Resources.MergedDictionaries.Add(fonts);
+            CommitViewerWindow? patch = null;
+            CommitViewerWindow? single = null;
+            CommitViewerWindow? range = null;
+            CommitViewerWindow? multi = null;
+            try
+            {
+                patch = CommitViewerWindow.CreateFromPatchAsync("file.cs",
+                    "--- a/file.cs\n+++ b/file.cs\n@@ -1 +1 @@\n-old\n+new").GetAwaiter().GetResult();
+                single = (CommitViewerWindow)Activator.CreateInstance(typeof(CommitViewerWindow),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    binder: null,
+                    args: [".", new CommitViewerEntry[] { new("abcdef12") }, null, null],
+                    culture: null)!;
+                range = (CommitViewerWindow)Activator.CreateInstance(typeof(CommitViewerWindow),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    binder: null,
+                    args: [".", new CommitViewerEntry[] { new("abcdef12") }, "12345678", "file.cs"],
+                    culture: null)!;
+                multi = (CommitViewerWindow)Activator.CreateInstance(typeof(CommitViewerWindow),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    binder: null,
+                    args: [".", new CommitViewerEntry[] { new("abcdef12"), new("fedcba98") }, null, null],
+                    culture: null)!;
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(CommitViewerLayout.DefaultSingleCommitWidth, Is.EqualTo(1120 * 1.5));
+                    Assert.That(CommitViewerLayout.DefaultMultiCommitWidth, Is.EqualTo(1400 * 1.5));
+                    Assert.That(CommitViewerLayout.DefaultWindowHeight, Is.EqualTo(760 * 1.5));
+                    Assert.That(patch.Width, Is.EqualTo(CommitViewerLayout.DefaultSingleCommitWidth));
+                    Assert.That(single.Width, Is.EqualTo(CommitViewerLayout.DefaultSingleCommitWidth));
+                    Assert.That(range.Width, Is.EqualTo(CommitViewerLayout.DefaultSingleCommitWidth));
+                    Assert.That(multi.Width, Is.EqualTo(CommitViewerLayout.DefaultMultiCommitWidth));
+                    Assert.That(patch.Height, Is.EqualTo(CommitViewerLayout.DefaultWindowHeight));
+                    Assert.That(single.Height, Is.EqualTo(CommitViewerLayout.DefaultWindowHeight));
+                    Assert.That(multi.Height, Is.EqualTo(CommitViewerLayout.DefaultWindowHeight));
+                    Assert.That(single.MinWidth, Is.EqualTo(720));
+                    Assert.That(single.MinHeight, Is.EqualTo(440));
+                    Assert.That(single.ResizeMode, Is.EqualTo(ResizeMode.CanResizeWithGrip));
+                    Assert.That(patch.ResizeMode, Is.EqualTo(ResizeMode.CanResizeWithGrip));
+                });
+            }
+            finally
+            {
+                patch?.Close();
+                single?.Close();
+                range?.Close();
+                multi?.Close();
+                app.Resources.MergedDictionaries.Remove(fonts);
+            }
+        });
+
+    [TestCase(1500, 900)]
+    [TestCase(640, 300)]
+    public void ApplyWorkAreaSizing_ClampsFirstOpenBoundsForPatchAndRepositoryPaths(
+        double workingWidth, double workingHeight) =>
+        WpfTestContext.Run(() =>
+        {
+            var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var fonts = new ResourceDictionary
+            {
+                ["FontSizeBody"] = 13.0, ["FontSizeNormal"] = 13.0,
+                ["FontSizeSmall"] = 12.0, ["FontSizeSubtitle"] = 18.0
+            };
+            app.Resources.MergedDictionaries.Add(fonts);
+            CommitViewerWindow? patch = null;
+            CommitViewerWindow? repo = null;
+            try
+            {
+                var workArea = new Rect(100, 50, workingWidth, workingHeight);
+                patch = (CommitViewerWindow)Activator.CreateInstance(typeof(CommitViewerWindow),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    binder: null,
+                    args: ["file.cs", "@@ -1 +1 @@\n-old\n+new"],
+                    culture: null)!;
+                repo = (CommitViewerWindow)Activator.CreateInstance(typeof(CommitViewerWindow),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    binder: null,
+                    args: [".", new CommitViewerEntry[] { new("abcdef12"), new("fedcba98") }, null, null],
+                    culture: null)!;
+
+                InvokeViewer(patch, "ApplyWorkAreaSizing", workArea);
+                InvokeViewer(repo, "ApplyWorkAreaSizing", workArea);
+
+                Assert.Multiple(() =>
+                {
+                    Assert.That(patch.Width, Is.EqualTo(workArea.Width));
+                    Assert.That(patch.Height, Is.EqualTo(workArea.Height));
+                    Assert.That(patch.Left, Is.EqualTo(workArea.Left));
+                    Assert.That(patch.Top, Is.EqualTo(workArea.Top));
+                    Assert.That(patch.WindowStartupLocation, Is.EqualTo(WindowStartupLocation.Manual));
+                    Assert.That(patch.MinWidth, Is.LessThanOrEqualTo(workArea.Width));
+                    Assert.That(patch.MinHeight, Is.LessThanOrEqualTo(workArea.Height));
+
+                    Assert.That(repo.Width, Is.EqualTo(workArea.Width));
+                    Assert.That(repo.Height, Is.EqualTo(workArea.Height));
+                    Assert.That(repo.Left, Is.EqualTo(workArea.Left));
+                    Assert.That(repo.Top, Is.EqualTo(workArea.Top));
+                    Assert.That(repo.WindowStartupLocation, Is.EqualTo(WindowStartupLocation.Manual));
+                    Assert.That(repo.MinWidth, Is.LessThanOrEqualTo(workArea.Width));
+                    Assert.That(repo.MinHeight, Is.LessThanOrEqualTo(workArea.Height));
+                });
+            }
+            finally
+            {
+                patch?.Close();
+                repo?.Close();
+                app.Resources.MergedDictionaries.Remove(fonts);
+            }
+        });
+
+    [Test]
+    public void ApplyWorkAreaSizing_PreservesRestoredGeometryAndClampsWhenNeeded() =>
+        WpfTestContext.Run(() =>
+        {
+            var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var fonts = new ResourceDictionary
+            {
+                ["FontSizeBody"] = 13.0, ["FontSizeNormal"] = 13.0,
+                ["FontSizeSmall"] = 12.0, ["FontSizeSubtitle"] = 18.0
+            };
+            app.Resources.MergedDictionaries.Add(fonts);
+            CommitViewerWindow? window = null;
+            try
+            {
+                var workArea = new Rect(100, 50, 1800, 900);
+                window = (CommitViewerWindow)Activator.CreateInstance(typeof(CommitViewerWindow),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    binder: null,
+                    args: [".", new CommitViewerEntry[] { new("abcdef12") }, null, null],
+                    culture: null)!;
+                window.WindowStartupLocation = WindowStartupLocation.Manual;
+                window.Left = 140;
+                window.Top = 80;
+                window.Width = 1200;
+                window.Height = 700;
+
+                InvokeViewer(window, "ApplyWorkAreaSizing", workArea);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(window.Left, Is.EqualTo(140));
+                    Assert.That(window.Top, Is.EqualTo(80));
+                    Assert.That(window.Width, Is.EqualTo(1200));
+                    Assert.That(window.Height, Is.EqualTo(700));
+                });
+
+                window.Left = -300;
+                window.Top = -200;
+                window.Width = 2600;
+                window.Height = 1600;
+                InvokeViewer(window, "ApplyWorkAreaSizing", workArea);
+                Assert.Multiple(() =>
+                {
+                    Assert.That(window.Left, Is.EqualTo(workArea.Left));
+                    Assert.That(window.Top, Is.EqualTo(workArea.Top));
+                    Assert.That(window.Width, Is.EqualTo(workArea.Width));
+                    Assert.That(window.Height, Is.EqualTo(workArea.Height));
+                });
             }
             finally
             {
@@ -430,15 +653,44 @@ internal sealed class CommitViewerWindowTests
         }
     }
 
-    [TestCase(1920, 1440)]
-    [TestCase(2560, 1600)]
-    [TestCase(3840, 1600)]
-    [TestCase(800, 720)]
-    public void CalculateWindowWidth_UsesThreeQuartersWithSensibleLimits(
+    [TestCase(1920, 1680, 720, 1680)]
+    [TestCase(1600, 1680, 720, 1600)]
+    [TestCase(640, 1680, 720, 640)]
+    public void CalculateWindowWidth_UsesPreferredDefaultClampedToWorkArea(
         double workingWidth,
+        double preferredWidth,
+        double minimumWidth,
         double expected)
     {
-        Assert.That(CommitViewerLayout.CalculateWindowWidth(workingWidth), Is.EqualTo(expected));
+        Assert.That(
+            CommitViewerLayout.CalculateWindowWidth(workingWidth, preferredWidth, minimumWidth),
+            Is.EqualTo(expected));
+    }
+
+    [TestCase(1040, 1140, 440, 1040)]
+    [TestCase(900, 700, 440, 700)]
+    [TestCase(300, 1140, 440, 300)]
+    public void CalculateWindowHeight_UsesPreferredDefaultClampedToWorkArea(
+        double workingHeight,
+        double preferredHeight,
+        double minimumHeight,
+        double expected)
+    {
+        Assert.That(
+            CommitViewerLayout.CalculateWindowHeight(workingHeight, preferredHeight, minimumHeight),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void ClampWindowBounds_ClampsBothSizeAndPositionToWorkArea()
+    {
+        var clamped = CommitViewerLayout.ClampWindowBounds(
+            new Rect(-300, -200, 2600, 1600),
+            new Rect(100, 50, 1800, 900),
+            minimumWidth: 720,
+            minimumHeight: 440);
+
+        Assert.That(clamped, Is.EqualTo(new Rect(100, 50, 1800, 900)));
     }
 
     [Test]

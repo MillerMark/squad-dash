@@ -8,6 +8,9 @@ namespace SquadDash;
 internal static class CommitViewerLayout
 {
     internal const double FileListSplitterWidth = 8;
+    internal const double DefaultSingleCommitWidth = 1680;
+    internal const double DefaultMultiCommitWidth = 2100;
+    internal const double DefaultWindowHeight = 1140;
 
     internal static GridSplitter CreateFileListSplitter(MouseButtonEventHandler onPreviewLeftButtonDown)
     {
@@ -37,8 +40,40 @@ internal static class CommitViewerLayout
         return splitter;
     }
 
-    internal static double CalculateWindowWidth(double workingWidth, double minimumWidth = 720) =>
-        Math.Max(minimumWidth, Math.Min(1600, workingWidth * 0.75));
+    internal static double GetDefaultWindowWidth(int commitCount) =>
+        commitCount > 1 ? DefaultMultiCommitWidth : DefaultSingleCommitWidth;
+
+    internal static double CalculateWindowWidth(
+        double workingWidth, double preferredWidth, double minimumWidth = 720) =>
+        ClampWindowDimension(workingWidth, preferredWidth, minimumWidth);
+
+    internal static double CalculateWindowHeight(
+        double workingHeight, double preferredHeight, double minimumHeight = 440) =>
+        ClampWindowDimension(workingHeight, preferredHeight, minimumHeight);
+
+    internal static Rect ClampWindowBounds(
+        Rect bounds,
+        Rect workArea,
+        double minimumWidth = 720,
+        double minimumHeight = 440)
+    {
+        if (workArea.IsEmpty || workArea.Width <= 0 || workArea.Height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(workArea), "Work area must have positive dimensions.");
+
+        var width = CalculateWindowWidth(workArea.Width, bounds.Width, minimumWidth);
+        var height = CalculateWindowHeight(workArea.Height, bounds.Height, minimumHeight);
+        var left = Math.Clamp(bounds.Left, workArea.Left, workArea.Right - width);
+        var top = Math.Clamp(bounds.Top, workArea.Top, workArea.Bottom - height);
+        return new Rect(left, top, width, height);
+    }
+
+    private static double ClampWindowDimension(double working, double preferred, double minimum)
+    {
+        var safeWorking = Math.Max(0, working);
+        var safeMinimum = Math.Min(Math.Max(0, minimum), safeWorking);
+        var safePreferred = Math.Max(0, preferred);
+        return Math.Max(safeMinimum, Math.Min(safePreferred, safeWorking));
+    }
 
     internal static double MeasureFileListItemWidth(ListBoxItem item)
     {

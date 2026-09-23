@@ -4,6 +4,80 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class ToolTranscriptFormatterTests {
+    internal const string AbsolutePlanPath =
+        "C:/Users/Mark/AppData/Local/SquadDash/workspaces/eqSim-e67449ce1872/sdk-config/session-state/48f9b718-2683-468c-aa58-eba6261ce750/plan.md";
+    private static readonly string PlanAddedLines =
+        "+Problem: ...\n" + string.Join("\n", Enumerable.Repeat("+... (added line) ...", 16));
+    internal static readonly string AbsolutePlanInput =
+        $"*** Begin Patch\n*** Add File: {AbsolutePlanPath}\n{PlanAddedLines}\n*** End Patch";
+    internal static readonly string AbsolutePlanOutput =
+        $"diff --git a/{AbsolutePlanPath} b/{AbsolutePlanPath}\n" +
+        $"create file mode 100644\nindex 0000000..0000000\n--- a/dev/null\n+++ b/{AbsolutePlanPath}\n" +
+        $"@@ -1,0 +1,17 @@\n{PlanAddedLines}";
+
+    [TestCase(null)]
+    [TestCase("null")]
+    [TestCase("")]
+    [TestCase(" \t ")]
+    [TestCase(AbsolutePlanPath)]
+    public void ApplyPatch_AbsoluteWindowsNewFileUsesDestinationName(string? displayText) {
+        var descriptor = new ToolTranscriptDescriptor("apply_patch", DisplayText: displayText);
+        var args = JsonSerializer.Serialize(AbsolutePlanInput);
+        var patch = ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, AbsolutePlanOutput, args);
+        Assert.Multiple(() => {
+            Assert.That(ToolTranscriptFormatter.TryBuildEditDiffSummary(descriptor, AbsolutePlanOutput, args),
+                Is.EqualTo(new ToolEditDiffSummary("plan.md", 17, 0, true, false)));
+            Assert.That(patch, Is.EqualTo(AbsolutePlanOutput), "Retain the actual output and known line locations.");
+            Assert.That(ToolTranscriptFormatter.TryExtractEditTargetPath(patch), Is.EqualTo(AbsolutePlanPath));
+            Assert.That(ToolTranscriptFormatter.TryExtractEditTargetPath(AbsolutePlanInput), Is.EqualTo(AbsolutePlanPath));
+            Assert.That(Path.GetFileName(AbsolutePlanPath), Is.EqualTo("plan.md"));
+        });
+    }
+
+    [TestCase("null")]
+    [TestCase("")]
+    [TestCase(" \t ")]
+    public void EditSummary_AbsentDisplayTextFallsBackToPathOrOutput(string displayText) {
+        Assert.Multiple(() => {
+            Assert.That(ToolTranscriptFormatter.TryBuildEditDiffSummary(
+                new ToolTranscriptDescriptor("edit", DisplayText: displayText, Path: AbsolutePlanPath),
+                "File updated.")?.DisplayName, Is.EqualTo("plan.md"));
+            Assert.That(ToolTranscriptFormatter.TryBuildEditDiffSummary(
+                new ToolTranscriptDescriptor("apply_patch", DisplayText: displayText),
+                AbsolutePlanInput)?.DisplayName, Is.EqualTo("plan.md"));
+            Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(
+                new ToolTranscriptDescriptor("apply_patch", DisplayText: displayText),
+                "File created.", JsonSerializer.Serialize(AbsolutePlanInput)), Is.Not.Null);
+        });
+    }
+
+    [TestCase("NULL")]
+    [TestCase("Null")]
+    public void EditSummary_NullPlaceholderGuardIsCaseSensitive(string displayText) {
+        Assert.That(ToolTranscriptFormatter.TryBuildEditDiffSummary(
+            new ToolTranscriptDescriptor("edit", DisplayText: displayText), "File updated.")?.DisplayName,
+            Is.EqualTo(displayText));
+    }
+
+    [TestCase("--- a/dev/null\n+++ b/plan.md", "plan.md")]
+    [TestCase("--- /dev/null\n+++ b/plan.md", "plan.md")]
+    [TestCase("--- a/plan.md\n+++ b/dev/null", "plan.md")]
+    [TestCase("--- a/old.md\n+++ b/plan.md", "plan.md")]
+    public void EditTargetPath_PrefersDestinationAndSkipsNullDevice(string headers, string expected) {
+        Assert.That(ToolTranscriptFormatter.TryExtractEditTargetPath(headers), Is.EqualTo(expected));
+    }
+
+    [TestCase("--- a/dev/null\n+++ b/plan.md\n@@ -0,0 +1 @@\n+added", true, false)]
+    [TestCase("--- a/plan.md\n+++ b/dev/null\n@@ -1 +0,0 @@\n-removed", false, true)]
+    public void EditSummary_PrefixedNullDeviceWithoutGitMetadata(string patch, bool isNew, bool isDeleted) {
+        var descriptor = new ToolTranscriptDescriptor("apply_patch");
+        Assert.Multiple(() => {
+            Assert.That(ToolTranscriptFormatter.TryExtractEditUnifiedDiff(descriptor, patch), Is.EqualTo(patch));
+            Assert.That(ToolTranscriptFormatter.TryBuildEditDiffSummary(descriptor, patch),
+                Is.EqualTo(new ToolEditDiffSummary("plan.md", isNew ? 1 : 0, isDeleted ? 1 : 0, isNew, isDeleted)));
+        });
+    }
+
     // Runtime success messages deliberately do not contain the captured change.
     internal static IEnumerable<TestCaseData> FileEditCaptures() {
         yield return new TestCaseData("edit", CapturedEditPatch, null, 3, 2, false);

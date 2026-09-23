@@ -572,7 +572,7 @@ internal static class ToolTranscriptFormatter {
             index--;
         }
 
-        var target = descriptor.Path ?? descriptor.DisplayText;
+        var target = descriptor.Path ?? GetEditDisplayText(descriptor);
         if (string.IsNullOrWhiteSpace(target))
             return patches.FirstOrDefault().Text;
 
@@ -740,6 +740,7 @@ internal static class ToolTranscriptFormatter {
     private static bool IsUnifiedDiffMetadata(string line) =>
         line.StartsWith("index ", StringComparison.Ordinal) ||
         line.StartsWith("new file mode ", StringComparison.Ordinal) ||
+        line.StartsWith("create file mode ", StringComparison.Ordinal) ||
         line.StartsWith("deleted file mode ", StringComparison.Ordinal) ||
         line.StartsWith("old mode ", StringComparison.Ordinal) ||
         line.StartsWith("new mode ", StringComparison.Ordinal) ||
@@ -789,10 +790,13 @@ internal static class ToolTranscriptFormatter {
 
         var isNewFile =
             normalized.Contains("new file mode", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("--- /dev/null", StringComparison.OrdinalIgnoreCase);
+            normalized.Contains("create file mode", StringComparison.OrdinalIgnoreCase) ||
+            lines.Any(line => line.StartsWith("--- ", StringComparison.Ordinal) &&
+                NormalizeDiffPath(line[4..]) == "/dev/null");
         var isDeletedFile =
             normalized.Contains("deleted file mode", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("+++ /dev/null", StringComparison.OrdinalIgnoreCase);
+            lines.Any(line => line.StartsWith("+++ ", StringComparison.Ordinal) &&
+                NormalizeDiffPath(line[4..]) == "/dev/null");
 
         return new ToolEditDiffSummary(
             displayName,
@@ -802,8 +806,12 @@ internal static class ToolTranscriptFormatter {
             isDeletedFile);
     }
 
+    private static string? GetEditDisplayText(ToolTranscriptDescriptor descriptor) =>
+        string.IsNullOrWhiteSpace(descriptor.DisplayText) || descriptor.DisplayText == "null"
+            ? null : descriptor.DisplayText;
+
     private static string? ResolveEditDisplayName(ToolTranscriptDescriptor descriptor, string? outputText) {
-        var candidate = descriptor.DisplayText ?? descriptor.Path ?? TryExtractEditTargetPath(outputText);
+        var candidate = GetEditDisplayText(descriptor) ?? descriptor.Path ?? TryExtractEditTargetPath(outputText);
         if (string.IsNullOrWhiteSpace(candidate))
             return null;
 
@@ -811,7 +819,8 @@ internal static class ToolTranscriptFormatter {
             var fileName = Path.GetFileName(candidate);
             return string.IsNullOrWhiteSpace(fileName) ? candidate : fileName;
         }
-        catch {
+        catch (ArgumentException ex) {
+            SquadDashTrace.Write("Transcript", $"Cannot resolve captured edit filename: {ex.Message}");
             return candidate;
         }
     }
@@ -825,6 +834,7 @@ internal static class ToolTranscriptFormatter {
             .Replace('\r', '\n')
             .Split('\n');
 
+        string? oldPath = null;
         foreach (var line in lines) {
             foreach (var prefix in new[] { "*** Update File: ", "*** Add File: ", "*** Delete File: " }) {
                 if (line.StartsWith(prefix, StringComparison.Ordinal))
@@ -837,16 +847,18 @@ internal static class ToolTranscriptFormatter {
                     return NormalizeDiffPath(line[(separator + 3)..]);
             }
 
-            if (line.StartsWith("+++ ", StringComparison.Ordinal) &&
-                !line.StartsWith("+++ /dev/null", StringComparison.Ordinal))
-                return NormalizeDiffPath(line[4..]);
+            if (line.StartsWith("+++ ", StringComparison.Ordinal)) {
+                var newPath = NormalizeDiffPath(line[4..]);
+                return newPath is null or "/dev/null" ? oldPath : newPath;
+            }
 
-            if (line.StartsWith("--- ", StringComparison.Ordinal) &&
-                !line.StartsWith("--- /dev/null", StringComparison.Ordinal))
-                return NormalizeDiffPath(line[4..]);
+            if (line.StartsWith("--- ", StringComparison.Ordinal)) {
+                var path = NormalizeDiffPath(line[4..]);
+                oldPath = path == "/dev/null" ? null : path;
+            }
         }
 
-        return null;
+        return oldPath;
     }
 
     private static string? NormalizeDiffPath(string value) {
@@ -859,6 +871,9 @@ internal static class ToolTranscriptFormatter {
         if (normalized.StartsWith("a/", StringComparison.Ordinal) ||
             normalized.StartsWith("b/", StringComparison.Ordinal))
             normalized = normalized[2..];
+
+        if (normalized == "dev/null")
+            return "/dev/null";
 
         return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
