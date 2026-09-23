@@ -61448,6 +61448,7 @@ public partial class MainWindow : Window
                     try
                     {
                         var viewer = await CommitViewerWindow.CreateAsync(folderPath, sha);
+                        viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);
                         viewer.Owner = this;
                         viewer.Show();
                     }
@@ -61488,6 +61489,7 @@ public partial class MainWindow : Window
                 CommitViewerLayout.IsCommitAttributionUncertain(commit.Relation, commit.Reason),
                 commit.Reason)).ToArray();
             var viewer = await CommitViewerWindow.CreateAsync(folderPath, entries);
+            viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);
             viewer.Owner = this;
             viewer.Show();
         }
@@ -61509,6 +61511,7 @@ public partial class MainWindow : Window
                 range.BaselineCommit,
                 range.TerminalCommit,
                 path);
+            viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);
             viewer.Owner = this;
             viewer.Show();
         }
@@ -61596,6 +61599,7 @@ public partial class MainWindow : Window
                 review.BaselineCommit,
                 review.TerminalCommit,
                 initialFilePath ?? string.Empty);
+            viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);
             viewer.Owner = CanShowOwnedWindow() ? this : null;
             viewer.Show();
         }

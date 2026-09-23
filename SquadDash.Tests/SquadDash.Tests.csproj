@@ -469,6 +469,8 @@
     <Compile Include="..\SquadDash\PlanVisualizerReview.cs" Link="Source\PlanVisualizerReview.cs" />
     <Compile Include="..\SquadDash\PlanVisualizerViewportStore.cs" Link="Source\PlanVisualizerViewportStore.cs" />
     <Compile Include="..\SquadDash\CommitViewerCodeFontStore.cs" Link="Source\CommitViewerCodeFontStore.cs" />
+    <Compile Include="..\SquadDash\CommitViewerWindow.cs" Link="Source\CommitViewerWindow.cs" />
+    <Compile Include="..\SquadDash\DiffHoverPopup.cs" Link="Source\DiffHoverPopup.cs" />
     <Compile Include="..\SquadDash\DecomposePlanInbox.cs" Link="Source\DecomposePlanInbox.cs" />
     <Compile Include="..\SquadDash\DecomposeRecoveryInboxReconciler.cs" Link="Source\DecomposeRecoveryInboxReconciler.cs" />
     <Compile Include="..\SquadDash\DecomposePlanningInstructions.cs" Link="Source\DecomposePlanningInstructions.cs" />

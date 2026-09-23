@@ -50,11 +50,12 @@ internal sealed class CommitViewerWindow : ChromedWindow
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         if (commits.Count > 1) Loaded += (_, _) => SizeForActiveMonitor();
 
-        _heading.FontSize = 18;
+        _heading.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
         _heading.FontWeight = FontWeights.SemiBold;
         _heading.TextTrimming = TextTrimming.CharacterEllipsis;
         _heading.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         _status.Margin = new Thickness(0, 3, 0, 0);
+        _status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         _status.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
         var header = new StackPanel { Margin = new Thickness(16, 13, 16, 12) };
@@ -63,6 +64,7 @@ internal sealed class CommitViewerWindow : ChromedWindow
 
         _fileList.BorderThickness = new Thickness(0);
         _fileList.Padding = new Thickness(5);
+        _fileList.SetResourceReference(FontSizeProperty, "FontSizeBody");
         _fileList.SetResourceReference(BackgroundProperty, "CardSurface");
         _fileList.SelectionChanged += FileList_SelectionChanged;
 
@@ -79,6 +81,7 @@ internal sealed class CommitViewerWindow : ChromedWindow
 
         _commitList.BorderThickness = new Thickness(0);
         _commitList.Padding = new Thickness(5);
+        _commitList.SetResourceReference(FontSizeProperty, "FontSizeBody");
         _commitList.SetResourceReference(BackgroundProperty, "CardSurface");
         _commitList.SelectionChanged += CommitList_SelectionChanged;
 
@@ -138,6 +141,13 @@ internal sealed class CommitViewerWindow : ChromedWindow
         root.Children.Add(header);
         root.Children.Add(split);
         ApplyOuterBorder(titleText: string.Empty).Child = root;
+    }
+
+    internal void ConfigureEnvironmentFontZoom(MouseWheelEventHandler handler)
+    {
+        // Owned windows do not route input to their owner; keep diff zoom on its own pane.
+        _fileList.PreviewMouseWheel += handler;
+        _commitList.PreviewMouseWheel += handler;
     }
 
     internal static async Task<CommitViewerWindow> CreateAsync(string repositoryPath, string commitSha)

@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -9,8 +11,138 @@ using System.Windows.Media;
 namespace SquadDash.Tests;
 
 [TestFixture]
+[NonParallelizable]
 internal sealed class CommitViewerWindowTests
 {
+    [Test]
+    public void EveryLaunch_ConnectsNavigationToTheExistingEnvironmentZoomHandler()
+    {
+        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (directory is not null &&
+               !File.Exists(Path.Combine(directory.FullName, "SquadDash", "MainWindow.xaml.cs")))
+            directory = directory.Parent;
+
+        Assert.That(directory, Is.Not.Null);
+        var source = File.ReadAllText(Path.Combine(directory!.FullName, "SquadDash", "MainWindow.xaml.cs"));
+        var launches = Regex.Matches(source,
+            @"var viewer = await CommitViewerWindow\.Create(?:Range)?Async\([\s\S]*?\);(?<wiring>[\s\S]*?)viewer\.Show\(\);");
+
+        Assert.That(launches, Is.Not.Empty);
+        foreach (Match launch in launches)
+            Assert.That(launch.Groups["wiring"].Value,
+                Does.Contain("viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);"));
+    }
+
+    [TestCase(0.75, false)]
+    [TestCase(1.0, false)]
+    [TestCase(1.6, false)]
+    [TestCase(0.75, true)]
+    [TestCase(1.0, true)]
+    [TestCase(1.6, true)]
+    public void Navigation_UsesEnvironmentScaleAndRoutesZoomWithoutChangingDiff(double initialScale, bool binary) =>
+        WpfTestContext.Run(() =>
+        {
+            var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var keys = new[] { "FontSizeBody", "FontSizeNormal", "FontSizeSmall", "FontSizeSubtitle" };
+            var saved = keys.Where(app.Resources.Contains).ToDictionary(key => key, key => app.Resources[key]);
+            foreach (var key in saved.Keys)
+                app.Resources.Remove(key);
+
+            static ResourceDictionary FontResources(double scale) => new()
+            {
+                ["FontSizeBody"] = Math.Round(13 * scale, 1),
+                ["FontSizeNormal"] = Math.Round(13 * scale, 1),
+                ["FontSizeSmall"] = Math.Round(12 * scale, 1),
+                ["FontSizeSubtitle"] = Math.Round(18 * scale, 1)
+            };
+
+            var fonts = FontResources(initialScale);
+            app.Resources.MergedDictionaries.Add(fonts);
+            CommitViewerWindow? window = null;
+            try
+            {
+                window = (CommitViewerWindow)Activator.CreateInstance(typeof(CommitViewerWindow),
+                    BindingFlags.Instance | BindingFlags.NonPublic, binder: null,
+                    args: [".", new CommitViewerEntry[] { new("abcdef12"), new("abcdef34") }, null, null],
+                    culture: null)!;
+                var fileType = typeof(CommitViewerWindow).GetNestedType("CommitFile", BindingFlags.NonPublic)!;
+                var file = Activator.CreateInstance(fileType, "SquadDash/CommitViewerWindow.cs", 12, 3, binary)!;
+                var item = (ListBoxItem)InvokeViewer(window, "CreateFileItem", file)!;
+                var fileList = ViewerField<ListBox>(window, "_fileList");
+                fileList.Items.Add(item);
+                var row = (Grid)item.Content;
+                var path = (TextBlock)row.Children[0];
+                var summary = (TextBlock)row.Children[1];
+                var commitList = ViewerField<ListBox>(window, "_commitList");
+                var commitLabel = new TextBlock { Text = "Commit subject" };
+                commitList.Items.Add(new ListBoxItem { Content = commitLabel });
+                InvokeViewer(window, "RenderDiff", "diff --git a/file b/file\n@@ -1 +1 @@\n-old\n+new");
+                var diffPanel = ViewerField<StackPanel>(window, "_diffPanel");
+                var diffScroll = (ScrollViewer)diffPanel.Parent;
+                var diffSizes = diffPanel.Children.OfType<TextBlock>().Select(line => line.FontSize).ToArray();
+
+                void AssertScale(double scale)
+                {
+                    window.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Background, new Action(() => { }));
+                    Assert.Multiple(() =>
+                    {
+                        Assert.That(path.FontSize, Is.EqualTo(Math.Round(13 * scale, 1)));
+                        Assert.That(summary.FontSize, Is.EqualTo(path.FontSize));
+                        foreach (var run in summary.Inlines.OfType<Run>())
+                            Assert.That(run.FontSize, Is.EqualTo(path.FontSize));
+                        Assert.That(commitLabel.FontSize, Is.EqualTo(path.FontSize));
+                        Assert.That(ViewerField<TextBlock>(window, "_status").FontSize, Is.EqualTo(path.FontSize));
+                        Assert.That(ViewerField<TextBlock>(window, "_heading").FontSize, Is.EqualTo(Math.Round(18 * scale, 1)));
+                        Assert.That(diffPanel.Children.OfType<TextBlock>().Select(line => line.FontSize), Is.EqualTo(diffSizes));
+                        Assert.That(fileList.Items[0], Is.SameAs(item), "Existing rows must update without rebuilding.");
+                    });
+                }
+
+                AssertScale(initialScale);
+                var calls = 0;
+                window.ConfigureEnvironmentFontZoom((_, e) =>
+                {
+                    calls++;
+                    var next = FontResources(e.Delta > 0 ? 1.6 : 0.75);
+                    app.Resources.MergedDictionaries[app.Resources.MergedDictionaries.IndexOf(fonts)] = next;
+                    fonts = next;
+                    e.Handled = true;
+                });
+
+                static MouseWheelEventArgs Wheel(int delta) => new(Mouse.PrimaryDevice, Environment.TickCount, delta)
+                {
+                    RoutedEvent = UIElement.PreviewMouseWheelEvent
+                };
+
+                var fileWheel = Wheel(120);
+                path.RaiseEvent(fileWheel);
+                Assert.That(fileWheel.Handled, Is.True);
+                Assert.That(calls, Is.EqualTo(1));
+                AssertScale(1.6);
+                commitLabel.RaiseEvent(Wheel(-120));
+                Assert.That(calls, Is.EqualTo(2));
+                AssertScale(0.75);
+
+                // A zero-delta event cannot change the persisted code zoom, even if Ctrl is physically held.
+                diffScroll.RaiseEvent(Wheel(0));
+                Assert.That(calls, Is.EqualTo(2), "The environment handler must not receive diff-pane input.");
+                AssertScale(0.75);
+            }
+            finally
+            {
+                window?.Close();
+                app.Resources.MergedDictionaries.Remove(fonts);
+                foreach (var (key, value) in saved)
+                    app.Resources[key] = value;
+            }
+        });
+
+    private static T ViewerField<T>(CommitViewerWindow window, string name) =>
+        (T)typeof(CommitViewerWindow).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+
+    private static object? InvokeViewer(CommitViewerWindow window, string name, params object[] arguments) =>
+        typeof(CommitViewerWindow).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, arguments);
+
     [Test]
     public void FileListAutoFit_WiresHardenedSplitterWithGuardsAndWidthAssignment()
     {
