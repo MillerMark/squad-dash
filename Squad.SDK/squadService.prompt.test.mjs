@@ -88,7 +88,8 @@ test("known plan task references do not turn ordinary roster delegation into pla
     });
 });
 
-test("problematic plan launch receives one correction before requiring human approval", async () => {
+for (const toolName of ["delegate_roster_agent", "delegate_temporary_agent"]) {
+test(`${toolName} problematic plan launch receives one correction before requiring human approval`, async () => {
     const decisions = [];
     const service = new SquadBridgeService();
     service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
@@ -99,7 +100,7 @@ test("problematic plan launch receives one correction before requiring human app
             getBackgroundTasks: async () => [],
             sendAndWait: async () => {
                 const input = {
-                    toolName: "delegate_roster_agent",
+                    toolName,
                     toolArgs: {
                         agent_handle: "arjun-sen",
                         prompt: "SQUADDASH_AGENT_ASSIGNMENT_JSON:\n{}\nResume CLIDETECT-20260814-005 now."
@@ -116,6 +117,7 @@ test("problematic plan launch receives one correction before requiring human app
     await service.runPrompt("Resume the attached plan", {}, {
         cwd: "D:\\Drive\\Source\\SquadDash-public",
         namedAgentRoutes: [{ handle: "arjun-sen", displayName: "Arjun Sen" }],
+        temporaryAgentRoute: { handle: "temporary-agent", displayName: "Temporary Agent" },
         planDelegationGuard: {
             knownPlans: [{
                 planId: "CLIDETECT-20260814",
@@ -129,6 +131,71 @@ test("problematic plan launch receives one correction before requiring human app
     assert.equal(decisions[1].permissionDecision, "deny");
     assert.match(decisions[1].permissionDecisionReason, /explicit human approval/);
     assert.doesNotMatch(decisions[1].permissionDecisionReason, /Retry with/);
+});
+}
+
+test("temporary delegation rejects counterfeit and host-owned launches at both hook and handler boundaries", async () => {
+    const configs = [];
+    const started = [];
+    const service = new SquadBridgeService({
+        onSubagentStarted(_sessionId, agent) { started.push(agent); }
+    });
+    const cwd = "D:\\Drive\\Source\\SquadDash-public";
+    const active = {
+        planId: "PLAN-1", revision: "revision-1", workItemId: "PLAN-1-001",
+        phase: "implementation", attemptId: "attempt-1",
+        branch: "feature/plan", currentBranch: "feature/plan",
+        workspacePath: cwd, agentHandles: ["lyra-morn"]
+    };
+    const planRequest = {
+        planId: active.planId, revision: active.revision, workItemId: active.workItemId,
+        phase: active.phase, attemptId: active.attemptId, branch: active.branch
+    };
+    const cases = [
+        { name: "lyra-review", prompt: "Review this code." },
+        { prompt: "Act as Lyra Morn and implement this change." },
+        { prompt: "SQUADDASH_AGENT_ASSIGNMENT_JSON:\n{}" },
+        { prompt: "Implement the task.", plan_execution_request: { ...planRequest, revision: "stale" } },
+        { prompt: "Implement the task.", agent_handle: "lyra-morn", plan_execution_request: planRequest }
+    ];
+    service.clientCwd = cwd;
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            return {
+                sessionId: "guard-session",
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => {
+                    const tool = config.tools.find(tool => tool.name === "delegate_temporary_agent");
+                    for (const toolArgs of cases) {
+                        const decision = config.hooks.onPreToolUse({
+                            toolName: "delegate_temporary_agent", toolArgs, cwd
+                        });
+                        assert.equal(decision.permissionDecision, "deny");
+                        await assert.rejects(tool.handler(toolArgs, {
+                            sessionId: "guard-session", toolCallId: "rejected-temporary"
+                        }), /SquadDash rejected/);
+                    }
+                    assert.equal(config.hooks.onPreToolUse({
+                        toolName: "delegate_temporary_agent",
+                        toolArgs: { name: "scratch-review", prompt: "Review generic code." },
+                        cwd
+                    }), undefined);
+                    return { content: "Rejected unauthorized launches" };
+                }
+            };
+        }
+    };
+
+    await service.runPrompt("Review assignments", {}, {
+        cwd,
+        namedAgentRoutes: [{ handle: "lyra-morn", displayName: "Lyra Morn" }],
+        temporaryAgentRoute: { handle: "temporary-agent", displayName: "Temporary Agent" },
+        planDelegationGuard: { knownPlans: [], active }
+    });
+    assert.equal(configs.length, 1, "rejected assignments must never create a worker session");
+    assert.equal(started.length, 0, "rejected assignments must never emit worker launch events");
 });
 
 test("auth diagnostics preserve a recent Copilot service failure instead of demanding sign-in", () => {
@@ -613,6 +680,153 @@ test("provider throttling distinguishes transient rate limits from terminal quot
         retryable: false,
         classification: "not-rate-limit"
     });
+});
+
+for (const entryPoint of ["roster", "direct"]) {
+for (const namedProfileId of ["profile-b", "PROFILE-A"]) {
+test(`${entryPoint} parent ${namedProfileId} compares temporary A against itself, not coordinator A`, async () => {
+    const configs = [];
+    const started = [];
+    const cwd = "D:\\Drive\\Source\\SquadDash-public";
+    const service = new SquadBridgeService({
+        onSubagentStarted(_sessionId, agent) { started.push(agent); }
+    });
+    service.clientCwd = cwd;
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            return {
+                sessionId: `profile-session-${configs.length}`,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => ({ content: "Profile report" })
+            };
+        }
+    };
+    const temporaryAgentRoute = {
+        handle: "temporary-agent", displayName: "Temporary Agent",
+        profileId: "profile-a", model: "model-a", reasoningEffort: "high"
+    };
+    const namedRoute = {
+        handle: "lyra-morn", displayName: "Lyra Morn",
+        profileId: namedProfileId, model: namedProfileId === "profile-b" ? "model-b" : "model-a",
+        provider: namedProfileId === "profile-b"
+            ? { type: "openai", baseUrl: "https://provider-b.example/v1" }
+            : undefined
+    };
+    await service.runPrompt("Delegate work", {}, {
+        cwd, model: "model-a", profileId: "profile-a",
+        namedAgentRoutes: [namedRoute], temporaryAgentRoute
+    });
+    assert.equal(configs[0].tools.some(tool => tool.name === "delegate_temporary_agent"), false);
+    assert.equal(configs[0].hooks.onPreToolUse({
+        toolName: "task", toolArgs: { prompt: "Generic work." }
+    }), undefined, "coordinator A keeps the existing native same-profile path");
+
+    if (entryPoint === "roster") {
+        await configs[0].tools.find(tool => tool.name === "delegate_roster_agent").handler({
+            agent_handle: "lyra-morn", prompt: "Perform a bounded review."
+        }, { sessionId: "profile-session-1", toolCallId: "named-review" });
+    } else {
+        await service.runNamedAgent({
+            cwd, targetAgent: "lyra-morn", selectedOption: "Perform a bounded review.",
+            agentRoute: namedRoute, temporaryAgentRoute
+        }, {});
+    }
+    const temporaryTool = configs[1].tools?.find(tool => tool.name === "delegate_temporary_agent");
+    const nativeDecision = configs[1].hooks.onPreToolUse({
+        toolName: "task", toolArgs: { name: "scratch-review", prompt: "Generic work." }
+    });
+    if (namedProfileId === "PROFILE-A") {
+        assert.equal(temporaryTool, undefined);
+        assert.equal(nativeDecision, undefined, "named A also keeps native same-profile delegation");
+        return;
+    }
+    assert.ok(temporaryTool, "named B must receive the retained temporary assignment A");
+    assert.equal(nativeDecision.permissionDecision, "deny");
+    await temporaryTool.handler({ name: "scratch-review", prompt: "Generic work." }, {
+        sessionId: "profile-session-2", toolCallId: "temporary-review"
+    });
+    assert.equal(configs[1].model, "model-b");
+    assert.equal(configs[2].model, "model-a");
+    assert.equal(configs[2].reasoningEffort, "high");
+    assert.equal(configs[2].provider, undefined, "temporary A must not inherit parent B's BYOK provider");
+    assert.equal(started.at(-1).profileId, "profile-a");
+    assert.equal(configs[2].tools?.some(tool => tool.name === "delegate_temporary_agent") ?? false, false);
+});
+}
+}
+
+test("successful workers release only their reservations without shortening sibling backoff", async t => {
+    t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1_000_000 });
+    const configs = [];
+    const throttled = [];
+    const resumed = [];
+    const sends = new Map();
+    const success = Promise.withResolvers();
+    const cwd = "D:\\Drive\\Source\\SquadDash-public";
+    const service = new SquadBridgeService({
+        onSubagentThrottled(_sessionId, agent) { throttled.push(agent); },
+        onSubagentResumed(_sessionId, agent) { resumed.push(agent.agentName); }
+    });
+    service.clientCwd = cwd;
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            const number = configs.length;
+            return {
+                sessionId: `retry-session-${number}`,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => {
+                    const attempt = (sends.get(number) ?? 0) + 1;
+                    sends.set(number, attempt);
+                    if (number === 2)
+                        await success.promise;
+                    if (number > 2 && attempt === 1)
+                        throw new Error(`HTTP 429 rate limit exceeded; retry after ${(number - 2) * 1000} ms`);
+                    return { content: `Worker ${number} completed` };
+                }
+            };
+        }
+    };
+    const routes = ["successful", "first-waiter", "second-waiter"].map(handle => ({
+        handle, displayName: handle, profileId: "shared", model: "shared-model"
+    }));
+    await service.runPrompt("Run concurrent workers", {}, { cwd, namedAgentRoutes: routes });
+    const tool = configs[0].tools.find(tool => tool.name === "delegate_roster_agent");
+    const launches = routes.map(route => tool.handler({
+        agent_handle: route.handle, prompt: "Complete bounded work."
+    }, { sessionId: "retry-session-1", toolCallId: route.handle }));
+    const flush = () => new Promise(resolve => setImmediate(resolve));
+    await flush();
+    assert.equal(throttled.length, 2);
+    const key = service.buildProviderRetryKey(routes[0]);
+    const firstAt = Date.parse(throttled[0].retryAt);
+    const secondAt = Date.parse(throttled[1].retryAt);
+
+    success.resolve();
+    await launches[0];
+    assert.deepEqual(service.providerRetryAttempts.get(key), [firstAt, secondAt],
+        "success without a retry must not delete either waiting worker's reservation");
+    t.mock.timers.tick(250);
+    await flush();
+    assert.deepEqual(resumed, [], "a sibling's success must not resume throttled workers early");
+
+    t.mock.timers.tick(firstAt - Date.now());
+    await flush();
+    await launches[1];
+    assert.deepEqual(resumed, ["first-waiter"]);
+    assert.deepEqual(service.providerRetryAttempts.get(key), [secondAt],
+        "a recovered worker releases only its own reservation");
+    t.mock.timers.tick(secondAt - Date.now() - 1);
+    await flush();
+    assert.deepEqual(resumed, ["first-waiter"], "the last worker must wait its entire reserved delay");
+    t.mock.timers.tick(1);
+    await flush();
+    await launches[2];
+    assert.deepEqual(resumed, ["first-waiter", "second-waiter"]);
+    assert.equal(service.providerRetryAttempts.has(key), false);
 });
 
 test("named roster tool waits and resumes the same session after transient throttling", async () => {

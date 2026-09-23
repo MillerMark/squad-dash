@@ -161,6 +161,50 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public void BuildTemporaryAgentRoute_NullProfile_ReturnsNull() {
+        Assert.That(SquadSdkProcess.BuildTemporaryAgentRoute(null), Is.Null);
+    }
+
+    [Test]
+    public void BuildTemporaryAgentRoute_ResolverKeepsTemporaryAssignment_WhenMatchingCoordinatorProfile() {
+        var profiles = new[] {
+            new ModelProfile("prof-a", "Profile A", "copilot", null, "claude-sonnet-4", null),
+            new ModelProfile("prof-b", "Profile B", "copilot", null, "gpt-5", null)
+        };
+        var assignments = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+            [ModelProfileCategory.Coordinator] = "prof-a",
+            [ModelProfileCategory.SpawnedNamedAgents] = "prof-b",
+            [ModelProfileCategory.TemporaryAgents] = "prof-a"
+        };
+
+        var coordinatorProfile = ModelProfileResolver.Resolve(
+            profiles, assignments, perAgentOverrideProfileId: null, agentCategory: ModelProfileCategory.Coordinator);
+        var namedProfile = ModelProfileResolver.Resolve(
+            profiles, assignments, perAgentOverrideProfileId: null, agentCategory: ModelProfileCategory.SpawnedNamedAgents);
+        var temporaryProfile = ModelProfileResolver.Resolve(
+            profiles, assignments, perAgentOverrideProfileId: null, agentCategory: ModelProfileCategory.TemporaryAgents);
+
+        var namedRoute = SquadSdkProcess.BuildNamedAgentRoute("lyra-morn", "Lyra Morn", "Model Profiles", null, namedProfile);
+        var temporaryRoute = SquadSdkProcess.BuildTemporaryAgentRoute(temporaryProfile);
+        var json = JsonSerializer.Serialize(new SquadSdkPromptRequest(
+            "route check",
+            @"D:\repo",
+            NamedAgentRoutes: [namedRoute],
+            TemporaryAgentRoute: temporaryRoute,
+            ProfileId: coordinatorProfile?.Id));
+
+        Assert.Multiple(() => {
+            Assert.That(temporaryRoute, Is.Not.Null);
+            Assert.That(temporaryRoute!.ProfileId, Is.EqualTo("prof-a"));
+            Assert.That(namedRoute.ProfileId, Is.EqualTo("prof-b"));
+            Assert.That(json, Does.Contain("\"profileId\":\"prof-a\""));
+            Assert.That(json, Does.Contain("\"namedAgentRoutes\""));
+            Assert.That(json, Does.Contain("\"temporaryAgentRoute\""));
+            Assert.That(json, Does.Contain("\"handle\":\"temporary-agent\""));
+        });
+    }
+
+    [Test]
     public async Task RunPromptAsync_WithNamedAgentRoutes_SerializesHostRosterAndProfile() {
         var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
         await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
@@ -219,6 +263,47 @@ internal sealed class SquadSdkProcessTests {
 
         using var request = JsonDocument.Parse(FindLoggedRequestLine(requestLogPath, "prompt"));
         Assert.That(request.RootElement.GetProperty("reasoningEffort").GetString(), Is.EqualTo("max"));
+    }
+
+    [Test]
+    public async Task RunPromptAsync_ProfileId_FollowsActiveProfileAndOmitsWhenUnknown() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            for ($i = 0; $i -lt 2; $i++) {
+                $line = [Console]::In.ReadLine()
+                Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+                $request = $line | ConvertFrom-Json
+                Write-Output ('{"type":"session_ready","sessionId":"profile-id-session","sessionResumed":false,"requestId":"' + $request.requestId + '"}')
+                Write-Output ('{"type":"done","requestId":"' + $request.requestId + '"}')
+            }
+            """));
+
+        sut.ActiveProfile = new ModelProfile(
+            Id: "coord-a",
+            Alias: "Coordinator A",
+            ProviderType: "copilot",
+            ProviderUrl: null,
+            Model: "claude-sonnet-4",
+            ApiKey: null);
+
+        await sut.RunPromptAsync("first", _workspace.RootPath);
+        sut.ActiveProfile = null;
+        await sut.RunPromptAsync("second", _workspace.RootPath);
+
+        var promptLines = File.ReadLines(requestLogPath, Encoding.UTF8)
+            .Select(line => JsonDocument.Parse(line))
+            .Where(doc => doc.RootElement.TryGetProperty("type", out var type) && type.GetString() == "prompt")
+            .ToList();
+
+        Assert.That(promptLines, Has.Count.EqualTo(2));
+        Assert.Multiple(() => {
+            Assert.That(promptLines[0].RootElement.GetProperty("profileId").GetString(), Is.EqualTo("coord-a"));
+            Assert.That(promptLines[1].RootElement.TryGetProperty("profileId", out _), Is.False);
+        });
+
+        foreach (var doc in promptLines)
+            doc.Dispose();
     }
 
     [Test]
@@ -355,6 +440,46 @@ internal sealed class SquadSdkProcessTests {
         Assert.That(
             request.RootElement.GetProperty("approvalGroupContext").GetString(),
             Is.EqualTo("Use canonical groups: Guided Tour"));
+    }
+
+    [Test]
+    public async Task RunNamedAgentDelegationAsync_ProfileId_FollowsActiveProfileAndOmitsWhenUnknown() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            for ($i = 0; $i -lt 2; $i++) {
+                $line = [Console]::In.ReadLine()
+                Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+                $request = $line | ConvertFrom-Json
+                Write-Output ('{"type":"done","requestId":"' + $request.requestId + '"}')
+            }
+            """));
+
+        sut.ActiveProfile = new ModelProfile(
+            Id: "coord-a",
+            Alias: "Coordinator A",
+            ProviderType: "copilot",
+            ProviderUrl: null,
+            Model: "claude-sonnet-4",
+            ApiKey: null);
+
+        await sut.RunNamedAgentDelegationAsync("first handoff", "lyra-morn", _workspace.RootPath, "session-123");
+        sut.ActiveProfile = null;
+        await sut.RunNamedAgentDelegationAsync("second handoff", "lyra-morn", _workspace.RootPath, "session-123");
+
+        var delegateLines = File.ReadLines(requestLogPath, Encoding.UTF8)
+            .Select(line => JsonDocument.Parse(line))
+            .Where(doc => doc.RootElement.TryGetProperty("type", out var type) && type.GetString() == "delegate")
+            .ToList();
+
+        Assert.That(delegateLines, Has.Count.EqualTo(2));
+        Assert.Multiple(() => {
+            Assert.That(delegateLines[0].RootElement.GetProperty("profileId").GetString(), Is.EqualTo("coord-a"));
+            Assert.That(delegateLines[1].RootElement.TryGetProperty("profileId", out _), Is.False);
+        });
+
+        foreach (var doc in delegateLines)
+            doc.Dispose();
     }
 
     [Test]

@@ -936,7 +936,7 @@ public partial class MainWindow : Window
         _bridge.ByokProviderSettings = BuildByokSettings(initialSettings);
         _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(initialSettings);
         _bridge.ActiveProfile = ResolveActiveProfile(initialSettings);
-        _bridge.TemporaryAgentRoute = BuildTemporaryAgentRoute(_bridge.ActiveProfile);
+        _bridge.TemporaryAgentRoute = BuildTemporaryAgentRoute();
         _bridge.BridgeDiagnosticsEnabled = initialSettings.BridgeDiagnosticsEnabled;
         _startupFolderArgument = startupFolder;
         _startupWorkspaceLease = startupWorkspaceLease;
@@ -46810,10 +46810,10 @@ public partial class MainWindow : Window
     private void RefreshBridgeNamedAgentRoutes()
     {
         _bridge.NamedAgentRoutes = BuildNamedAgentRoutes();
-        _bridge.TemporaryAgentRoute = BuildTemporaryAgentRoute(_bridge.ActiveProfile);
+        _bridge.TemporaryAgentRoute = BuildTemporaryAgentRoute();
     }
 
-    private SquadSdkNamedAgentRoute? BuildTemporaryAgentRoute(ModelProfile? activeProfile)
+    private SquadSdkNamedAgentRoute? BuildTemporaryAgentRoute()
     {
         var profiles = _modelProfileStore.GetProfiles();
         var assignments = _modelProfileStore.GetCategoryAssignments();
@@ -46822,24 +46822,7 @@ public partial class MainWindow : Window
             assignments,
             perAgentOverrideProfileId: null,
             agentCategory: ModelProfileCategory.TemporaryAgents);
-
-        // Preserve the SDK's native task implementation whenever the temporary-worker
-        // assignment is the same profile as the parent. This keeps the high-throughput
-        // path untouched for the common case and only introduces routed execution when
-        // the user explicitly separates the categories.
-        if (profile is null ||
-            (activeProfile is not null &&
-             string.Equals(profile.Id, activeProfile.Id, StringComparison.OrdinalIgnoreCase)))
-        {
-            return null;
-        }
-
-        return SquadSdkProcess.BuildNamedAgentRoute(
-            "temporary-agent",
-            "Temporary Agent",
-            "General-purpose temporary worker",
-            charterContent: null,
-            profile);
+        return SquadSdkProcess.BuildTemporaryAgentRoute(profile);
     }
 
     private IReadOnlyList<SquadSdkNamedAgentRoute> BuildNamedAgentRoutes()
@@ -50521,7 +50504,7 @@ public partial class MainWindow : Window
         var currentCopilotDefaultModel = BuildCopilotDefaultModel(snapshot);
         var currentActiveProfile = ResolveActiveProfile(snapshot);
         var currentNamedAgentRoutes = BuildNamedAgentRoutes();
-        var currentTemporaryAgentRoute = BuildTemporaryAgentRoute(currentActiveProfile);
+        var currentTemporaryAgentRoute = BuildTemporaryAgentRoute();
 
         _bridge.ByokProviderSettings = currentByokSettings;
         _bridge.CopilotDefaultModel = currentCopilotDefaultModel;

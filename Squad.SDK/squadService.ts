@@ -98,6 +98,7 @@ export type SquadPromptRequest = {
     sessionId?: string;
     configDir?: string;
     model?: string;
+    profileId?: string;
     reasoningEffort?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
     temporaryAgentRoute?: SquadNamedAgentRoute;
@@ -171,6 +172,7 @@ export type SquadDelegationRequest = {
     sessionId: string;
     configDir?: string;
     model?: string;
+    profileId?: string;
     selectedOption: string;
     targetAgent: string;
     approvalGroupContext?: string;
@@ -2131,15 +2133,12 @@ export function computeProviderThrottleDelayMs(
 
 async function waitForNamedAgentThrottleDelay(
     delayMs: number,
-    isCancelled: () => boolean,
-    shouldResumeEarly: () => boolean = () => false
+    isCancelled: () => boolean
 ): Promise<boolean> {
     const deadline = Date.now() + Math.max(0, delayMs);
     while (Date.now() < deadline) {
         if (isCancelled())
             return false;
-        if (shouldResumeEarly())
-            return true;
         await new Promise<void>(resolve => setTimeout(resolve, Math.min(250, deadline - Date.now())));
     }
 
@@ -2520,10 +2519,6 @@ export class SquadBridgeService {
             this.providerRetryAttempts.delete(reservation.key);
     }
 
-    private clearProviderRetryBudget(route: SquadNamedAgentRoute): void {
-        this.providerRetryAttempts.delete(this.buildProviderRetryKey(route));
-    }
-
     public async runPrompt(
         prompt: string,
         handlers: SquadRunHandlers,
@@ -2548,6 +2543,7 @@ export class SquadBridgeService {
                 sessionId: request.sessionId,
                 configDir: request.configDir,
                 model: request.model,
+                profileId: request.profileId,
                 namedAgentRoutes: request.namedAgentRoutes,
                 temporaryAgentRoute: request.temporaryAgentRoute,
                 requireSameSession: true
@@ -2570,6 +2566,7 @@ export class SquadBridgeService {
                 sessionId: request.namedAgentSessionId,
                 configDir: request.configDir,
                 model: request.agentRoute?.model ?? request.model,
+                profileId: request.agentRoute?.profileId,
                 reasoningEffort: request.agentRoute?.reasoningEffort ?? request.reasoningEffort,
                 providerOverride: request.agentRoute?.provider ?? null,
                 providerOverrideSpecified: request.agentRoute !== undefined,
@@ -3123,7 +3120,8 @@ export class SquadBridgeService {
 
     private createTemporaryAgentTool(
         getRoute: () => SquadNamedAgentRoute | undefined,
-        options: SquadSessionRequest
+        options: SquadSessionRequest,
+        validateLaunch: (args: unknown) => void
     ): NonNullable<SquadSessionConfig["tools"]>[number] {
         return {
             name: "delegate_temporary_agent",
@@ -3160,6 +3158,7 @@ export class SquadBridgeService {
                 required: ["prompt"]
             },
             handler: async (rawArgs, invocation) => {
+                validateLaunch(rawArgs);
                 const route = getRoute();
                 if (!route)
                     throw new Error("The routed temporary-agent profile is no longer available.");
@@ -3209,6 +3208,7 @@ export class SquadBridgeService {
         let consecutiveRetryDelayMs = 0;
         let attemptMadeMeaningfulProgress = false;
         let namedAgentSessionId: string | undefined;
+        const retryReservations: ProviderRetryReservation[] = [];
         const lifecycle: SubagentLifecycleInfo = {
             toolCallId: invocation.toolCallId,
             agentId: `named-${invocation.toolCallId}`,
@@ -3311,14 +3311,17 @@ export class SquadBridgeService {
                             sessionId: retryCount > 0 ? namedAgentSessionId : undefined,
                             configDir: outerOptions.configDir,
                             model: route.model,
+                            profileId: route.profileId,
                             reasoningEffort: route.reasoningEffort,
                             providerOverride: route.provider ?? null,
                             providerOverrideSpecified: true,
                             exposeNamedAgentTool: false,
+                            namedAgentRoutes: outerOptions.namedAgentRoutes,
                             temporaryAgentRoute: outerOptions.temporaryAgentRoute,
                             requireSameSession: retryCount > 0
                         });
-                    this.clearProviderRetryBudget(route);
+                    for (const reservation of retryReservations)
+                        this.releaseProviderRetryReservation(reservation);
                     break;
                 }
                 catch (error) {
@@ -3345,6 +3348,7 @@ export class SquadBridgeService {
                         NamedAgentThrottleMaxSingleDelayMs,
                         retryDelayMs);
                     const retryReservation = this.reserveProviderRetry(route, providerDelayMs);
+                    retryReservations.push(retryReservation);
                     const boundedRetryDelayMs = Math.max(0, retryReservation.scheduledAt - Date.now());
                     retryCount++;
                     consecutiveRetryCount++;
@@ -3377,8 +3381,7 @@ export class SquadBridgeService {
 
                     const continued = await waitForNamedAgentThrottleDelay(
                         boundedRetryDelayMs,
-                        () => this.sessions.get(invocation.sessionId)?.currentRequest?.aborted === true,
-                        () => !this.providerRetryAttempts.has(retryReservation.key));
+                        () => this.sessions.get(invocation.sessionId)?.currentRequest?.aborted === true);
                     if (!continued) {
                         this.releaseProviderRetryReservation(retryReservation);
                         throw new Error("Named-agent throttling recovery was cancelled.");
@@ -3491,16 +3494,77 @@ export class SquadBridgeService {
             : buildCustomProviderFromEnv();
         const namedAgentRoutes = options.namedAgentRoutes ?? [];
         const resolvedReasoningEffort = resolveSessionReasoningEffort(options.reasoningEffort);
+        const getRoutedTemporaryAgentRoute = () => {
+            const route = stateRef?.temporaryAgentRoute ?? options.temporaryAgentRoute;
+            const parentProfileId = normalizeOptionalString(options.profileId)?.toLowerCase();
+            // Keep the assignment for descendants even when this parent can use native task.
+            return parentProfileId && parentProfileId === normalizeOptionalString(route?.profileId)?.toLowerCase()
+                ? undefined
+                : route;
+        };
+        const checkDelegationLaunch = (input: { toolName: string; toolArgs: unknown; cwd?: string }) => {
+            if (input.toolName === "delegate_roster_agent" || input.toolName === "delegate_temporary_agent") {
+                const currentRequest = stateRef?.currentRequest;
+                const evaluation = evaluatePlanDelegationLaunch(
+                    input.toolArgs,
+                    currentRequest?.planDelegationGuard,
+                    input.cwd ?? stateRef?.workingDirectory ?? options.cwd);
+                if (evaluation.planLaunch && (!evaluation.allowed || input.toolName === "delegate_temporary_agent")) {
+                    const correctionAlreadyUsed = (currentRequest?.planLaunchCorrectionCount ?? 0) > 0;
+                    if (currentRequest)
+                        currentRequest.planLaunchCorrectionCount++;
+                    return {
+                        permissionDecision: "deny" as const,
+                        permissionDecisionReason: buildPlanLaunchCorrectionContext(
+                            evaluation.allowed
+                                ? { ...evaluation, allowed: false, reason: "host-owned plan assignments require delegate_roster_agent" }
+                                : evaluation,
+                            currentRequest?.planDelegationGuard,
+                            correctionAlreadyUsed)
+                    };
+                }
+            }
+
+            if (input.toolName === "task" || input.toolName === "delegate_temporary_agent") {
+                const counterfeitHandle = findCounterfeitRosterTaskHandle(
+                    input.toolArgs,
+                    stateRef?.namedAgentRoutes ?? namedAgentRoutes);
+                if (counterfeitHandle) {
+                    return {
+                        permissionDecision: "deny" as const,
+                        permissionDecisionReason:
+                            "SquadDash rejected this generic task launch because it impersonates or contains a host-owned roster assignment " +
+                            `(matched ${counterfeitHandle}). Retry with delegate_roster_agent and an exact agent_handle. ` +
+                            "Use task only for genuinely temporary workers."
+                    };
+                }
+
+                if (input.toolName === "task" && getRoutedTemporaryAgentRoute()) {
+                    return {
+                        permissionDecision: "deny" as const,
+                        permissionDecisionReason:
+                            "SquadDash has a separate model profile assigned to temporary agents. " +
+                            "Retry this genuinely temporary assignment with delegate_temporary_agent, preserving the same prompt, name, description, and mode."
+                    };
+                }
+            }
+            return undefined;
+        };
         const sessionTools: NonNullable<SquadSessionConfig["tools"]> = [];
         if (options.exposeNamedAgentTool !== false) {
             sessionTools.push(this.createNamedAgentTool(
                 () => stateRef?.namedAgentRoutes ?? namedAgentRoutes,
                 options));
         }
-        if (options.temporaryAgentRoute) {
+        if (getRoutedTemporaryAgentRoute()) {
             sessionTools.push(this.createTemporaryAgentTool(
-                () => stateRef?.temporaryAgentRoute ?? options.temporaryAgentRoute,
-                options));
+                getRoutedTemporaryAgentRoute,
+                options,
+                args => {
+                    const rejection = checkDelegationLaunch({ toolName: "delegate_temporary_agent", toolArgs: args });
+                    if (rejection)
+                        throw new Error(rejection.permissionDecisionReason);
+                }));
         }
         const sessionConfig: SquadSessionConfig = {
             onPermissionRequest: async () => approvePermissionRequest(),
@@ -3512,49 +3576,9 @@ export class SquadBridgeService {
             tools: sessionTools.length > 0 ? sessionTools : undefined,
             hooks: {
                 onPreToolUse: (input: { toolName: string; toolArgs: unknown; cwd?: string }) => {
-                    if (input.toolName === "task") {
-                        const counterfeitHandle = findCounterfeitRosterTaskHandle(
-                            input.toolArgs,
-                            stateRef?.namedAgentRoutes ?? namedAgentRoutes);
-                        if (counterfeitHandle) {
-                            return {
-                                permissionDecision: "deny" as const,
-                                permissionDecisionReason:
-                                    "SquadDash rejected this generic task launch because it impersonates or contains a host-owned roster assignment " +
-                                    `(matched ${counterfeitHandle}). Retry with delegate_roster_agent and an exact agent_handle. ` +
-                                    "Use task only for genuinely temporary workers."
-                            };
-                        }
-
-                        if (stateRef?.temporaryAgentRoute ?? options.temporaryAgentRoute) {
-                            return {
-                                permissionDecision: "deny" as const,
-                                permissionDecisionReason:
-                                    "SquadDash has a separate model profile assigned to temporary agents. " +
-                                    "Retry this genuinely temporary assignment with delegate_temporary_agent, preserving the same prompt, name, description, and mode."
-                            };
-                        }
-                    }
-
-                    if (input.toolName === "delegate_roster_agent") {
-                        const currentRequest = stateRef?.currentRequest;
-                        const evaluation = evaluatePlanDelegationLaunch(
-                            input.toolArgs,
-                            currentRequest?.planDelegationGuard,
-                            input.cwd ?? stateRef?.workingDirectory ?? options.cwd);
-                        if (evaluation.planLaunch && !evaluation.allowed) {
-                            const correctionAlreadyUsed = (currentRequest?.planLaunchCorrectionCount ?? 0) > 0;
-                            if (currentRequest)
-                                currentRequest.planLaunchCorrectionCount++;
-                            return {
-                                permissionDecision: "deny" as const,
-                                permissionDecisionReason: buildPlanLaunchCorrectionContext(
-                                    evaluation,
-                                    currentRequest?.planDelegationGuard,
-                                    correctionAlreadyUsed)
-                            };
-                        }
-                    }
+                    const rejection = checkDelegationLaunch(input);
+                    if (rejection)
+                        return rejection;
 
                     const rewrite = maybeRewritePowerShellToolArgs(
                         input.toolName,

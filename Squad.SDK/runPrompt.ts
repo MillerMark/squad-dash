@@ -22,6 +22,7 @@ type PromptRequest = {
     sessionId?: string;
     configDir?: string;
     model?: string;
+    profileId?: string;
     reasoningEffort?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
     temporaryAgentRoute?: SquadNamedAgentRoute;
@@ -37,6 +38,7 @@ type DelegateRequest = {
     sessionId: string;
     configDir?: string;
     model?: string;
+    profileId?: string;
     approvalGroupContext?: string;
     namedAgentRoutes?: SquadNamedAgentRoute[];
     temporaryAgentRoute?: SquadNamedAgentRoute;
@@ -576,6 +578,7 @@ function tryParsePromptRequest(parsed: Partial<PromptRequest>): PromptRequest | 
         sessionId,
         configDir,
         model,
+        profileId: extractOptionalString(parsed.profileId),
         reasoningEffort,
         namedAgentRoutes,
         temporaryAgentRoute,
@@ -614,6 +617,7 @@ function tryParseDelegateRequest(parsed: Partial<DelegateRequest>): DelegateRequ
         sessionId,
         configDir,
         model,
+        profileId: extractOptionalString(parsed.profileId),
         approvalGroupContext,
         namedAgentRoutes,
         temporaryAgentRoute

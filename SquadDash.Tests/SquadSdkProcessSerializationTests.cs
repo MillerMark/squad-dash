@@ -56,6 +56,23 @@ internal sealed class SquadSdkProcessSerializationTests {
     }
 
     [Test]
+    public void PromptRequest_ProfileId_SerializesWhenPresentAndOmitsWhenNull() {
+        var withProfile = JsonSerializer.Serialize(new SquadSdkPromptRequest(
+            "status?",
+            @"D:\Drive\Source\SquadUI",
+            ProfileId: "coordinator-a"));
+        var withoutProfile = JsonSerializer.Serialize(new SquadSdkPromptRequest(
+            "status?",
+            @"D:\Drive\Source\SquadUI",
+            ProfileId: null));
+
+        Assert.Multiple(() => {
+            Assert.That(withProfile, Does.Contain("\"profileId\":\"coordinator-a\""));
+            Assert.That(withoutProfile, Does.Not.Contain("\"profileId\""));
+        });
+    }
+
+    [Test]
     public void PromptRequest_WithTemporaryAgentRoute_SerializesAssignedProfile()
     {
         var route = new SquadSdkNamedAgentRoute(
@@ -141,6 +158,27 @@ internal sealed class SquadSdkProcessSerializationTests {
         Assert.Multiple(() => {
             Assert.That(json, Does.Contain("\"approvalGroupContext\":\"Use canonical groups: Guided Tour\""));
             Assert.That(json, Does.Not.Contain("\"ApprovalGroupContext\""));
+        });
+    }
+
+    [Test]
+    public void DelegateRequest_ProfileId_SerializesWhenPresentAndOmitsWhenNull() {
+        var withProfile = JsonSerializer.Serialize(new SquadSdkDelegateRequest(
+            "Hand off to Lyra",
+            "lyra-morn",
+            @"D:\Drive\Source\SquadUI",
+            "session-456",
+            ProfileId: "coordinator-a"));
+        var withoutProfile = JsonSerializer.Serialize(new SquadSdkDelegateRequest(
+            "Hand off to Lyra",
+            "lyra-morn",
+            @"D:\Drive\Source\SquadUI",
+            "session-456",
+            ProfileId: null));
+
+        Assert.Multiple(() => {
+            Assert.That(withProfile, Does.Contain("\"profileId\":\"coordinator-a\""));
+            Assert.That(withoutProfile, Does.Not.Contain("\"profileId\""));
         });
     }
 
