@@ -209,6 +209,84 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
         });
     }
 
+    [Test]
+    public void GateInspector_ReadViewRendersProofTitlesAndDescriptionsInThemedBullets()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var method = ExtractMethod(source, "private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)");
+        var reviewSection = method[method.IndexOf("var proofRequirements", StringComparison.Ordinal)..
+            method.IndexOf("// Status (color-coded)", StringComparison.Ordinal)];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(reviewSection, Does.Contain("gate.ProofRequirements ?? []")
+                .And.Contain("proofRequirements.Count > 0 || approvalQuestions.Count > 0")
+                .And.Contain("AddSectionHeader(\"Verify the Following:\")")
+                .And.Contain("foreach (var requirement in proofRequirements)")
+                .And.Contain("MarkerStyle = TextMarkerStyle.Disc")
+                .And.Contain("reviewList.ListItems.Add(new ListItem(proofPara))")
+                .And.Contain("_detailDocument.Blocks.Add(reviewList)"));
+            Assert.That(reviewSection, Does.Contain("PlanHumanReviewChecklist.ResolveDisplayTitle(")
+                .And.Contain("requirement.Title, requirement.RequirementId")
+                .And.Contain("FontWeight = FontWeights.Bold")
+                .And.Contain("proofPara.Inlines.Add(scenarioTitle)")
+                .And.Contain("proofPara.Inlines.Add(new LineBreak())")
+                .And.Contain("proofPara.Inlines.Add(new Run(requirement.Description))"));
+            Assert.That(reviewSection, Does.Contain("SetResourceReference(TextElement.ForegroundProperty, \"BodyText\")")
+                .And.Contain("SetResourceReference(TextElement.ForegroundProperty, \"ImportantText\")")
+                .And.Contain("SetResourceReference(TextElement.FontSizeProperty, \"FontSizeBody\")")
+                .And.Not.Contain("_isInspectorEditing")
+                .And.Not.Contain("FontSize =")
+                .And.Not.Contain("Brushes."));
+            Assert.That(method, Does.Contain("AppendApprovalContractEditor(gate);"));
+        });
+    }
+
+    [Test]
+    public void GateInspector_CombinesUniqueQuestionsAndPreservesClarifiedAndLegacyReview()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var method = ExtractMethod(source, "private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("hasClarifiedReview || proofRequirements.Count == 0")
+                .And.Contain("? ResolvePresentedHumanReviewQuestions(gate)")
+                .And.Contain("string.IsNullOrWhiteSpace(gate.Question) ? [] : [gate.Question]"));
+            Assert.That(method, Does.Contain("gate.HumanReviewDispositions is { Count: > 0 }")
+                .And.Contain("if (!hasClarifiedReview && !string.IsNullOrWhiteSpace(requirement.Question))"));
+            Assert.That(method, Does.Contain("NormalizeReviewText(requirement.Description)")
+                .And.Contain("StringSplitOptions.RemoveEmptyEntries")
+                .And.Contain("new HashSet<string>(StringComparer.OrdinalIgnoreCase)")
+                .And.Contain("!descriptions.Any(description => description.Contains(question, StringComparison.OrdinalIgnoreCase))")
+                .And.Contain("presentedQuestions.Add(question)")
+                .And.Contain("PlanHumanReviewChecklist.SplitLegacyQuestions(requirement.Question)")
+                .And.Contain(".SelectMany(PlanHumanReviewChecklist.SplitLegacyQuestions)"));
+            Assert.That(Regex.Matches(method, @"if \(!IsNewQuestion\(question\)\)").Count, Is.EqualTo(2));
+            Assert.That(Regex.Matches(method, "AddSectionHeader\\(\"Verify the Following:\"\\)").Count, Is.EqualTo(1));
+            Assert.That(method, Does.Not.Contain("string.Join(\"\\n• \", approvalQuestions)"));
+        });
+    }
+
+    [Test]
+    public void GateInspector_ReadViewOmitsInternalProofMetadataAndRawIdentifiers()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var method = ExtractMethod(source, "private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)");
+
+        Assert.Multiple(() =>
+        {
+            foreach (var field in new[] { "ProofType", "FixtureTaskId", "FixtureOutputId", "AccessMode", "VerificationRecipe" })
+                Assert.That(method, Does.Not.Contain($"requirement.{field}"));
+            Assert.That(Regex.Matches(method, @"requirement\.RequirementId").Count, Is.EqualTo(1),
+                "The requirement ID may only be used as the human-friendly title fallback.");
+            Assert.That(method, Does.Not.Contain("new Run(requirement.RequirementId)"));
+            Assert.That(method, Does.Contain("if (_isInspectorEditing)\n        {\n            var idPara")
+                .Or.Contain("if (_isInspectorEditing)\r\n        {\r\n            var idPara"),
+                "Raw gate IDs are only useful in edit mode.");
+        });
+    }
+
     private static void AssertThemeBrushColors(
         string themeXaml,
         string expectedTaskLinkText,

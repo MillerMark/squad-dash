@@ -8682,12 +8682,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         titlePara.Margin = new Thickness(0, 0, 0, 4);
         _detailDocument.Blocks.Add(titlePara);
 
-        // Gate ID (monospace)
-        var idPara = new Paragraph(new Run(gate.GateId) { FontFamily = new FontFamily("Consolas") });
-        idPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-        idPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
-        idPara.Margin = new Thickness(0, 0, 0, 4);
-        _detailDocument.Blocks.Add(idPara);
+        if (_isInspectorEditing)
+        {
+            var idPara = new Paragraph(new Run(gate.GateId) { FontFamily = new FontFamily("Consolas") });
+            idPara.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+            idPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+            idPara.Margin = new Thickness(0, 0, 0, 4);
+            _detailDocument.Blocks.Add(idPara);
+        }
 
         // Message
         if (!string.IsNullOrWhiteSpace(gate.Message))
@@ -8699,18 +8701,69 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(msgPara);
         }
 
-        var approvalQuestions = ResolvePresentedHumanReviewQuestions(gate);
-        if (approvalQuestions.Count > 0)
+        var proofRequirements = gate.ProofRequirements ?? [];
+        var hasClarifiedReview = _durablePlan is not null && gate.HumanReviewDispositions is { Count: > 0 };
+        // With full proofs, only retain an authored gate question, not a generated restatement.
+        IReadOnlyList<string> approvalQuestions = hasClarifiedReview || proofRequirements.Count == 0
+            ? ResolvePresentedHumanReviewQuestions(gate)
+            : string.IsNullOrWhiteSpace(gate.Question) ? [] : [gate.Question];
+        if (proofRequirements.Count > 0 || approvalQuestions.Count > 0)
         {
             AddSectionHeader("Verify the Following:");
-            var questionPara = new Paragraph(new Run("• " + string.Join("\n• ", approvalQuestions))
+            var reviewList = new List { MarkerStyle = TextMarkerStyle.Disc };
+            reviewList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+            reviewList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            reviewList.Margin = new Thickness(0, 0, 0, 12);
+
+            static string NormalizeReviewText(string text) =>
+                string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+            var descriptions = proofRequirements
+                .Select(requirement => NormalizeReviewText(requirement.Description))
+                .ToArray();
+            var presentedQuestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            bool IsNewQuestion(string question) =>
+                !descriptions.Any(description => description.Contains(question, StringComparison.OrdinalIgnoreCase)) &&
+                presentedQuestions.Add(question);
+
+            foreach (var requirement in proofRequirements)
             {
-                FontWeight = FontWeights.SemiBold,
-            });
-            questionPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            questionPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            questionPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(questionPara);
+                var proofPara = new Paragraph { Margin = new Thickness(0, 0, 0, 8) };
+                var scenarioTitle = new Run(PlanHumanReviewChecklist.ResolveDisplayTitle(
+                    requirement.Title, requirement.RequirementId))
+                {
+                    FontWeight = FontWeights.Bold,
+                };
+                scenarioTitle.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                proofPara.Inlines.Add(scenarioTitle);
+                proofPara.Inlines.Add(new LineBreak());
+                proofPara.Inlines.Add(new Run(requirement.Description));
+
+                // Clarifications replace the original questions; do not revive superseded wording.
+                if (!hasClarifiedReview && !string.IsNullOrWhiteSpace(requirement.Question))
+                {
+                    foreach (var question in PlanHumanReviewChecklist.SplitLegacyQuestions(requirement.Question))
+                    {
+                        if (!IsNewQuestion(question))
+                            continue;
+                        proofPara.Inlines.Add(new LineBreak());
+                        proofPara.Inlines.Add(new Run(question));
+                    }
+                }
+                reviewList.ListItems.Add(new ListItem(proofPara));
+            }
+
+            foreach (var question in approvalQuestions
+                .Where(question => !string.IsNullOrWhiteSpace(question))
+                .SelectMany(PlanHumanReviewChecklist.SplitLegacyQuestions))
+            {
+                if (!IsNewQuestion(question))
+                    continue;
+                var questionPara = new Paragraph(new Run(question));
+                questionPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                reviewList.ListItems.Add(new ListItem(questionPara));
+            }
+            _detailDocument.Blocks.Add(reviewList);
         }
 
         // Status (color-coded)
