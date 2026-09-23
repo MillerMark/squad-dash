@@ -59,6 +59,9 @@ internal sealed record ProviderFailurePresentation(
             (context.ProviderBaseUrl ?? string.Empty).ToLowerInvariant(),
             "azure.com", "azure.net", "services.ai.azure.com") ||
             ContainsAny(normalized, "azure openai", "deploymentnotfound");
+        var isTransientManagedDeploymentFailure =
+            normalized.Contains("api deployment for this resource does not exist", StringComparison.Ordinal) &&
+            !isAzure;
 
         ProviderFailureCategory category;
         string title;
@@ -111,6 +114,13 @@ internal sealed record ProviderFailurePresentation(
             guidance = isTerminalAccountQuota
                 ? "Review the provider account's quota, credits, billing, and deployment access before retrying."
                 : "Wait for the provider's rate window to reset, reduce concurrent model work, or review the deployment's rate allocation before retrying.";
+        }
+        else if (isTransientManagedDeploymentFailure)
+        {
+            category = ProviderFailureCategory.ProviderService;
+            title = "Provider model deployment is temporarily unavailable";
+            explanation = BuildManagedDeploymentExplanation(context);
+            guidance = "Retry the operation. If the provider continues returning this error, temporarily select another available model and try again later.";
         }
         else if (normalized.Contains("deploymentnotfound", StringComparison.Ordinal) ||
                  (isAzure && HasHttpStatus(normalized, 404) &&
@@ -227,6 +237,14 @@ internal sealed record ProviderFailurePresentation(
         return model is null
             ? "The provider could not find or access the configured model."
             : $"The provider could not find or access model {model}.";
+    }
+
+    private static string BuildManagedDeploymentExplanation(ProviderFailureContext context)
+    {
+        var model = Quote(context.Model);
+        return model is null
+            ? "The provider could not route this request to its managed model deployment. This is usually a transient provider-side availability problem."
+            : $"The provider could not route this request to the managed deployment for model {model}. This is usually a transient provider-side availability problem.";
     }
 
     private static string BuildEndpointGuidance(ProviderFailureContext context)

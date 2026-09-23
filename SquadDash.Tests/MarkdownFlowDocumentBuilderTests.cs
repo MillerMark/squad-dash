@@ -185,6 +185,81 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
     }
 
     [Test]
+    public void BuildPlanDescription_RendersReadableMarkdownAndMarksHeadingLevels()
+    {
+        const string markdown =
+            "Create the shell in PlanViewerWindow.cs.\n\n" +
+            "## Observable outcome\n\n" +
+            "The **published app** remains *usable* and calls `RenderScene`.\n\n" +
+            "```csharp\nRenderScene();\n```";
+
+        var doc = MarkdownFlowDocumentBuilder.BuildPlanDescription(markdown, baseFontSize: 13.0);
+        var heading = doc.Blocks.OfType<Paragraph>()
+            .Single(block => MarkdownFlowDocumentBuilder.TryGetHeadingLevel(block, out _));
+        var proseRuns = doc.Blocks.OfType<Paragraph>()
+            .SelectMany(paragraph => paragraph.Inlines.OfType<Run>())
+            .ToArray();
+        var codeBlock = doc.Blocks.OfType<BlockUIContainer>().Single();
+        var codeTextBox = ((Grid)codeBlock.Child).Children.OfType<TextBox>().Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(MarkdownFlowDocumentBuilder.TryGetHeadingLevel(heading, out var level), Is.True);
+            Assert.That(level, Is.EqualTo(2));
+            Assert.That(string.Concat(heading.Inlines.OfType<Run>().Select(run => run.Text)),
+                Is.EqualTo("Observable outcome"));
+            Assert.That(proseRuns.Single(run => run.Text == "published app").FontWeight,
+                Is.EqualTo(FontWeights.Bold));
+            Assert.That(proseRuns.Single(run => run.Text == "usable").FontStyle,
+                Is.EqualTo(FontStyles.Italic));
+            Assert.That(proseRuns.Single(run => run.Text == "PlanViewerWindow.cs").FontFamily.Source,
+                Does.Contain("Consolas"));
+            Assert.That(proseRuns.Single(run => run.Text == "RenderScene").FontFamily.Source,
+                Does.Contain("Consolas"));
+            Assert.That(codeTextBox.Text, Is.EqualTo("RenderScene();"));
+            Assert.That(codeTextBox.Tag, Is.EqualTo("codeblock"));
+        });
+    }
+
+    [Test]
+    public void BuildPlanDescription_LegacyPlainTextRemainsOneReadableParagraph()
+    {
+        const string description = "Implement the existing behavior without Markdown.";
+
+        var doc = MarkdownFlowDocumentBuilder.BuildPlanDescription(description, baseFontSize: 13.0);
+        var paragraph = doc.Blocks.OfType<Paragraph>().Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(string.Concat(paragraph.Inlines.OfType<Run>().Select(run => run.Text)),
+                Is.EqualTo(description));
+            Assert.That(MarkdownFlowDocumentBuilder.TryGetHeadingLevel(paragraph, out _), Is.False);
+        });
+    }
+
+    [Test]
+    public void BuildPlanDescription_IncompleteMarkdownRemainsSafeAndVisible()
+    {
+        const string description = "Keep **unfinished emphasis visible.\n\n```text\npartial code";
+
+        FlowDocument? doc = null;
+        Assert.DoesNotThrow(() =>
+            doc = MarkdownFlowDocumentBuilder.BuildPlanDescription(description, baseFontSize: 13.0));
+
+        var visibleText = string.Join("\n", doc!.Blocks.Select(block => block switch
+        {
+            Paragraph paragraph => string.Concat(paragraph.Inlines.OfType<Run>().Select(run => run.Text)),
+            BlockUIContainer { Child: Grid grid } => grid.Children.OfType<TextBox>().Single().Text,
+            _ => string.Empty,
+        }));
+        Assert.Multiple(() =>
+        {
+            Assert.That(visibleText, Does.Contain("Keep **unfinished emphasis visible."));
+            Assert.That(visibleText, Does.Contain("partial code"));
+        });
+    }
+
+    [Test]
     public void BuildInbox_RendersContextualFileOrFolderLinkAndRoutesItsTarget()
     {
         string? clickedTarget = null;

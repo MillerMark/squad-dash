@@ -58,6 +58,11 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("does **not** need a separate final"));
         Assert.That(instruction, Does.Contain("`tasks[].title`"));
         Assert.That(instruction, Does.Contain("\"title\": \"Introduce the search index abstraction\""));
+        Assert.That(instruction, Does.Contain("only plan field that supports presentation Markdown"));
+        Assert.That(instruction, Does.Contain("Markdown is scoped to `tasks[].description`"));
+        Assert.That(instruction, Does.Contain("## Observable outcome"));
+        Assert.That(instruction, Does.Contain("do not wrap `contractExamples[].input` or `expectedBehavior`"));
+        Assert.That(instruction, Does.Contain("non-description fields as plain JSON strings"));
         Assert.That(instruction, Does.Contain("Never claim that a plan was staged"));
         Assert.That(instruction, Does.Contain("Submitting the plan proposal now."));
         Assert.That(instruction, Does.Contain("## STAGED_PLAN_REVISION_JSON schema"));

@@ -7055,14 +7055,17 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private static ProviderFailureContext BuildProviderFailureContext(SquadSdkEvent evt) =>
-        new(
-            evt.SessionModel ?? evt.Model,
-            evt.ProfileAlias,
-            evt.ProviderBaseUrl,
-            evt.ProviderType,
-            evt.WireApi,
+    private ProviderFailureContext BuildProviderFailureContext(SquadSdkEvent evt)
+    {
+        var activeProfile = _bridge.ActiveProfile;
+        return new ProviderFailureContext(
+            evt.SessionModel ?? evt.Model ?? activeProfile?.Model,
+            evt.ProfileAlias ?? activeProfile?.Alias,
+            evt.ProviderBaseUrl ?? activeProfile?.ProviderUrl,
+            evt.ProviderType ?? activeProfile?.ProviderType,
+            evt.WireApi ?? activeProfile?.WireApi,
             evt.RequestedModel);
+    }
 
     private void HandleSubagentCancelled(SquadSdkEvent evt)
     {
@@ -10413,7 +10416,8 @@ public partial class MainWindow : Window
                     resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
                     saveDefinitionEdit: edited => SavePendingPlanRevisionEdit(pending, edited),
                     getAssignableAgents: GetAssignablePlanAgentsForViewer,
-                    squadFolderPath: _currentWorkspace?.SquadFolderPath)
+                    squadFolderPath: _currentWorkspace?.SquadFolderPath,
+                    onDescriptionLinkClicked: HandleTranscriptLinkClick)
                 {
                     Owner = CanShowOwnedWindow() ? this : null,
                     Title = $"Proposed Plan — {latestProposedPlan.DisplayName} — Revision {latestProposedPlan.RevisionNumber}",
@@ -13268,7 +13272,8 @@ public partial class MainWindow : Window
                 _ = OpenInterruptedTaskReviewAsync(current.PlanId, current.Revision),
             onAssessInterruptedWork: current =>
                 _ = AssessInterruptedPlanAdvisoryFromDurableAsync(current),
-            squadFolderPath: _currentWorkspace?.SquadFolderPath)
+            squadFolderPath: _currentWorkspace?.SquadFolderPath,
+            onDescriptionLinkClicked: HandleTranscriptLinkClick)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };

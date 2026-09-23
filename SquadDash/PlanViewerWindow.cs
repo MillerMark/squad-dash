@@ -1,5 +1,4 @@
 using System.Linq;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -74,6 +73,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onRetryValidation;
     private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
     private readonly Func<IReadOnlyList<RosterAgent>>? _getAssignableAgents;
+    private readonly Action<string>? _onDescriptionLinkClicked;
     private PttTextBoxAttachment? _pttAttachment;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
@@ -263,7 +263,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan>? onOpenInterruptedChanges = null,
         Action<Plan>? onAssessInterruptedWork = null,
         double lineThicknessMultiplier = 1.0,
-        string? squadFolderPath = null)
+        string? squadFolderPath = null,
+        Action<string>? onDescriptionLinkClicked = null)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -320,6 +321,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onRetryValidation = onRetryValidation;
         _getSettings = getSettings;
         _getAssignableAgents = getAssignableAgents;
+        _onDescriptionLinkClicked = onDescriptionLinkClicked;
         _squadFolderPath = squadFolderPath;
         _viewportStore = new PlanVisualizerViewportStore(squadFolderPath);
         _viewportGroupId = plan.Group.GroupId;
@@ -7065,7 +7067,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var panel = CreateEditorPanel("Edit step", out var status);
         var title = AddEditorField(panel, "Title", task.Title, 34);
         _inspectorPrimaryEditor = title;
-        var description = AddEditorField(panel, "Description", task.Description, 170);
+        var description = AddEditorField(panel, "Description (Markdown supported)", task.Description, 170);
         var contractExamples = CreateContractExampleEditor(panel, task.ContractExamples);
         var priority = AddEditorField(panel, "Priority", task.Priority, 34);
         var dependencies = AddEditorField(
@@ -7506,13 +7508,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             AddSectionHeader(string.Equals(task.Status, PlanTaskStatus.Pending, StringComparison.Ordinal)
                 ? "Task Description"
                 : "Original Task Description");
-            var descPara = new Paragraph();
-            foreach (var inline in BuildDescriptionInlinesWithTaskLinks(task.Description, plan))
-                descPara.Inlines.Add(inline);
-            descPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            descPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            descPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(descPara);
+            AppendTaskDescription(task.Description, plan);
         }
 
         if (task.ContractExamples is { Count: > 0 } contractExamples)
@@ -8024,42 +8020,36 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
     }
 
-    // Matches inline task references such as "task 003", "task-007", or "Task 12" so they can be
-    // rendered as clickable "Step N" links pointing at the referenced task's actual position in the plan.
-    private static readonly Regex TaskReferenceRegex =
-        new(@"\btask[\s-]?(\d{2,4})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private IEnumerable<Inline> BuildDescriptionInlinesWithTaskLinks(string description, Plan? plan)
+    private void AppendTaskDescription(string description, Plan? plan)
     {
-        if (plan?.Tasks is not { Count: > 0 } tasks)
+        if (_detailDocument is null) return;
+
+        var bodyFontSize = Application.Current?.Resources["FontSizeBody"] is double fontSize
+            ? fontSize
+            : 12.0;
+        var rendered = MarkdownFlowDocumentBuilder.BuildPlanDescription(
+            description,
+            bodyFontSize,
+            _onDescriptionLinkClicked);
+        if (plan?.Tasks is { Count: > 0 } tasks)
+            PlanDescriptionTaskReferenceFormatter.Apply(rendered, tasks, CreateTaskLink);
+
+        foreach (var block in rendered.Blocks.Cast<Block>().ToArray())
         {
-            yield return new Run(description);
-            yield break;
+            rendered.Blocks.Remove(block);
+            block.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+            block.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+            if (MarkdownFlowDocumentBuilder.TryGetHeadingLevel(block, out var headingLevel))
+            {
+                block.SetResourceReference(TextElement.ForegroundProperty, "SectionHeader");
+                block.SetResourceReference(
+                    TextElement.FontSizeProperty,
+                    headingLevel <= 2 ? "FontSizeLargePlus" : "FontSizeLarge");
+                block.FontWeight = FontWeights.SemiBold;
+                block.Margin = new Thickness(0, headingLevel <= 2 ? 13 : 10, 0, 2);
+            }
+            _detailDocument.Blocks.Add(block);
         }
-
-        var lastIndex = 0;
-        foreach (Match match in TaskReferenceRegex.Matches(description))
-        {
-            var numberText = match.Groups[1].Value;
-            var referencedTask = tasks.FirstOrDefault(t =>
-                t.TaskId.EndsWith("-" + numberText, StringComparison.Ordinal)
-                || string.Equals(t.TaskId, numberText, StringComparison.Ordinal));
-
-            if (referencedTask is null)
-                continue;
-
-            if (match.Index > lastIndex)
-                yield return new Run(description[lastIndex..match.Index]);
-
-            var stepLabel = referencedTask.DisplayStepLabel
-                ?? (tasks.ToList().IndexOf(referencedTask) + 1).ToString();
-            yield return CreateTaskLink($"Step {stepLabel}", referencedTask.TaskId);
-
-            lastIndex = match.Index + match.Length;
-        }
-
-        if (lastIndex < description.Length)
-            yield return new Run(description[lastIndex..]);
     }
 
     private Hyperlink CreateTaskLink(string taskTitle, string taskId)

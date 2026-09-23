@@ -159,6 +159,49 @@ internal sealed class ProviderFailurePresentationTests
     }
 
     [Test]
+    public void Analyze_ManagedDeployment404WithoutAzureProfile_IsTransientServiceFailure()
+    {
+        var result = ProviderFailurePresentation.Analyze(
+            "CAPIError: 404 The API deployment for this resource does not exist. " +
+            "If you created the deployment within the last 5 minutes, please wait a moment and try again.",
+            new ProviderFailureContext(
+                Model: "claude-opus-4.8",
+                ProfileAlias: "Copilot",
+                ProviderType: "copilot"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Category, Is.EqualTo(ProviderFailureCategory.ProviderService));
+            Assert.That(result.Title, Does.Contain("temporarily unavailable"));
+            Assert.That(result.Explanation, Does.Contain("claude-opus-4.8"));
+            Assert.That(result.Guidance, Does.Contain("Retry the operation"));
+            Assert.That(result.Guidance, Does.Not.Contain("base URL").IgnoreCase);
+            Assert.That(result.Guidance, Does.Not.Contain("protocol").IgnoreCase);
+            Assert.That(result.ContextLine, Does.Contain("Profile: Copilot"));
+        });
+    }
+
+    [Test]
+    public void Analyze_ManagedDeployment404WithAzureEndpoint_RemainsConfigurationFailure()
+    {
+        var result = ProviderFailurePresentation.Analyze(
+            "CAPIError: 404 The API deployment for this resource does not exist.",
+            new ProviderFailureContext(
+                Model: "gpt-deployment",
+                ProfileAlias: "Azure",
+                ProviderBaseUrl: "https://resource.services.ai.azure.com/openai/v1",
+                ProviderType: "openai",
+                WireApi: "responses"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Category, Is.EqualTo(ProviderFailureCategory.DeploymentOrModel));
+            Assert.That(result.Title, Is.EqualTo("Azure deployment not found"));
+            Assert.That(result.Guidance, Does.Contain("exact Azure deployment name"));
+        });
+    }
+
+    [Test]
     public void Analyze_UnavailableSessionModel_ShowsActualAndRequestedModels()
     {
         var result = ProviderFailurePresentation.Analyze(

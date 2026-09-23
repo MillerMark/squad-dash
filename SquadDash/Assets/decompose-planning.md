@@ -220,6 +220,21 @@ not required. Use the exact property names below; do not substitute familiar sho
   number or repeat the task ID; for example, use `Extract WorkspaceFileWatcherCoordinator`, not
   `Phase 1A`.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
+  This is the **only plan field that supports presentation Markdown**. Use short logical paragraphs, with
+  blank lines between distinct concerns. When a description has independently meaningful sections, use
+  concise level-two headings such as `## Observable outcome`, `## Consumers`, `## Constraints`, or a
+  task-specific heading such as `## Foundation boundaries`. Use bold, italics, inline code, lists, and
+  fenced code blocks only when they materially improve readability. In the JSON string, encode paragraph
+  and block boundaries with `\n\n`; the Plan Visualizer renders the Markdown while its editor preserves the
+  exact source text.
+
+  Markdown is scoped to `tasks[].description`. Do not add presentation Markdown to `groupTitle`, `summary`,
+  task titles, agent roles, outputs, inputs, proof requirements, approval gates, validations, or any other
+  plan property. In particular, do not wrap `contractExamples[].input` or `expectedBehavior` in backticks or
+  Markdown fences: contract examples are structured fields and SquadDash renders them separately. Keep all
+  non-description fields as plain JSON strings unless that field's own protocol explicitly requires literal
+  Markdown as domain content. Markdown syntax may appear elsewhere only when the syntax itself is the exact
+  normative input being specified, not as presentation formatting.
 - `tasks[].contractExamples`: optional list of compact examples that clarify or reinforce the intended
   design, reduce likely implementation drift, or materially define correctness. Include a grounded example
   whenever it would help the user approve the design or help an executing or verifying agent stay aligned;
@@ -498,7 +513,7 @@ TASKS_JSON:
     {
       "id": "SEARCH-20260725-001",
       "title": "Introduce the search index abstraction",
-      "description": "Introduce ISearchIndex and InMemorySearchIndex so that document indexing has a testable seam. Observable outcome: unit tests pass proving the in-memory implementation indexes and queries documents. Production consumer: task 002 will call ISearchIndex from the existing indexing path.",
+      "description": "Introduce ISearchIndex and InMemorySearchIndex so that document indexing has a testable seam.\n\n## Observable outcome\n\nUnit tests pass proving the in-memory implementation indexes and queries documents.\n\n## Consumers\n\nTask 002 will call ISearchIndex from the existing indexing path.",
       "dependsOn": [],
       "priority": "high",
       "executionMode": "implementation",
@@ -509,7 +524,7 @@ TASKS_JSON:
     {
       "id": "SEARCH-20260725-002",
       "title": "Move document indexing behind ISearchIndex",
-      "description": "Replace the direct indexing call in DocumentIndexer.IndexAll with ISearchIndex.Add, and add integration tests proving existing indexing behavior is preserved. Observable outcome: the integration test suite passes and DocumentIndexer no longer references the old IndexWriter directly. Production consumer: SearchPanel.Query (wired in task 003) will read from ISearchIndex.",
+      "description": "Replace the direct indexing call in DocumentIndexer.IndexAll with ISearchIndex.Add, and add integration tests proving existing indexing behavior is preserved.\n\n## Observable outcome\n\nThe integration test suite passes and DocumentIndexer no longer references the old IndexWriter directly.\n\n## Consumers\n\nSearchPanel.Query, wired in task 003, will read from ISearchIndex.",
       "contractExamples": [
         {
           "exampleId": "index-through-contract",
@@ -530,7 +545,7 @@ TASKS_JSON:
     {
       "id": "SEARCH-20260725-003",
       "title": "Migrate the search UI to ISearchIndex",
-      "description": "Update SearchPanel to call ISearchIndex.Query, remove the superseded direct indexing path, and add or update the focused SearchIntegration coverage in the same task. Observable outcome: typing a query in the search panel returns matching documents from the ISearchIndex-backed path, proven by `dotnet test --filter SearchIntegration` exercising SearchPanel → ISearchIndex → InMemorySearchIndex → document results.",
+      "description": "Update SearchPanel to call ISearchIndex.Query, remove the superseded direct indexing path, and add or update the focused SearchIntegration coverage in the same task.\n\n## Observable outcome\n\nTyping a query in the search panel returns matching documents from the ISearchIndex-backed path, proven by `dotnet test --filter SearchIntegration` exercising SearchPanel → ISearchIndex → InMemorySearchIndex → document results.\n\n## Consumers\n\nThe production search panel and its focused integration coverage consume the completed path.",
       "dependsOn": ["SEARCH-20260725-002"],
       "priority": "mid",
       "executionMode": "implementation",

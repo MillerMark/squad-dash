@@ -33,6 +33,8 @@ internal static class InlineCodeIdentifierParser
 internal static class MarkdownFlowDocumentBuilder {
     internal const double OrderedListItemTopSpacingScale = 0.75;
 
+    private sealed record HeadingMetadata(int Level);
+
     private static readonly Brush DefaultForegroundBrush    = new SolidColorBrush(Color.FromRgb(0x32, 0x2A, 0x23));
     private static readonly Brush DefaultQuoteFillBrush     = new SolidColorBrush(Color.FromRgb(0xF6, 0xF1, 0xE8));
     private static readonly Brush DefaultQuoteBorderBrush   = new SolidColorBrush(Color.FromRgb(0xD5, 0xCA, 0xBA));
@@ -57,6 +59,30 @@ internal static class MarkdownFlowDocumentBuilder {
         Action<string>? onLinkClicked = null) =>
         BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true,
             copyableCodeBlocks: true, onLinkClicked);
+
+    /// <summary>
+    /// Builds the Markdown subset supported inside a plan task description. The caller may move
+    /// the returned blocks into the Plan Visualizer's existing detail document and use
+    /// <see cref="TryGetHeadingLevel"/> to apply plan-specific heading resources.
+    /// </summary>
+    public static FlowDocument BuildPlanDescription(
+        string markdown,
+        double baseFontSize = 0,
+        Action<string>? onLinkClicked = null) =>
+        BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true,
+            copyableCodeBlocks: true, onLinkClicked);
+
+    internal static bool TryGetHeadingLevel(Block block, out int level)
+    {
+        if (block.Tag is HeadingMetadata metadata)
+        {
+            level = metadata.Level;
+            return true;
+        }
+
+        level = 0;
+        return false;
+    }
 
     /// <summary>
     /// Adds Inbox-style inline content to an existing WPF text surface. Explicit backtick spans
@@ -294,6 +320,7 @@ internal static class MarkdownFlowDocumentBuilder {
 
         var paragraph = new Paragraph {
             Margin = new Thickness(0, level == 1 ? 4 : 10, 0, 6),
+            Tag = new HeadingMetadata(level),
         };
         if (styleCodeIdentifiers)
         {

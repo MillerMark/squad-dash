@@ -6,7 +6,7 @@ internal sealed class PlanningSpecialistInstructionsTests
     [Test]
     public void LoadCharter_DefinesCreationRevisionAndNonImplementationContracts()
     {
-        var charter = PlanningSpecialistInstructions.LoadCharter();
+        var charter = PlanningSpecialistInstructions.LoadCharter().ReplaceLineEndings("\n");
 
         Assert.Multiple(() =>
         {
@@ -42,6 +42,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("Calibrate detail to the approval decision"));
             Assert.That(charter, Does.Contain("number of tests"));
             Assert.That(charter, Does.Contain("bounded execution contract"));
+            Assert.That(charter, Does.Contain("only `tasks[].description` as presentation Markdown"));
+            Assert.That(charter, Does.Contain("Keep every other plan property plain text"));
+            Assert.That(charter, Does.Contain("Never add backticks or fences to structured"));
             Assert.That(charter, Does.Contain("least-complex complete outcome"));
             Assert.That(charter, Does.Contain("minimum\n  viable implementation relative to the full request"));
             Assert.That(charter, Does.Contain("deterministic host behavior"));

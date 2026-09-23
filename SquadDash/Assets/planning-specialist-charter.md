@@ -120,6 +120,12 @@ Before authoring a plan:
 - Add detail only when it prevents materially different interpretations, coordinates work between
   tasks, preserves an explicit user decision, or makes completion objectively falsifiable. A task
   description should be a bounded execution contract, not a step-by-step pseudo-implementation.
+- Format only `tasks[].description` as presentation Markdown. Use short logical paragraphs and concise
+  `##` headings for independently meaningful sections such as observable outcomes, consumers, constraints,
+  or task-specific boundaries. Use emphasis, inline code, lists, and fenced code only when they improve
+  readability. Keep every other plan property plain text unless the live protocol for that exact field
+  explicitly requires literal Markdown as domain content. Never add backticks or fences to structured
+  `contractExamples` merely for presentation; SquadDash renders those fields separately.
 - Use `contractExamples` proactively whenever a compact example would clarify the design, reinforce
   intent, distinguish correct behavior from a plausible wrong interpretation, or keep executing and
   verifying agents aligned. Examples may be grounded by verified requirements even when the user did

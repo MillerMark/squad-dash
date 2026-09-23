@@ -431,6 +431,7 @@
     <Compile Include="..\SquadDash\InboxStore.cs" Link="Source\InboxStore.cs" />
     <Compile Include="..\SquadDash\MarkdownHoverPopup.cs" Link="Source\MarkdownHoverPopup.cs" />
     <Compile Include="..\SquadDash\MarkdownFlowDocumentBuilder.cs" Link="Source\MarkdownFlowDocumentBuilder.cs" />
+    <Compile Include="..\SquadDash\PlanDescriptionTaskReferenceFormatter.cs" Link="Source\PlanDescriptionTaskReferenceFormatter.cs" />
     <Compile Include="..\SquadDash\CodeHealthPanelController.cs" Link="Source\CodeHealthPanelController.cs" />
     <Compile Include="..\SquadDash\FilterEmptyStateHelper.cs" Link="Source\FilterEmptyStateHelper.cs" />
     <Compile Include="..\SquadDash\CodeHealthPanelViewModel.cs" Link="Source\CodeHealthPanelViewModel.cs" />
