@@ -6,6 +6,40 @@ namespace SquadDash.Tests;
 internal sealed class DecomposeStepResultParserTests
 {
     [Test]
+    public void StructuredTestCounts_AreAcceptedWhenArithmeticIsExact()
+    {
+        var text = DecomposeStepResultParser.Marker + "\n" + """
+            {
+              "groupId":"PLAN-1","taskId":"TASK-1","revision":"rev-1",
+              "status":"complete","completionKind":"changed","commit":"abc1234",
+              "summary":"Done.","remainingWork":[],
+              "verification":{"status":"passed","command":"dotnet test","summary":"All passed.",
+                "tests":{"total":780,"passed":780,"failed":0,"skipped":0}}
+            }
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out var result, out var error), Is.True, error);
+        Assert.That(result?.Verification?.Tests?.Passed, Is.EqualTo(780));
+    }
+
+    [Test]
+    public void StructuredTestCounts_AreRejectedWhenArithmeticIsInconsistent()
+    {
+        var text = DecomposeStepResultParser.Marker + "\n" + """
+            {
+              "groupId":"PLAN-1","taskId":"TASK-1","revision":"rev-1",
+              "status":"complete","completionKind":"changed","commit":"abc1234",
+              "summary":"Done.","remainingWork":[],
+              "verification":{"status":"passed","command":"dotnet test","summary":"All passed.",
+                "tests":{"total":780,"passed":779,"failed":0,"skipped":0}}
+            }
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("total must equal passed plus failed plus skipped"));
+    }
+
+    [Test]
     public void CompleteResult_WithCommitAndPassedVerification_Parses()
     {
         var text = """

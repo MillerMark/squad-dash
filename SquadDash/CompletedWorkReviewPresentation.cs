@@ -62,18 +62,7 @@ internal static class CompletedWorkReviewPresentationBuilder
 
         var changedFiles = evidence.ChangedFiles ?? plan.InterruptionData?.AffectedPaths ?? [];
 
-        string? testSummary = null;
-        if (evidence.Verification is { } verification)
-        {
-            var parts = new List<string>();
-            if (!string.IsNullOrWhiteSpace(verification.Status))
-                parts.Add(string.Equals(verification.Status, "passed", StringComparison.OrdinalIgnoreCase)
-                    ? "Tests passed"
-                    : $"Tests {verification.Status}");
-            if (!string.IsNullOrWhiteSpace(verification.Summary))
-                parts.Add(verification.Summary);
-            testSummary = parts.Count > 0 ? string.Join(" — ", parts) : null;
-        }
+        var testSummary = BuildVerificationSummary(evidence.Verification);
 
         var downstream = FindDownstreamTasks(plan, taskId);
 
@@ -91,18 +80,8 @@ internal static class CompletedWorkReviewPresentationBuilder
             taskTitle);
         var shortCommit = ShortSha(evidence.Commit);
         var evidenceParts = new List<string> { $"Commit {shortCommit}" };
-        if (changedFiles.Count > 0)
-            evidenceParts.Add($"{changedFiles.Count} changed {(changedFiles.Count == 1 ? "file" : "files")}");
-        if (evidence.Verification is { } reportedVerification)
-        {
-            var reportedStatus = string.Equals(
-                reportedVerification.Status, "passed", StringComparison.OrdinalIgnoreCase)
-                ? "worker-reported checks passed"
-                : $"worker-reported checks: {reportedVerification.Status}";
-            evidenceParts.Add(string.IsNullOrWhiteSpace(reportedVerification.Summary)
-                ? reportedStatus
-                : $"{reportedStatus} — {reportedVerification.Summary.Trim().TrimEnd('.')}");
-        }
+        if (!string.IsNullOrWhiteSpace(testSummary))
+            evidenceParts.Add(testSummary);
 
         var matchingReview = task?.VerificationHistory?.LastOrDefault(report =>
             string.Equals(report.EvaluatedCommit, evidence.Commit, StringComparison.OrdinalIgnoreCase));
@@ -114,7 +93,7 @@ internal static class CompletedWorkReviewPresentationBuilder
                 "Automated review could not decide; the remaining question requires human judgment.",
             PlanTaskVerificationVerdict.ReworkRequired =>
                 "Independent review found work that still needs correction.",
-            _ => "Independent completion review did not finish, so the step remains unconfirmed.",
+            _ => "The step was not recorded as complete.",
         };
         var stopReason = plan.InterruptionData?.Reason ?? "Plan execution stopped unexpectedly.";
         var technicalDetailLines = new List<string>();
@@ -169,6 +148,26 @@ internal static class CompletedWorkReviewPresentationBuilder
             review.TechnicalDetails,
         }.Where(line => !string.IsNullOrWhiteSpace(line)));
 
+    internal static string BuildCompactCopyText(CompletedWorkReviewPresentation review)
+    {
+        var lines = new List<string>();
+        if (review.Commit is not null)
+        {
+            lines.Add(string.IsNullOrWhiteSpace(review.TestSummary)
+                ? $"Commit {review.Commit.ShortSha}"
+                : $"Commit {review.Commit.ShortSha} · {review.TestSummary}");
+        }
+        if (review.ChangedFiles.Count > 0)
+        {
+            lines.Add(string.Empty);
+            lines.Add($"Changed files ({review.ChangedFiles.Count})");
+            lines.AddRange(review.ChangedFiles.Take(8).Select(path => $"• {GetChangedFileDisplayName(path)}"));
+            if (review.ChangedFiles.Count > 8)
+                lines.Add($"… and {review.ChangedFiles.Count - 8} more");
+        }
+        return string.Join(Environment.NewLine, lines);
+    }
+
     internal static string GetChangedFileDisplayName(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return path;
@@ -177,6 +176,24 @@ internal static class CompletedWorkReviewPresentationBuilder
         return separator >= 0 && separator < normalized.Length - 1
             ? normalized[(separator + 1)..]
             : normalized;
+    }
+
+    internal static string? BuildVerificationSummary(DecomposeStepVerification? verification)
+    {
+        if (verification is null) return null;
+        if (string.Equals(verification.Status, "passed", StringComparison.OrdinalIgnoreCase) &&
+            verification.Tests is { } tests)
+        {
+            return tests.Skipped > 0
+                ? $"Tests passed: {tests.Passed} · Skipped: {tests.Skipped}"
+                : $"Tests passed: {tests.Passed}";
+        }
+
+        return string.Equals(verification.Status, "passed", StringComparison.OrdinalIgnoreCase)
+            ? "Verification passed"
+            : string.IsNullOrWhiteSpace(verification.Status)
+                ? null
+                : $"Verification status: {verification.Status.Trim()}";
     }
 
     private static bool AreEquivalentNarratives(string left, string right)
@@ -212,18 +229,6 @@ internal static class CompletedWorkReviewPresentationBuilder
 
     private static string BuildAcceptanceEffect(string taskTitle, IReadOnlyList<string> downstream)
     {
-        var effect = $"Accepting marks \"{taskTitle}\" as complete based on the committed evidence.";
-        if (downstream.Count > 0)
-        {
-            var names = string.Join(", ", downstream.Select(d => $"\"{d}\""));
-            effect += $" This unblocks {downstream.Count} downstream " +
-                      (downstream.Count == 1 ? "task" : "tasks") +
-                      $": {names}.";
-        }
-        else
-        {
-            effect += " The plan will continue to the next eligible task.";
-        }
-        return effect;
+        return "Verify this step is complete to continue the plan.";
     }
 }

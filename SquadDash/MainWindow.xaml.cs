@@ -13271,8 +13271,6 @@ public partial class MainWindow : Window
             resolveInterruptedPrimaryAction: ResolveInterruptedPrimaryAction,
             onOpenInterruptedChanges: current =>
                 _ = OpenInterruptedTaskReviewAsync(current.PlanId, current.Revision),
-            onAssessInterruptedWork: current =>
-                _ = AssessInterruptedPlanAdvisoryFromDurableAsync(current),
             squadFolderPath: _currentWorkspace?.SquadFolderPath,
             onDescriptionLinkClicked: HandleTranscriptLinkClick)
         {
@@ -14560,7 +14558,8 @@ public partial class MainWindow : Window
                 revision,
                 $"SquadDash rejected the step result after repair attempt: {error ?? "no result was returned"}",
                 taskCommitEvidence,
-                pendingAcceptance);
+                pendingAcceptance,
+                PlanAttentionCategory.AutomaticWorkExhausted);
             return;
         }
 
@@ -14705,7 +14704,13 @@ public partial class MainWindow : Window
                     PendingRepairResult = null,
                 });
             LoadTasksPanel();
-            StopAndOfferDecomposeRecovery(groupId, taskId, revision, result.Summary, taskCommitEvidence);
+            StopAndOfferDecomposeRecovery(
+                groupId,
+                taskId,
+                revision,
+                result.Summary,
+                taskCommitEvidence,
+                attentionCategory: PlanAttentionCategory.AutomaticWorkExhausted);
             return;
         }
 
@@ -14951,7 +14956,8 @@ public partial class MainWindow : Window
             taskId,
             pending.Revision,
             humanReviewReason,
-            commitEvidence);
+            commitEvidence,
+            attentionCategory: PlanAttentionCategory.AutomaticWorkExhausted);
     }
 
     private async Task AcceptVerifiedTaskAsync(
@@ -15690,7 +15696,9 @@ public partial class MainWindow : Window
         string revision,
         string reason,
         PlanTaskCommitEvidence? taskCommitEvidence = null,
-        PlanWorkCompletePendingAcceptance? workCompletePendingAcceptance = null)
+        PlanWorkCompletePendingAcceptance? workCompletePendingAcceptance = null,
+        string attentionCategory = PlanAttentionCategory.UnexpectedState,
+        string? attentionSummary = null)
     {
         SuppressLoopResume("plan-blocked");
         _loopController.RequestStop();
@@ -15699,7 +15707,13 @@ public partial class MainWindow : Window
         // transcript or Inbox actions. The UI must describe the durable state it will operate on.
         TryPublishPlanBlocked(groupId, taskId);
         TryPublishPlanInterrupted(
-            groupId, taskId, reason, taskCommitEvidence, workCompletePendingAcceptance);
+            groupId,
+            taskId,
+            reason,
+            taskCommitEvidence,
+            workCompletePendingAcceptance,
+            attentionCategory,
+            attentionSummary);
         ScheduleDecomposeSystemEntry(
             PlanRecoveryPresentationBuilder.BuildStatusMessage(taskCommitEvidence is not null),
             groupId,
@@ -19130,6 +19144,18 @@ public partial class MainWindow : Window
             item => item.ItemId,
             item => item.IsChecked,
             StringComparer.Ordinal);
+        var attentionCard = durablePlan is null
+            ? new PlanAttentionCardPresentation(
+                PlanAttentionCategory.UnexpectedState,
+                "Unexpected State Encountered",
+                "SquadDash encountered an unexpected state and stopped the plan to preserve its current work.",
+                "The durable plan record is unavailable.",
+                ShowDiagnosticsActions: true)
+            : PlanAttentionCardPresentationBuilder.Build(
+                durablePlan,
+                taskId,
+                humanReview,
+                humanChecklistItems.Length > 0);
         Action refreshHumanReviewActions = () => { };
         var panel = new WrapPanel { Orientation = Orientation.Horizontal };
         var cardDocument = new FlowDocument
@@ -19224,8 +19250,8 @@ public partial class MainWindow : Window
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
             durableTask?.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
             taskTitle);
-        var cardTitle = humanReview?.Title ?? completedWorkReview?.Heading ?? "Plan Recovery Required";
-        var titleParagraph = CreateTranscriptParagraph(bottomMargin: 7);
+        var cardTitle = attentionCard.Title;
+        var titleParagraph = CreateTranscriptParagraph(bottomMargin: 9);
         titleParagraph.FontSize = _transcriptFontSize + 2;
         var titleRun = new Run(cardTitle) { FontWeight = FontWeights.SemiBold };
         titleRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
@@ -19247,7 +19273,7 @@ public partial class MainWindow : Window
         planLinkParagraph.Inlines.Add(planLink);
         blocks.Add(planLinkParagraph);
 
-        var taskParagraph = CreateTranscriptParagraph(bottomMargin: 7);
+        var taskParagraph = CreateTranscriptParagraph(bottomMargin: 11);
         var stepRun = new Run(stepLabel + ": ");
         stepRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
         taskParagraph.Inlines.Add(stepRun);
@@ -19258,6 +19284,29 @@ public partial class MainWindow : Window
         blocks.Add(taskParagraph);
         copyParts.Add($"Plan: {plan.Group.GroupTitle}");
         copyParts.Add($"{stepLabel}: {taskTitle}");
+
+        var explanationParagraph = CreateTranscriptParagraph(bottomMargin: 8);
+        var explanationRun = new Run(attentionCard.Explanation);
+        explanationRun.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        explanationParagraph.Inlines.Add(explanationRun);
+        blocks.Add(explanationParagraph);
+        copyParts.Add(string.Empty);
+        copyParts.Add(attentionCard.Explanation);
+
+        var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 11);
+        var reasonLabel = new Run(attentionCard.Category == PlanAttentionCategory.HumanVerificationRequired
+            ? "Human check: "
+            : "What happened: ");
+        reasonLabel.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        reasonParagraph.Inlines.Add(reasonLabel);
+        var reasonRun = new Run(CommitReferenceText.Shorten(attentionCard.RecordedReason));
+        reasonRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        reasonParagraph.Inlines.Add(reasonRun);
+        blocks.Add(reasonParagraph);
+        copyParts.Add(string.Empty);
+        copyParts.Add((attentionCard.Category == PlanAttentionCategory.HumanVerificationRequired
+            ? "Human check: "
+            : "What happened: ") + CommitReferenceText.Shorten(attentionCard.RecordedReason));
 
         if (humanChecklistItems.Length > 0)
         {
@@ -19453,23 +19502,6 @@ public partial class MainWindow : Window
             }
             blocks.Add(analysisList);
         }
-        else if (completedWorkReview is null &&
-                 PlanRecoveryPresentationBuilder.ShouldShowGenericReason(assessmentEvidence))
-        {
-            var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(
-                durablePlan?.InterruptionData?.Reason);
-            var provenance = durablePlan is null ? null :
-                PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(durablePlan, taskId);
-            if (provenance is not null)
-                compactReason = provenance + "\n\n" + compactReason;
-            var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 6);
-            var reasonLabel = new Run("Why it stopped: ") { FontWeight = FontWeights.SemiBold };
-            reasonLabel.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-            reasonParagraph.Inlines.Add(reasonLabel);
-            AddImportantRecoveryText(reasonParagraph.Inlines, compactReason);
-            blocks.Add(reasonParagraph);
-            copyParts.Add("Why it stopped: " + CommitReferenceText.Shorten(compactReason));
-        }
 
         if (completedWorkReview is not null)
         {
@@ -19478,10 +19510,26 @@ public partial class MainWindow : Window
                 completedWorkReview,
                 durablePlan!.PlanId,
                 durablePlan.Revision);
-            copyParts.Add(CompletedWorkReviewPresentationBuilder.BuildCopyText(
-                completedWorkReview,
-                includeHeading: false));
+            copyParts.Add(CompletedWorkReviewPresentationBuilder.BuildCompactCopyText(
+                completedWorkReview));
         }
+
+        var decisionPrompt = attentionCard.Category switch
+        {
+            PlanAttentionCategory.HumanVerificationRequired =>
+                "Verify this step is complete to continue the plan.",
+            PlanAttentionCategory.AutomaticWorkExhausted =>
+                "Choose whether to try again, revise the remaining plan, accept preserved work when available, or stop.",
+            _ => "Continue from the preserved work or copy the diagnostic report for investigation.",
+        };
+        var decisionParagraph = CreateTranscriptParagraph(bottomMargin: 10);
+        decisionParagraph.Margin = new Thickness(0, 9, 0, 10);
+        var decisionRun = new Run(decisionPrompt);
+        decisionRun.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+        decisionParagraph.Inlines.Add(decisionRun);
+        blocks.Add(decisionParagraph);
+        copyParts.Add(string.Empty);
+        copyParts.Add(decisionPrompt);
 
         var recoveryTechnicalDetails = completedWorkReview?.TechnicalDetails ??
             durablePlan?.InterruptionData?.Reason;
@@ -19509,8 +19557,7 @@ public partial class MainWindow : Window
             blocks.Add(TranscriptCardLayout.CreateContainer(
                 technicalDetails,
                 margin: new Thickness(0)));
-            if (completedWorkReview is null)
-                copyParts.Add("Technical details:" + Environment.NewLine + recoveryTechnicalDetails);
+            copyParts.Add("Technical details:" + Environment.NewLine + recoveryTechnicalDetails);
         }
         var hasPreservedWork = string.Equals(_decomposeContinuationTaskId, taskId, StringComparison.Ordinal) &&
                                _decomposeContinuationPaths.Count > 0;
@@ -19539,6 +19586,94 @@ public partial class MainWindow : Window
                     : $"Compare the current branch with the plan branch '{durablePlan.Branch}', then choose whether to " +
                       "bring current work into the plan or switch while preserving it separately.",
                 async () => await RestorePlanBranchAndResumeAsync(durablePlan));
+            blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
+            ScrollToEndIfAtBottom(CoordinatorThread);
+            return;
+        }
+
+        if (attentionCard.Category == PlanAttentionCategory.UnexpectedState)
+        {
+            if (completedWorkReview is not null && durablePlan is not null)
+            {
+                AddNavigationLink(
+                    completedWorkReview.ComparisonLabel,
+                    completedWorkReview.ComparisonHint,
+                    () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
+            }
+            AddAsyncAction(
+                $"Continue Working on {stepLabel}",
+                "Continue from the preserved repository state without discarding existing commits or repeating completed work.",
+                async () =>
+                {
+                    if (primaryRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.ResumeVerification)
+                        await AssessPlanRecoveryAsync(plan, taskId);
+                    else
+                        await RetryDecomposeTaskAsync(plan, taskId);
+                });
+            AddUtilityAction(
+                "Copy Diagnostic Report",
+                "Copy the plan identity, recorded error, and technical details for a SquadDash issue report.",
+                () => SetClipboardTextWithRetry(
+                    PlanAttentionCardPresentationBuilder.BuildCopyText(
+                        attentionCard,
+                        plan.Group.GroupTitle,
+                        stepLabel,
+                        taskTitle,
+                        recoveryTechnicalDetails)));
+            AddUtilityAction(
+                "Open Logs",
+                "Open the live SquadDash trace so the unexpected state can be investigated.",
+                ShowTraceWindow);
+            if (durablePlan is not null)
+            {
+                AddAction(
+                    "Stop Plan",
+                    "Stop this incomplete plan without discarding its history or repository work.",
+                    () => EndInterruptedPlan(_planStore?.Load(durablePlan.PlanId) ?? durablePlan),
+                    tone: QuickReplyTone.Destructive);
+            }
+            blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
+            ScrollToEndIfAtBottom(CoordinatorThread);
+            return;
+        }
+
+        if (attentionCard.Category == PlanAttentionCategory.AutomaticWorkExhausted)
+        {
+            if (completedWorkReview is not null && durablePlan is not null)
+            {
+                AddNavigationLink(
+                    completedWorkReview.ComparisonLabel,
+                    completedWorkReview.ComparisonHint,
+                    () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
+            }
+            if (durablePlan is not null &&
+                primaryRecoveryAction?.Kind is PlanRecoveryPrimaryActionKind.AcceptStep or
+                    PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
+                    PlanRecoveryPrimaryActionKind.ApproveAmendment)
+            {
+                AddAsyncResultAction(
+                    primaryRecoveryAction.Label,
+                    primaryRecoveryAction.Hint,
+                    async () => await AcceptInterruptedStepAfterReviewAsync(
+                        _planStore?.Load(durablePlan.PlanId) ?? durablePlan));
+            }
+            AddAsyncAction(
+                PlanTaskExecutionPolicy.IsVerificationOnly(durableTask) ? "Try Verification Again" : "Try Again",
+                "Start one new bounded attempt from the preserved repository state.",
+                async () => await RetryDecomposeTaskAsync(plan, taskId));
+            AddAction(
+                "✎ Revise Remaining Plan…",
+                "Create an editable replanning prompt with protected plan context attached.",
+                () => QueueDecomposeReplan(plan, taskId),
+                removeAfterAction: false);
+            if (durablePlan is not null)
+            {
+                AddAction(
+                    "Stop Plan",
+                    "Stop this incomplete plan without discarding its history or repository work.",
+                    () => EndInterruptedPlan(_planStore?.Load(durablePlan.PlanId) ?? durablePlan),
+                    tone: QuickReplyTone.Destructive);
+            }
             blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
             ScrollToEndIfAtBottom(CoordinatorThread);
             return;
@@ -19625,7 +19760,6 @@ public partial class MainWindow : Window
                 assessmentPresentation.Recommendation);
             blocks.Add(assessmentRecommendation);
 
-            AddAssessmentAction(assessmentEvidence);
             if (!string.Equals(
                     assessmentEvidence.CompletionKind,
                     DecomposeStepCompletionKind.VerifiedNoOp,
@@ -19733,9 +19867,6 @@ public partial class MainWindow : Window
                 : $"Use the commit link above to investigate. Confirming {stepLabel} also approves the human checkpoint above.";
             AddRecoveryRecommendationText(recommendation.Inlines, recommendationText);
             blocks.Add(recommendation);
-
-            if (assessmentEvidence is null)
-                AddAssessmentAction(previousAssessment: null);
 
         }
 
@@ -19940,53 +20071,6 @@ public partial class MainWindow : Window
             inlines.Add(importantText);
         }
 
-        void AddAssessmentAction(PlanRecoveryDecisionEvidence? previousAssessment)
-        {
-            var assessmentPanel = new WrapPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Visibility = previousAssessment is null ? Visibility.Visible : Visibility.Collapsed,
-            };
-            cardTag.RegisterActionSurface(assessmentPanel);
-            var label = previousAssessment is null ? "Assess with AI" : "Reassess with AI";
-            var button = TranscriptQuickReplyFactory.CreateButton(
-                label,
-                _transcriptFontSize,
-                toolTip: ToolTipHelper.MakeThemedToolTip(
-                    "Request a quick, read-only recommendation for the current repository state. " +
-                    "The plan stays stopped and you make the decision."));
-            button.Click += async (_, _) =>
-            {
-                cardTag.SetActionsEnabled(false);
-                button.Content = "Assessing with AI…";
-                PrepareForHostRecoveryAction();
-                try
-                {
-                    await AssessPlanRecoveryAsync(plan, taskId, advisoryOnly: true);
-                }
-                catch (Exception ex)
-                {
-                    button.Content = label;
-                    cardTag.SetActionsEnabled(true);
-                    HandleUiCallbackException("Assess plan recovery", ex);
-                }
-            };
-            assessmentPanel.Children.Add(button);
-            blocks.Add(TranscriptCardLayout.CreateContainer(
-                assessmentPanel,
-                margin: new Thickness(0, 0, 0, 4)));
-
-            if (previousAssessment is not null && durablePlan is not null)
-            {
-                _ = ShowRecoveryReassessmentWhenStaleAsync(
-                    durablePlan.PlanId,
-                    durablePlan.Revision,
-                    taskId,
-                    previousAssessment.AssessedAt,
-                    assessmentPanel);
-            }
-        }
-
         Button AddAction(
             string label,
             string hint,
@@ -20006,6 +20090,17 @@ public partial class MainWindow : Window
                 PrepareForHostRecoveryAction();
                 action();
             };
+            panel.Children.Add(button);
+            return button;
+        }
+
+        Button AddUtilityAction(string label, string hint, Action action)
+        {
+            var button = TranscriptQuickReplyFactory.CreateButton(
+                label,
+                _transcriptFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip(hint));
+            button.Click += (_, _) => action();
             panel.Children.Add(button);
             return button;
         }
@@ -20150,31 +20245,35 @@ public partial class MainWindow : Window
         string planId,
         string planRevision)
     {
-        var outcomeParagraph = CreateTranscriptParagraph(bottomMargin: 3);
-        var outcomeRun = new Run(review.Outcome);
-        outcomeRun.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-        outcomeParagraph.Inlines.Add(outcomeRun);
-        blocks.Add(outcomeParagraph);
-
-        var evidenceParagraph = CreateTranscriptParagraph(bottomMargin: 3);
-        var evidenceRun = new Run(review.EvidenceSummary) { FontWeight = FontWeights.SemiBold };
-        evidenceRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
-        evidenceParagraph.Inlines.Add(evidenceRun);
-        blocks.Add(evidenceParagraph);
-
-        var uncertaintyParagraph = CreateTranscriptParagraph(bottomMargin: 4);
-        var uncertaintyRun = new Run(review.Uncertainty);
-        uncertaintyRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-        uncertaintyParagraph.Inlines.Add(uncertaintyRun);
-        blocks.Add(uncertaintyParagraph);
+        if (review.Commit is not null)
+        {
+            var evidenceParagraph = CreateTranscriptParagraph(bottomMargin: 4);
+            var commitLink = new Hyperlink(new Run(review.Commit.ShortSha))
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip("Open the complete commit review"),
+            };
+            commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            commitLink.Click += (_, _) => _ = OpenInterruptedTaskReviewAsync(planId, planRevision);
+            evidenceParagraph.Inlines.Add(commitLink);
+            if (!string.IsNullOrWhiteSpace(review.TestSummary))
+            {
+                var separator = new Run(" · ");
+                separator.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                evidenceParagraph.Inlines.Add(separator);
+                var verification = new Run(review.TestSummary);
+                verification.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
+                evidenceParagraph.Inlines.Add(verification);
+            }
+            blocks.Add(evidenceParagraph);
+        }
 
         if (review.ChangedFiles.Count > 0)
         {
             var filesHeader = CreateTranscriptParagraph(bottomMargin: 2);
-            filesHeader.Margin = new Thickness(12, 4, 0, 2);
-            var filesRun = new Run($"Changed files ({review.ChangedFiles.Count}):")
-                { FontWeight = FontWeights.SemiBold };
-            filesRun.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+            filesHeader.Margin = new Thickness(0, 9, 0, 2);
+            var filesRun = new Run($"Changed files ({review.ChangedFiles.Count})");
+            filesRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
             filesHeader.Inlines.Add(filesRun);
             blocks.Add(filesHeader);
 
@@ -20206,20 +20305,17 @@ public partial class MainWindow : Window
             {
                 var moreParagraph = CreateTranscriptParagraph(bottomMargin: 2);
                 moreParagraph.Margin = new Thickness(24, 0, 0, 2);
-                var moreRun = new Run($"… and {review.ChangedFiles.Count - maxFiles} more");
-                moreRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-                moreParagraph.Inlines.Add(moreRun);
+                var moreLink = new Hyperlink(new Run($"… and {review.ChangedFiles.Count - maxFiles} more"))
+                {
+                    Cursor = Cursors.Hand,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip("Open all changed files in the commit review"),
+                };
+                moreLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+                moreLink.Click += (_, _) => _ = OpenInterruptedTaskReviewAsync(planId, planRevision);
+                moreParagraph.Inlines.Add(moreLink);
                 blocks.Add(moreParagraph);
             }
         }
-
-        var effectParagraph = CreateTranscriptParagraph(bottomMargin: 3);
-        effectParagraph.Margin = new Thickness(12, 2, 0, 3);
-        var effectRun = new Run(review.AcceptanceEffect);
-        effectRun.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-        effectParagraph.Inlines.Add(effectRun);
-        blocks.Add(effectParagraph);
-
     }
 
     private sealed record PendingPlanRecoveryAssessment(
@@ -20255,35 +20351,6 @@ public partial class MainWindow : Window
             throw new InvalidOperationException("SquadDash cannot identify the interrupted task to assess.");
         await AssessPlanRecoveryAsync(PendingDecomposePlanAdapter.FromPlan(plan), taskId);
         return true;
-    }
-
-    private async Task AssessInterruptedPlanAdvisoryFromDurableAsync(Plan plan)
-    {
-        string? taskId = null;
-        try
-        {
-            taskId = plan.InterruptionData?.InterruptedTaskId
-                ?? plan.Progress.ExecutingTaskId
-                ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
-            if (string.IsNullOrWhiteSpace(taskId))
-                throw new InvalidOperationException("SquadDash cannot identify the interrupted task to assess.");
-
-            await AssessPlanRecoveryAsync(
-                PendingDecomposePlanAdapter.FromPlan(plan),
-                taskId,
-                advisoryOnly: true);
-        }
-        catch (Exception ex)
-        {
-            if (!string.IsNullOrWhiteSpace(taskId) && _pendingPlanRecoveryAssessment is null)
-            {
-                _broker.Publish(new PlanRecoveryAssessmentActivityEvent(
-                    plan.PlanId,
-                    taskId,
-                    IsActive: false));
-            }
-            HandleUiCallbackException("Assess interrupted work", ex);
-        }
     }
 
     private async Task ContinueInterruptedPlanFromDurableAsync(Plan plan)
@@ -57751,7 +57818,9 @@ public partial class MainWindow : Window
         string taskId,
         string reason,
         PlanTaskCommitEvidence? taskCommitEvidence = null,
-        PlanWorkCompletePendingAcceptance? workCompletePendingAcceptance = null)
+        PlanWorkCompletePendingAcceptance? workCompletePendingAcceptance = null,
+        string attentionCategory = PlanAttentionCategory.UnexpectedState,
+        string? attentionSummary = null)
     {
         if (_currentWorkspace is null || _planStore is null) return;
         try
@@ -57765,7 +57834,9 @@ public partial class MainWindow : Window
                 interruptedTaskId: taskId,
                 lastCommit:        _decomposeIterationBaselineCommit,
                 taskCommitEvidence: taskCommitEvidence,
-                workCompletePendingAcceptance: workCompletePendingAcceptance);
+                workCompletePendingAcceptance: workCompletePendingAcceptance,
+                attentionCategory: attentionCategory,
+                attentionSummary: attentionSummary ?? reason);
             PublishPlanProgress(updated);
         }
         catch (Exception ex)

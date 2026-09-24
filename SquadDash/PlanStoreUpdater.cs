@@ -407,7 +407,9 @@ internal static class PlanStoreUpdater
         IReadOnlyList<string>? affectedPaths     = null,
         string? partialWorkEvidence = null,
         PlanTaskCommitEvidence? taskCommitEvidence = null,
-        PlanWorkCompletePendingAcceptance? workCompletePendingAcceptance = null)
+        PlanWorkCompletePendingAcceptance? workCompletePendingAcceptance = null,
+        string? attentionCategory = null,
+        string? attentionSummary = null)
     {
         var now = DateTimeOffset.UtcNow;
         var existingData = existing.InterruptionData;
@@ -430,7 +432,13 @@ internal static class PlanStoreUpdater
             RecoveryAssessment:  existingData?.RecoveryAssessment,
             RecoveryCorrection:  existingData?.RecoveryCorrection,
             LastCorrectionError: existingData?.LastCorrectionError,
-            WorkCompletePendingAcceptance: workCompletePendingAcceptance ?? existingData?.WorkCompletePendingAcceptance);
+            WorkCompletePendingAcceptance: workCompletePendingAcceptance ?? existingData?.WorkCompletePendingAcceptance,
+            AttentionCategory: PlanAttentionCategory.IsValid(attentionCategory)
+                ? attentionCategory
+                : existingData?.AttentionCategory ?? PlanAttentionCategory.UnexpectedState,
+            AttentionSummary: string.IsNullOrWhiteSpace(attentionSummary)
+                ? reason
+                : attentionSummary.Trim());
         return existing with
         {
             LifecycleStatus  = PlanLifecycleStatus.Interrupted,

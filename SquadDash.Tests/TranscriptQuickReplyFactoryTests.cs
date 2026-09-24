@@ -82,6 +82,42 @@ internal sealed class TranscriptQuickReplyFactoryTests
         });
     }
 
+    [TestCase(PlanAttentionCategory.HumanVerificationRequired, "Human Verification Is Required")]
+    [TestCase(PlanAttentionCategory.AutomaticWorkExhausted, "Automatic Work Is Exhausted")]
+    [TestCase(PlanAttentionCategory.UnexpectedState, "Unexpected State Encountered")]
+    public void RecoveryCard_CopyProviderWorksForEveryAttentionCategory(
+        string category,
+        string title)
+    {
+        var presentation = new PlanAttentionCardPresentation(
+            category,
+            title,
+            "Card explanation.",
+            "Recorded evidence.",
+            ShowDiagnosticsActions: category == PlanAttentionCategory.UnexpectedState);
+        var tag = new DecomposeRecoveryCardTag(
+            new DecomposeRecoveryTag("PLAN-1", "revision", "TASK-1"),
+            new WrapPanel())
+        {
+            CopyTextProvider = () => PlanAttentionCardPresentationBuilder.BuildCopyText(
+                presentation,
+                "Plan",
+                "Step 1",
+                "Task",
+                "Diagnostic details"),
+        };
+        var container = TranscriptQuickReplyFactory.CreateContainer(new Border(), tag);
+
+        var copied = TranscriptCardLayout.GetCopyable(container)?.GetCopyText();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(copied, Does.Contain(title));
+            Assert.That(copied, Does.Contain("Recorded evidence."));
+            Assert.That(copied, Does.Contain("Diagnostic details"));
+        });
+    }
+
     [TestCase("warning", QuickReplyTone.Warning)]
     [TestCase(" WARNING ", QuickReplyTone.Warning)]
     [TestCase("destructive", QuickReplyTone.Destructive)]

@@ -357,7 +357,11 @@ internal sealed class PlanRecoveryPresentationTests
             "baseline",
             latestCommit,
             "Retry completed with refreshed evidence.",
-            new DecomposeStepVerification("passed", "dotnet test", "98/98 tests passed"));
+            new DecomposeStepVerification(
+                "passed",
+                "dotnet test",
+                "98/98 tests passed",
+                new DecomposeStepTestResults(98, 98, 0, 0)));
         var plan = TestPlan(latestEvidence) with
         {
             Tasks =
@@ -379,7 +383,7 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(completedWorkReview, Is.Not.Null);
             Assert.That(completedWorkReview!.Commit!.Sha, Is.EqualTo(latestCommit));
             Assert.That(completedWorkReview.Commit.ShortSha, Is.EqualTo("f8f3dd8"));
-            Assert.That(completedWorkReview.TestSummary, Does.Contain("98/98"));
+            Assert.That(completedWorkReview.TestSummary, Is.EqualTo("Tests passed: 98"));
         });
     }
 
@@ -910,6 +914,88 @@ internal sealed class PlanRecoveryPresentationTests
         {
             Assert.That(cleared.IsChecked, Is.False);
             Assert.That(cleared.WasPreviouslyChecked, Is.False);
+        });
+    }
+
+    [TestCase(PlanAttentionCategory.AutomaticWorkExhausted, "Automatic Work Is Exhausted", false)]
+    [TestCase(PlanAttentionCategory.UnexpectedState, "Unexpected State Encountered", true)]
+    public void AttentionCard_UsesPersistedCategoryWithoutParsingReason(
+        string category,
+        string expectedTitle,
+        bool expectedDiagnostics)
+    {
+        var plan = TestPlan(null) with
+        {
+            InterruptionData = TestPlan(null).InterruptionData! with
+            {
+                Reason = "opaque recorded reason",
+                AttentionCategory = category,
+                AttentionSummary = "Recorded evidence summary.",
+            }
+        };
+
+        var presentation = PlanAttentionCardPresentationBuilder.Build(
+            plan, "PLAN-001", humanReview: null, hasHumanChecklist: false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Category, Is.EqualTo(category));
+            Assert.That(presentation.Title, Is.EqualTo(expectedTitle));
+            Assert.That(presentation.RecordedReason, Is.EqualTo("Recorded evidence summary."));
+            Assert.That(presentation.ShowDiagnosticsActions, Is.EqualTo(expectedDiagnostics));
+        });
+    }
+
+    [Test]
+    public void AttentionCard_HumanVerificationRequiresConcreteQuestionOrChecklist()
+    {
+        var plan = TestPlan(null) with
+        {
+            InterruptionData = TestPlan(null).InterruptionData! with
+            {
+                AttentionCategory = PlanAttentionCategory.HumanVerificationRequired,
+            }
+        };
+        var missingQuestion = new PlanHumanReviewCardPresentation("Review Required", null, []);
+        var concreteQuestion = missingQuestion with { Question = "Does the interaction remain readable?" };
+
+        var rejected = PlanAttentionCardPresentationBuilder.Build(
+            plan, "PLAN-001", missingQuestion, hasHumanChecklist: false);
+        var accepted = PlanAttentionCardPresentationBuilder.Build(
+            plan, "PLAN-001", concreteQuestion, hasHumanChecklist: false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(rejected.Category, Is.EqualTo(PlanAttentionCategory.UnexpectedState));
+            Assert.That(rejected.Title, Is.EqualTo("Unexpected State Encountered"));
+            Assert.That(accepted.Category, Is.EqualTo(PlanAttentionCategory.HumanVerificationRequired));
+            Assert.That(accepted.Title, Is.EqualTo("Human Verification Is Required"));
+            Assert.That(accepted.RecordedReason, Is.EqualTo("Does the interaction remain readable?"));
+        });
+    }
+
+    [Test]
+    public void AttentionCard_CopyTextIncludesVisibleReasonAndDiagnostics()
+    {
+        var presentation = new PlanAttentionCardPresentation(
+            PlanAttentionCategory.UnexpectedState,
+            "Unexpected State Encountered",
+            "SquadDash stopped safely.",
+            "The saved state was inconsistent.",
+            ShowDiagnosticsActions: true);
+
+        var copied = PlanAttentionCardPresentationBuilder.BuildCopyText(
+            presentation,
+            "Plan",
+            "Step 4",
+            "Integrate authoring",
+            "Execution attempt: attempt-1");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(copied, Does.Contain("Unexpected State Encountered"));
+            Assert.That(copied, Does.Contain("What happened: The saved state was inconsistent."));
+            Assert.That(copied, Does.Contain("Execution attempt: attempt-1"));
         });
     }
 

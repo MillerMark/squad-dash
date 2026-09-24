@@ -535,7 +535,23 @@ internal sealed record PlanInterruptionData(
                                                         string? LastCorrectionError = null,
     [property: JsonPropertyName("workCompletePendingAcceptance")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                        PlanWorkCompletePendingAcceptance? WorkCompletePendingAcceptance = null);
+                                                        PlanWorkCompletePendingAcceptance? WorkCompletePendingAcceptance = null,
+    [property: JsonPropertyName("attentionCategory")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        string? AttentionCategory = null,
+    [property: JsonPropertyName("attentionSummary")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                        string? AttentionSummary = null);
+
+internal static class PlanAttentionCategory
+{
+    internal const string HumanVerificationRequired = "human-verification-required";
+    internal const string AutomaticWorkExhausted = "automatic-work-exhausted";
+    internal const string UnexpectedState = "unexpected-state";
+
+    internal static bool IsValid(string? value) => value is
+        HumanVerificationRequired or AutomaticWorkExhausted or UnexpectedState;
+}
 
 internal sealed record PlanWorkCompletePendingAcceptance(
     [property: JsonPropertyName("taskId")] string TaskId,

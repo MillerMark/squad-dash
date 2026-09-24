@@ -127,7 +127,13 @@ DECOMPOSE_STEP_RESULT_JSON:
   "verification": {
     "status": "passed",
     "command": "exact build or test command",
-    "summary": "what passed"
+    "summary": "what passed",
+    "tests": {
+      "total": 780,
+      "passed": 780,
+      "failed": 0,
+      "skipped": 0
+    }
   },
   "agentExecutions": [
     {
@@ -137,6 +143,10 @@ DECOMPOSE_STEP_RESULT_JSON:
   ]
 }
 ```
+
+`verification.tests` is optional. Include it only when test-runner output supplies exact numeric
+counts. Aggregate multiple exact runs so `total` equals `passed + failed + skipped`; never estimate
+counts from narrative text. Omit `tests` when exact counts are unavailable.
 
 If inspection proves that every task requirement was already satisfied at the host-recorded starting
 snapshot and no source change is needed, do not create an empty commit. Return the same complete

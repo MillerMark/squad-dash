@@ -741,7 +741,13 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   "verification": {
     "status": "passed",
     "command": "exact command that ran",
-    "summary": "what passed"
+    "summary": "what passed",
+    "tests": {
+      "total": 780,
+      "passed": 780,
+      "failed": 0,
+      "skipped": 0
+    }
   },
   "agentExecutions": [
     {
@@ -759,6 +765,11 @@ executor must not edit `tasks.md`; it reports one result and SquadDash owns the 
   ]
 }
 ```
+
+`verification.tests` is optional. Include it only when the test runners reported exact numeric
+counts. When multiple test commands ran, add their exact counts and report the aggregate; `total`
+must equal `passed + failed + skipped`. Do not estimate counts from prose, file names, or elapsed
+time. Omit `tests` when exact counts are unavailable.
 
 For implementation results, run `git rev-parse --short HEAD` after committing and copy that
 command's output into `commit` exactly. Do not retype the SHA from memory or from the `git commit`

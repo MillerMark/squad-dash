@@ -24,6 +24,90 @@ internal sealed record PlanHumanReviewAnalysisItem(
     string Text,
     PlanHumanReviewAnalysisSeverity Severity);
 
+internal sealed record PlanAttentionCardPresentation(
+    string Category,
+    string Title,
+    string Explanation,
+    string RecordedReason,
+    bool ShowDiagnosticsActions);
+
+internal static class PlanAttentionCardPresentationBuilder
+{
+    internal static PlanAttentionCardPresentation Build(
+        Plan plan,
+        string taskId,
+        PlanHumanReviewCardPresentation? humanReview,
+        bool hasHumanChecklist)
+    {
+        var hasHumanQuestion = !string.IsNullOrWhiteSpace(humanReview?.Question);
+        if (humanReview is not null && (hasHumanChecklist || hasHumanQuestion))
+        {
+            return new PlanAttentionCardPresentation(
+                PlanAttentionCategory.HumanVerificationRequired,
+                "Human Verification Is Required",
+                "Automated verification is complete. This step requires a specific observation or judgment that SquadDash cannot perform.",
+                humanReview.Question?.Trim() ?? "Complete the verification checklist below.",
+                ShowDiagnosticsActions: false);
+        }
+
+        var interruption = plan.InterruptionData;
+        var category = PlanAttentionCategory.IsValid(interruption?.AttentionCategory)
+            ? interruption!.AttentionCategory!
+            : PlanAttentionCategory.UnexpectedState;
+        var recordedReason = string.IsNullOrWhiteSpace(interruption?.AttentionSummary)
+            ? interruption?.Reason ?? "SquadDash stopped the plan without recording a recovery explanation."
+            : interruption!.AttentionSummary!.Trim();
+
+        return category switch
+        {
+            PlanAttentionCategory.AutomaticWorkExhausted => new PlanAttentionCardPresentation(
+                category,
+                "Automatic Work Is Exhausted",
+                "SquadDash stopped automatic work after the permitted attempts to avoid repeating the same unsuccessful work.",
+                recordedReason,
+                ShowDiagnosticsActions: false),
+            PlanAttentionCategory.HumanVerificationRequired => new PlanAttentionCardPresentation(
+                PlanAttentionCategory.UnexpectedState,
+                "Unexpected State Encountered",
+                "SquadDash recorded a human-verification state without a concrete question or checklist, so it stopped instead of requesting an unsupported approval.",
+                recordedReason,
+                ShowDiagnosticsActions: true),
+            _ => new PlanAttentionCardPresentation(
+                PlanAttentionCategory.UnexpectedState,
+                "Unexpected State Encountered",
+                "SquadDash encountered an unexpected state and stopped the plan to preserve its current work.",
+                recordedReason,
+                ShowDiagnosticsActions: true),
+        };
+    }
+
+    internal static string BuildCopyText(
+        PlanAttentionCardPresentation presentation,
+        string planTitle,
+        string stepLabel,
+        string taskTitle,
+        string? technicalDetails = null)
+    {
+        var lines = new List<string>
+        {
+            presentation.Title,
+            $"Plan: {planTitle}",
+            $"{stepLabel}: {taskTitle}",
+            string.Empty,
+            presentation.Explanation,
+            string.Empty,
+            $"What happened: {presentation.RecordedReason}",
+        };
+        if (!string.IsNullOrWhiteSpace(technicalDetails))
+        {
+            lines.Add(string.Empty);
+            lines.Add("Technical details:");
+            lines.Add(technicalDetails.Trim());
+        }
+        return string.Join(Environment.NewLine, lines);
+    }
+}
+
 internal enum PlanRecoveryPrimaryActionKind
 {
     AcceptStep,

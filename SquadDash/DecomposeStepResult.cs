@@ -6,7 +6,16 @@ namespace SquadDash;
 internal sealed record DecomposeStepVerification(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("command")] string? Command,
-    [property: JsonPropertyName("summary")] string? Summary);
+    [property: JsonPropertyName("summary")] string? Summary,
+    [property: JsonPropertyName("tests")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    DecomposeStepTestResults? Tests = null);
+
+internal sealed record DecomposeStepTestResults(
+    [property: JsonPropertyName("total")] int Total,
+    [property: JsonPropertyName("passed")] int Passed,
+    [property: JsonPropertyName("failed")] int Failed,
+    [property: JsonPropertyName("skipped")] int Skipped);
 
 internal sealed record DecomposeAgentExecution(
     [property: JsonPropertyName("requestedAgent")] string RequestedAgent,
@@ -94,6 +103,7 @@ internal enum DecomposeStepResultViolationCode
     ProofEvidenceInvalid,
     DeferredWorkInvalid,
     IdentityMismatch,
+    InvalidTestCounts,
 }
 
 internal sealed record DecomposeStepResultViolation(
@@ -361,6 +371,17 @@ internal static class DecomposeStepResultParser
                 "Deferred work requires a requirement, reason, and at least one named owner task.",
                 "/deferredWork",
                 "replace invalid deferred work items"));
+        }
+
+        if (result.Verification?.Tests is { } tests &&
+            (tests.Total < 0 || tests.Passed < 0 || tests.Failed < 0 || tests.Skipped < 0 ||
+             tests.Total != tests.Passed + tests.Failed + tests.Skipped))
+        {
+            violations.Add(new(
+                DecomposeStepResultViolationCode.InvalidTestCounts,
+                "Structured test counts must be non-negative and total must equal passed plus failed plus skipped.",
+                "/verification/tests",
+                "replace with exact aggregate counts from the reported test runs, or remove tests when counts are unavailable"));
         }
 
         return new DecomposeStepResultParseOutcome(result, violations, canonicalizations);

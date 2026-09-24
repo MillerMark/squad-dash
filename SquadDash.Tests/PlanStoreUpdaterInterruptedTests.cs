@@ -66,6 +66,25 @@ internal sealed class PlanStoreUpdaterInterruptedTests
     }
 
     [Test]
+    public void ApplyInterrupted_PersistsExplicitAttentionCategoryAndEvidenceSummary()
+    {
+        var updated = PlanStoreUpdater.ApplyInterrupted(
+            MakePlan(),
+            "technical detail",
+            loopIteration: 2,
+            attentionCategory: PlanAttentionCategory.AutomaticWorkExhausted,
+            attentionSummary: "Two permitted attempts did not complete the task.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.InterruptionData?.AttentionCategory,
+                Is.EqualTo(PlanAttentionCategory.AutomaticWorkExhausted));
+            Assert.That(updated.InterruptionData?.AttentionSummary,
+                Is.EqualTo("Two permitted attempts did not complete the task."));
+        });
+    }
+
+    [Test]
     public void ApplyInterrupted_SetsRecoveryStatePendingRecovery()
     {
         var plan    = MakePlan();

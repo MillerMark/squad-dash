@@ -81,8 +81,7 @@ internal sealed class CompletedWorkReviewPresentationTests
         var plan = MakePlan(MakeEvidence());
         var review = CompletedWorkReviewPresentationBuilder.Build(plan, TaskId)!;
 
-        Assert.That(review.TestSummary, Does.Contain("Tests passed"));
-        Assert.That(review.TestSummary, Does.Contain("14 tests passed"));
+        Assert.That(review.TestSummary, Is.EqualTo("Tests passed: 14"));
     }
 
     [Test]
@@ -95,7 +94,7 @@ internal sealed class CompletedWorkReviewPresentationTests
         var plan = MakePlan(evidence);
         var review = CompletedWorkReviewPresentationBuilder.Build(plan, TaskId)!;
 
-        Assert.That(review.TestSummary, Does.Contain("Tests failed"));
+        Assert.That(review.TestSummary, Is.EqualTo("Verification status: failed"));
     }
 
     [Test]
@@ -138,23 +137,23 @@ internal sealed class CompletedWorkReviewPresentationTests
     }
 
     [Test]
-    public void Build_AcceptanceEffectMentionsTaskTitle()
+    public void Build_AcceptanceEffectStatesRequiredDecisionClearly()
     {
         var plan = MakePlan(MakeEvidence());
         var review = CompletedWorkReviewPresentationBuilder.Build(plan, TaskId)!;
 
-        Assert.That(review.AcceptanceEffect, Does.Contain("Blocked task"));
-        Assert.That(review.AcceptanceEffect, Does.Contain("complete"));
+        Assert.That(review.AcceptanceEffect,
+            Is.EqualTo("Verify this step is complete to continue the plan."));
     }
 
     [Test]
-    public void Build_AcceptanceEffectMentionsDownstreamTasksWhenPresent()
+    public void Build_AcceptanceEffectDoesNotExposeDownstreamBookkeeping()
     {
         var plan = MakePlanWithDependency();
         var review = CompletedWorkReviewPresentationBuilder.Build(plan, TaskId)!;
 
-        Assert.That(review.AcceptanceEffect, Does.Contain("unblocks"));
-        Assert.That(review.AcceptanceEffect, Does.Contain("Dependent task"));
+        Assert.That(review.AcceptanceEffect,
+            Is.EqualTo("Verify this step is complete to continue the plan."));
     }
 
     [Test]
@@ -209,15 +208,13 @@ internal sealed class CompletedWorkReviewPresentationTests
             Is.EqualTo(new[]
             {
                 "View committed changes (baselin → abc1234)",
-                "Assess with AI",
-                "Step 1 Is Complete",
-                "✎ Continue Working on Step 1…",
+                "Continue Working on Step 1",
                 "✎ Revise Remaining Plan…",
             }));
     }
 
     [Test]
-    public void BuildRecoveryMessage_WithAmendmentEvidence_UsesCombinedApprovalAction()
+    public void BuildRecoveryMessage_WithoutStructuredCategory_DoesNotOfferApprovalOverride()
     {
         var pending = new PendingDecomposePlan(
             "rev-1",
@@ -238,10 +235,10 @@ internal sealed class CompletedWorkReviewPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(message.Actions.Select(action => action.Label),
-                Does.Contain("Approve Amendment & Continue"));
+                Has.No.Member("Approve Amendment & Continue"));
             Assert.That(message.Actions.Select(action => action.Label),
                 Has.No.Member("Review Completed Work"));
-            Assert.That(message.Body, Does.Contain("Approving accepts the amendment and its checkpoint"));
+            Assert.That(message.Body, Does.Contain("Unexpected State Encountered"));
         });
     }
 
@@ -264,19 +261,17 @@ internal sealed class CompletedWorkReviewPresentationTests
     }
 
     [Test]
-    public void BuildRecoveryMessage_WithoutEvidence_OffersReviewLinkCompletionContinueAndReplan()
+    public void BuildRecoveryMessage_WithoutEvidence_OffersEvidenceRetryAndReplan()
     {
         var pending = MakePending();
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow);
 
-        Assert.That(message.Actions, Has.Count.EqualTo(5));
+        Assert.That(message.Actions, Has.Count.EqualTo(3));
         Assert.That(message.Actions.Select(a => a.Label),
             Is.EqualTo(new[]
             {
                 "View workspace changes for Step 1",
-                "Assess with AI",
-                "Step 1 Is Complete & Continue",
                 "Continue Working on Step 1",
                 "✎ Revise Remaining Plan…",
             }));
@@ -290,7 +285,7 @@ internal sealed class CompletedWorkReviewPresentationTests
         var message = DecomposePlanInbox.BuildRecoveryMessage(
             pending, TaskId, "Worker stopped.", DateTimeOffset.UtcNow, evidence);
 
-        Assert.That(message.Actions, Has.Count.EqualTo(5));
+        Assert.That(message.Actions, Has.Count.EqualTo(3));
         Assert.That(message.Actions.Select(action => action.Label),
             Has.No.Member("Assess & Continue"));
     }
@@ -303,13 +298,11 @@ internal sealed class CompletedWorkReviewPresentationTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(message.Body, Does.StartWith(
-                "**Plan execution stopped unexpectedly after producing committed work. Recovery is available.**"));
-            Assert.That(message.Body, Does.Contain("Why it stopped: **Worker stopped.**"));
-            Assert.That(message.Body, Does.Not.Contain("**Why it stopped:**"));
-            Assert.That(message.Body, Does.Contain($"Plan: **{message.Subject["Blocked plan: ".Length..]}**"));
+            Assert.That(message.Body, Does.StartWith("**Unexpected State Encountered**"));
+            Assert.That(message.Body, Does.Contain("What happened: Worker stopped."));
+            Assert.That(message.Body, Does.Contain("Plan: **Recovery plan**"));
             Assert.That(message.Body, Does.Contain("Commits: `abc1234`"));
-            Assert.That(message.Body, Does.Contain("Tests: 14 tests passed."));
+            Assert.That(message.Body, Does.Contain("Tests passed: 14"));
             Assert.That(message.Body, Does.Not.Contain("dotnet test"));
             Assert.That(message.Body, Does.Not.Contain("Implemented the feature"));
             Assert.That(message.Body, Does.Not.Contain("Recorded stop detail"));
@@ -364,13 +357,11 @@ internal sealed class CompletedWorkReviewPresentationTests
         {
             Assert.That(result.IsActionable, Is.True);
             Assert.That(result.ShouldArchive, Is.False);
-            Assert.That(result.Message.Actions, Has.Count.EqualTo(5));
+            Assert.That(result.Message.Actions, Has.Count.EqualTo(3));
             Assert.That(result.Message.Actions.Select(a => a.Label),
                 Is.EqualTo(new[]
                 {
                     "View committed changes (baselin → abc1234)",
-                    "Assess with AI",
-                    "Step 1 Is Complete & Continue",
                     "Continue Working on Step 1",
                     "✎ Revise Remaining Plan…",
                 }));
@@ -513,7 +504,11 @@ internal sealed class CompletedWorkReviewPresentationTests
         "baseline000",
         "abc1234567890",
         "Implemented the feature.",
-        new DecomposeStepVerification("passed", "dotnet test", "14 tests passed"));
+        new DecomposeStepVerification(
+            "passed",
+            "dotnet test",
+            "14 tests passed",
+            new DecomposeStepTestResults(14, 14, 0, 0)));
 
     private static PendingDecomposePlan MakePending() => new(
         "rev-1",

@@ -196,9 +196,10 @@ internal sealed class PlanRecoveryRenderedProvenanceTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(text, Does.Contain("Automated Review Status:"));
+            Assert.That(text, Does.Contain("Human Verification Is Required"));
+            Assert.That(text, Does.Contain("Automated review"));
             Assert.That(text, Does.Contain("Commits: f8f3dd8"));
-            Assert.That(text, Does.Contain("Tests: 98/98 tests passed."));
+            Assert.That(text, Does.Contain("Tests passed: 98"));
             if (hasMatchingReport)
             {
                 Assert.That(text, Does.Contain(NewConclusion));
@@ -269,7 +270,11 @@ internal sealed class PlanRecoveryRenderedProvenanceTests
 
     private static Plan MakePlan(IReadOnlyList<PlanTaskVerificationReport> reports)
     {
-        var verification = new DecomposeStepVerification("passed", "dotnet test", "98/98 tests passed");
+        var verification = new DecomposeStepVerification(
+            "passed",
+            "dotnet test",
+            "98/98 tests passed",
+            new DecomposeStepTestResults(98, 98, 0, 0));
         var task = new PlanTask(
             TaskId, "Footer", "Show selected model profile.", [], "high", PlanTaskStatus.HumanReviewRequired,
             Handoff: new PlanTaskHandoff(NewCommit, "Refreshed implementation.", ["Footer.cs"], verification, Now),

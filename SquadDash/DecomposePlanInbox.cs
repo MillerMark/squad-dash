@@ -168,6 +168,24 @@ internal static class DecomposePlanInbox
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
             taskIndex >= 0 ? (taskIndex + 1).ToString() : null,
             taskTitle);
+        var reviewCard = durablePlan is null
+            ? null
+            : PlanRecoveryPresentationBuilder.BuildHumanReviewCard(durablePlan, taskId);
+        var reviewAttention = durablePlan is null
+            ? null
+            : PlanReviewAttentionPresentationResolver.Resolve(durablePlan, taskId);
+        var attentionCard = durablePlan is null
+            ? new PlanAttentionCardPresentation(
+                PlanAttentionCategory.UnexpectedState,
+                "Unexpected State Encountered",
+                "SquadDash encountered an unexpected state and stopped the plan to preserve its current work.",
+                reason,
+                ShowDiagnosticsActions: true)
+            : PlanAttentionCardPresentationBuilder.Build(
+                durablePlan,
+                taskId,
+                reviewCard,
+                (reviewAttention?.Checklist.Count ?? 0) > 0);
         InboxAction BuildEvidenceLink() => new()
         {
             Label = completedWorkReview?.ComparisonLabel ??
@@ -219,60 +237,46 @@ internal static class DecomposePlanInbox
         if (hasCommitEvidence || completedWorkReview is not null ||
             primary.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
             actions.Add(BuildEvidenceLink());
-        actions.Add(BuildAction(
-            "Assess with AI",
-            "assess-current-work",
-            $"Ask AI whether the current source satisfies every requirement of {stepLabel}. The assessment is read-only and the plan remains stopped."));
-        actions.Add(BuildAction(primary.Label, primary.ProtocolAction, primary.Hint));
-        if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptStep)
-        {
-            actions.Add(BuildAction(
-                $"✎ Continue Working on {stepLabel}…",
-                "request-corrections",
-                $"Open an editable, task-scoped correction prompt. Existing work is preserved and {stepLabel} is not rerun from scratch."));
-        }
-        else if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
+        if (attentionCard.Category == PlanAttentionCategory.UnexpectedState)
         {
             actions.Add(BuildAction(
                 $"Continue Working on {stepLabel}",
                 "continue-working",
-                $"Keep {stepLabel} incomplete and continue from the preserved repository state."));
+                "Continue from the preserved repository state without discarding completed work."));
         }
-        else if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp)
+        else
         {
+            if (attentionCard.Category == PlanAttentionCategory.HumanVerificationRequired ||
+                primary.Kind is PlanRecoveryPrimaryActionKind.AcceptStep or
+                    PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
+                    PlanRecoveryPrimaryActionKind.ApproveAmendment)
+            {
+                actions.Add(BuildAction(primary.Label, primary.ProtocolAction, primary.Hint));
+            }
             actions.Add(BuildAction(
-                "Retry Verification",
+                attentionCard.Category == PlanAttentionCategory.AutomaticWorkExhausted
+                    ? "Try Again"
+                    : $"Continue Working on {stepLabel}",
                 "continue-working",
-                $"Run the non-mutating checks for {stepLabel} again instead of accepting the prior reported result."));
+                $"Start one new bounded attempt for {stepLabel} from the preserved repository state."));
         }
         actions.Add(BuildAction(
             "✎ Revise Remaining Plan…",
             "replan-failed-task",
             "Replace the blocked task with smaller approved steps."));
 
-        var compactReason = PlanRecoveryPresentationBuilder.SummarizeReason(reason);
-        var status = PlanRecoveryPresentationBuilder.BuildStatusMessage(hasCommitEvidence);
-        var reviewCard = durablePlan is null
-            ? null
-            : PlanRecoveryPresentationBuilder.BuildHumanReviewCard(durablePlan, taskId);
-        var provenance = durablePlan is null
-            ? null
-            : PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(durablePlan, taskId);
-        var narrative = reviewCard is not null
-            ? "**Automated Review Status:**\n" +
+        var reviewAnalysis = reviewCard is { AnalysisBullets.Count: > 0 }
+            ? "\n\n**Automated review**\n" +
               string.Join("\n", reviewCard.AnalysisBullets.Select(bullet => "- " + bullet.Text))
-            : completedWorkReview is not null
-                ? $"**{completedWorkReview.Heading}**\n\n" +
-                  completedWorkReview.Outcome + "\n\n" +
-                  completedWorkReview.EvidenceSummary + "\n\n" +
-                  completedWorkReview.Uncertainty + "\n\n" +
-                  $"Why execution stopped: **{compactReason}**"
-            : (provenance is null ? string.Empty : provenance + "\n\n") +
-              $"Why it stopped: **{compactReason}**";
-        var body = $"**{status}**\n\n" +
-                   narrative + "\n\n" +
+            : string.Empty;
+        var body = $"**{attentionCard.Title}**\n\n" +
                    $"Plan: **{plan.Group.GroupTitle}**  \n" +
-                   $"Attempted task: \"{taskTitle}\"\n";
+                   $"{stepLabel}: **{taskTitle}**\n\n" +
+                   attentionCard.Explanation + "\n\n" +
+                   (attentionCard.Category == PlanAttentionCategory.HumanVerificationRequired
+                       ? "Human check: "
+                       : "What happened: ") +
+                   attentionCard.RecordedReason + reviewAnalysis + "\n";
 
         if (hasCommitEvidence)
         {
@@ -280,25 +284,23 @@ internal static class DecomposePlanInbox
                 ? taskCommitEvidence.Commit[..7]
                 : taskCommitEvidence.Commit;
             body += $"Commits: `{shortCommit}`\n";
-            var tests = reviewCard is null && completedWorkReview is not null
-                ? null
-                : PlanRecoveryPresentationBuilder.BuildCompactTestSummary(taskCommitEvidence.Verification);
+            var tests = completedWorkReview?.TestSummary ??
+                        CompletedWorkReviewPresentationBuilder.BuildVerificationSummary(
+                            taskCommitEvidence.Verification);
             if (tests is not null) body += tests + "\n";
-            body += primary.Kind == PlanRecoveryPrimaryActionKind.ApproveAmendment
-                ? "\nUse the commit link above to investigate. Approving accepts the amendment and its checkpoint.\n"
-                : $"\nReview the commit if needed, then accept {stepLabel}, continue working on it, or revise the remaining plan.\n";
+            body += "\nUse the commit link above when you need to inspect the preserved changes.\n";
         }
         else if (primary.Kind == PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp)
             body += $"\nSquadDash rejected a reported no-op. You can explicitly accept {stepLabel} after a current-snapshot safety check, retry verification, or revise the remaining plan.\n";
         else
             body += $"\nSquadDash does not have exact task-owned commit attribution. Review the repository changes, then explicitly mark {stepLabel} complete or continue working.\n";
 
-        body += "\nChoose a recovery action below.";
+        body += "\nChoose an action below.";
 
         return new InboxMessage
         {
             Id = BuildRecoveryMessageId(plan, taskId),
-            Subject = $"Blocked plan: {plan.Group.GroupTitle}",
+            Subject = $"{attentionCard.Title}: {plan.Group.GroupTitle}",
             From = "SquadDash",
             Timestamp = timestamp,
             Read = false,

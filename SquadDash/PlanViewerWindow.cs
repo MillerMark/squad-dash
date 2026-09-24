@@ -52,7 +52,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<string>? _onOpenCommit;
     private readonly Action<IReadOnlyList<PlanEvidenceCommit>>? _onOpenCommits;
     private readonly Action<Plan>? _onOpenInterruptedChanges;
-    private readonly Action<Plan>? _onAssessInterruptedWork;
     private readonly Func<PlanTask, Task<IReadOnlyList<PlanTaskFileChange>>>? _resolveTaskFileChanges;
     private readonly Action<PlanTask, string>? _onOpenTaskFileDiff;
     private readonly Action<Plan>? _onContinueInterruptedTask;
@@ -262,7 +261,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
         Func<Plan, PlanRecoveryPrimaryActionPresentation?>? resolveInterruptedPrimaryAction = null,
         Action<Plan>? onOpenInterruptedChanges = null,
-        Action<Plan>? onAssessInterruptedWork = null,
         double lineThicknessMultiplier = 1.0,
         string? squadFolderPath = null,
         Action<string>? onDescriptionLinkClicked = null)
@@ -301,7 +299,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onOpenCommit = onOpenCommit;
         _onOpenCommits = onOpenCommits;
         _onOpenInterruptedChanges = onOpenInterruptedChanges;
-        _onAssessInterruptedWork = onAssessInterruptedWork;
         _resolveTaskFileChanges = resolveTaskFileChanges;
         _onOpenTaskFileDiff = onOpenTaskFileDiff;
         _onContinueInterruptedTask = onContinueInterruptedTask;
@@ -1377,26 +1374,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     header.Children.Add(linkText);
                 }
             }
-            if (_onAssessInterruptedWork is not null && interruptedActionTask is not null)
-            {
-                var assessButton = TranscriptQuickReplyFactory.CreateButton(
-                    assessmentActive ? "Assessing with AI…" : "Assess with AI",
-                    quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Ask AI whether the current source satisfies this step. The assessment includes the plan, stop point, card evidence, repository changes, and the decision that needs to be made."));
-                assessButton.Focusable = false;
-                assessButton.IsEnabled = !assessmentActive;
-                assessButton.Click += (_, _) =>
-                {
-                    // Lock every mutually exclusive recovery decision immediately. The shared
-                    // assessment activity event rebuilds this panel and keeps it locked until
-                    // the assessment either finishes or fails before it can be queued.
-                    interruptedPanel.IsEnabled = false;
-                    assessButton.Content = "Assessing with AI…";
-                    _onAssessInterruptedWork(durablePlan);
-                };
-                interruptedPanel.Children.Add(assessButton);
-            }
             // Safe continuation owns the recovery choice. A ready validation is simply the next
             // scheduler boundary and must not create a duplicate "Resume Validation" action.
             if (onAdoptVerifiedCommitRange is not null && !safeResume)
@@ -1556,23 +1533,51 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (durablePlan?.InterruptionData is { } interruptionData && reviewAttention is null)
         {
             var interruptionStack = new StackPanel();
+            var attentionTaskId = interruptionData.InterruptedTaskId ?? string.Empty;
+            var humanReview = PlanRecoveryPresentationBuilder.BuildHumanReviewCard(
+                durablePlan,
+                attentionTaskId);
+            var attentionCard = PlanAttentionCardPresentationBuilder.Build(
+                durablePlan,
+                attentionTaskId,
+                humanReview,
+                hasHumanChecklist: false);
 
             var intRow1 = new TextBlock
             {
-                Text       = completedWorkReview?.Heading ?? "Plan recovery requires attention",
+                Text       = attentionCard.Title,
                 FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 0, 0, 4),
             };
             intRow1.SetResourceReference(TextBlock.ForegroundProperty, "PriorityHigh");
             intRow1.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
             interruptionStack.Children.Add(intRow1);
 
+            var explanationRow = new TextBlock
+            {
+                Text = attentionCard.Explanation,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4),
+            };
+            explanationRow.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            explanationRow.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            interruptionStack.Children.Add(explanationRow);
+
+            var reasonRow = new TextBlock
+            {
+                Text = "What happened: " + attentionCard.RecordedReason,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 5),
+            };
+            reasonRow.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            reasonRow.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            interruptionStack.Children.Add(reasonRow);
+
             if (completedWorkReview is not null)
             {
                 foreach (var text in new[]
                 {
-                    completedWorkReview.Outcome,
                     completedWorkReview.EvidenceSummary,
-                    completedWorkReview.Uncertainty,
                 })
                 {
                     var row = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap };
