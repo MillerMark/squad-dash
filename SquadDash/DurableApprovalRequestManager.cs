@@ -565,7 +565,7 @@ internal sealed class DurableApprovalRequestManager
             {
                 Type = OperatorGuideAttachmentType,
                 Label = "Approval operator guide",
-                Content = string.Join("\n\n", runbooks.Select(runbook => runbook.Body)),
+                Content = BuildCombinedOperatorGuide(plan!, state.ActiveGateIds, runbooks),
                 PlanGroupId = plan!.PlanId,
                 PlanRevision = plan.Revision,
             });
@@ -797,12 +797,31 @@ internal sealed class DurableApprovalRequestManager
     {
         var kits = FindBoundManualTestKits(plan, activeGateIds);
         return kits.Count > 0
-            ? string.Join("\n\n", kits.Select(kit => kit.Body))
+            ? BuildCombinedOperatorGuide(plan, activeGateIds, kits)
             : existingAttachments?.FirstOrDefault(attachment => string.Equals(
                 attachment.Type,
                 OperatorGuideAttachmentType,
                 StringComparison.OrdinalIgnoreCase))?.Content
               ?? BuildGeneratedInstructions(plan, activeGateIds);
+    }
+
+    private static string BuildCombinedOperatorGuide(
+        Plan plan,
+        IReadOnlyList<string> activeGateIds,
+        IReadOnlyList<InboxMessage> kits)
+    {
+        // FindBoundManualTestKits validates every proof marker for each bound gate.
+        // Generate only for sibling gates outside that authoritative coverage.
+        var coveredGateIds = kits
+            .SelectMany(kit => ManualTestKitApprovalBinding.Read(kit)!.GateIds)
+            .ToHashSet(StringComparer.Ordinal);
+        var uncoveredGateIds = activeGateIds
+            .Where(gateId => !coveredGateIds.Contains(gateId))
+            .ToArray();
+        var parts = kits.Select(kit => kit.Body).ToList();
+        if (BuildGeneratedInstructions(plan, uncoveredGateIds) is { } generated)
+            parts.Add(generated);
+        return string.Join("\n\n", parts);
     }
 
     private IReadOnlyList<InboxAction> BuildApprovalActions(
