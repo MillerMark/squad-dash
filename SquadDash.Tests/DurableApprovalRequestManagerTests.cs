@@ -496,6 +496,118 @@ public class DurableApprovalRequestManagerTests
         });
     }
 
+    [TestCase(2, TestName = "AppendCheckpoint_RecipeOnlyProofsComposeAndAllowApproval")]
+    [TestCase(0, TestName = "AppendCheckpoint_DirectOnlyProofsComposeAndAllowApproval")]
+    [TestCase(1, TestName = "AppendCheckpoint_MixedAccessProofsComposeAndAllowApproval")]
+    public async Task AppendCheckpoint_ProofAccessModesComposeAndAllowApproval(int recipeCount)
+    {
+        var original = MakePlan();
+        var requirements = Enumerable.Range(1, 2)
+            .Select(index => new PlanTaskProofRequirement(
+                $"result-{index}",
+                "live-ui-observation",
+                $"Observe result {index} in the running app.",
+                $"Does result {index} appear?",
+                index <= recipeCount
+                    ? HumanVerificationAccessMode.Recipe
+                    : HumanVerificationAccessMode.DirectlyReachable,
+                index <= recipeCount
+                    ? new HumanVerificationRecipe(
+                        $"Prepare sample {index}.",
+                        $"Open sample {index}.",
+                        $"Result {index} appears.",
+                        $"Remove sample {index}.")
+                    : null,
+                Title: $"Result {index}"))
+            .ToArray();
+        var gate = original.ApprovalGates[0] with { ProofRequirements = requirements };
+        var plan = original with { ApprovalGates = [gate] };
+
+        var messageId = await _manager.AppendCheckpointAsync(plan, gate, MakeSnapshot());
+        var message = _inbox.GetById(messageId)!;
+        var guide = message.Attachments.Single(attachment =>
+            attachment.Type == DurableApprovalRequestManager.OperatorGuideAttachmentType).Content!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Body, Does.Not.Contain(ManualTestKitChecklistComposer.SetupErrorMarker));
+            Assert.That(message.Actions, Is.Empty, "Review selections are still required before continuing.");
+            foreach (var requirement in requirements)
+            {
+                Assert.That(message.Body, Does.Contain($"☐ {requirement.Question}"));
+                Assert.That(guide, Does.Contain($"## {requirement.Title}")
+                    .And.Contain($"{{{{approval-check:{requirement.RequirementId}}}}}"));
+                if (requirement.VerificationRecipe is { } recipe)
+                {
+                    Assert.That(guide.IndexOf(recipe.Observe, StringComparison.Ordinal),
+                        Is.LessThan(guide.IndexOf($"{{{{approval-check:{requirement.RequirementId}}}}}", StringComparison.Ordinal)));
+                    Assert.That(guide.IndexOf($"{{{{approval-check:{requirement.RequirementId}}}}}", StringComparison.Ordinal),
+                        Is.LessThan(guide.IndexOf(recipe.Cleanup, StringComparison.Ordinal)));
+                }
+            }
+        });
+
+        gate = gate with
+        {
+            HumanReviewSelections = PlanHumanReviewChecklist.Build(plan, [gate])
+                .Select(item => new PlanHumanReviewSelection(
+                    item.ItemId, true, item.CandidateCommit, DateTimeOffset.UtcNow,
+                    ReviewTarget: item.ReviewTarget))
+                .ToArray(),
+        };
+        plan = plan with { ApprovalGates = [gate] };
+        await _manager.RefreshEvidenceAsync(plan, MakeSnapshot());
+        var refreshed = _inbox.GetById(messageId)!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(refreshed.Body, Does.Not.Contain(ManualTestKitChecklistComposer.SetupErrorMarker));
+            Assert.That(refreshed.Actions, Has.Count.EqualTo(1));
+            Assert.That(refreshed.Actions.Select(action => action.RouteMode),
+                Does.Contain(DurableApprovalRequestManager.ApprovalRouteMode));
+        });
+    }
+
+    [TestCase(HumanVerificationAccessMode.Recipe)]
+    [TestCase(HumanVerificationAccessMode.Fixture)]
+    public async Task AppendCheckpoint_MissingRequiredRecipeStillSuppressesApproval(string accessMode)
+    {
+        var original = MakePlan();
+        var gate = original.ApprovalGates[0] with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "prepared-result", "live-ui-observation", "Observe the prepared result.",
+                    "Does the prepared result appear?", HumanVerificationAccessMode.Recipe,
+                    new HumanVerificationRecipe("Prepare the sample.", "Open the sample.",
+                        "The prepared result appears.", "Remove the sample.")),
+                new PlanTaskProofRequirement(
+                    "missing-recipe", "live-ui-observation", "Observe the inaccessible result.",
+                    "Does the inaccessible result appear?", accessMode),
+            ],
+        };
+        var plan = original with { ApprovalGates = [gate] };
+        gate = gate with
+        {
+            HumanReviewSelections = PlanHumanReviewChecklist.Build(plan, [gate])
+                .Select(item => new PlanHumanReviewSelection(
+                    item.ItemId, true, item.CandidateCommit, DateTimeOffset.UtcNow,
+                    ReviewTarget: item.ReviewTarget))
+                .ToArray(),
+        };
+        plan = plan with { ApprovalGates = [gate] };
+
+        var messageId = await _manager.AppendCheckpointAsync(plan, gate, MakeSnapshot());
+        var message = _inbox.GetById(messageId)!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Body, Does.Contain(ManualTestKitChecklistComposer.SetupErrorMarker));
+            Assert.That(message.Actions, Is.Empty);
+        });
+    }
+
     [Test]
     public async Task AppendCheckpoint_MovesDetailedEvidenceToProvenanceAttachment()
     {

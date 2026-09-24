@@ -741,6 +741,21 @@ internal sealed class DurableApprovalRequestManager
                 if (!string.IsNullOrWhiteSpace(recipe.Cleanup))
                     parts.Add($"4. **Clean up:** {recipe.Cleanup}");
             }
+
+            foreach (var requirement in gate.ProofRequirements ?? [])
+            {
+                if (requirement.VerificationRecipe is not null ||
+                    !string.Equals(requirement.AccessMode, HumanVerificationAccessMode.DirectlyReachable,
+                        StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (parts.Count > 0)
+                    parts.Add(string.Empty);
+                parts.Add($"## {PlanHumanReviewChecklist.ResolveDisplayTitle(
+                    requirement.Title, requirement.RequirementId)}");
+                parts.Add($"**Observe in the running app:** {requirement.Description}");
+                parts.Add($"{{{{approval-check:{requirement.RequirementId}}}}}");
+            }
         }
 
         return parts.Count == 0 ? null : string.Join("\n", parts);
