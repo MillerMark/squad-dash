@@ -855,6 +855,7 @@ internal sealed class AgentThreadRegistry {
         TranscriptThreadState thread,
         TranscriptThreadState originThread,
         string? parentToolCallId) {
+        thread.OriginThread = originThread;
         var originDisplayName = ResolveThreadDisplayName(
             originThread.AgentDisplayName,
             originThread.AgentName,

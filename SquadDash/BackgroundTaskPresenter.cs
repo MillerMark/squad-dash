@@ -723,7 +723,9 @@ internal sealed class BackgroundTaskPresenter {
     // ── Thread observation ───────────────────────────────────────────────────
 
     internal void ObserveBackgroundAgentActivity(TranscriptThreadState thread, string reason) {
-        thread.LastObservedActivityAt = DateTimeOffset.Now;
+        var observedAt = DateTimeOffset.Now;
+        thread.LastObservedActivityAt = observedAt;
+        PropagateActivityToAncestors(thread, observedAt);
         ScheduleAgentThreadFadeIfNeeded(thread);
 
         if (!thread.WasObservedAsBackgroundTask && !AgentThreadRegistry.IsTerminalBackgroundStatus(thread.StatusText))
@@ -743,7 +745,7 @@ internal sealed class BackgroundTaskPresenter {
             if (!ShouldRecoverStaleBackgroundThread(thread, now))
                 continue;
 
-            var lastActivity = AgentThreadRegistry.GetThreadLastActivityAt(thread);
+            var lastActivity = GetRequestTreeLastActivityAt(thread);
             var label = BuildBackgroundAgentLabel(thread);
             SquadDashTrace.Write(
                 "UI",
@@ -777,7 +779,41 @@ internal sealed class BackgroundTaskPresenter {
         if (IsThreadBackedBySnapshotBackgroundTask(thread))
             return false;
 
-        return now - AgentThreadRegistry.GetThreadLastActivityAt(thread) >= BackgroundFallbackMaxSilence;
+        return now - GetRequestTreeLastActivityAt(thread) >= BackgroundFallbackMaxSilence;
+    }
+
+    private static void PropagateActivityToAncestors(
+        TranscriptThreadState thread,
+        DateTimeOffset observedAt) {
+        var visited = new HashSet<TranscriptThreadState> { thread };
+        var ancestor = thread.OriginThread;
+        while (ancestor is not null && visited.Add(ancestor)) {
+            if (ancestor.LastObservedActivityAt is null || ancestor.LastObservedActivityAt < observedAt)
+                ancestor.LastObservedActivityAt = observedAt;
+            ancestor = ancestor.OriginThread;
+        }
+    }
+
+    private DateTimeOffset GetRequestTreeLastActivityAt(TranscriptThreadState root) {
+        var latest = AgentThreadRegistry.GetThreadLastActivityAt(root);
+        var visited = new HashSet<TranscriptThreadState> { root };
+        var pending = new Queue<TranscriptThreadState>();
+        pending.Enqueue(root);
+
+        while (pending.Count > 0) {
+            var parent = pending.Dequeue();
+            foreach (var descendant in _agentThreadRegistry.ThreadOrder) {
+                if (!ReferenceEquals(descendant.OriginThread, parent) || !visited.Add(descendant))
+                    continue;
+
+                var descendantActivity = AgentThreadRegistry.GetThreadLastActivityAt(descendant);
+                if (descendantActivity > latest)
+                    latest = descendantActivity;
+                pending.Enqueue(descendant);
+            }
+        }
+
+        return latest;
     }
 
     private void ScheduleAgentThreadFadeIfNeeded(TranscriptThreadState thread) {

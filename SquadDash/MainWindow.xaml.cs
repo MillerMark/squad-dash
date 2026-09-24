@@ -6520,6 +6520,7 @@ public partial class MainWindow : Window
 
         SyncThreadChip(thread);
         PulseAgentActivity(FindAgentCardForThread(thread), SpinnerActivityKind.Reading, thread);
+        _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_message_delta");
         UpdateAgentCardFromThread(thread, syncBuckets: true);
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
     }

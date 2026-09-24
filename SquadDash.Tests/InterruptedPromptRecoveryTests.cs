@@ -24,6 +24,8 @@ internal sealed class InterruptedPromptRecoveryTests {
             Assert.That(InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(
                 new InvalidOperationException("Timeout after 3600000ms waiting for session.idle")), Is.True);
             Assert.That(InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(
+                new InvalidOperationException("Timeout after 3600000ms without meaningful activity in the request tree")), Is.True);
+            Assert.That(InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(
                 new InvalidOperationException("Provider request timed out. The provider did not complete the request within the allowed time.")), Is.True);
             Assert.That(InterruptedPromptRecoveryPresentation.IsRecoverableInactivityTimeout(
                 new TimeoutException("Timed out opening a file.")), Is.False);

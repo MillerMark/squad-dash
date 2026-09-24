@@ -293,6 +293,39 @@ internal sealed class BackgroundTaskPresenterTests {
     }
 
     [Test]
+    public void RecoverStaleBackgroundThreads_DoesNotRecoverAncestors_WhenGrandchildIsActive() {
+        var registry = MakeRegistry();
+        var now = new DateTimeOffset(2026, 5, 19, 18, 30, 0, TimeSpan.Zero);
+        var presenter = MakePresenter(registry);
+        var parent = registry.GetOrCreateAgentThread(
+            "tool-parent", "lyra", "lyra", "Lyra", null, "running", "Coordinate", now.AddMinutes(-30).ToString("O"));
+        var child = registry.GetOrCreateAgentThread(
+            "tool-child", "child", "child", "Child", null, "running", "Investigate", now.AddMinutes(-25).ToString("O"));
+        var grandchild = registry.GetOrCreateAgentThread(
+            "tool-grandchild", "grandchild", "grandchild", "Grandchild", null, "running", "Verify", now.AddMinutes(-20).ToString("O"));
+
+        registry.ApplyOriginMetadata(child, parent, "tool-child");
+        registry.ApplyOriginMetadata(grandchild, child, "tool-grandchild");
+        foreach (var thread in new[] { parent, child, grandchild }) {
+            thread.WasObservedAsBackgroundTask = true;
+            thread.IsCurrentBackgroundRun = true;
+            thread.StatusText = "Running";
+        }
+        parent.LastObservedActivityAt = now.AddMinutes(-20);
+        child.LastObservedActivityAt = now.AddMinutes(-15);
+        grandchild.LastObservedActivityAt = now.AddMinutes(-1);
+
+        var recovered = presenter.RecoverStaleBackgroundThreads(now, "test");
+
+        Assert.Multiple(() => {
+            Assert.That(recovered, Is.EqualTo(0));
+            Assert.That(parent.StatusText, Is.EqualTo("Running"));
+            Assert.That(child.StatusText, Is.EqualTo("Running"));
+            Assert.That(grandchild.StatusText, Is.EqualTo("Running"));
+        });
+    }
+
+    [Test]
     public void RecoverStaleBackgroundThreads_DoesNotRecover_WhenThreadStatusIsTerminal() {
         var registry = MakeRegistry();
         var now = new DateTimeOffset(2026, 5, 19, 18, 30, 0, TimeSpan.Zero);

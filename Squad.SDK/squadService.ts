@@ -5,7 +5,11 @@ import { fileURLToPath } from "node:url";
 import { SquadClient } from "@bradygaster/squad-sdk/client";
 import type { SquadSessionConfig } from "@bradygaster/squad-sdk/client";
 
-const SessionIdleTimeoutMs = 60 * 60 * 1000;
+const RequestTreeInactivityTimeoutMs = 60 * 60 * 1000;
+// The Copilot SDK interprets sendAndWait's timeout as a fixed wall-clock deadline.
+// Request-tree inactivity is enforced below, so leave only a distant transport
+// safety ceiling here rather than cutting off active descendant work after an hour.
+const SessionTransportSafetyTimeoutMs = 0x7fffffff;
 const CopilotAuthenticationLogLookbackMs = 2 * 60 * 1000;
 const CopilotAuthenticationLogReadLimit = 256 * 1024;
 const MissingCopilotAuthenticationMessage = "Session was not created with authentication info or custom provider";
@@ -153,7 +157,75 @@ type SquadSessionRequest = SquadPromptRequest & {
     providerOverride?: SquadSessionConfig["provider"] | null;
     providerOverrideSpecified?: boolean;
     exposeNamedAgentTool?: boolean;
+    requestTreeActivityMonitor?: RequestTreeActivityMonitor;
 };
+
+export class RequestTreeActivityMonitor {
+    public readonly expired: Promise<never>;
+    private readonly aborters = new Map<string, () => void | Promise<void>>();
+    private timer: ReturnType<typeof setTimeout> | undefined;
+    private rejectExpired!: (reason: Error) => void;
+    private stopped = false;
+
+    public constructor(private readonly timeoutMs = RequestTreeInactivityTimeoutMs) {
+        if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
+            throw new Error("Request-tree inactivity timeout must be a positive finite number.");
+
+        this.expired = new Promise<never>((_resolve, reject) => {
+            this.rejectExpired = reject;
+        });
+        this.markActivity();
+    }
+
+    public markActivity(): void {
+        if (this.stopped)
+            return;
+
+        if (this.timer)
+            clearTimeout(this.timer);
+        this.timer = setTimeout(() => this.expire(), this.timeoutMs);
+    }
+
+    public registerSession(
+        sessionId: string,
+        aborter: () => void | Promise<void>
+    ): () => void {
+        if (this.stopped)
+            return () => { };
+
+        this.aborters.set(sessionId, aborter);
+        this.markActivity();
+        return () => {
+            if (this.aborters.get(sessionId) === aborter)
+                this.aborters.delete(sessionId);
+        };
+    }
+
+    public stop(): void {
+        if (this.stopped)
+            return;
+
+        this.stopped = true;
+        if (this.timer)
+            clearTimeout(this.timer);
+        this.timer = undefined;
+        this.aborters.clear();
+    }
+
+    private expire(): void {
+        if (this.stopped)
+            return;
+
+        this.stopped = true;
+        this.timer = undefined;
+        const error = new Error(
+            `Timeout after ${this.timeoutMs}ms without meaningful activity in the request tree`);
+        this.rejectExpired(error);
+        for (const aborter of this.aborters.values())
+            void Promise.resolve().then(aborter).catch(() => { });
+        this.aborters.clear();
+    }
+}
 
 export type SquadNamedAgentRoute = {
     handle: string;
@@ -403,6 +475,7 @@ type RequestContext = {
     hiddenAdditionalContext?: string;
     planDelegationGuard?: PlanDelegationGuard;
     planLaunchCorrectionCount: number;
+    requestTreeActivityMonitor: RequestTreeActivityMonitor;
 };
 
 type LocalThinkStreamState = {
@@ -2605,6 +2678,13 @@ export class SquadBridgeService {
         if (state.currentRequest)
             throw new Error("A prompt is already running for this Squad session.");
 
+        const ownsRequestTreeActivityMonitor = !options.requestTreeActivityMonitor;
+        const requestTreeActivityMonitor = options.requestTreeActivityMonitor ??
+            new RequestTreeActivityMonitor();
+        const unregisterSession = requestTreeActivityMonitor.registerSession(
+            state.session.sessionId,
+            () => state.session.abort?.());
+
         const requestContext: RequestContext = {
             aborted: false,
             handlers,
@@ -2618,7 +2698,8 @@ export class SquadBridgeService {
             },
             hiddenAdditionalContext,
             planDelegationGuard: options.planDelegationGuard,
-            planLaunchCorrectionCount: 0
+            planLaunchCorrectionCount: 0,
+            requestTreeActivityMonitor
         };
 
         state.currentRequest = requestContext;
@@ -2640,9 +2721,13 @@ export class SquadBridgeService {
                 promptChars: trimmedPrompt.length,
                 model: options.model ?? "(default)"
             });
-            const finalMessage = state.session.sendAndWait
-                ? await state.session.sendAndWait({ prompt: trimmedPrompt }, SessionIdleTimeoutMs)
-                : await this.client!.sendAndWait(state.session, { prompt: trimmedPrompt }, SessionIdleTimeoutMs);
+            const sendAndWait = state.session.sendAndWait
+                ? state.session.sendAndWait({ prompt: trimmedPrompt }, SessionTransportSafetyTimeoutMs)
+                : this.client!.sendAndWait(state.session, { prompt: trimmedPrompt }, SessionTransportSafetyTimeoutMs);
+            const finalMessage = await Promise.race([
+                sendAndWait,
+                requestTreeActivityMonitor.expired
+            ]);
             bridgeDiagnostic("runSessionRequest:sendAndWait:done", {
                 sessionId: state.session.sessionId
             });
@@ -2694,6 +2779,10 @@ export class SquadBridgeService {
 
             if (state.currentRequest === requestContext)
                 state.currentRequest = undefined;
+
+            unregisterSession();
+            if (ownsRequestTreeActivityMonitor)
+                requestTreeActivityMonitor.stop();
         }
     }
 
@@ -3195,6 +3284,11 @@ export class SquadBridgeService {
         isTemporaryAgent = false
     ): Promise<string> {
         const handle = normalizeAgentHandle(route.handle);
+        const requestTreeActivityMonitor = this.sessions
+            .get(invocation.sessionId)
+            ?.currentRequest
+            ?.requestTreeActivityMonitor;
+        requestTreeActivityMonitor?.markActivity();
         const stagedRevisionCorrelation = resolveStagedPlanRevisionCorrelation(
             prompt,
             args.staged_plan_revision_request);
@@ -3318,7 +3412,8 @@ export class SquadBridgeService {
                             exposeNamedAgentTool: false,
                             namedAgentRoutes: outerOptions.namedAgentRoutes,
                             temporaryAgentRoute: outerOptions.temporaryAgentRoute,
-                            requireSameSession: retryCount > 0
+                            requireSameSession: retryCount > 0,
+                            requestTreeActivityMonitor
                         });
                     for (const reservation of retryReservations)
                         this.releaseProviderRetryReservation(reservation);
@@ -3378,6 +3473,7 @@ export class SquadBridgeService {
                         totalRetryDelayMs,
                         retryAt
                     });
+                    requestTreeActivityMonitor?.markActivity();
 
                     const continued = await waitForNamedAgentThrottleDelay(
                         boundedRetryDelayMs,
@@ -3396,6 +3492,7 @@ export class SquadBridgeService {
                         retryDelayMs: boundedRetryDelayMs,
                         totalRetryDelayMs
                     });
+                    requestTreeActivityMonitor?.markActivity();
                     attemptPrompt = NamedAgentThrottleContinuationPrompt;
                 }
             }
@@ -3792,6 +3889,8 @@ export class SquadBridgeService {
     }
 
     private attachSessionListeners(state: SessionState) {
+        const markRequestTreeActivity = () =>
+            state.currentRequest?.requestTreeActivityMonitor.markActivity();
         const emitSubagentToolEvent = (
             handlerName: "onSubagentToolStart" | "onSubagentToolProgress" | "onSubagentToolComplete",
             event: unknown,
@@ -3860,6 +3959,8 @@ export class SquadBridgeService {
 
         state.session.on("reasoning_delta", (event: unknown) => {
             const text = getEventRawStringValue(event, "deltaContent") ?? "";
+            if (text.length > 0)
+                markRequestTreeActivity();
             const parentToolCallId = extractParentToolCallId(event);
             if (parentToolCallId) {
                 if (text.length === 0)
@@ -3895,6 +3996,7 @@ export class SquadBridgeService {
             if (!model && inputTokens === undefined && outputTokens === undefined)
                 return;
 
+            markRequestTreeActivity();
             request.handlers.onUsage?.({
                 model,
                 inputTokens,
@@ -3905,6 +4007,8 @@ export class SquadBridgeService {
 
         state.session.on("message", (event: unknown) => {
             const content = extractAssistantMessageContent(event);
+            if (content)
+                markRequestTreeActivity();
             const parentToolCallId = extractParentToolCallId(event);
             if (parentToolCallId) {
                 const reasoningText = this.takeUnstreamedSubagentFinalReasoning(
@@ -3942,6 +4046,8 @@ export class SquadBridgeService {
 
         state.session.on("message_delta", (event: unknown) => {
             const chunk = getEventRawStringValue(event, "deltaContent") ?? "";
+            if (chunk.length > 0)
+                markRequestTreeActivity();
             const parentToolCallId = extractParentToolCallId(event);
             if (parentToolCallId) {
                 if (chunk.length === 0)
@@ -3973,6 +4079,7 @@ export class SquadBridgeService {
             if (!toolCallId || !toolName)
                 return;
 
+            markRequestTreeActivity();
             const context = buildToolContext(
                 toolName,
                 getObjectValue(event, "arguments"),
@@ -4002,6 +4109,7 @@ export class SquadBridgeService {
             if (!toolCallId)
                 return;
 
+            markRequestTreeActivity();
             const context = state.activeTools.get(toolCallId);
             if (emitSubagentToolEvent("onSubagentToolProgress", event, {
                 startedAt: context?.startedAt ?? new Date().toISOString(),
@@ -4034,6 +4142,7 @@ export class SquadBridgeService {
             if (!toolCallId)
                 return;
 
+            markRequestTreeActivity();
             const context = state.activeTools.get(toolCallId);
             if (emitSubagentToolEvent("onSubagentToolProgress", event, {
                 startedAt: context?.startedAt ?? new Date().toISOString(),
@@ -4066,6 +4175,7 @@ export class SquadBridgeService {
             if (!toolCallId)
                 return;
 
+            markRequestTreeActivity();
             const context = state.activeTools.get(toolCallId);
             const outputText = extractToolOutput(getObjectValue(event, "result")) || extractToolError(getObjectValue(event, "error"));
             const success = getEventBooleanValue(event, "success") ?? false;
@@ -4102,6 +4212,7 @@ export class SquadBridgeService {
         });
 
         state.session.on("session.background_tasks_changed", () => {
+            markRequestTreeActivity();
             void this.refreshBackgroundTasks(state);
         });
 
@@ -4121,6 +4232,7 @@ export class SquadBridgeService {
         });
 
         state.session.on("session.task_complete", (event: unknown) => {
+            markRequestTreeActivity();
             this.bridgeHandlers.onTaskComplete?.(
                 state.session.sessionId,
                 extractTaskCompletionSummary(event));
@@ -4131,6 +4243,7 @@ export class SquadBridgeService {
             if (!subagent)
                 return;
 
+            markRequestTreeActivity();
             const merged = this.mergeSubagentInfo(state, subagent);
             await this.refreshBackgroundTasks(state);
             const enriched = merged.toolCallId
@@ -4146,6 +4259,7 @@ export class SquadBridgeService {
             if (!subagent)
                 return;
 
+            markRequestTreeActivity();
             const merged = this.mergeSubagentInfo(state, subagent);
             this.bridgeHandlers.onSubagentCompleted?.(
                 state.session.sessionId,
@@ -4158,6 +4272,7 @@ export class SquadBridgeService {
             if (!subagent)
                 return;
 
+            markRequestTreeActivity();
             const merged = this.mergeSubagentInfo(state, subagent);
             this.bridgeHandlers.onSubagentFailed?.(
                 state.session.sessionId,

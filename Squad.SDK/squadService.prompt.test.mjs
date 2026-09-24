@@ -19,6 +19,7 @@ import {
     matchesStagedPlanRevisionCandidate,
     normalizeAssistantResponseContent,
     reconcileStreamedAndFinalResponse,
+    RequestTreeActivityMonitor,
     resolvePermissionApprovalKind,
     resolvePermissionApprovalKindFromSchema,
     reserveProviderRetryTimestamp,
@@ -26,6 +27,28 @@ import {
     StagedPlanRevisionHostProtocol,
     tryParseStagedPlanRevisionRequest
 } from "./squadService.js";
+
+test("request-tree activity from descendants extends the shared inactivity lease", async () => {
+    const abortedSessions = [];
+    const monitor = new RequestTreeActivityMonitor(80);
+    const expiration = monitor.expired.then(
+        () => undefined,
+        error => error);
+    monitor.registerSession("coordinator", () => { abortedSessions.push("coordinator"); });
+    monitor.registerSession("child", () => { abortedSessions.push("child"); });
+    monitor.registerSession("grandchild", () => { abortedSessions.push("grandchild"); });
+
+    for (const source of ["coordinator", "child", "grandchild"]) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.deepEqual(abortedSessions, [], `${source} activity should keep the whole tree alive`);
+        monitor.markActivity();
+    }
+
+    const error = await expiration;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.match(error.message, /80ms without meaningful activity in the request tree/);
+    assert.deepEqual(abortedSessions.sort(), ["child", "coordinator", "grandchild"]);
+});
 
 test("plan delegation authorization validates the active phase, branch, worktree, and roster agent", () => {
     const guard = {

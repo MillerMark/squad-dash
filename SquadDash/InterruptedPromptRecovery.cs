@@ -123,10 +123,11 @@ internal static partial class InterruptedPromptRecoveryPresentation {
             return true;
         }
 
-        // The SDK's overall request deadline is surfaced as InvalidOperationException rather
-        // than TimeoutException. It is still a recoverable interruption: agents and tools may
-        // have produced useful work before the session.idle deadline elapsed.
+        // Legacy SDK wall-clock deadlines and the current request-tree inactivity lease are
+        // surfaced as InvalidOperationException rather than TimeoutException. Both are
+        // recoverable interruptions because agents and tools may have produced useful work.
         return SessionIdleTimeoutRegex().IsMatch(message) ||
+               RequestTreeInactivityTimeoutRegex().IsMatch(message) ||
                message.Contains("Provider request timed out", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -352,6 +353,9 @@ internal static partial class InterruptedPromptRecoveryPresentation {
 
     [GeneratedRegex(@"Timeout\s+after\s+(\d+)ms\s+waiting\s+for\s+session\.idle", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex SessionIdleTimeoutRegex();
+
+    [GeneratedRegex(@"Timeout\s+after\s+(\d+)ms\s+without\s+meaningful\s+activity\s+in\s+the\s+request\s+tree", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex RequestTreeInactivityTimeoutRegex();
 
     [GeneratedRegex(@"Timeout\s+after\s+(\d+)ms", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex TimeoutMillisecondsRegex();
