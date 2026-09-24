@@ -6581,14 +6581,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
                 else
                 {
-                    var decomposedGates = _plan?.Group.ApprovalGates;
+                    var decomposedGates = _plan is null ? null
+                        : PendingDecomposePlanAdapter.MapApprovalGates(_plan.Group, _plan.Revision);
                     if (decomposedGates is not null && gateIndex >= 0 && gateIndex < decomposedGates.Count)
                     {
-                        var dg = decomposedGates[gateIndex];
-                        var minimalGate = new PlanApprovalGate(
-                            dg.GateId, dg.Message, dg.AfterTaskIds ?? [], dg.BeforeTaskIds ?? [],
-                            PlanGateStatus.Pending, Question: dg.Question);
-                        PopulateGateDetail(minimalGate, null);
+                        PopulateGateDetail(decomposedGates[gateIndex], null);
                     }
                 }
             }
@@ -8706,70 +8703,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(msgPara);
         }
 
-        var proofRequirements = gate.ProofRequirements ?? [];
-        var hasClarifiedReview = _durablePlan is not null && gate.HumanReviewDispositions is { Count: > 0 };
-        // With full proofs, only retain an authored gate question, not a generated restatement.
-        IReadOnlyList<string> approvalQuestions = hasClarifiedReview || proofRequirements.Count == 0
-            ? ResolvePresentedHumanReviewQuestions(gate)
-            : string.IsNullOrWhiteSpace(gate.Question) ? [] : [gate.Question];
-        if (proofRequirements.Count > 0 || approvalQuestions.Count > 0)
-        {
-            AddSectionHeader("Verify the Following:");
-            var reviewList = new List { MarkerStyle = TextMarkerStyle.Disc };
-            reviewList.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-            reviewList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            reviewList.Margin = new Thickness(0, 0, 0, 12);
-
-            static string NormalizeReviewText(string text) =>
-                string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-
-            var descriptions = proofRequirements
-                .Select(requirement => NormalizeReviewText(requirement.Description))
-                .ToArray();
-            var presentedQuestions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            bool IsNewQuestion(string question) =>
-                !descriptions.Any(description => description.Contains(question, StringComparison.OrdinalIgnoreCase)) &&
-                presentedQuestions.Add(question);
-
-            foreach (var requirement in proofRequirements)
-            {
-                var proofPara = new Paragraph { Margin = new Thickness(0, 0, 0, 8) };
-                var scenarioTitle = new Run(PlanHumanReviewChecklist.ResolveDisplayTitle(
-                    requirement.Title, requirement.RequirementId))
-                {
-                    FontWeight = FontWeights.Bold,
-                };
-                scenarioTitle.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-                proofPara.Inlines.Add(scenarioTitle);
-                proofPara.Inlines.Add(new LineBreak());
-                proofPara.Inlines.Add(new Run(requirement.Description));
-
-                // Clarifications replace the original questions; do not revive superseded wording.
-                if (!hasClarifiedReview && !string.IsNullOrWhiteSpace(requirement.Question))
-                {
-                    foreach (var question in PlanHumanReviewChecklist.SplitLegacyQuestions(requirement.Question))
-                    {
-                        if (!IsNewQuestion(question))
-                            continue;
-                        proofPara.Inlines.Add(new LineBreak());
-                        proofPara.Inlines.Add(new Run(question));
-                    }
-                }
-                reviewList.ListItems.Add(new ListItem(proofPara));
-            }
-
-            foreach (var question in approvalQuestions
-                .Where(question => !string.IsNullOrWhiteSpace(question))
-                .SelectMany(PlanHumanReviewChecklist.SplitLegacyQuestions))
-            {
-                if (!IsNewQuestion(question))
-                    continue;
-                var questionPara = new Paragraph(new Run(question));
-                questionPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-                reviewList.ListItems.Add(new ListItem(questionPara));
-            }
-            _detailDocument.Blocks.Add(reviewList);
-        }
+        AppendGateReviewRequirements(gate);
 
         // Status (color-coded)
         var gateStatusColor = gate.Status switch
@@ -8855,6 +8789,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var gate = _durablePlan?.ApprovalGates.FirstOrDefault(g =>
             string.Equals(g.GateId, gateId, StringComparison.Ordinal));
+        gate ??= _plan is null ? null
+            : PendingDecomposePlanAdapter.MapApprovalGates(_plan.Group, _plan.Revision)
+                .FirstOrDefault(g => string.Equals(g.GateId, gateId, StringComparison.Ordinal));
         if (gate is null)
         {
             var fallback = new Paragraph(new Run("Approval gate not found."));
@@ -8871,20 +8808,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         titlePara.Margin = new Thickness(0, 0, 0, 4);
         _detailDocument.Blocks.Add(titlePara);
 
-        // Question
-        var approvalQuestion = PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
-        if (!string.IsNullOrWhiteSpace(approvalQuestion))
-        {
-            var questionPara = new Paragraph(new Run(approvalQuestion)
-            {
-                FontWeight = FontWeights.SemiBold,
-            });
-            questionPara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            questionPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            questionPara.Margin = new Thickness(0, 0, 0, 12);
-            _detailDocument.Blocks.Add(questionPara);
-        }
-
         // Message
         if (!string.IsNullOrWhiteSpace(gate.Message))
         {
@@ -8894,6 +8817,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             msgPara.Margin = new Thickness(0, 0, 0, 8);
             _detailDocument.Blocks.Add(msgPara);
         }
+
+        AppendGateReviewRequirements(gate);
 
         // Status (color-coded)
         var gateStatusColor = gate.Status switch
@@ -9152,6 +9077,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(status);
 
             AppendApprovalContractEditor(gate);
+        }
+    }
+
+    private void AppendGateReviewRequirements(PlanApprovalGate gate)
+    {
+        if (_detailDocument is null)
+            return;
+
+        var hasClarifiedReview = _durablePlan is not null && gate.HumanReviewDispositions is { Count: > 0 };
+        // With full proofs, only retain an authored gate question, not a generated restatement.
+        IReadOnlyList<string> approvalQuestions = hasClarifiedReview || gate.ProofRequirements is not { Count: > 0 }
+            ? ResolvePresentedHumanReviewQuestions(gate)
+            : string.IsNullOrWhiteSpace(gate.Question) ? [] : [gate.Question];
+        var blocks = PlanGateReviewRenderer.CreateReviewBlocks(gate, approvalQuestions, hasClarifiedReview);
+        if (blocks.Count > 0)
+        {
+            AddSectionHeader("Verify the Following:");
+            foreach (var block in blocks)
+                _detailDocument.Blocks.Add(block);
         }
     }
 

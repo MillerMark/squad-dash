@@ -210,61 +210,69 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
     }
 
     [Test]
-    public void GateInspector_ReadViewRendersProofTitlesAndDescriptionsInThemedBullets()
+    public void GateInspector_BothSelectionPathsRenderRequirementsOutsideEditMode()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
-        var method = ExtractMethod(source, "private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)");
-        var reviewSection = method[method.IndexOf("var proofRequirements", StringComparison.Ordinal)..
-            method.IndexOf("// Status (color-coded)", StringComparison.Ordinal)];
+        var refresh = ExtractMethod(source, "private void RefreshDetailPanel()");
+        var append = ExtractMethod(source, "private void AppendGateReviewRequirements(PlanApprovalGate gate)");
 
         Assert.Multiple(() =>
         {
-            Assert.That(reviewSection, Does.Contain("gate.ProofRequirements ?? []")
-                .And.Contain("proofRequirements.Count > 0 || approvalQuestions.Count > 0")
+            Assert.That(source, Does.Contain("hitTarget.Tag = $\"humanapproval:{selectionAnchor}\";"));
+            Assert.That(refresh, Does.Contain("PopulateHumanApprovalDetail(_selectedElement.Id);"));
+            foreach (var signature in new[]
+            {
+                "private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)",
+                "private void PopulateHumanApprovalDetail(string gateId)",
+            })
+            {
+                var method = ExtractMethod(source, signature);
+                Assert.That(method, Does.Contain("AppendGateReviewRequirements(gate);")
+                    .And.Contain("AppendApprovalContractEditor(gate);"));
+                Assert.That(method.IndexOf("AppendGateReviewRequirements(gate);", StringComparison.Ordinal),
+                    Is.LessThan(method.IndexOf("// Status (color-coded)", StringComparison.Ordinal)));
+            }
+            Assert.That(append, Does.Contain("PlanGateReviewRenderer.CreateReviewBlocks(gate, approvalQuestions, hasClarifiedReview)")
+                .And.Contain("if (blocks.Count > 0)")
                 .And.Contain("AddSectionHeader(\"Verify the Following:\")")
-                .And.Contain("foreach (var requirement in proofRequirements)")
-                .And.Contain("MarkerStyle = TextMarkerStyle.Disc")
-                .And.Contain("reviewList.ListItems.Add(new ListItem(proofPara))")
-                .And.Contain("_detailDocument.Blocks.Add(reviewList)"));
-            Assert.That(reviewSection, Does.Contain("PlanHumanReviewChecklist.ResolveDisplayTitle(")
-                .And.Contain("requirement.Title, requirement.RequirementId")
-                .And.Contain("FontWeight = FontWeights.Bold")
-                .And.Contain("proofPara.Inlines.Add(scenarioTitle)")
-                .And.Contain("proofPara.Inlines.Add(new LineBreak())")
-                .And.Contain("proofPara.Inlines.Add(new Run(requirement.Description))"));
-            Assert.That(reviewSection, Does.Contain("SetResourceReference(TextElement.ForegroundProperty, \"BodyText\")")
-                .And.Contain("SetResourceReference(TextElement.ForegroundProperty, \"ImportantText\")")
-                .And.Contain("SetResourceReference(TextElement.FontSizeProperty, \"FontSizeBody\")")
-                .And.Not.Contain("_isInspectorEditing")
-                .And.Not.Contain("FontSize =")
-                .And.Not.Contain("Brushes."));
-            Assert.That(method, Does.Contain("AppendApprovalContractEditor(gate);"));
+                .And.Contain("_detailDocument.Blocks.Add(block)")
+                .And.Not.Contain("_isInspectorEditing"));
         });
     }
 
     [Test]
-    public void GateInspector_CombinesUniqueQuestionsAndPreservesClarifiedAndLegacyReview()
+    public void GateInspector_PendingReadPathsPreserveTheSameProofContractAsTheEditor()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
-        var method = ExtractMethod(source, "private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)");
+        var refresh = ExtractMethod(source, "private void RefreshDetailPanel()");
+        var humanApproval = ExtractMethod(source, "private void PopulateHumanApprovalDetail(string gateId)");
+        var editor = ExtractMethod(source, "private bool PopulateGateEditor(string gateIdentity)");
+        Assert.Multiple(() =>
+        {
+            Assert.That(refresh, Does.Contain("PendingDecomposePlanAdapter.MapApprovalGates(_plan.Group, _plan.Revision)")
+                .And.Contain("PopulateGateDetail(decomposedGates[gateIndex], null)")
+                .And.Not.Contain("var minimalGate"));
+            Assert.That(humanApproval, Does.Contain("PendingDecomposePlanAdapter.MapApprovalGates(_plan.Group, _plan.Revision)"));
+            Assert.That(editor, Does.Contain("gate.ProofRequirements ?? []")
+                .And.Contain("value.Title")
+                .And.Contain("value.Description")
+                .And.Contain("value.Question"));
+        });
+    }
+
+    [Test]
+    public void GateInspector_PreservesClarifiedAndLegacyReviewWithoutGeneratedProofRestatements()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var method = ExtractMethod(source, "private void AppendGateReviewRequirements(PlanApprovalGate gate)");
 
         Assert.Multiple(() =>
         {
-            Assert.That(method, Does.Contain("hasClarifiedReview || proofRequirements.Count == 0")
+            Assert.That(method, Does.Contain("hasClarifiedReview || gate.ProofRequirements is not { Count: > 0 }")
                 .And.Contain("? ResolvePresentedHumanReviewQuestions(gate)")
                 .And.Contain("string.IsNullOrWhiteSpace(gate.Question) ? [] : [gate.Question]"));
-            Assert.That(method, Does.Contain("gate.HumanReviewDispositions is { Count: > 0 }")
-                .And.Contain("if (!hasClarifiedReview && !string.IsNullOrWhiteSpace(requirement.Question))"));
-            Assert.That(method, Does.Contain("NormalizeReviewText(requirement.Description)")
-                .And.Contain("StringSplitOptions.RemoveEmptyEntries")
-                .And.Contain("new HashSet<string>(StringComparer.OrdinalIgnoreCase)")
-                .And.Contain("!descriptions.Any(description => description.Contains(question, StringComparison.OrdinalIgnoreCase))")
-                .And.Contain("presentedQuestions.Add(question)")
-                .And.Contain("PlanHumanReviewChecklist.SplitLegacyQuestions(requirement.Question)")
-                .And.Contain(".SelectMany(PlanHumanReviewChecklist.SplitLegacyQuestions)"));
-            Assert.That(Regex.Matches(method, @"if \(!IsNewQuestion\(question\)\)").Count, Is.EqualTo(2));
+            Assert.That(method, Does.Contain("gate.HumanReviewDispositions is { Count: > 0 }"));
             Assert.That(Regex.Matches(method, "AddSectionHeader\\(\"Verify the Following:\"\\)").Count, Is.EqualTo(1));
-            Assert.That(method, Does.Not.Contain("string.Join(\"\\n• \", approvalQuestions)"));
         });
     }
 
@@ -273,14 +281,17 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
         var method = ExtractMethod(source, "private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)");
+        var renderer = File.ReadAllText(FindRepoFile("SquadDash", "PlanGateReviewRenderer.cs"));
 
         Assert.Multiple(() =>
         {
             foreach (var field in new[] { "ProofType", "FixtureTaskId", "FixtureOutputId", "AccessMode", "VerificationRecipe" })
-                Assert.That(method, Does.Not.Contain($"requirement.{field}"));
-            Assert.That(Regex.Matches(method, @"requirement\.RequirementId").Count, Is.EqualTo(1),
+                Assert.That(renderer, Does.Not.Contain($"requirement.{field}"));
+            Assert.That(Regex.Matches(renderer, @"requirement\.RequirementId").Count, Is.EqualTo(1),
                 "The requirement ID may only be used as the human-friendly title fallback.");
-            Assert.That(method, Does.Not.Contain("new Run(requirement.RequirementId)"));
+            Assert.That(renderer, Does.Not.Contain("new Run(requirement.RequirementId)")
+                .And.Not.Contain("FontSize =")
+                .And.Not.Contain("Brushes."));
             Assert.That(method, Does.Contain("if (_isInspectorEditing)\n        {\n            var idPara")
                 .Or.Contain("if (_isInspectorEditing)\r\n        {\r\n            var idPara"),
                 "Raw gate IDs are only useful in edit mode.");
