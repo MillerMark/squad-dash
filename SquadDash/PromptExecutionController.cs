@@ -2381,6 +2381,12 @@ internal sealed class PromptExecutionController {
                 queueItem.IsSystemInjected,
                 queueItem.DisplayLabel);
         var failure = ProviderFailurePresentation.Analyze(errorMessage);
+        var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var interruptedPlanAttempt = activeExecution?.IsExecutingPlan == true &&
+                                     activeExecution.ActiveVerificationTaskId is null &&
+                                     activeExecution.ActiveValidationId is null
+            ? activeExecution.PlanExecutionAttempt
+            : null;
         var state = new InterruptedPromptRecoveryState(
             InterruptedPromptRecoveryState.CurrentSchemaVersion,
             Guid.NewGuid().ToString("N"),
@@ -2408,7 +2414,11 @@ internal sealed class PromptExecutionController {
             failure.Title,
             failure.Category.ToString(),
             _currentPromptStartedAt ?? _transcriptSink.CoordinatorThread.CurrentTurn?.StartedAt,
-            activeAgentThreadIds);
+            activeAgentThreadIds,
+            interruptedPlanAttempt?.PlanId,
+            interruptedPlanAttempt?.TaskId,
+            interruptedPlanAttempt?.Revision,
+            interruptedPlanAttempt?.AttemptId);
         recoveryStore.Save(state);
         _onInterruptedPromptRecoverySaved?.Invoke(state);
         return state;

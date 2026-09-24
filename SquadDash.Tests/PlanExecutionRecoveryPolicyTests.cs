@@ -147,6 +147,69 @@ internal sealed class PlanExecutionRecoveryPolicyTests
             Throws.ArgumentException);
     }
 
+    [Test]
+    public void InterruptedContinuation_ArchivesOldAttemptAndAcceptsFreshPrimaryCompletion()
+    {
+        var oldLaunch = new BackgroundAgentLaunchInfo(
+            ToolCallId: "tool-old",
+            TaskName: "delegate_roster_agent",
+            Mode: null,
+            DisplayName: "Vesper Knox",
+            AccentKey: null,
+            RoleText: "Test verification",
+            Description: null,
+            AgentType: null,
+            Prompt: null,
+            AssignedTaskId: "PLAN-1-007",
+            AssignedPlanRevision: "revision-1",
+            AssignedAgentHandle: "vesper-knox",
+            IsVerifiedRosterAssignment: true,
+            AssignedAttemptId: "attempt-old",
+            StartedAt: DateTimeOffset.UtcNow);
+        var interrupted = Attempt().RecordPrimaryLaunch(oldLaunch);
+        var execution = new ActiveLoopExecutionState(
+            "loop.md",
+            "PLAN-1",
+            "PLAN-1",
+            "revision-1",
+            interrupted,
+            RecoveryTaskId: "PLAN-1-007",
+            RecoveryAttemptId: interrupted.AttemptId,
+            RepairRequestCount: 2,
+            TaskBaselineCommit: "abc1234");
+        var fresh = Attempt("attempt-fresh");
+
+        var continued = PlanExecutionRecoveryPolicy.ReplaceInterruptedAttempt(execution, fresh);
+        var freshLaunch = oldLaunch with
+        {
+            ToolCallId = "tool-fresh",
+            AssignedAttemptId = "attempt-fresh",
+        };
+        var completed = continued.PlanExecutionAttempt!
+            .RecordPrimaryLaunch(freshLaunch)
+            .RecordPrimaryCompletion("tool-fresh", DateTimeOffset.UtcNow, succeeded: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(continued.PlanExecutionAttempt?.AttemptId, Is.EqualTo("attempt-fresh"));
+            Assert.That(continued.PreviousPlanExecutionAttempts, Has.Count.EqualTo(1));
+            Assert.That(continued.PreviousPlanExecutionAttempts![0].AttemptId, Is.EqualTo("attempt-old"));
+            Assert.That(continued.PreviousPlanExecutionAttempts[0].Status, Is.EqualTo("interrupted"));
+            Assert.That(continued.PreviousPlanExecutionAttempts[0].Assignments[0].PrimaryToolCallId,
+                Is.EqualTo("tool-old"));
+            Assert.That(continued.RepairRequestCount, Is.Zero);
+            Assert.That(continued.TaskBaselineCommit, Is.EqualTo("abc1234"));
+            Assert.That(completed.UnexpectedPrimaryToolCallIds, Is.Null);
+            Assert.That(
+                PlanAgentAssignmentValidator.Validate(
+                    "PLAN-1-007",
+                    "revision-1",
+                    [Assignment],
+                    completed),
+                Is.Null);
+        });
+    }
+
     private static PlanExecutionAttemptState Attempt(string id = "attempt-old") =>
         new(
             id,

@@ -86,14 +86,61 @@ internal static class PlanExecutionRecoveryPolicy
         IReadOnlyList<PlanExecutionAttemptState>? history,
         PlanExecutionAttemptState rejectedAttempt,
         PlanExecutionAttemptState freshAttempt)
+        => ArchiveAttempt(history, rejectedAttempt, freshAttempt, "rejected");
+
+    internal static ActiveLoopExecutionState ReplaceInterruptedAttempt(
+        ActiveLoopExecutionState execution,
+        PlanExecutionAttemptState freshAttempt)
     {
-        if (string.Equals(rejectedAttempt.AttemptId, freshAttempt.AttemptId, StringComparison.Ordinal))
+        var interruptedAttempt = execution.PlanExecutionAttempt
+            ?? throw new ArgumentException(
+                "An interrupted execution must have an active attempt to replace.",
+                nameof(execution));
+        if (!string.Equals(interruptedAttempt.PlanId, freshAttempt.PlanId, StringComparison.Ordinal) ||
+            !string.Equals(interruptedAttempt.TaskId, freshAttempt.TaskId, StringComparison.Ordinal) ||
+            !string.Equals(interruptedAttempt.Revision, freshAttempt.Revision, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "A fresh execution attempt must target the same plan task and revision.",
+                nameof(freshAttempt));
+        }
+
+        var history = ArchiveAttempt(
+            execution.PreviousPlanExecutionAttempts,
+            interruptedAttempt,
+            freshAttempt,
+            "interrupted");
+
+        return execution with
+        {
+            PlanExecutionAttempt = freshAttempt,
+            PreviousPlanExecutionAttempts = history,
+            RecoveryTaskId = freshAttempt.TaskId,
+            RecoveryAttemptId = freshAttempt.AttemptId,
+            RepairRequestCount = 0,
+            PendingRepairResult = null,
+        };
+    }
+
+    private static IReadOnlyList<PlanExecutionAttemptState> ArchiveAttempt(
+        IReadOnlyList<PlanExecutionAttemptState>? history,
+        PlanExecutionAttemptState previousAttempt,
+        PlanExecutionAttemptState freshAttempt,
+        string status)
+    {
+        if (string.Equals(previousAttempt.AttemptId, freshAttempt.AttemptId, StringComparison.Ordinal))
             throw new ArgumentException("A fresh execution attempt must have a new attempt ID.", nameof(freshAttempt));
-        if (freshAttempt.UnexpectedPrimaryToolCallIds is { Count: > 0 })
-            throw new ArgumentException("A fresh execution attempt cannot inherit unexpected launch evidence.", nameof(freshAttempt));
+        if (freshAttempt.UnexpectedPrimaryToolCallIds is { Count: > 0 } ||
+            !string.IsNullOrWhiteSpace(freshAttempt.GenericPrimaryToolCallId) ||
+            freshAttempt.Assignments.Any(assignment => !string.IsNullOrWhiteSpace(assignment.PrimaryToolCallId)))
+        {
+            throw new ArgumentException(
+                "A fresh execution attempt cannot inherit launch evidence.",
+                nameof(freshAttempt));
+        }
 
         return (history ?? [])
-            .Append(rejectedAttempt with { Status = "rejected" })
+            .Append(previousAttempt with { Status = status })
             .GroupBy(attempt => attempt.AttemptId, StringComparer.Ordinal)
             .Select(attempts => attempts.Last())
             .TakeLast(20)

@@ -57,6 +57,25 @@ internal sealed class PlanExecutionAttemptTests
     }
 
     [Test]
+    public void InterruptedContinuationPrompt_RequiresFreshIdentityAndPreservesCompletedWork()
+    {
+        var prompt = PlanFreshAttemptPrompt.BuildInterruptedContinuation(
+            "PLAN-20260728",
+            "PLAN-20260728-002",
+            "rev-2",
+            "fresh routing context");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("prior attempt is closed"));
+            Assert.That(prompt, Does.Contain("Preserve existing commits"));
+            Assert.That(prompt, Does.Contain("complete only what remains"));
+            Assert.That(prompt, Does.Contain("using the new `executionAttemptId`"));
+            Assert.That(prompt, Does.Contain("fresh routing context"));
+        });
+    }
+
+    [Test]
     public void FindAuthorization_IsBoundToAttemptTaskRevisionHandleAndCapability()
     {
         var authorization = new PlanExecutionAssignmentAttempt(

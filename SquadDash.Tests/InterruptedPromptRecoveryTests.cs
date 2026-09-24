@@ -2,6 +2,58 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class InterruptedPromptRecoveryTests {
+    [Test]
+    public void PlanRecovery_MatchesOnlyTheAttemptThatProducedTheInterruption()
+    {
+        var attempt = PlanExecutionAttemptState.CreateGeneric(
+            "PLAN-1", "PLAN-1-007", "revision-1", _tempDirectory);
+        var execution = new ActiveLoopExecutionState(
+            "loop.md", "PLAN-1", "PLAN-1", "revision-1", attempt);
+        var matching = CreateState() with
+        {
+            PlanId = "PLAN-1",
+            PlanTaskId = "PLAN-1-007",
+            PlanRevision = "revision-1",
+            PlanExecutionAttemptId = attempt.AttemptId,
+        };
+        var stale = matching with { PlanExecutionAttemptId = "attempt-stale" };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                InterruptedPromptPlanRecoveryPolicy.MatchesActiveImplementationAttempt(matching, execution),
+                Is.True);
+            Assert.That(
+                InterruptedPromptPlanRecoveryPolicy.MatchesActiveImplementationAttempt(stale, execution),
+                Is.False);
+        });
+    }
+
+    [Test]
+    public void LegacyPlanRecovery_RequiresExactAttemptIdInOriginalPrompt()
+    {
+        var attempt = PlanExecutionAttemptState.CreateGeneric(
+            "PLAN-1", "PLAN-1-007", "revision-1", _tempDirectory);
+        var execution = new ActiveLoopExecutionState(
+            "loop.md", "PLAN-1", "PLAN-1", "revision-1", attempt);
+        var matching = CreateState() with
+        {
+            Prompt = $"Continue plan execution attempt {attempt.AttemptId}."
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                InterruptedPromptPlanRecoveryPolicy.MatchesActiveImplementationAttempt(matching, execution),
+                Is.True);
+            Assert.That(
+                InterruptedPromptPlanRecoveryPolicy.MatchesActiveImplementationAttempt(
+                    matching with { Prompt = "An unrelated interrupted prompt." },
+                    execution),
+                Is.False);
+        });
+    }
+
     private string _tempDirectory = null!;
 
     [SetUp]

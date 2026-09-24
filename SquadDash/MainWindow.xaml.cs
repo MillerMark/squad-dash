@@ -44536,7 +44536,8 @@ public partial class MainWindow : Window
         ResetQueuePausedState();
         ClearRuntimeIssue();
 
-        var continuationPrompt = InterruptedPromptRecoveryPresentation.BuildContinuationPrompt(recovery);
+        var continuationPrompt = BuildInterruptedPlanContinuationPrompt(recovery)
+            ?? InterruptedPromptRecoveryPresentation.BuildContinuationPrompt(recovery);
         _pendingTranscriptAttachments = recovery.Attachments.ToArray();
         ShowSystemTranscriptEntry(
             InterruptedPromptRecoveryPresentation.BuildResumeAttemptText(recovery));
@@ -44577,6 +44578,82 @@ public partial class MainWindow : Window
                     preserveExistingRecovery: true);
                 break;
         }
+    }
+
+    private string? BuildInterruptedPlanContinuationPrompt(InterruptedPromptRecoveryState recovery)
+    {
+        if (_currentWorkspace is null || _planStore is null)
+            return null;
+
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (!InterruptedPromptPlanRecoveryPolicy.MatchesActiveImplementationAttempt(recovery, execution) ||
+            execution?.PlanExecutionAttempt is not { Status: "active" } interruptedAttempt)
+        {
+            return null;
+        }
+
+        var groupId = execution.DecomposeGroupId!;
+        var revision = execution.DecomposeRevision
+            ?? throw new InvalidOperationException(
+                "SquadDash cannot continue the interrupted plan because its revision is unavailable.");
+        var durablePlan = _planStore.Load(groupId)
+            ?? throw new InvalidOperationException(
+                $"SquadDash cannot continue the interrupted plan because {groupId} is unavailable.");
+        if (!string.Equals(durablePlan.Revision, revision, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "SquadDash cannot continue the interrupted plan because its approved revision changed.");
+        }
+
+        var taskId = interruptedAttempt.TaskId;
+        var task = PendingDecomposePlanAdapter.FromPlan(durablePlan).Group.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, taskId, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException(
+                $"SquadDash cannot continue the interrupted plan because task {taskId} is unavailable.");
+        var routingPolicy = PlanAgentRoutingPolicy.Normalize(_settingsSnapshot.PlanAgentRoutingPolicy);
+        var assignments = routingPolicy == PlanAgentRoutingPolicy.Off
+            ? null
+            : task.AgentAssignments;
+        var freshAttempt = CreatePlanExecutionAttempt(
+            groupId,
+            taskId,
+            revision,
+            task,
+            assignments,
+            routingPolicy)
+            ?? throw new InvalidOperationException(
+                "SquadDash cannot create a fresh execution attempt for the interrupted plan task.");
+
+        var routingContext = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
+            _currentWorkspace.SquadFolderPath,
+            taskId,
+            task.Title ?? taskId,
+            task.Description,
+            assignments,
+            revision,
+            freshAttempt,
+            string.Equals(task.AgentRoutingMode, "generic", StringComparison.Ordinal)
+                ? task.GenericAgentReason
+                : null,
+            durablePlan.Branch);
+        var continuedExecution = PlanExecutionRecoveryPolicy.ReplaceInterruptedAttempt(
+            execution,
+            freshAttempt);
+        _conversationManager.UpdateActiveLoopExecutionState(continuedExecution);
+        AppendPlanExecutionJournal(
+            groupId,
+            taskId,
+            "interrupted-attempt-replaced",
+            $"Closed interrupted execution attempt {interruptedAttempt.AttemptId} and created fresh attempt {freshAttempt.AttemptId} before continuation.");
+        SquadDashTrace.Write(
+            "PlanRecovery",
+            $"Replaced interrupted plan attempt plan={groupId} task={taskId} oldAttempt={interruptedAttempt.AttemptId} newAttempt={freshAttempt.AttemptId} baseline={continuedExecution.TaskBaselineCommit ?? "unknown"}");
+
+        return PlanFreshAttemptPrompt.BuildInterruptedContinuation(
+            groupId,
+            taskId,
+            revision,
+            routingContext);
     }
 
     private void EditInterruptedPrompt(InterruptedPromptRecoveryState recovery)

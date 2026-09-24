@@ -15,4 +15,18 @@ internal static class PlanFreshAttemptPrompt
 
             {{routingContext}}
             """;
+
+    internal static string BuildInterruptedContinuation(
+        string groupId,
+        string taskId,
+        string revision,
+        string routingContext) => $$"""
+            Continue the interrupted plan task using the fresh host-owned attempt supplied below. Preserve existing commits, valid repository work, completed child output, and the original task baseline. Inspect the current repository before changing anything, adopt work that already satisfies the task, and complete only what remains.
+
+            The prior attempt is closed. Do not reuse its execution identity, authorization, launch result, or failure state. Launch the assigned primary worker for this fresh attempt in validation/adoption mode and wait for its result. If the inspected snapshot already satisfies every task requirement, make no edits and return a `verified-no-op` result with requirement-scoped repository evidence and the current HEAD in `evaluatedCommit`. Otherwise create or adopt the one clean changed result required by the task.
+
+            Return exactly one DECOMPOSE_STEP_RESULT_JSON for group {{groupId}}, task {{taskId}}, revision {{revision}} using the new `executionAttemptId`. Never claim an actual primary agent unless the current host-scoped delegation call completed.
+
+            {{routingContext}}
+            """;
 }

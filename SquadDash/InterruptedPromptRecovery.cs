@@ -42,9 +42,43 @@ internal sealed record InterruptedPromptRecoveryState(
     string? FailureTitle = null,
     string? FailureCategory = null,
     DateTimeOffset? OriginalTurnStartedAt = null,
-    IReadOnlyList<string>? ActiveAgentThreadIds = null) {
+    IReadOnlyList<string>? ActiveAgentThreadIds = null,
+    string? PlanId = null,
+    string? PlanTaskId = null,
+    string? PlanRevision = null,
+    string? PlanExecutionAttemptId = null) {
 
     internal const int CurrentSchemaVersion = 1;
+}
+
+internal static class InterruptedPromptPlanRecoveryPolicy
+{
+    internal static bool MatchesActiveImplementationAttempt(
+        InterruptedPromptRecoveryState recovery,
+        ActiveLoopExecutionState? execution)
+    {
+        if (execution?.IsExecutingPlan != true ||
+            execution.ActiveVerificationTaskId is not null ||
+            execution.ActiveValidationId is not null ||
+            execution.PlanExecutionAttempt is not { Status: "active" } attempt)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(recovery.PlanExecutionAttemptId))
+        {
+            return string.Equals(recovery.PlanId, attempt.PlanId, StringComparison.Ordinal) &&
+                   string.Equals(recovery.PlanTaskId, attempt.TaskId, StringComparison.Ordinal) &&
+                   string.Equals(recovery.PlanRevision, attempt.Revision, StringComparison.Ordinal) &&
+                   string.Equals(recovery.PlanExecutionAttemptId, attempt.AttemptId, StringComparison.Ordinal);
+        }
+
+        // Recovery records written before plan identity was persisted can be upgraded safely
+        // only when their original prompt contains the exact active attempt capability scope.
+        return recovery.Prompt.Contains(attempt.AttemptId, StringComparison.Ordinal) &&
+               string.Equals(execution.DecomposeGroupId, attempt.PlanId, StringComparison.Ordinal) &&
+               string.Equals(execution.DecomposeRevision, attempt.Revision, StringComparison.Ordinal);
+    }
 }
 
 internal sealed record InterruptedPromptDispatch(
