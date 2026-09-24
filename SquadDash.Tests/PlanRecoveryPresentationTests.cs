@@ -824,6 +824,95 @@ internal sealed class PlanRecoveryPresentationTests
             Has.Count.EqualTo(2));
     }
 
+    [Test]
+    public void HumanChecklist_PartialApprovalFollowedByCorrection_BecomesUncertainUntilReconfirmed()
+    {
+        var confirmedAt = DateTimeOffset.Parse("2026-09-23T12:00:00Z");
+        var correctedAt = confirmedAt.AddMinutes(5);
+        var task = new PlanTask(
+            "PLAN-007", "Review", "Review", [], "high", PlanTaskStatus.Complete,
+            Commit: "abcdef123456");
+        var gate = new PlanApprovalGate(
+            "GATE-007", "Observe", [task.TaskId], [], PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "first", "live-ui-observation", "Observe first", "Does the first result work?"),
+                new PlanTaskProofRequirement(
+                    "second", "live-ui-observation", "Observe second", "Does the second result work?"),
+            ],
+            HumanReviewSelections:
+            [new PlanHumanReviewSelection("first", true, task.Commit!, confirmedAt)]);
+        var plan = TestPlan(null) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Tasks = [task],
+            ApprovalGates = [gate],
+        };
+
+        var corrected = PlanStoreUpdater.ApplyManualReviewActivity(
+            plan, [task.TaskId], "Rebuilt the reviewed package after a relevant fix.", correctedAt);
+        var afterCorrection = PlanHumanReviewChecklist.Build(corrected, [corrected.ApprovalGates.Single()]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(afterCorrection.Single(item => item.ItemId == "first").IsChecked, Is.False);
+            Assert.That(afterCorrection.Single(item => item.ItemId == "first").WasPreviouslyChecked, Is.True);
+            Assert.That(afterCorrection.Single(item => item.ItemId == "second").IsChecked, Is.False);
+            Assert.That(afterCorrection.Single(item => item.ItemId == "second").WasPreviouslyChecked, Is.False);
+        });
+
+        var uncertain = afterCorrection.Single(item => item.ItemId == "first");
+        var reconfirmed = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+            corrected,
+            gate.GateId,
+            uncertain.ItemId,
+            true,
+            uncertain.CandidateCommit,
+            uncertain.ReviewTarget,
+            correctedAt.AddMinutes(1));
+        var current = PlanHumanReviewChecklist.Build(reconfirmed, [reconfirmed.ApprovalGates.Single()]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(current.Single(item => item.ItemId == "first").IsChecked, Is.True);
+            Assert.That(current.Single(item => item.ItemId == "first").WasPreviouslyChecked, Is.False);
+            Assert.That(reconfirmed.ApprovalGates.Single().HumanReviewSelections, Has.Count.EqualTo(2),
+                "The earlier confirmation remains as history while the new one applies to the current target.");
+        });
+    }
+
+    [Test]
+    public void HumanChecklist_ExplicitlyClearedCurrentSelection_DoesNotResurfaceHistoricalQuestionMark()
+    {
+        var task = new PlanTask(
+            "PLAN-007", "Review", "Review", [], "high", PlanTaskStatus.Complete,
+            Commit: "abcdef123456");
+        var gate = new PlanApprovalGate(
+            "GATE-007", "Observe", [task.TaskId], [], PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [new PlanTaskProofRequirement("visual", "live-ui-observation", "Observe", "Does it work?")]);
+        var plan = TestPlan(null) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Tasks = [task],
+            ApprovalGates = [gate],
+        };
+        var target = PlanHumanReviewChecklist.Build(plan, [gate]).Single();
+        var checkedPlan = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+            plan, gate.GateId, target.ItemId, true, target.CandidateCommit, target.ReviewTarget);
+        var clearedPlan = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+            checkedPlan, gate.GateId, target.ItemId, false, target.CandidateCommit, target.ReviewTarget);
+
+        var cleared = PlanHumanReviewChecklist.Build(clearedPlan, [clearedPlan.ApprovalGates.Single()]).Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cleared.IsChecked, Is.False);
+            Assert.That(cleared.WasPreviouslyChecked, Is.False);
+        });
+    }
+
     private static Plan TestPlan(PlanTaskCommitEvidence? evidence) => new(
         PlanId: "PLAN",
         Revision: "revision",

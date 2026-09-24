@@ -39,7 +39,8 @@ internal static class InboxApprovalChecklistPresenter
             var text = ReadInlineText(paragraph.Inlines).Trim();
             var item = remaining.FirstOrDefault(candidate =>
                 string.Equals(text, $"☐ {candidate.Text}", StringComparison.Ordinal) ||
-                string.Equals(text, $"☑ {candidate.Text}", StringComparison.Ordinal));
+                string.Equals(text, $"☑ {candidate.Text}", StringComparison.Ordinal) ||
+                string.Equals(text, $"? {candidate.Text}", StringComparison.Ordinal));
             if (item is null)
                 continue;
 
@@ -59,6 +60,16 @@ internal static class InboxApprovalChecklistPresenter
                 ?? new Viewbox();
             checkIcon.Visibility = item.IsChecked ? Visibility.Visible : Visibility.Hidden;
             checkIcon.Margin = new Thickness(2);
+            var questionIcon = Application.Current?.TryFindResource("TaskAwaitingHumanApproval") as Viewbox
+                ?? new Viewbox();
+            questionIcon.Visibility = item.WasPreviouslyChecked && !item.IsChecked
+                ? Visibility.Visible
+                : Visibility.Hidden;
+            questionIcon.Margin = new Thickness(4);
+
+            var stateIcons = new Grid();
+            stateIcons.Children.Add(checkIcon);
+            stateIcons.Children.Add(questionIcon);
 
             var checkBorder = new Border
             {
@@ -69,7 +80,7 @@ internal static class InboxApprovalChecklistPresenter
                 Background = Brushes.Transparent,
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(8, 2, 6, 0),
-                Child = checkIcon,
+                Child = stateIcons,
             };
             checkBorder.SetResourceReference(Border.BorderBrushProperty, "CheckBoxBorder");
 
@@ -99,17 +110,25 @@ internal static class InboxApprovalChecklistPresenter
                 Cursor = isEnabled ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow,
                 Template = BuildContentOnlyTemplate(),
                 ToolTip = ToolTipHelper.MakeThemedToolTip(
-                    "Check this after you personally verify that the statement is true."),
+                    item.WasPreviouslyChecked && !item.IsChecked
+                        ? PlanHumanReviewChecklist.ReconfirmationToolTip
+                        : "Check this after you personally verify that the statement is true."),
             };
             AutomationProperties.SetName(checkBox, item.Text);
             checkBox.Checked += (_, _) =>
             {
                 checkIcon.Visibility = Visibility.Visible;
+                questionIcon.Visibility = Visibility.Hidden;
+                checkBox.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    "Check this after you personally verify that the statement is true.");
                 onSelectionChanged(item, true);
             };
             checkBox.Unchecked += (_, _) =>
             {
                 checkIcon.Visibility = Visibility.Hidden;
+                questionIcon.Visibility = Visibility.Hidden;
+                checkBox.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    "Check this after you personally verify that the statement is true.");
                 onSelectionChanged(item, false);
             };
 
@@ -125,7 +144,7 @@ internal static class InboxApprovalChecklistPresenter
             attached++;
         }
 
-        // Markdown renders "- ☐ ..." as a bulleted list. Once the checkbox glyph becomes a
+        // Markdown renders checklist state glyphs as a bulleted list. Once the glyph becomes a
         // real control the list marker is redundant visual noise, while the list margin retains
         // the intended indentation.
         foreach (var list in checklistLists)

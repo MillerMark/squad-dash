@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace SquadDash;
@@ -11,12 +13,15 @@ internal sealed record PlanHumanReviewChecklistItem(
     bool IsChecked,
     bool WasPreviouslyChecked,
     string? PreviouslyCheckedCommit,
-    string? Title = null);
+    string? Title = null,
+    string? ReviewTarget = null);
 
 /// <summary>Builds atomic, commit-scoped human review items for current and legacy plans.</summary>
 internal static class PlanHumanReviewChecklist
 {
     internal const string UncommittedCandidate = "uncommitted-candidate";
+    internal const string ReconfirmationToolTip =
+        "Previously confirmed, but related changes may affect this result. Confirm it again.";
 
     internal static IReadOnlyList<PlanHumanReviewChecklistItem> Build(
         Plan plan,
@@ -56,7 +61,7 @@ internal static class PlanHumanReviewChecklist
                     _ => [(definition.ItemId, definition.Text)],
                 };
                 foreach (var presented in presentedDefinitions)
-                    AddChecklistItem(result, gate, definition.RequirementId,
+                    AddChecklistItem(result, plan, gate, definition.RequirementId,
                         presented.Item1, presented.Item2, candidate, definition.Title);
             }
         }
@@ -65,6 +70,7 @@ internal static class PlanHumanReviewChecklist
 
     private static void AddChecklistItem(
         List<PlanHumanReviewChecklistItem> result,
+        Plan plan,
         PlanApprovalGate gate,
         string requirementId,
         string itemId,
@@ -72,17 +78,19 @@ internal static class PlanHumanReviewChecklist
         string candidate,
         string? title)
     {
+        var reviewTarget = ResolveReviewTarget(plan, gate);
         var current = gate.HumanReviewSelections?
-            .LastOrDefault(selection =>
-                string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
-                CandidateCommitsMatch(selection.CandidateCommit, candidate));
-        var previous = gate.HumanReviewSelections?
             .Where(selection =>
-                selection.IsChecked &&
                 string.Equals(selection.ItemId, itemId, StringComparison.Ordinal) &&
-                !CandidateCommitsMatch(selection.CandidateCommit, candidate))
+                SelectionApplies(plan, gate, selection, candidate, reviewTarget))
             .OrderByDescending(selection => selection.UpdatedAt)
             .FirstOrDefault();
+        var previous = current is null
+            ? gate.HumanReviewSelections?
+                .Where(selection => string.Equals(selection.ItemId, itemId, StringComparison.Ordinal))
+                .OrderByDescending(selection => selection.UpdatedAt)
+                .FirstOrDefault()
+            : null;
         result.Add(new PlanHumanReviewChecklistItem(
             gate.GateId,
             itemId,
@@ -90,9 +98,86 @@ internal static class PlanHumanReviewChecklist
             text,
             candidate,
             current?.IsChecked == true,
-            previous is not null,
+            previous?.IsChecked == true,
             previous?.CandidateCommit,
-            ResolveDisplayTitle(title, requirementId)));
+            ResolveDisplayTitle(title, requirementId),
+            reviewTarget));
+    }
+
+    /// <summary>
+    /// Identifies the exact review boundary a human confirmation applies to. Ordinary unrelated
+    /// repository movement is intentionally excluded. A task correction, candidate change, or
+    /// human-proof contract change creates a new target and requires conscious reconfirmation.
+    /// </summary>
+    internal static string ResolveReviewTarget(Plan plan, PlanApprovalGate gate)
+    {
+        var value = new StringBuilder("human-review-target-v1\n")
+            .Append("candidate=").Append(ResolveCandidateCommit(plan, gate)).Append('\n')
+            .Append("gate=").Append(gate.GateId).Append('\n')
+            .Append("message=").Append(gate.Message).Append('\n')
+            .Append("question=").Append(gate.Question).Append('\n');
+
+        foreach (var requirement in gate.ProofRequirements ?? [])
+        {
+            value.Append("proof=")
+                .Append(requirement.RequirementId).Append('|')
+                .Append(requirement.ProofType).Append('|')
+                .Append(requirement.Title).Append('|')
+                .Append(requirement.Description).Append('|')
+                .Append(requirement.Question).Append('|')
+                .Append(requirement.AccessMode).Append('|')
+                .Append(requirement.FixtureTaskId).Append('|')
+                .Append(requirement.FixtureOutputId).Append('\n');
+            if (requirement.VerificationRecipe is { } recipe)
+            {
+                value.Append("recipe=")
+                    .Append(recipe.Setup).Append('|')
+                    .Append(recipe.Open).Append('|')
+                    .Append(recipe.Observe).Append('|')
+                    .Append(recipe.Cleanup).Append('\n');
+            }
+        }
+
+        foreach (var taskId in gate.AfterTaskIds)
+        {
+            var task = plan.Tasks.FirstOrDefault(candidateTask =>
+                string.Equals(candidateTask.TaskId, taskId, StringComparison.Ordinal));
+            foreach (var activity in (task?.ReviewActivity ?? [])
+                         .Where(activity => activity.Kind == PlanReviewActivityKind.ManualCorrection)
+                         .OrderBy(activity => activity.RecordedAt))
+            {
+                value.Append("correction=")
+                    .Append(taskId).Append('|')
+                    .Append(activity.RecordedAt.ToUniversalTime().Ticks).Append('|')
+                    .Append(activity.Summary).Append('\n');
+            }
+        }
+
+        return "v1:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value.ToString())));
+    }
+
+    private static bool SelectionApplies(
+        Plan plan,
+        PlanApprovalGate gate,
+        PlanHumanReviewSelection selection,
+        string candidate,
+        string reviewTarget)
+    {
+        if (!string.IsNullOrWhiteSpace(selection.ReviewTarget))
+            return string.Equals(selection.ReviewTarget, reviewTarget, StringComparison.Ordinal);
+
+        // Compatibility for selections written before review-target fingerprints existed. A
+        // legacy confirmation remains current only when its candidate still matches and no later
+        // recorded correction changed the reviewed boundary.
+        if (!CandidateCommitsMatch(selection.CandidateCommit, candidate))
+            return false;
+        return gate.AfterTaskIds
+            .Select(taskId => plan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, taskId, StringComparison.Ordinal)))
+            .Where(task => task is not null)
+            .SelectMany(task => task!.ReviewActivity ?? [])
+            .Where(activity => activity.Kind == PlanReviewActivityKind.ManualCorrection)
+            .All(activity => activity.RecordedAt <= selection.UpdatedAt);
     }
 
     /// <summary>

@@ -18199,6 +18199,26 @@ public partial class MainWindow : Window
         await ReconcileInterruptedPlanTaskEvidenceAsync();
         updated = _planStore.Load(updated.PlanId) ?? updated;
 
+        if (updated.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval &&
+            _planApprovalRuntime is not null &&
+            _inboxStore is not null)
+        {
+            try
+            {
+                await _planApprovalRuntime.Requests.RefreshFromPlanAsync(updated);
+                var messageId = DurableApprovalRequestManager.BuildMessageId(updated.PlanId);
+                _inboxPanel?.Refresh(_inboxStore.LoadAll());
+                if (_inboxStore.GetById(messageId) is { } approvalMessage)
+                    RefreshOpenApprovalInboxWindows(messageId, approvalMessage);
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write(
+                    "Approval",
+                    $"Could not refresh uncertain human-review selections plan={updated.PlanId}: {ex.Message}");
+            }
+        }
+
         var labels = response.TaskIds
             .Select(taskId => PlanRecoveryPresentationBuilder.FormatStepLabel(
                 updated.Tasks.First(task => string.Equals(
@@ -18978,7 +18998,8 @@ public partial class MainWindow : Window
             item.GateId,
             item.ItemId,
             isChecked,
-            item.CandidateCommit);
+            item.CandidateCommit,
+            item.ReviewTarget);
         if (ReferenceEquals(updated, current)) return;
         if (!TryPublishPlanProgress(updated, out var saveError))
         {
@@ -19250,7 +19271,7 @@ public partial class MainWindow : Window
             };
             checklistLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             checklistStack.Children.Add(checklistLabel);
-            var boxes = new List<CheckBox>();
+            var setAllSelections = new List<Action>();
             foreach (var item in humanChecklistItems)
             {
                 var itemText = new TextBlock
@@ -19260,14 +19281,36 @@ public partial class MainWindow : Window
                     TextWrapping = TextWrapping.Wrap,
                 };
                 itemText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
-                var box = new CheckBox
+                var localChecked = item.IsChecked;
+                var localUncertain = item.WasPreviouslyChecked && !item.IsChecked;
+                var checkIcon = Application.Current?.TryFindResource("PlanApprovalResolvedCheck") as Viewbox
+                    ?? new Viewbox();
+                checkIcon.Visibility = localChecked ? Visibility.Visible : Visibility.Hidden;
+                checkIcon.Margin = new Thickness(2);
+                var questionIcon = Application.Current?.TryFindResource("TaskAwaitingHumanApproval") as Viewbox
+                    ?? new Viewbox();
+                questionIcon.Visibility = localUncertain ? Visibility.Visible : Visibility.Hidden;
+                questionIcon.Margin = new Thickness(4);
+                var stateIcons = new Grid();
+                stateIcons.Children.Add(checkIcon);
+                stateIcons.Children.Add(questionIcon);
+                var boxSize = Math.Round((_transcriptFontSize + 1) * 1.2);
+                var box = new Border
                 {
-                    IsChecked = item.IsChecked,
+                    Width = boxSize,
+                    Height = boxSize,
+                    BorderThickness = new Thickness(1.5),
+                    CornerRadius = new CornerRadius(2),
+                    Background = Brushes.Transparent,
                     Margin = new Thickness(8, 3, 6, 0),
                     VerticalAlignment = VerticalAlignment.Top,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        "Check this after you personally verify that the statement is true."),
+                    Cursor = Cursors.Hand,
+                    Child = stateIcons,
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(localUncertain
+                        ? PlanHumanReviewChecklist.ReconfirmationToolTip
+                        : "Check this after you personally verify that the statement is true."),
                 };
+                box.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
                 System.Windows.Automation.AutomationProperties.SetName(box, item.Text);
                 var itemRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
                 itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -19301,21 +19344,26 @@ public partial class MainWindow : Window
                 AttachReviewItemMenu(box);
                 AttachReviewItemMenu(itemText);
                 var capturedItem = item;
-                box.Checked += (_, _) =>
+                void SetChecked(bool value)
                 {
-                    humanChecklistState[capturedItem.ItemId] = true;
-                    RecordHumanReviewChecklistSelection(durablePlan!.PlanId, capturedItem, true);
+                    localChecked = value;
+                    localUncertain = false;
+                    checkIcon.Visibility = value ? Visibility.Visible : Visibility.Hidden;
+                    questionIcon.Visibility = Visibility.Hidden;
+                    box.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Check this after you personally verify that the statement is true.");
+                    humanChecklistState[capturedItem.ItemId] = value;
+                    RecordHumanReviewChecklistSelection(durablePlan!.PlanId, capturedItem, value);
                     refreshHumanReviewActions();
-                };
-                box.Unchecked += (_, _) =>
+                }
+                box.MouseDown += (_, e) =>
                 {
-                    humanChecklistState[capturedItem.ItemId] = false;
-                    RecordHumanReviewChecklistSelection(durablePlan!.PlanId, capturedItem, false);
-                    refreshHumanReviewActions();
+                    if (e.ChangedButton == MouseButton.Left)
+                        SetChecked(!localChecked);
                 };
-                boxes.Add(box);
+                setAllSelections.Add(() => SetChecked(true));
                 checklistStack.Children.Add(itemRow);
-                copyParts.Add("☐ " + item.Text);
+                copyParts.Add((item.IsChecked ? "☑ " : item.WasPreviouslyChecked ? "? " : "☐ ") + item.Text);
                 var requirement = reviewAttention is null
                     ? null
                     : PlanReviewAttentionPresentationResolver.FindRequirement(reviewAttention, item);
@@ -19348,22 +19396,6 @@ public partial class MainWindow : Window
                     }
                     checklistStack.Children.Add(recipeStack);
                 }
-                if (item.WasPreviouslyChecked && !item.IsChecked)
-                {
-                    var previousCommit = string.IsNullOrWhiteSpace(item.PreviouslyCheckedCommit)
-                        ? "an earlier candidate"
-                        : item.PreviouslyCheckedCommit.Length > 7
-                            ? item.PreviouslyCheckedCommit[..7]
-                            : item.PreviouslyCheckedCommit;
-                    var previous = new TextBlock
-                    {
-                        Text = $"Previously verified on {previousCommit}; recheck after the new work.",
-                        FontSize = _transcriptFontSize - 2,
-                        Margin = new Thickness(32, -2, 0, 4),
-                    };
-                    previous.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                    checklistStack.Children.Add(previous);
-                }
             }
             var checklistBorder = new Border
             {
@@ -19381,8 +19413,8 @@ public partial class MainWindow : Window
             markAll.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             markAll.Click += (_, _) =>
             {
-                foreach (var box in boxes)
-                    box.IsChecked = true;
+                foreach (var setChecked in setAllSelections)
+                    setChecked();
             };
             menu.Items.Add(markAll);
             checklistBorder.ContextMenu = menu;

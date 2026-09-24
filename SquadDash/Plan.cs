@@ -168,15 +168,18 @@ internal sealed record PlanTaskProofEvidence(
                                                  IReadOnlyList<string>? Artifacts = null);
 
 /// <summary>
-/// A reviewer selection for one atomic human-verification item. Selections are scoped to the
-/// candidate commit so a later implementation attempt cannot silently inherit stale approval.
-/// Older candidate selections remain in the gate as review history.
+/// A reviewer selection for one atomic human-verification item. New selections are scoped to a
+/// review-target fingerprint so a relevant correction or proof-contract change cannot silently
+/// inherit stale approval. Older selections remain in the gate as review history.
 /// </summary>
 internal sealed record PlanHumanReviewSelection(
     [property: JsonPropertyName("itemId")] string ItemId,
     [property: JsonPropertyName("isChecked")] bool IsChecked,
     [property: JsonPropertyName("candidateCommit")] string CandidateCommit,
-    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt);
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
+    [property: JsonPropertyName("reviewTarget")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? ReviewTarget = null);
 
 /// <summary>Auditable disposition of a human-review requirement clarification.</summary>
 internal sealed record PlanHumanReviewRequirementDisposition(

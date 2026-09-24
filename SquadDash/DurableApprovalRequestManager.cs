@@ -862,7 +862,7 @@ internal sealed class DurableApprovalRequestManager
                             parts.Add("");
                             parts.Add("**Confirm each observed result**");
                             foreach (var item in reviewItems)
-                                parts.Add($"- {(item.IsChecked ? "☑" : "☐")} {item.Text}");
+                                parts.Add($"- {(item.IsChecked ? "☑" : item.WasPreviouslyChecked ? "?" : "☐")} {item.Text}");
                         }
                     }
                 }

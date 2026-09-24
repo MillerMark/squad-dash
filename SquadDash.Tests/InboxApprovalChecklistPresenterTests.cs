@@ -65,7 +65,8 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(border.Height, Is.EqualTo(Math.Round(expectedFontSize * 1.2)));
             Assert.That(border.BorderThickness, Is.EqualTo(new Thickness(1.5)));
             Assert.That(border.CornerRadius, Is.EqualTo(new CornerRadius(2)));
-            Assert.That(((Viewbox)border.Child).Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(((Grid)border.Child).Children.OfType<Viewbox>().First().Visibility,
+                Is.EqualTo(Visibility.Visible));
             Assert.That(
                 checkbox.Margin.Top,
                 Is.EqualTo(2 + (expectedFontSize * InboxApprovalChecklistPresenter.ChecklistTopSpacingScale)));
@@ -100,6 +101,37 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(checkbox.DesiredSize.Width, Is.LessThanOrEqualTo(180));
             Assert.That(label.FontSize, Is.EqualTo(expectedFontSize));
             Assert.That(label.DesiredSize.Height, Is.GreaterThan(expectedFontSize * 2));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Attach_PreviouslyConfirmedItem_ShowsQuestionUntilReconfirmed()
+    {
+        const string question = "Does the corrected result still appear?";
+        var document = MarkdownFlowDocumentBuilder.BuildInbox($"- ? {question}", 14);
+        var item = new PlanHumanReviewChecklistItem(
+            "gate-1", "corrected-result", "corrected-result", question,
+            "abcdef123456", false, true, "abcdef123456", ReviewTarget: "target-2");
+
+        InboxApprovalChecklistPresenter.Attach(document, [item], (_, _) => { }, fontSize: 14);
+        var checkbox = FindCheckBox(document.Blocks)!;
+        var border = ((Grid)checkbox.Content).Children.OfType<Border>().Single();
+        var icons = ((Grid)border.Child).Children.OfType<Viewbox>().ToArray();
+        var tooltipText = (TextBlock)((ToolTip)checkbox.ToolTip).Content;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(icons[0].Visibility, Is.EqualTo(Visibility.Hidden));
+            Assert.That(icons[1].Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(tooltipText.Text, Is.EqualTo(PlanHumanReviewChecklist.ReconfirmationToolTip));
+        });
+
+        checkbox.IsChecked = true;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(icons[0].Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(icons[1].Visibility, Is.EqualTo(Visibility.Hidden));
         });
     }
 

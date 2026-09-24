@@ -2071,6 +2071,7 @@ internal static class PlanStoreUpdater
         string itemId,
         bool isChecked,
         string candidateCommit,
+        string? reviewTarget = null,
         DateTimeOffset? updatedAt = null)
     {
         if (string.IsNullOrWhiteSpace(itemId) || string.IsNullOrWhiteSpace(candidateCommit))
@@ -2081,13 +2082,12 @@ internal static class PlanStoreUpdater
             return existing;
 
         var selection = new PlanHumanReviewSelection(
-            itemId.Trim(), isChecked, candidateCommit.Trim(), updatedAt ?? DateTimeOffset.UtcNow);
+            itemId.Trim(), isChecked, candidateCommit.Trim(), updatedAt ?? DateTimeOffset.UtcNow,
+            reviewTarget);
         var selections = (gate.HumanReviewSelections ?? [])
             .Where(existingSelection =>
                 !string.Equals(existingSelection.ItemId, selection.ItemId, StringComparison.Ordinal) ||
-                !PlanHumanReviewChecklist.CandidateCommitsMatch(
-                    existingSelection.CandidateCommit,
-                    selection.CandidateCommit))
+                !SelectionsShareReviewTarget(existingSelection, selection))
             .Append(selection)
             .ToArray();
         var updatedGate = gate with { HumanReviewSelections = selections };
@@ -2100,6 +2100,21 @@ internal static class PlanStoreUpdater
                 .ToArray(),
             Timestamps = existing.Timestamps with { LastRunAt = selection.UpdatedAt },
         };
+    }
+
+    private static bool SelectionsShareReviewTarget(
+        PlanHumanReviewSelection left,
+        PlanHumanReviewSelection right)
+    {
+        var leftHasTarget = !string.IsNullOrWhiteSpace(left.ReviewTarget);
+        var rightHasTarget = !string.IsNullOrWhiteSpace(right.ReviewTarget);
+        if (leftHasTarget || rightHasTarget)
+            return leftHasTarget && rightHasTarget &&
+                   string.Equals(left.ReviewTarget, right.ReviewTarget, StringComparison.Ordinal);
+
+        return PlanHumanReviewChecklist.CandidateCommitsMatch(
+            left.CandidateCommit,
+            right.CandidateCommit);
     }
 
     /// <summary>

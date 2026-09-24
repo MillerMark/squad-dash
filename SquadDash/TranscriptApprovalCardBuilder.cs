@@ -268,11 +268,19 @@ internal static class TranscriptApprovalCardBuilder
 
                 var boxSize = Math.Round((fontSize + 1) * 1.2);
                 var localChecked = item.IsChecked;
+                var localUncertain = item.WasPreviouslyChecked && !item.IsChecked;
 
                 var checkIconViewbox = Application.Current?.TryFindResource("PlanApprovalResolvedCheck") as Viewbox
                     ?? new Viewbox();
                 checkIconViewbox.Visibility = localChecked ? Visibility.Visible : Visibility.Hidden;
                 checkIconViewbox.Margin = new Thickness(2);
+                var questionIconViewbox = Application.Current?.TryFindResource("TaskAwaitingHumanApproval") as Viewbox
+                    ?? new Viewbox();
+                questionIconViewbox.Visibility = localUncertain ? Visibility.Visible : Visibility.Hidden;
+                questionIconViewbox.Margin = new Thickness(4);
+                var stateIcons = new Grid();
+                stateIcons.Children.Add(checkIconViewbox);
+                stateIcons.Children.Add(questionIconViewbox);
 
                 var checkBorder = new Border
                 {
@@ -283,9 +291,11 @@ internal static class TranscriptApprovalCardBuilder
                     Background = Brushes.Transparent,
                     VerticalAlignment = VerticalAlignment.Top,
                     Margin = new Thickness(8, 2, 6, 0),
-                    Child = checkIconViewbox,
+                    Child = stateIcons,
                     Cursor = Cursors.Hand,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip("Check this after you personally verify that the statement is true."),
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(localUncertain
+                        ? PlanHumanReviewChecklist.ReconfirmationToolTip
+                        : "Check this after you personally verify that the statement is true."),
                 };
                 checkBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
                 AutomationProperties.SetName(checkBorder, item.Text);
@@ -336,7 +346,11 @@ internal static class TranscriptApprovalCardBuilder
                 void SetChecked(bool value, bool notify)
                 {
                     localChecked = value;
+                    localUncertain = false;
                     checkIconViewbox.Visibility = value ? Visibility.Visible : Visibility.Hidden;
+                    questionIconViewbox.Visibility = Visibility.Hidden;
+                    checkBorder.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                        "Check this after you personally verify that the statement is true.");
                     checklistState[capturedItem.GateId + "\0" + capturedItem.ItemId] = value;
                     if (notify)
                         onChecklistChanged?.Invoke(capturedItem, value);
@@ -353,20 +367,6 @@ internal static class TranscriptApprovalCardBuilder
                 externalChecklistSetters[capturedItem.GateId + "\0" + capturedItem.ItemId] =
                     value => SetChecked(value, notify: false);
                 questionStack.Children.Add(itemRow);
-                if (item.WasPreviouslyChecked && !item.IsChecked)
-                {
-                    var previousCommit = string.IsNullOrWhiteSpace(item.PreviouslyCheckedCommit)
-                        ? "an earlier candidate"
-                        : item.PreviouslyCheckedCommit.Length > 7
-                            ? item.PreviouslyCheckedCommit[..7]
-                            : item.PreviouslyCheckedCommit;
-                    var previous = CreateStyledTextBlock(
-                        $"Previously verified on {previousCommit}; recheck after the new work.",
-                        fontSize - 2,
-                        "SubtleText");
-                    previous.Margin = new Thickness(32, -2, 0, 4);
-                    questionStack.Children.Add(previous);
-                }
             }
 
             var questionBorder = new Border

@@ -295,6 +295,16 @@ internal sealed class PlanApprovalRuntime
                 gate.Status == PlanGateStatus.AwaitingApproval)))
             return new ApprovalRuntimeResolutionResult(ApprovalClickResult.StaleRejected, null, false);
 
+        // Re-evaluate the authoritative plan at click time. A correction may have changed the
+        // review target after an older card rendered; uncertain confirmations must never cross
+        // the approval boundary through a stale Inbox action or transcript surface.
+        var resolutionGates = currentPlan.ApprovalGates
+            .Where(gate => resolutionIds.Contains(gate.GateId, StringComparer.Ordinal))
+            .ToArray();
+        if (PlanHumanReviewChecklist.Build(currentPlan, resolutionGates)
+            .Any(item => item.WasPreviouslyChecked && !item.IsChecked))
+            return new ApprovalRuntimeResolutionResult(ApprovalClickResult.StaleRejected, null, false);
+
         var wasPaused = currentPlan.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval;
         var updated = prepareResolution?.Invoke(currentPlan) ?? currentPlan;
         updated = resolutionIds.Aggregate(

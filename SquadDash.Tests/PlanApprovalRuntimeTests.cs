@@ -206,6 +206,74 @@ public sealed class PlanApprovalRuntimeTests
     }
 
     [Test]
+    public async Task Approve_PartialChecklistChangedAfterConfirmation_RequiresReconfirmationOnCurrentTarget()
+    {
+        var confirmedAt = DateTimeOffset.Parse("2026-09-23T12:00:00Z");
+        var task = new PlanTask(
+            "REVIEW", "Review UI", "Verify the UI", [], "high", PlanTaskStatus.Complete,
+            Commit: "abcdef123456");
+        var gate = new PlanApprovalGate(
+            "GATE-REVIEW", "Confirm the UI", [task.TaskId], [], PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "first", "live-ui-observation", "Observe first", "Does the first result work?"),
+                new PlanTaskProofRequirement(
+                    "second", "live-ui-observation", "Observe second", "Does the second result work?"),
+            ],
+            HumanReviewSelections:
+            [new PlanHumanReviewSelection("first", true, task.Commit!, confirmedAt)]);
+        var plan = new Plan(
+            "REVIEW-TARGET-PLAN", "rev-1", PlanSource.DecomposeDecision,
+            PlanLifecycleStatus.AwaitingApproval, "Review plan", "feature/review", "Review",
+            [task], [gate], new PlanProgress(1, 1), new PlanTimestamps(confirmedAt));
+        await _requests.AppendCheckpointAsync(
+            plan, gate, await BuildSnapshotAsync(plan, gate, CancellationToken.None));
+        var state = _requests.GetState(plan.PlanId)!;
+        var token = await _actions.RestoreAsync(
+            plan.PlanId, plan.Revision, state.Version, state.ActiveGateIds);
+
+        var corrected = PlanStoreUpdater.ApplyManualReviewActivity(
+            plan,
+            [task.TaskId],
+            "Rebuilt the reviewed package after a relevant fix.",
+            confirmedAt.AddMinutes(5));
+        await _requests.RefreshFromPlanAsync(corrected);
+        var uncertainItems = PlanHumanReviewChecklist.Build(corrected, [corrected.ApprovalGates.Single()]);
+        var uncertain = uncertainItems.Single(item => item.ItemId == "first");
+        var second = uncertainItems.Single(item => item.ItemId == "second");
+        var stalePersistCalls = 0;
+
+        var staleResult = await _runtime.ApproveAsync(
+            token, corrected, null, _ => { stalePersistCalls++; return true; });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(uncertain.WasPreviouslyChecked, Is.True);
+            Assert.That(uncertain.IsChecked, Is.False);
+            Assert.That(staleResult.Result, Is.EqualTo(ApprovalClickResult.StaleRejected));
+            Assert.That(stalePersistCalls, Is.Zero);
+            Assert.That(_inbox.GetById(DurableApprovalRequestManager.BuildMessageId(plan.PlanId))!.Actions,
+                Is.Empty);
+        });
+
+        var reconfirmed = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+            corrected, gate.GateId, uncertain.ItemId, true,
+            uncertain.CandidateCommit, uncertain.ReviewTarget, confirmedAt.AddMinutes(6));
+        reconfirmed = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+            reconfirmed, gate.GateId, second.ItemId, true,
+            second.CandidateCommit, second.ReviewTarget, confirmedAt.AddMinutes(7));
+        var resolution = await _runtime.ApproveAsync(token, reconfirmed, null, _ => true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanHumanReviewChecklist.Build(reconfirmed, [reconfirmed.ApprovalGates.Single()])
+                .All(item => item.IsChecked), Is.True);
+            Assert.That(resolution.Result, Is.EqualTo(ApprovalClickResult.Approved));
+        });
+    }
+
+    [Test]
     public async Task Approve_HumanReviewCompletion_PersistsTaskAndGateAtomically()
     {
         const string commit = "abcdef1234567890";
@@ -356,7 +424,8 @@ public sealed class PlanApprovalRuntimeTests
             ProofRequirements:
             [new PlanTaskProofRequirement("visual", "live-ui-observation", "Observe both steps.", "Do both work?")],
             HumanReviewSelections:
-            [new PlanHumanReviewSelection("visual", true, "bbbbbbbbbb", DateTimeOffset.UtcNow)]);
+            [new PlanHumanReviewSelection(
+                "visual", true, "aaaaaaaaaa+bbbbbbbbbb", DateTimeOffset.UtcNow)]);
         var plan = new Plan(
             "SHARED-REVIEW-PLAN", "rev-1", PlanSource.DecomposeDecision,
             PlanLifecycleStatus.AwaitingApproval, "Review plan", "feature/review", "Review",
