@@ -124,4 +124,7 @@ internal sealed record ApprovalReviewSnapshot(
     IReadOnlyList<IndependentWorkEntry> IndependentWork,
 
     /// <summary>UTC timestamp when this snapshot was built.</summary>
-    DateTimeOffset BuiltAt);
+    DateTimeOffset BuiltAt,
+
+    /// <summary>Whether the Inbox operator guide includes a bound runbook or recipe-backed steps.</summary>
+    bool HasOperatorInstructions = false);

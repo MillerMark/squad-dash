@@ -363,11 +363,13 @@ internal sealed class TranscriptCopyServiceTests {
         });
     }
 
-    [Test, Apartment(ApartmentState.STA)]
-    public void BuildVisualCardText_TextBlockInlines_IncludesLinksAndRuns() {
+    [TestCase(" for more detail.")]
+    [TestCase(" for more detail and instructions for performing these observations.")]
+    [Apartment(ApartmentState.STA)]
+    public void BuildVisualCardText_TextBlockInlines_IncludesLinksAndRuns(string trailingText) {
         var prompt = new TextBlock { Text = "See your " };
         prompt.Inlines.Add(new Hyperlink(new Run("inbox message")));
-        prompt.Inlines.Add(new Run(" for more detail."));
+        prompt.Inlines.Add(new Run(trailingText));
 
         var text = TranscriptCopyService.BuildVisualCardText(new Border {
             Child = new StackPanel {
@@ -377,7 +379,7 @@ internal sealed class TranscriptCopyServiceTests {
             },
         });
 
-        Assert.That(text, Is.EqualTo("See your inbox message for more detail."));
+        Assert.That(text, Is.EqualTo("See your inbox message" + trailingText));
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

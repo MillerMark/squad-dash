@@ -495,6 +495,7 @@ internal sealed class PlanApprovalRuntime
         {
             GateId = string.Join(", ", snapshots.Select(snapshot => snapshot.GateId)),
             GateReason = string.Join("; ", snapshots.Select(snapshot => snapshot.GateReason)),
+            HasOperatorInstructions = snapshots.Any(snapshot => snapshot.HasOperatorInstructions),
             AfterTaskIds = snapshots.SelectMany(snapshot => snapshot.AfterTaskIds)
                 .Distinct(StringComparer.Ordinal).ToArray(),
             BeforeTaskIds = snapshots.SelectMany(snapshot => snapshot.BeforeTaskIds)

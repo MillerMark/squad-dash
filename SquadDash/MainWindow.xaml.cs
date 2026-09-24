@@ -15951,7 +15951,7 @@ public partial class MainWindow : Window
         {
             cancellationToken.ThrowIfCancellationRequested();
             return await RunGitAsync(workspace, arguments);
-        });
+        }, _inboxStore);
         var requests = new DurableApprovalRequestManager(_inboxStore);
         var actions = new ApprovalActionCoordinator();
         _planApprovalRuntime = new PlanApprovalRuntime(
@@ -16577,13 +16577,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Builds a lightweight <see cref="ApprovalReviewSnapshot"/> from in-memory plan data
+    /// Builds a lightweight <see cref="ApprovalReviewSnapshot"/> from plan data and bound Inbox guides
     /// without requiring async git operations. Used for immediate transcript card rendering.
     /// </summary>
-    private static ApprovalReviewSnapshot BuildLightweightApprovalSnapshot(Plan plan, PlanApprovalGate gate)
+    private ApprovalReviewSnapshot BuildLightweightApprovalSnapshot(Plan plan, PlanApprovalGate gate)
         => BuildLightweightApprovalSnapshot(plan, [gate]);
 
-    private static ApprovalReviewSnapshot BuildLightweightApprovalSnapshot(
+    private ApprovalReviewSnapshot BuildLightweightApprovalSnapshot(
         Plan plan,
         IReadOnlyList<PlanApprovalGate> gates)
     {
@@ -16636,7 +16636,8 @@ public partial class MainWindow : Window
             DownstreamTasks: downstreamTasks,
             AllChangedFiles: [],
             IndependentWork: [],
-            BuiltAt: DateTimeOffset.UtcNow);
+            BuiltAt: DateTimeOffset.UtcNow,
+            HasOperatorInstructions: DurableApprovalRequestManager.HasOperatorInstructions(plan, gates, _inboxStore));
     }
 
     private sealed record InboxAttentionCalloutText(

@@ -453,7 +453,9 @@ internal static class TranscriptApprovalCardBuilder
                 inboxMessageLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
                 inboxMessageLink.Click += (_, _) => onOpenInbox();
                 inboxPrompt.Inlines.Add(inboxMessageLink);
-                inboxPrompt.Inlines.Add(new Run(" for more detail."));
+                inboxPrompt.Inlines.Add(new Run(snapshot.HasOperatorInstructions
+                    ? " for more detail and instructions for performing these observations."
+                    : " for more detail."));
                 inboxPrompt.Margin = new Thickness(0, 3, 0, 3);
                 stack.Children.Add(inboxPrompt);
             }

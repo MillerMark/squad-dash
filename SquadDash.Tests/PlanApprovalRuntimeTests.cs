@@ -137,6 +137,44 @@ public sealed class PlanApprovalRuntimeTests
         });
     }
 
+    [TestCase(0)]
+    [TestCase(1)]
+    public async Task Advance_CombinedSnapshotPreservesInstructionsFromEitherGate(int instructionGateIndex)
+    {
+        var original = MakePlan(taskBStatus: PlanTaskStatus.Complete);
+        var gates = new[]
+        {
+            original.ApprovalGates[0],
+            new PlanApprovalGate("GATE-BC", "Review B before C", ["B"], ["C"], PlanGateStatus.Pending),
+        };
+        gates[instructionGateIndex] = gates[instructionGateIndex] with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "visual", "human-observation", "Confirm the highlight.", "Is the row highlighted?",
+                    HumanVerificationAccessMode.DirectlyReachable,
+                    new HumanVerificationRecipe(
+                        "Launch the sample.", "Select the row.", "Confirm the highlight.", "Close the sample.")),
+            ],
+        };
+        var builder = new ApprovalReviewSnapshotBuilder((_, _) => Task.FromResult(""), _inbox);
+        var runtime = new PlanApprovalRuntime(_requests, _actions,
+            (plan, gate, cancellationToken) => builder.BuildAsync(plan, gate, cancellationToken: cancellationToken));
+
+        var result = await runtime.AdvanceAsync(original with { ApprovalGates = gates });
+        var message = _inbox.GetById(DurableApprovalRequestManager.BuildMessageId(original.PlanId))!;
+        var persisted = System.Text.Json.JsonSerializer.Deserialize<ApprovalReviewSnapshot>(
+            message.Attachments.Single(attachment => attachment.Type == "approval-snapshot").Content!);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.NewlyReadyGates, Has.Count.EqualTo(2));
+            Assert.That(result.ReviewSnapshot!.HasOperatorInstructions, Is.True);
+            Assert.That(persisted!.HasOperatorInstructions, Is.True);
+        });
+    }
+
     [Test]
     public async Task Advance_RecoveredValidationBoundary_OpensApprovalWithoutRerunningCompletedWork()
     {

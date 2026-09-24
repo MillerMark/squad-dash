@@ -538,6 +538,15 @@ internal sealed class DurableApprovalRequestManager
         // Snapshot attachment — carry forward existing if not replaced
         if (snapshot is not null)
         {
+            if (plan is not null)
+                snapshot = snapshot with
+                {
+                    HasOperatorInstructions = HasOperatorInstructions(
+                        plan,
+                        plan.ApprovalGates.Where(gate => state.ActiveGateIds.Contains(
+                            gate.GateId, StringComparer.Ordinal)).ToArray(),
+                        _inbox),
+                };
             attachments.Add(new InboxAttachment
             {
                 Type = "approval-snapshot",
@@ -558,7 +567,7 @@ internal sealed class DurableApprovalRequestManager
         // without requiring the source kit to remain visible as a second Inbox item.
         var runbooks = plan is null
             ? []
-            : FindBoundManualTestKits(plan, state.ActiveGateIds);
+            : FindBoundManualTestKits(plan, state.ActiveGateIds, _inbox);
         if (runbooks.Count > 0)
         {
             attachments.Add(new InboxAttachment
@@ -654,11 +663,25 @@ internal sealed class DurableApprovalRequestManager
         return attachments;
     }
 
-    private IReadOnlyList<InboxMessage> FindBoundManualTestKits(
+    internal static bool HasOperatorInstructions(
         Plan plan,
-        IReadOnlyList<string> activeGateIds)
+        IReadOnlyList<PlanApprovalGate> gates,
+        InboxStore? inbox = null)
     {
-        var boundCandidates = _inbox.LoadAll(
+        // Recipes generate setup/open/observe/cleanup steps; directly reachable placements
+        // without recipes only repeat the observation and are not operator instructions.
+        return gates.Any(gate => gate.ProofRequirements?.Any(
+                   requirement => requirement.VerificationRecipe is not null) == true) ||
+               (inbox is not null && FindBoundManualTestKits(
+                   plan, gates.Select(gate => gate.GateId).ToArray(), inbox).Count > 0);
+    }
+
+    private static IReadOnlyList<InboxMessage> FindBoundManualTestKits(
+        Plan plan,
+        IReadOnlyList<string> activeGateIds,
+        InboxStore inbox)
+    {
+        var boundCandidates = inbox.LoadAll(
                 includeApprovalKitSources: true,
                 includeArchive: true)
             .Select(message => (Message: message, Binding: ManualTestKitApprovalBinding.Read(message)))
@@ -795,7 +818,7 @@ internal sealed class DurableApprovalRequestManager
         IReadOnlyList<string> activeGateIds,
         IReadOnlyList<InboxAttachment>? existingAttachments = null)
     {
-        var kits = FindBoundManualTestKits(plan, activeGateIds);
+        var kits = FindBoundManualTestKits(plan, activeGateIds, _inbox);
         return kits.Count > 0
             ? BuildCombinedOperatorGuide(plan, activeGateIds, kits)
             : existingAttachments?.FirstOrDefault(attachment => string.Equals(

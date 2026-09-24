@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,6 +11,19 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class ApprovalReviewSnapshotBuilderTests
 {
+    private string _tempDir = null!;
+    private InboxStore _inbox = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        _tempDir = Directory.CreateTempSubdirectory("approval-snapshot-").FullName;
+        _inbox = new InboxStore(_tempDir);
+    }
+
+    [TearDown]
+    public void TearDown() => Directory.Delete(_tempDir, recursive: true);
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private static Plan MakePlan(
@@ -71,6 +86,92 @@ internal sealed class ApprovalReviewSnapshotBuilderTests
 
     // ── BuildAsync ────────────────────────────────────────────────────────────
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task BuildAsync_OnlyRecipeBackedGeneratedGuideHasOperatorInstructions(bool hasRecipe)
+    {
+        var gate = MakeObservationGate(hasRecipe);
+        var plan = MakePlan([MakeTask("T1", PlanTaskStatus.Complete)], [gate]);
+        var snapshot = await new ApprovalReviewSnapshotBuilder(FakeGit(), _inbox).BuildAsync(plan, gate);
+        var manager = new DurableApprovalRequestManager(_inbox);
+        var messageId = await manager.AppendCheckpointAsync(plan, gate, snapshot);
+        var message = _inbox.GetById(messageId)!;
+        var guide = message.Attachments.Single(attachment =>
+            attachment.Type == DurableApprovalRequestManager.OperatorGuideAttachmentType).Content;
+        var persisted = JsonSerializer.Deserialize<ApprovalReviewSnapshot>(
+            message.Attachments.Single(attachment => attachment.Type == "approval-snapshot").Content!);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.HasOperatorInstructions, Is.EqualTo(hasRecipe));
+            Assert.That(persisted!.HasOperatorInstructions, Is.EqualTo(hasRecipe));
+            Assert.That(guide, Does.Contain(hasRecipe ? "**Set up:**" : "**Observe in the running app:**"));
+        });
+    }
+
+    [TestCase("bound", true)]
+    [TestCase("archived", true)]
+    [TestCase("other-plan", false)]
+    [TestCase("old-revision", false)]
+    [TestCase("other-gate", false)]
+    [TestCase("invalid-body", false)]
+    [TestCase("unbound", false)]
+    public async Task BuildAsync_OperatorInstructionsRequireValidBoundManualKit(string scenario, bool expected)
+    {
+        var gate = MakeObservationGate(hasRecipe: false);
+        var plan = MakePlan([MakeTask("T1", PlanTaskStatus.Complete)], [gate]);
+        var sourcePlan = plan with
+        {
+            PlanId = scenario == "other-plan" ? "OTHER-PLAN" : plan.PlanId,
+            Revision = scenario == "old-revision" ? "old" : plan.Revision,
+            ApprovalGates = [gate with { GateId = scenario == "other-gate" ? "G2" : gate.GateId }],
+        };
+        var kit = new InboxMessage
+        {
+            Id = "operator-kit",
+            Subject = "Manual test kit",
+            Body = "1. Setup: launch the sample.\n2. Open: select the sample row.\n" +
+                   "3. Observe: confirm the highlight.\n{{approval-check:visual}}\n4. Cleanup: close the sample.",
+            Timestamp = DateTimeOffset.UtcNow,
+        };
+        if (scenario != "unbound")
+            kit = ManualTestKitApprovalBinding.BindForCompletedTask(kit, sourcePlan, "T1");
+        if (scenario == "invalid-body")
+            kit = kit with { Body = "Missing the required observation marker." };
+        _inbox.Save(kit);
+        if (scenario == "archived")
+            _inbox.Archive(kit.Id);
+
+        var builder = new ApprovalReviewSnapshotBuilder(FakeGit(), _inbox);
+        var snapshot = await builder.BuildAsync(plan, gate);
+        var manager = new DurableApprovalRequestManager(_inbox);
+        var messageId = await manager.AppendCheckpointAsync(plan, gate, snapshot);
+        var message = _inbox.GetById(messageId)!;
+        var guide = message.Attachments.Single(attachment =>
+            attachment.Type == DurableApprovalRequestManager.OperatorGuideAttachmentType).Content;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.HasOperatorInstructions, Is.EqualTo(expected));
+            Assert.That(guide, expected ? Is.EqualTo(kit.Body) : Does.Contain("**Observe in the running app:**"));
+        });
+        Assert.That((await builder.BuildAsync(plan, gate)).HasOperatorInstructions, Is.EqualTo(expected),
+            "Absorbing a source kit into the approval must not lose its instruction signal.");
+    }
+
+    private static PlanApprovalGate MakeObservationGate(bool hasRecipe) =>
+        MakeGate("G1", ["T1"], []) with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "visual", "human-observation", "Confirm the highlight.", "Is the row highlighted?",
+                    HumanVerificationAccessMode.DirectlyReachable,
+                    hasRecipe ? new HumanVerificationRecipe(
+                        "Launch the sample.", "Select the row.", "Confirm the highlight.", "Close the sample.") : null),
+            ],
+        };
+
     [Test]
     public async Task BuildAsync_PopulatesPlanProgressAndGateBoundary()
     {
@@ -96,6 +197,7 @@ internal sealed class ApprovalReviewSnapshotBuilderTests
             Assert.That(snapshot.GateReason, Is.EqualTo("Review before proceeding"));
             Assert.That(snapshot.AfterTaskIds, Is.EqualTo(new[] { "T1", "T2" }));
             Assert.That(snapshot.BeforeTaskIds, Is.EqualTo(new[] { "T3" }));
+            Assert.That(snapshot.HasOperatorInstructions, Is.False);
         });
     }
 

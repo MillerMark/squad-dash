@@ -8,16 +8,18 @@ namespace SquadDash;
 
 /// <summary>
 /// Builds an <see cref="ApprovalReviewSnapshot"/> from a <see cref="Plan"/> and a
-/// <see cref="PlanApprovalGate"/>.  Pure logic except for the injected
-/// <see cref="GitCommandRunner"/> used to gather per-commit diff statistics.
+/// <see cref="PlanApprovalGate"/> using the injected <see cref="GitCommandRunner"/>
+/// for per-commit diff statistics and optional <see cref="InboxStore"/> for bound operator guides.
 /// </summary>
 internal sealed class ApprovalReviewSnapshotBuilder
 {
     private readonly GitCommandRunner _git;
+    private readonly InboxStore? _inbox;
 
-    internal ApprovalReviewSnapshotBuilder(GitCommandRunner git)
+    internal ApprovalReviewSnapshotBuilder(GitCommandRunner git, InboxStore? inbox = null)
     {
         _git = git ?? throw new ArgumentNullException(nameof(git));
+        _inbox = inbox;
     }
 
     /// <summary>
@@ -120,7 +122,8 @@ internal sealed class ApprovalReviewSnapshotBuilder
             DownstreamTasks: downstreamTasks,
             AllChangedFiles: allChangedFiles,
             IndependentWork: [],
-            BuiltAt: DateTimeOffset.UtcNow);
+            BuiltAt: DateTimeOffset.UtcNow,
+            HasOperatorInstructions: DurableApprovalRequestManager.HasOperatorInstructions(plan, [gate], _inbox));
     }
 
     /// <summary>

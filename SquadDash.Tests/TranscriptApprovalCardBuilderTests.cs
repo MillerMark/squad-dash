@@ -400,6 +400,29 @@ public class TranscriptApprovalCardBuilderTests
         });
     }
 
+    [TestCase(false, "See your inbox message for more detail.")]
+    [TestCase(true, "See your inbox message for more detail and instructions for performing these observations.")]
+    [Apartment(ApartmentState.STA)]
+    public void Build_InboxFooterReflectsOperatorInstructionsAndPreservesLink(bool hasInstructions, string expected)
+    {
+        var plan = BuildTestPlan();
+        var openedInbox = false;
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot() with { HasOperatorInstructions = hasInstructions },
+            plan, plan.ApprovalGates[0], 14, _ => { },
+            onOpenInbox: () => openedInbox = true);
+        var footer = (TextBlock)card.InboxMessageLink!.Parent;
+
+        card.InboxMessageLink.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(new TextRange(footer.ContentStart, footer.ContentEnd).Text, Is.EqualTo(expected));
+            Assert.That(TranscriptCopyService.BuildCardText(card.Container), Does.Contain(expected));
+            Assert.That(openedInbox, Is.True);
+        });
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void Build_ClarifyMenuIsBoundDirectlyToChecklistClickTargets()
     {
