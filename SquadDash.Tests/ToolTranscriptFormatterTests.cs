@@ -283,6 +283,52 @@ internal sealed class ToolTranscriptFormatterTests {
     }
 
     [Test]
+    public void EditSummary_MultiFileOutputUsesSelectedFileForLifecycleDecoration() {
+        const string updated = """
+            diff --git a/src/Program.cs b/src/Program.cs
+            --- a/src/Program.cs
+            +++ b/src/Program.cs
+            @@ -1 +1 @@
+            -old startup
+            +new startup
+            """;
+        const string added = """
+            diff --git a/src/SnapshotLinks.cs b/src/SnapshotLinks.cs
+            new file mode 100644
+            --- /dev/null
+            +++ b/src/SnapshotLinks.cs
+            @@ -0,0 +1 @@
+            +new link builder
+            """;
+        const string deleted = """
+            diff --git a/src/Viewer.razor b/src/Viewer.razor
+            deleted file mode 100644
+            --- a/src/Viewer.razor
+            +++ /dev/null
+            @@ -1 +0,0 @@
+            -old viewer
+            """;
+        var output = updated.ReplaceLineEndings("\n") + "\n" + added.ReplaceLineEndings("\n") + "\n" +
+            deleted.ReplaceLineEndings("\n");
+
+        var updatedSummary = ToolTranscriptFormatter.TryBuildEditDiffSummary(
+            new ToolTranscriptDescriptor("apply_patch", DisplayText: @"src\Program.cs"), output);
+        var addedSummary = ToolTranscriptFormatter.TryBuildEditDiffSummary(
+            new ToolTranscriptDescriptor("apply_patch", DisplayText: @"src\SnapshotLinks.cs"), output);
+        var deletedSummary = ToolTranscriptFormatter.TryBuildEditDiffSummary(
+            new ToolTranscriptDescriptor("apply_patch", DisplayText: @"src\Viewer.razor"), output);
+
+        Assert.Multiple(() => {
+            Assert.That(updatedSummary,
+                Is.EqualTo(new ToolEditDiffSummary("Program.cs", 2, 2, false, false)));
+            Assert.That(addedSummary,
+                Is.EqualTo(new ToolEditDiffSummary("SnapshotLinks.cs", 2, 2, true, false)));
+            Assert.That(deletedSummary,
+                Is.EqualTo(new ToolEditDiffSummary("Viewer.razor", 2, 2, false, true)));
+        });
+    }
+
+    [Test]
     public void TryExtractEditUnifiedDiff_MultiFileOutputWithoutDescriptorUsesFirstFile() {
         var output = CapturedEditPatch + "\n" + CapturedEditPatch.Replace("src/file.cs", "other/second.cs");
         var descriptor = new ToolTranscriptDescriptor("apply_patch");

@@ -788,14 +788,20 @@ internal static class ToolTranscriptFormatter {
                 removedLineCount++;
         }
 
+        // Line counts summarize the whole edit tool call, but lifecycle decoration belongs to
+        // the file named by the row/link. A multi-file patch can add one file and delete another;
+        // deriving both flags from the complete output makes the named file appear both new and
+        // deleted (a plus marker and strikethrough at the same time).
+        var lifecycleLines = (patch ?? normalized).ReplaceLineEndings("\n").Split('\n');
+        var lifecycleText = string.Join("\n", lifecycleLines);
         var isNewFile =
-            normalized.Contains("new file mode", StringComparison.OrdinalIgnoreCase) ||
-            normalized.Contains("create file mode", StringComparison.OrdinalIgnoreCase) ||
-            lines.Any(line => line.StartsWith("--- ", StringComparison.Ordinal) &&
+            lifecycleText.Contains("new file mode", StringComparison.OrdinalIgnoreCase) ||
+            lifecycleText.Contains("create file mode", StringComparison.OrdinalIgnoreCase) ||
+            lifecycleLines.Any(line => line.StartsWith("--- ", StringComparison.Ordinal) &&
                 NormalizeDiffPath(line[4..]) == "/dev/null");
         var isDeletedFile =
-            normalized.Contains("deleted file mode", StringComparison.OrdinalIgnoreCase) ||
-            lines.Any(line => line.StartsWith("+++ ", StringComparison.Ordinal) &&
+            lifecycleText.Contains("deleted file mode", StringComparison.OrdinalIgnoreCase) ||
+            lifecycleLines.Any(line => line.StartsWith("+++ ", StringComparison.Ordinal) &&
                 NormalizeDiffPath(line[4..]) == "/dev/null");
 
         return new ToolEditDiffSummary(
