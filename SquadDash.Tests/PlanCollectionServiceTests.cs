@@ -118,6 +118,36 @@ internal sealed class PlanCollectionServiceTests
         });
     }
 
+    [Test]
+    public void Collect_PublishedRevision_IsIdempotentAndCleansPendingProposal()
+    {
+        var original = MakePending(MakeGroup(groupId: "COLLECT-20260926"));
+        var collected = _service.Collect(original, DateTimeOffset.UtcNow).Plan!;
+        var revisedPending = _pendingStore.Save(MakeGroup(
+            groupId: "COLLECT-20260926",
+            taskCount: 5));
+        var applied = PlanRevisionApplier.Apply(
+            collected,
+            revisedPending.Group,
+            collected.Revision,
+            DateTimeOffset.UtcNow);
+        Assert.That(applied.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied), applied.Error);
+        _planStore.Save(applied.UpdatedPlan!);
+
+        var publishedCandidate = new PendingDecomposePlan(
+            applied.UpdatedPlan!.Revision,
+            PendingDecomposePlanAdapter.FromPlan(applied.UpdatedPlan).Group,
+            revisedPending.CreatedAt);
+        var result = _service.Collect(publishedCandidate, DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(CollectionOutcome.AlreadyCollected));
+            Assert.That(result.Plan?.Revision, Is.EqualTo(applied.UpdatedPlan.Revision));
+            Assert.That(_pendingStore.Load("COLLECT-20260926"), Is.Null);
+        });
+    }
+
     // ── 3. Stale revision is rejected ────────────────────────────────────────
 
     [Test]

@@ -12563,13 +12563,29 @@ public partial class MainWindow : Window
         if (!TryValidateDecomposeRevisionAgainstWorkspace(group, out var isRevision, out var revisionError))
             throw new InvalidOperationException(
                 "This revised plan no longer matches the accepted plan state. " + revisionError);
+        Plan? revisedDurablePlan = null;
+        if (action == "collect" && isRevision)
+        {
+            // "Add to Plans" is also the approval action for a new definition of an
+            // already-collected plan. Publish that definition before entering the collection
+            // service; otherwise its stale-Inbox guard mistakes the legitimate new revision
+            // for an older proposal attempting to overwrite the durable plan.
+            if (!TryPublishLegacyReplacementRevision(effective, out revisedDurablePlan, out var applyError))
+                throw new InvalidOperationException(applyError ?? "SquadDash could not persist the approved revision.");
+        }
         if (action == "collect")
         {
             var pendingStore = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath);
             var collectionService = new PlanCollectionService(
                 _planStore ?? new PlanStore(_currentWorkspace.SquadFolderPath),
                 pendingStore);
-            var result = collectionService.Collect(plan, DateTimeOffset.UtcNow);
+            var collectionCandidate = revisedDurablePlan is null
+                ? plan
+                : new PendingDecomposePlan(
+                    revisedDurablePlan.Revision,
+                    PendingDecomposePlanAdapter.FromPlan(revisedDurablePlan).Group,
+                    plan.CreatedAt);
+            var result = collectionService.Collect(collectionCandidate, DateTimeOffset.UtcNow);
             switch (result.Outcome)
             {
                 case CollectionOutcome.Collected:
@@ -12615,7 +12631,6 @@ public partial class MainWindow : Window
             effective = effective with { Branch = target };
         }
 
-        Plan? revisedDurablePlan = null;
         if (isRevision)
         {
             if (!TryPublishLegacyReplacementRevision(effective, out revisedDurablePlan, out var applyError))
