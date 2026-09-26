@@ -431,6 +431,7 @@ public partial class MainWindow : Window
     private string?                 _planProviderWaitInterruptionReason;
     private bool                    _planBranchLeasePausePending;
     private bool                    _decomposeRepairPending;
+    private const string PlanHumanProofCoverageQueueTag = "plan-human-proof-coverage";
     private PendingPlanHumanProofCoverageReview? _pendingPlanHumanProofCoverageReview;
     private Paragraph? _planValidationStatusParagraph;
     private string?                 _activePlanAwaitingGateApproval;
@@ -2800,7 +2801,8 @@ public partial class MainWindow : Window
         string text,
         bool isSystemInjected,
         bool forceAtTail = false,
-        string? sourceTag = null)
+        string? sourceTag = null,
+        bool drain = true)
     {
         if (string.IsNullOrWhiteSpace(text))
             return null;
@@ -2845,7 +2847,8 @@ public partial class MainWindow : Window
             $"Enqueued prompt {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
         SyncQueuePanel();
         if (_loopIsWaiting) _loopController.CancelLoopWait();
-        _ = DrainQueueIfNeededAsync();
+        if (drain)
+            _ = DrainQueueIfNeededAsync();
         return item;
     }
 
@@ -9762,10 +9765,17 @@ public partial class MainWindow : Window
                 : "Validating plan structure, ownership, and human-proof coverage…");
         var checkId = Guid.NewGuid().ToString("N");
         var candidateHash = PlanHumanProofCoverageReview.ComputeCandidateHash(rejectedCandidate);
+        var pending = new PendingPlanHumanProofCoverageReview(
+            checkId,
+            candidateHash,
+            group,
+            rejectedCandidate,
+            additionalDiagnostics ?? [],
+            Attempt: 0);
         try
         {
             new PlanHumanProofCoverageCandidateStore(_currentWorkspace.SquadFolderPath)
-                .Save(checkId, rejectedCandidate);
+                .Save(pending);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
                                       or InvalidOperationException)
@@ -9778,13 +9788,7 @@ public partial class MainWindow : Window
             return false;
         }
 
-        _pendingPlanHumanProofCoverageReview = new PendingPlanHumanProofCoverageReview(
-            checkId,
-            candidateHash,
-            group,
-            rejectedCandidate,
-            additionalDiagnostics ?? [],
-            Attempt: 0);
+        _pendingPlanHumanProofCoverageReview = pending;
         EnqueuePlanHumanProofCoverageReview(checkId, candidateHash, correction: null);
         return true;
     }
@@ -9792,7 +9796,8 @@ public partial class MainWindow : Window
     private void EnqueuePlanHumanProofCoverageReview(
         string checkId,
         string candidateHash,
-        string? correction)
+        string? correction,
+        bool drain = true)
     {
         var prompt = PlanHumanProofCoverageReview.BuildPrompt(checkId, candidateHash);
         if (!string.IsNullOrWhiteSpace(correction))
@@ -9801,7 +9806,8 @@ public partial class MainWindow : Window
         var queued = EnqueuePrompt(
             prompt,
             isSystemInjected: true,
-            sourceTag: "plan-human-proof-coverage");
+            sourceTag: PlanHumanProofCoverageQueueTag,
+            drain: drain);
         if (queued is null)
         {
             FailPlanHumanProofCoverageReview(
@@ -9845,29 +9851,37 @@ public partial class MainWindow : Window
                     $"The semantic preflight referenced unknown target '{unknown.TargetId}'.");
         }
 
-        _pendingPlanHumanProofCoverageReview = null;
-        new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
-            .Delete(pending.CheckId);
         var diagnostics = pending.AdditionalDiagnostics.ToList();
         if (review.Status == "revision-required")
             diagnostics.Add(PlanHumanProofCoverageReview.BuildRepairDiagnostic(review));
         if (diagnostics.Count > 0 || pending.Group is null)
         {
+            _pendingPlanHumanProofCoverageReview = null;
             QueueDecomposeRepair(
                 diagnostics.Count == 0
                     ? null
                     : string.Join(Environment.NewLine + "- ", diagnostics),
                 pending.RejectedCandidate);
+            DeletePendingPlanHumanProofCoverageReviewBestEffort(
+                pending.CheckId,
+                "semantic preflight transitioned to plan repair");
             return true;
         }
         _decomposeRepairPending = false;
         SquadDashTrace.Write("PlanPreflight",
             $"Complete plan preflight passed plan={pending.Group.GroupId}.");
-        StageValidatedDecomposeGroup(
+        var staged = StageValidatedDecomposeGroup(
             pending.Group,
             ownerView: null,
             retryResponse: pending.RejectedCandidate,
             humanProofCoverageChecked: true);
+        _pendingPlanHumanProofCoverageReview = null;
+        if (staged)
+        {
+            DeletePendingPlanHumanProofCoverageReviewBestEffort(
+                pending.CheckId,
+                "validated plan was durably staged");
+        }
         return true;
     }
 
@@ -9881,10 +9895,27 @@ public partial class MainWindow : Window
         if (pending is null) return true;
         if (pending.Attempt < 1)
         {
-            _pendingPlanHumanProofCoverageReview = pending with { Attempt = pending.Attempt + 1 };
+            var retry = pending with
+            {
+                Attempt = pending.Attempt + 1,
+                Correction = reason,
+            };
+            try
+            {
+                new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
+                    .Save(retry);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
+                                          or InvalidOperationException)
+            {
+                FailPlanHumanProofCoverageReview(
+                    "The plan-contract preflight retry state could not be persisted: " + ex.Message);
+                return true;
+            }
+            _pendingPlanHumanProofCoverageReview = retry;
             EnqueuePlanHumanProofCoverageReview(
-                pending.CheckId,
-                pending.CandidateHash,
+                retry.CheckId,
+                retry.CandidateHash,
                 reason);
             return true;
         }
@@ -9899,11 +9930,134 @@ public partial class MainWindow : Window
         _pendingPlanHumanProofCoverageReview = null;
         _decomposeRepairPending = false;
         if (pending is null) return;
-        new PlanHumanProofCoverageCandidateStore(_currentWorkspace!.SquadFolderPath)
-            .Delete(pending.CheckId);
         RemovePlanValidationStatus();
         AppendPlanStagingFailure(reason, pending.RejectedCandidate, ownerView: null);
         SquadDashTrace.Write("PlanPreflight", reason);
+        DeletePendingPlanHumanProofCoverageReviewBestEffort(
+            pending.CheckId,
+            "semantic preflight failed");
+    }
+
+    private void RestorePendingPlanHumanProofCoverageReview()
+    {
+        if (_currentWorkspace is null) return;
+
+        var store = new PlanHumanProofCoverageCandidateStore(_currentWorkspace.SquadFolderPath);
+        var pending = store.Load(out var error);
+        if (pending is null)
+        {
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                SquadDashTrace.Write("PlanPreflight", error);
+                AppendLine("⚠ SquadDash preserved an interrupted plan preflight, but its correlation state " +
+                           "could not be validated. The preserved files were not deleted. " + error);
+            }
+            return;
+        }
+
+        if (pending.Group is not null)
+        {
+            var alreadyStaged = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+                .Load(pending.Group.GroupId);
+            var expectedRevision = PendingDecomposePlanStore.ComputeRevision(pending.Group);
+            if (alreadyStaged is not null &&
+                string.Equals(alreadyStaged.Revision, expectedRevision, StringComparison.Ordinal))
+            {
+                DeletePendingPlanHumanProofCoverageReviewBestEffort(
+                    pending.CheckId,
+                    "startup found the matching plan already staged");
+                SquadDashTrace.Write("PlanPreflight",
+                    $"Recovered completed preflight transaction plan={pending.Group.GroupId} " +
+                    $"revision={expectedRevision}; no duplicate review was queued.");
+                return;
+            }
+        }
+
+        _pendingPlanHumanProofCoverageReview = pending;
+        UpdatePlanValidationStatus("Resuming interrupted plan structure, ownership, and human-proof validation…");
+        SquadDashTrace.Write("PlanPreflight",
+            $"Restored pending plan preflight check={pending.CheckId} candidate={pending.CandidateHash} " +
+            $"attempt={pending.Attempt} plan={pending.Group?.GroupId ?? "unparsed"}.");
+    }
+
+    private bool EnsurePendingPlanHumanProofCoverageReviewQueued()
+    {
+        var pending = _pendingPlanHumanProofCoverageReview;
+        if (pending is null)
+        {
+            var orphaned = _promptQueue.Items
+                .Where(item => string.Equals(
+                    item.SourceTag, PlanHumanProofCoverageQueueTag, StringComparison.Ordinal))
+                .ToArray();
+            foreach (var item in orphaned)
+            {
+                _promptQueue.Remove(item.Id);
+                SquadDashTrace.Write("PlanPreflight",
+                    $"Discarded orphaned recovered plan-preflight queue item id={item.Id}.");
+            }
+            if (orphaned.Length > 0)
+            {
+                SyncQueuePanel();
+                AppendLine("⚠ An interrupted plan validation could not be resumed because its " +
+                           "candidate correlation was unavailable. Its orphaned queue item was removed; " +
+                           "resubmit the original plan payload.");
+            }
+            return false;
+        }
+
+        var taggedItems = _promptQueue.Items
+            .Where(item => string.Equals(
+                item.SourceTag, PlanHumanProofCoverageQueueTag, StringComparison.Ordinal))
+            .ToArray();
+        var matching = taggedItems.FirstOrDefault(item =>
+            item.Text.Contains(pending.CheckId, StringComparison.Ordinal) &&
+            item.Text.Contains(pending.CandidateHash, StringComparison.Ordinal));
+
+        foreach (var stale in taggedItems.Where(item => !ReferenceEquals(item, matching)))
+        {
+            _promptQueue.Remove(stale.Id);
+            SquadDashTrace.Write("PlanPreflight",
+                $"Discarded stale recovered plan-preflight queue item id={stale.Id}.");
+        }
+
+        if (matching is not null)
+        {
+            matching.IsLocked = true;
+            matching.DisplayLabel = "Validate plan contracts";
+            matching.ReadOnlyDisplayText =
+                "AI is checking ownership, executable preparation, and human-observable checkpoints.";
+            SyncQueuePanel();
+            return false;
+        }
+
+        EnqueuePlanHumanProofCoverageReview(
+            pending.CheckId,
+            pending.CandidateHash,
+            pending.Correction,
+            drain: false);
+        SquadDashTrace.Write("PlanPreflight",
+            $"Requeued interrupted plan preflight check={pending.CheckId} candidate={pending.CandidateHash}.");
+        return true;
+    }
+
+    private void DeletePendingPlanHumanProofCoverageReviewBestEffort(
+        string checkId,
+        string reason)
+    {
+        if (_currentWorkspace is null) return;
+        try
+        {
+            new PlanHumanProofCoverageCandidateStore(_currentWorkspace.SquadFolderPath)
+                .Delete(checkId);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // A completed transaction left behind is safe: startup compares the staged revision
+            // before deciding whether any review needs to be queued. Never turn cleanup failure
+            // into a second plan-state transition.
+            SquadDashTrace.Write("PlanPreflight",
+                $"Could not clean preflight transaction {checkId} after {reason}: {ex.Message}");
+        }
     }
 
     private void UpdatePlanValidationStatus(string status)
@@ -9934,14 +10088,6 @@ public partial class MainWindow : Window
         }
         _planValidationStatusParagraph = null;
     }
-
-    private sealed record PendingPlanHumanProofCoverageReview(
-        string CheckId,
-        string CandidateHash,
-        DecomposedTaskGroup? Group,
-        string RejectedCandidate,
-        IReadOnlyList<string> AdditionalDiagnostics,
-        int Attempt);
 
     private void TryCollectStagedPlanRevisionFromVerifiedAgent(SquadSdkEvent evt)
     {
@@ -38394,6 +38540,9 @@ public partial class MainWindow : Window
         RestoreInterruptedPlanRecoverySurfaces();
         RestoreFailedPlanValidationRecoverySurface();
         RestoreInterruptedPromptRecoverySurface();
+        // A queued semantic preflight and its candidate correlation are one durable operation.
+        // Restore the correlation before queue hydration can dispatch the recovered prompt.
+        RestorePendingPlanHumanProofCoverageReview();
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
         _ = Dispatcher.BeginInvoke(
@@ -38676,6 +38825,11 @@ public partial class MainWindow : Window
             SyncLoopPanel();
         }
 
+        // The queue snapshot can be written just before or just after the preflight transaction.
+        // Reconcile both durable halves before releasing queue hydration: keep the matching item,
+        // replace a stale one, or recreate the prompt when the transaction was saved first.
+        var recoveredPlanPreflightWasEnqueued = EnsurePendingPlanHumanProofCoverageReviewQueued();
+
         // Restore active-draft sim entry if one was saved.
         var savedDraftSimResponse = _conversationManager.ConversationState.ActiveDraftSimResponse;
         if (!string.IsNullOrEmpty(savedDraftSimResponse))
@@ -38688,6 +38842,12 @@ public partial class MainWindow : Window
         // All queue-owned startup state is now coherent. Publish one canonical
         // snapshot before queued dispatcher work or loop/plan resume callbacks run.
         CompleteQueueStateHydration();
+        if (recoveredPlanPreflightWasEnqueued)
+        {
+            _ = Dispatcher.BeginInvoke(
+                new Action(() => _ = DrainQueueIfNeededAsync()),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
         RestorePendingManualLoopResumeSurface();
 
         // Restore per-workspace loop settings (override global app settings).

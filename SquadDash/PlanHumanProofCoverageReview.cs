@@ -1,6 +1,7 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace SquadDash;
@@ -17,6 +18,15 @@ internal sealed record PlanHumanProofCoverageReviewPayload(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("summary")] string Summary,
     [property: JsonPropertyName("issues")] IReadOnlyList<PlanHumanProofCoverageIssue> Issues);
+
+internal sealed record PendingPlanHumanProofCoverageReview(
+    string CheckId,
+    string CandidateHash,
+    DecomposedTaskGroup? Group,
+    string RejectedCandidate,
+    IReadOnlyList<string> AdditionalDiagnostics,
+    int Attempt,
+    string? Correction = null);
 
 /// <summary>
 /// Focused semantic preflight for plan constraints a JSON schema cannot infer: whether prose
@@ -190,19 +200,119 @@ internal static class PlanHumanProofCoverageReview
 internal sealed class PlanHumanProofCoverageCandidateStore(string squadFolderPath)
 {
     private readonly string _folder = Path.Combine(squadFolderPath, "tmp", "decompose", "preflight");
+    private readonly string _pendingPath = Path.Combine(
+        squadFolderPath, "tmp", "decompose", "preflight", "pending.json");
+    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
 
-    internal void Save(string checkId, string candidate)
+    internal void Save(PendingPlanHumanProofCoverageReview pending)
     {
+        ArgumentNullException.ThrowIfNull(pending);
+        Validate(pending);
         Directory.CreateDirectory(_folder);
-        var path = Path.Combine(_folder, checkId + ".txt");
-        var tempPath = path + ".tmp";
-        File.WriteAllText(tempPath, candidate);
-        File.Move(tempPath, path, overwrite: true);
+        WriteAtomic(GetCandidatePath(pending.CheckId), pending.RejectedCandidate);
+        WriteAtomic(_pendingPath, JsonSerializer.Serialize(pending, Options));
     }
 
     internal void Delete(string checkId)
     {
-        var path = Path.Combine(_folder, checkId + ".txt");
-        if (File.Exists(path)) File.Delete(path);
+        if (File.Exists(_pendingPath))
+        {
+            try
+            {
+                var current = JsonSerializer.Deserialize<PendingPlanHumanProofCoverageReview>(
+                    File.ReadAllText(_pendingPath), Options);
+                if (current is not null &&
+                    string.Equals(current.CheckId, checkId, StringComparison.Ordinal))
+                {
+                    File.Delete(_pendingPath);
+                }
+            }
+            catch (JsonException)
+            {
+                // Preserve unreadable state for diagnosis rather than deleting a potentially
+                // newer transaction merely because an older completion arrived late.
+            }
+        }
+
+        var candidatePath = GetCandidatePath(checkId);
+        if (File.Exists(candidatePath)) File.Delete(candidatePath);
+    }
+
+    internal PendingPlanHumanProofCoverageReview? Load(out string? error)
+    {
+        error = null;
+        if (!File.Exists(_pendingPath)) return null;
+
+        try
+        {
+            var pending = JsonSerializer.Deserialize<PendingPlanHumanProofCoverageReview>(
+                File.ReadAllText(_pendingPath), Options);
+            if (pending is null)
+            {
+                error = "The persisted plan-contract preflight state was empty.";
+                return null;
+            }
+
+            Validate(pending);
+            var candidatePath = GetCandidatePath(pending.CheckId);
+            if (!File.Exists(candidatePath))
+            {
+                error = $"The persisted plan-contract candidate '{pending.CheckId}' was missing.";
+                return null;
+            }
+
+            var candidate = File.ReadAllText(candidatePath);
+            if (!string.Equals(candidate, pending.RejectedCandidate, StringComparison.Ordinal))
+            {
+                error = "The persisted plan-contract candidate did not match its transaction state.";
+                return null;
+            }
+
+            return pending;
+        }
+        catch (JsonException ex)
+        {
+            error = $"The persisted plan-contract preflight state contained invalid JSON: {ex.Message}";
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
+                                      or ArgumentException)
+        {
+            error = $"The persisted plan-contract preflight state was invalid: {ex.Message}";
+            return null;
+        }
+    }
+
+    private string GetCandidatePath(string checkId) => Path.Combine(_folder, checkId + ".txt");
+
+    private static void Validate(PendingPlanHumanProofCoverageReview pending)
+    {
+        if (string.IsNullOrWhiteSpace(pending.CheckId) ||
+            !string.Equals(Path.GetFileName(pending.CheckId), pending.CheckId, StringComparison.Ordinal) ||
+            pending.CheckId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new InvalidDataException("The plan-contract preflight check identifier was invalid.");
+        }
+        if (string.IsNullOrWhiteSpace(pending.RejectedCandidate))
+            throw new InvalidDataException("The plan-contract candidate was empty.");
+        var computedHash = PlanHumanProofCoverageReview.ComputeCandidateHash(pending.RejectedCandidate);
+        if (!string.Equals(computedHash, pending.CandidateHash, StringComparison.Ordinal))
+            throw new InvalidDataException("The plan-contract candidate hash did not match its transaction state.");
+        if (pending.AdditionalDiagnostics is null || pending.Attempt < 0)
+            throw new InvalidDataException("The plan-contract preflight retry state was invalid.");
+    }
+
+    private static void WriteAtomic(string path, string content)
+    {
+        var tempPath = path + ".tmp";
+        try
+        {
+            File.WriteAllText(tempPath, content);
+            File.Move(tempPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath)) File.Delete(tempPath);
+        }
     }
 }
