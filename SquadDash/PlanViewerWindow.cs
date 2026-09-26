@@ -110,6 +110,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private double _panHorizontalOffset;
     private double _panVerticalOffset;
     private FlowDocument? _detailDocument;
+    private FlowDocumentScrollViewer? _detailViewer;
+    private double _inspectorFontScale = 1.0;
     private WrapPanel? _inspectorToolbarPanel;
     private Func<string?>? _inspectorEditorSaveAction;
     private TextBlock? _inspectorEditorStatus;
@@ -483,6 +485,48 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             broker.Subscribe(_approvalChangeActivityHandler);
             Closed += (_, _) => broker.Unsubscribe(_approvalChangeActivityHandler);
+        }
+    }
+
+    private void RestoreInspectorFontScale()
+    {
+        _inspectorFontScale = _viewportStore.LoadInspectorFontScale();
+        ApplyInspectorFontScale();
+    }
+
+    private void ApplyInspectorFontScale()
+    {
+        // Document zoom also scales explicitly sized headings and embedded inspector editors.
+        if (_detailViewer is not null)
+            _detailViewer.Zoom = _inspectorFontScale * 100.0;
+    }
+
+    private void OnInspectorPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        _lastViewerInteractionUtc = DateTime.UtcNow;
+        if (Keyboard.Modifiers != ModifierKeys.Control)
+            return;
+
+        e.Handled = true;
+        if (e.Delta == 0)
+            return;
+
+        var scale = Math.Clamp(_inspectorFontScale * Math.Pow(1.1, e.Delta / 120.0),
+            PlanVisualizerViewportStore.MinimumInspectorFontScale,
+            PlanVisualizerViewportStore.MaximumInspectorFontScale);
+        if (scale == _inspectorFontScale)
+            return;
+
+        _inspectorFontScale = scale;
+        ApplyInspectorFontScale();
+        try
+        {
+            _viewportStore.SaveInspectorFontScale(_inspectorFontScale);
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            SquadDashTrace.Write("PlanViewer", $"Could not save inspector font scale: {ex.Message}");
+            ShowActionStatus("Inspector font size could not be saved", ex.Message);
         }
     }
 
@@ -1784,7 +1828,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Document = detailDocument,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             IsToolBarVisible = false,
+            MinZoom = PlanVisualizerViewportStore.MinimumInspectorFontScale * 100.0,
+            MaxZoom = PlanVisualizerViewportStore.MaximumInspectorFontScale * 100.0,
         };
+        _detailViewer = detailViewer;
+        RestoreInspectorFontScale();
+        detailViewer.PreviewMouseWheel += OnInspectorPreviewMouseWheel;
         detailViewer.MouseDown += (_, e) =>
         {
             if (e.ChangedButton != MouseButton.XButton1)
@@ -6454,6 +6503,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_detailDocument is null)
             return;
 
+        RestoreInspectorFontScale();
         _inspectorEditorSaveAction = null;
         _inspectorEditorStatus = null;
         _inspectorPrimaryEditor = null;

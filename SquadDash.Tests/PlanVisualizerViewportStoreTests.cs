@@ -14,6 +14,7 @@ internal sealed class PlanVisualizerViewportStoreTests
 
     private string ViewportPath => Path.Combine(_squad, "tmp", "decompose", "layout", "plan.viewport.json");
     private string DefaultZoomPath => Path.Combine(_appData, "plan-visualizer-zoom.json");
+    private string InspectorFontScalePath => Path.Combine(_appData, "plan-visualizer-inspector-font.json");
 
     [SetUp]
     public void SetUp()
@@ -50,6 +51,21 @@ internal sealed class PlanVisualizerViewportStoreTests
             Assert.That(reloaded.LoadDefaultZoom(), Is.EqualTo(zoom));
             Assert.That(File.Exists(ViewportPath), Is.True);
             Assert.That(File.Exists(DefaultZoomPath), Is.True);
+        });
+    }
+
+    [TestCase(0.5)]
+    [TestCase(1.23456789012345)]
+    [TestCase(3.0)]
+    public void SaveInspectorFontScale_RoundTripsExactBoundariesAndFractional(double fontScale)
+    {
+        _store.SaveInspectorFontScale(fontScale);
+
+        var reloaded = new PlanVisualizerViewportStore(_squad, _appData);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reloaded.LoadInspectorFontScale(), Is.EqualTo(fontScale));
+            Assert.That(File.Exists(InspectorFontScalePath), Is.True);
         });
     }
 
@@ -121,12 +137,59 @@ internal sealed class PlanVisualizerViewportStoreTests
     }
 
     [Test]
+    public void InspectorFontScale_IsSharedAcrossWorkspaceStoresAndNullWorkspace()
+    {
+        var otherWorkspace = new PlanVisualizerViewportStore(Path.Combine(_root, "other-squad"), _appData);
+        var noWorkspace = new PlanVisualizerViewportStore(null, _appData);
+        _store.SaveInspectorFontScale(1.75);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(otherWorkspace.LoadInspectorFontScale(), Is.EqualTo(1.75));
+            Assert.That(noWorkspace.LoadInspectorFontScale(), Is.EqualTo(1.75));
+        });
+    }
+
+    [Test]
+    public void ExistingStore_LoadsInspectorFontScaleSavedByAnotherInstance()
+    {
+        var writer = new PlanVisualizerViewportStore(Path.Combine(_root, "other-squad"), _appData);
+        Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(1.0));
+        writer.SaveInspectorFontScale(2.25);
+        Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(2.25));
+    }
+
+    [Test]
+    public void InspectorFontScale_IsIndependentFromGraphDefaultsAndLegacyGraphJson()
+    {
+        WriteJson(DefaultZoomPath, """{"Zoom":2.5}""");
+        Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(1.0));
+
+        var zoomBytesBefore = File.ReadAllBytes(DefaultZoomPath);
+        _store.SaveInspectorFontScale(2.0);
+        var zoomBytesAfter = File.ReadAllBytes(DefaultZoomPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_store.LoadDefaultZoom(), Is.EqualTo(2.5));
+            Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(2.0));
+            Assert.That(zoomBytesAfter, Is.EqualTo(zoomBytesBefore));
+        });
+
+        var inspectorBytesBefore = File.ReadAllBytes(InspectorFontScalePath);
+        _store.SaveDefaultZoom(3.5);
+        Assert.That(File.ReadAllBytes(InspectorFontScalePath), Is.EqualTo(inspectorBytesBefore));
+        Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(2.0));
+    }
+
+    [Test]
     public void MissingFiles_ReturnFallbacksWithoutCreatingDirectories()
     {
         Assert.Multiple(() =>
         {
             Assert.That(_store.Load("plan"), Is.Null);
             Assert.That(_store.LoadDefaultZoom(), Is.EqualTo(1));
+            Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(1));
             Assert.That(Directory.Exists(_squad), Is.False);
             Assert.That(Directory.Exists(_appData), Is.False);
         });
@@ -137,10 +200,12 @@ internal sealed class PlanVisualizerViewportStoreTests
     {
         var store = new PlanVisualizerViewportStore(null, _appData);
         store.SaveDefaultZoom(2);
+        store.SaveInspectorFontScale(1.5);
         Assert.Multiple(() =>
         {
             Assert.That(store.Load("plan"), Is.Null);
             Assert.That(store.LoadDefaultZoom(), Is.EqualTo(2));
+            Assert.That(store.LoadInspectorFontScale(), Is.EqualTo(1.5));
             Assert.Throws<InvalidOperationException>(() =>
                 store.Save("plan", new PlanVisualizerViewportState(1, 0, 0)));
         });
@@ -188,6 +253,24 @@ internal sealed class PlanVisualizerViewportStoreTests
         Assert.That(File.ReadAllText(DefaultZoomPath), Is.EqualTo(json));
     }
 
+    [TestCase("not json")]
+    [TestCase("null")]
+    [TestCase("{}")]
+    [TestCase("[]")]
+    [TestCase("""{"FontScale":null}""")]
+    [TestCase("""{"FontScale":0.499}""")]
+    [TestCase("""{"FontScale":3.001}""")]
+    [TestCase("""{"FontScale":1e999}""")]
+    [TestCase("""{"FontScale":"NaN"}""")]
+    [TestCase("""{"FontScale":"Infinity"}""")]
+    public void InvalidStoredInspectorFontScale_ReturnsOneAndLogs(string json)
+    {
+        WriteJson(InspectorFontScalePath, json);
+        Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(1));
+        Assert.That(File.ReadAllText(SquadDashTrace.CurrentLogPath), Does.Contain("[PlanViewport]"));
+        Assert.That(File.ReadAllText(InspectorFontScalePath), Is.EqualTo(json));
+    }
+
     [TestCase(double.NaN)]
     [TestCase(double.PositiveInfinity)]
     [TestCase(double.NegativeInfinity)]
@@ -202,6 +285,32 @@ internal sealed class PlanVisualizerViewportStoreTests
         Assert.Throws<ArgumentOutOfRangeException>(() => _store.SaveDefaultZoom(zoom));
         Assert.That(Directory.Exists(_squad), Is.False);
         Assert.That(Directory.Exists(_appData), Is.False);
+    }
+
+    [TestCase(double.NaN)]
+    [TestCase(double.PositiveInfinity)]
+    [TestCase(double.NegativeInfinity)]
+    [TestCase(-1)]
+    [TestCase(0)]
+    [TestCase(0.499)]
+    [TestCase(3.001)]
+    public void InvalidInspectorFontScale_IsRejectedWithoutWritingAndPreservesPreviousBytes(double fontScale)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => _store.SaveInspectorFontScale(fontScale));
+        Assert.That(Directory.Exists(_appData), Is.False);
+
+        _store.SaveInspectorFontScale(1.75);
+        var bytesBefore = File.ReadAllBytes(InspectorFontScalePath);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => _store.SaveInspectorFontScale(fontScale));
+        var bytesAfter = File.ReadAllBytes(InspectorFontScalePath);
+        Assert.Multiple(() =>
+        {
+            Assert.That(bytesAfter, Is.EqualTo(bytesBefore));
+            Assert.That(File.Exists(InspectorFontScalePath + ".tmp"), Is.False);
+            Assert.That(File.Exists(InspectorFontScalePath + ".backup"), Is.False);
+            Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(1.75));
+        });
     }
 
     [TestCase(double.NaN)]
@@ -260,6 +369,22 @@ internal sealed class PlanVisualizerViewportStoreTests
         Assert.That(() => store.Save("plan", new PlanVisualizerViewportState(1, 0, 0)),
             Throws.InstanceOf<IOException>());
         Assert.That(() => store.SaveDefaultZoom(2), Throws.InstanceOf<IOException>());
+        Assert.That(() => store.SaveInspectorFontScale(1.5), Throws.InstanceOf<IOException>());
+    }
+
+    [Test]
+    public void SaveInspectorFontScale_OverwritesAtomicallyWithBackup()
+    {
+        _store.SaveInspectorFontScale(1.25);
+        _store.SaveInspectorFontScale(2.75);
+        using var backup = JsonDocument.Parse(File.ReadAllText(InspectorFontScalePath + ".backup"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(2.75));
+            Assert.That(backup.RootElement.GetProperty("FontScale").GetDouble(), Is.EqualTo(1.25));
+            Assert.That(File.Exists(InspectorFontScalePath + ".tmp"), Is.False);
+        });
     }
 
     [Test]
@@ -270,6 +395,7 @@ internal sealed class PlanVisualizerViewportStoreTests
             var store = new PlanVisualizerViewportStore(_squad, _appData);
             store.Save("plan", new PlanVisualizerViewportState(1 + i / 32.0, i, i * 2));
             store.SaveDefaultZoom(1 + i / 32.0);
+            store.SaveInspectorFontScale(0.5 + (i / 32.0) * 2.5);
         });
 
         var state = _store.Load("plan")!;
@@ -278,9 +404,20 @@ internal sealed class PlanVisualizerViewportStoreTests
             Assert.That(state.Zoom, Is.EqualTo(1 + state.HorizontalOffset / 32.0));
             Assert.That(state.VerticalOffset, Is.EqualTo(state.HorizontalOffset * 2));
             Assert.That(_store.LoadDefaultZoom(), Is.InRange(1, 2));
+            Assert.That(_store.LoadInspectorFontScale(), Is.InRange(0.5, 3.0));
             Assert.That(File.Exists(ViewportPath + ".tmp"), Is.False);
             Assert.That(File.Exists(DefaultZoomPath + ".tmp"), Is.False);
+            Assert.That(File.Exists(InspectorFontScalePath + ".tmp"), Is.False);
         });
+    }
+
+    [Test]
+    public void ReadIoErrors_ForInspectorFontScale_ReturnFallbackAndLog()
+    {
+        _store.SaveInspectorFontScale(2.5);
+        using var inspectorLock = new FileStream(InspectorFontScalePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        Assert.That(_store.LoadInspectorFontScale(), Is.EqualTo(1));
+        Assert.That(File.ReadAllText(SquadDashTrace.CurrentLogPath), Does.Contain("Could not load viewport data"));
     }
 
     private static void WriteJson(string path, string json)

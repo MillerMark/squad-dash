@@ -10,6 +10,8 @@ internal sealed class PlanVisualizerViewportStore
 {
     internal const double MinimumZoom = 0.25;
     internal const double MaximumZoom = 4.0;
+    internal const double MinimumInspectorFontScale = 0.5;
+    internal const double MaximumInspectorFontScale = 3.0;
 
     private const string DefaultZoomMutexName = @"Local\SquadDash.PlanVisualizerZoom";
     private static readonly object Gate = new();
@@ -21,6 +23,7 @@ internal sealed class PlanVisualizerViewportStore
 
     private readonly string? _folder;
     private readonly string _defaultZoomPath;
+    private readonly string _inspectorFontScalePath;
 
     internal PlanVisualizerViewportStore(string? squadFolderPath, string? appDataPath = null)
     {
@@ -33,6 +36,7 @@ internal sealed class PlanVisualizerViewportStore
         appDataPath ??= SquadDashPaths.AppData;
         ArgumentException.ThrowIfNullOrWhiteSpace(appDataPath);
         _defaultZoomPath = Path.Combine(appDataPath, "plan-visualizer-zoom.json");
+        _inspectorFontScalePath = Path.Combine(appDataPath, "plan-visualizer-inspector-font.json");
     }
 
     internal PlanVisualizerViewportState? Load(string groupId)
@@ -86,6 +90,33 @@ internal sealed class PlanVisualizerViewportStore
         }
     }
 
+    internal double LoadInspectorFontScale()
+    {
+        lock (Gate)
+        {
+            using var mutex = MutexLease.Acquire(DefaultZoomMutexName);
+            return LoadFile<InspectorFontState>(_inspectorFontScalePath, state => IsValidInspectorFontScale(state.FontScale))?.FontScale ?? 1.0;
+        }
+    }
+
+    internal void SaveInspectorFontScale(double fontScale)
+    {
+        if (!IsValidInspectorFontScale(fontScale))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(fontScale),
+                fontScale,
+                "Inspector font scale must be finite and between 0.5 and 3.0.");
+        }
+
+        lock (Gate)
+        {
+            using var mutex = MutexLease.Acquire(DefaultZoomMutexName);
+            Directory.CreateDirectory(Path.GetDirectoryName(_inspectorFontScalePath)!);
+            JsonFileStorage.AtomicWrite(_inspectorFontScalePath, new InspectorFontState(fontScale), Options);
+        }
+    }
+
     private static T? LoadFile<T>(string path, Func<T, bool> isValid) where T : class
     {
         if (!File.Exists(path))
@@ -115,6 +146,9 @@ internal sealed class PlanVisualizerViewportStore
     private static bool IsValidZoom(double zoom) =>
         double.IsFinite(zoom) && zoom >= MinimumZoom && zoom <= MaximumZoom;
 
+    private static bool IsValidInspectorFontScale(double fontScale) =>
+        double.IsFinite(fontScale) && fontScale >= MinimumInspectorFontScale && fontScale <= MaximumInspectorFontScale;
+
     private static void ValidateGroupId(string groupId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
@@ -123,4 +157,5 @@ internal sealed class PlanVisualizerViewportStore
     }
 
     private sealed record DefaultZoomState(double Zoom);
+    private sealed record InspectorFontState(double FontScale);
 }
