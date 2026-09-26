@@ -370,6 +370,7 @@ internal sealed class TasksJsonParserTests
             Assert.That(diagnostic?.Message, Does.Contain("unknown-task-dependency"));
             Assert.That(diagnostic?.Message, Does.Contain("unknown-gate-after-task"));
             Assert.That(diagnostic?.Message, Does.Contain("unknown-gate-before-task"));
+            Assert.That(diagnostic?.GetRepairDiagnostics(), Has.Count.EqualTo(4));
         });
     }
 
@@ -395,6 +396,7 @@ internal sealed class TasksJsonParserTests
             Assert.That(diagnostic?.Message, Does.Contain("2 independent schema problems"));
             Assert.That(diagnostic?.Message, Does.Contain("missing-task-title"));
             Assert.That(diagnostic?.Message, Does.Contain("unknown-task-dependency"));
+            Assert.That(diagnostic?.GetRepairDiagnostics(), Has.Count.EqualTo(2));
         });
     }
 

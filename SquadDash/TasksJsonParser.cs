@@ -6,7 +6,16 @@ using System.Text.RegularExpressions;
 
 namespace SquadDash;
 
-internal sealed record TasksJsonParseDiagnostic(string Code, string Message);
+internal sealed record TasksJsonParseDiagnostic(
+    string Code,
+    string Message,
+    IReadOnlyList<string>? IndependentProblems = null)
+{
+    internal IReadOnlyList<string> GetRepairDiagnostics() =>
+        IndependentProblems is { Count: > 0 }
+            ? IndependentProblems
+            : [$"{Code}: {Message}"];
+}
 
 /// <summary>
 /// Parses a <c>TASKS_JSON:</c> block from AI response text into a <see cref="DecomposedTaskGroup"/>.
@@ -65,9 +74,12 @@ internal static class TasksJsonParser
     {
         group = null;
 
-        bool Fail(string code, string message)
+        bool Fail(
+            string code,
+            string message,
+            IReadOnlyList<string>? independentProblems = null)
         {
-            var diagnostic = new TasksJsonParseDiagnostic(code, message);
+            var diagnostic = new TasksJsonParseDiagnostic(code, message, independentProblems);
             reportDiagnostic?.Invoke(diagnostic);
             SquadDashTrace.Write(TraceCategory.General, $"TasksJsonParser: {message}");
             return false;
@@ -137,7 +149,12 @@ internal static class TasksJsonParser
                 ? first.Message
                 : $"{independentDiagnostics.Count} independent schema problems were found:\n- " +
                   string.Join("\n- ", independentDiagnostics.Select(value => $"{value.Code}: {value.Message}"));
-            return Fail(first.Code, detail);
+            return Fail(
+                first.Code,
+                detail,
+                independentDiagnostics
+                    .Select(value => $"{value.Code}: {value.Message}")
+                    .ToArray());
         }
 
         if (string.IsNullOrWhiteSpace(parsed.GroupTitle) ||
@@ -525,8 +542,8 @@ internal static class TasksJsonParser
         if (parsed.Tasks.Any(task => task.ProofRequirements is { Count: > 0 }) ||
             (parsed.ApprovalGates ?? []).Any(gate => gate.ProofRequirements is { Count: > 0 }))
         {
-            // A revision keeps its blocked parent task in the proposal and identifies the
-            // smaller replacements with parentTaskId.  The parent is therefore not a live
+            // A revision keeps a superseded parent task in the proposal and identifies its
+            // one or more replacements with parentTaskId. The parent is therefore not a live
             // completion leaf.  Normalize the replacement graph before calculating leaves
             // so downstream dependencies on the parent are redirected to replacement
             // terminals exactly as they will be when the revision is staged.
@@ -708,7 +725,8 @@ internal static class TasksJsonParser
                 conflicts.Count == 1
                     ? conflicts[0].Message
                     : $"{conflicts.Count} independent schema problems were found:\n- " +
-                      string.Join("\n- ", conflicts.Select(value => $"{value.Code}: {value.Message}")));
+                      string.Join("\n- ", conflicts.Select(value => $"{value.Code}: {value.Message}")),
+                conflicts.Select(value => $"{value.Code}: {value.Message}").ToArray());
             return false;
         }
 

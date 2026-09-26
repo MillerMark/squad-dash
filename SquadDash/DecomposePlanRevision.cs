@@ -7,7 +7,7 @@ internal static class DecomposePlanRevision
     internal static bool TryValidateAgainstPersisted(
         DecomposedTaskGroup proposal,
         DecomposedTaskGroup existing,
-        IReadOnlySet<string> blockedTaskIds,
+        IReadOnlySet<string> replaceableTaskIds,
         IReadOnlySet<string> completedTaskIds,
         IReadOnlySet<string> editablePendingTaskIds,
         out string? error)
@@ -32,19 +32,10 @@ internal static class DecomposePlanRevision
             }
 
             if (editablePendingTaskIds.Contains(existingTask.Id))
-            {
-                if (proposal.Tasks.Any(task =>
-                        string.Equals(task.ParentTaskId, existingTask.Id, StringComparison.Ordinal)))
-                {
-                    error = $"Revised plan both changed pending task {existingTask.Id} and added replacements for it; " +
-                            "choose an in-place edit or replacement tasks, not both.";
-                    return false;
-                }
                 continue;
-            }
 
             error = $"Revised plan changed task {existingTask.Id} after work or review had begun; keep its " +
-                    "historical contract unchanged and, when eligible, add replacement tasks with parentTaskId.";
+                    "historical contract unchanged and add replacement or follow-up tasks instead.";
             return false;
         }
 
@@ -53,15 +44,22 @@ internal static class DecomposePlanRevision
                      .Select(task => task.ParentTaskId!)
                      .Distinct(StringComparer.Ordinal))
         {
-            if (!blockedTaskIds.Contains(parentId))
+            if (completedTaskIds.Contains(parentId))
             {
-                error = $"Task {parentId} is not currently eligible for replanning and cannot be superseded.";
+                error = $"Completed task {parentId} cannot be superseded; add a corrective follow-up task instead.";
+                return false;
+            }
+            if (!replaceableTaskIds.Contains(parentId))
+            {
+                error = $"Task {parentId} cannot be superseded because it is already historical.";
                 return false;
             }
             var existingParent = existing.Tasks.First(task => string.Equals(task.Id, parentId, StringComparison.Ordinal));
-            if (!SameTaskContract(existingParent, proposedById[parentId]))
+            if (!editablePendingTaskIds.Contains(parentId) &&
+                !SameTaskContract(existingParent, proposedById[parentId]))
             {
-                error = $"Revised plan changed the blocked parent task {parentId}; keep it unchanged and add replacements.";
+                error = $"Revised plan changed started task {parentId}; keep its historical contract unchanged " +
+                        "and put the new contract on its replacement tasks.";
                 return false;
             }
         }
@@ -93,11 +91,6 @@ internal static class DecomposePlanRevision
             if (!ids.Contains(replacements.Key))
             {
                 error = $"Replacement parent {replacements.Key} is not present in the revised plan.";
-                return false;
-            }
-            if (replacements.Count() < 2)
-            {
-                error = $"Replanning {replacements.Key} requires at least two smaller replacement tasks.";
                 return false;
             }
         }

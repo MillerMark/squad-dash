@@ -486,7 +486,20 @@ internal sealed class DecomposeRevisionTests
     }
 
     [Test]
-    public void ValidateRevision_OnlyAllowsBlockedParentToBeSuperseded()
+    public void Normalize_AllowsOneForOneReplacementAndRewiresDownstream()
+    {
+        var proposal = MakeRevision() with
+        {
+            Tasks = MakeRevision().Tasks.Where(task => !task.Id.EndsWith("-004", StringComparison.Ordinal)).ToArray(),
+        };
+
+        Assert.That(DecomposePlanRevision.TryNormalize(proposal, out var normalized, out var error), Is.True, error);
+        Assert.That(normalized.Tasks.Single(task => task.Id.EndsWith("-002", StringComparison.Ordinal)).DependsOn,
+            Is.EqualTo(new[] { "PLAN-20260725-003" }));
+    }
+
+    [Test]
+    public void ValidateRevision_AllowsAnyExplicitlyReplaceableParentToBeSuperseded()
     {
         var proposal = MakeRevision();
         var existing = proposal with { Tasks = proposal.Tasks.Take(2).ToArray() };
@@ -506,7 +519,7 @@ internal sealed class DecomposeRevisionTests
             new HashSet<string>(StringComparer.Ordinal),
             new HashSet<string>(StringComparer.Ordinal),
             out error), Is.False);
-        Assert.That(error, Does.Contain("not currently eligible for replanning"));
+        Assert.That(error, Does.Contain("cannot be superseded"));
     }
 
     [Test]
@@ -564,7 +577,7 @@ internal sealed class DecomposeRevisionTests
     }
 
     [Test]
-    public void ValidateRevision_RejectsEditingAndReplacingSamePendingTask()
+    public void ValidateRevision_AllowsEditingAndReplacingSamePendingTask()
     {
         var existing = MakeRevision() with { Tasks = MakeRevision().Tasks.Take(2).ToArray() };
         var proposal = MakeRevision() with
@@ -583,8 +596,7 @@ internal sealed class DecomposeRevisionTests
             new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
             new HashSet<string>(StringComparer.Ordinal),
             new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
-            out var error), Is.False);
-        Assert.That(error, Does.Contain("choose an in-place edit or replacement tasks, not both"));
+            out var error), Is.True, error);
     }
 
     [Test]
@@ -608,6 +620,43 @@ internal sealed class DecomposeRevisionTests
             new HashSet<string>(StringComparer.Ordinal),
             new HashSet<string>(["PLAN-20260725-002"], StringComparer.Ordinal),
             out var error), Is.True, error);
+    }
+
+    [Test]
+    public void ValidateRevision_RejectsSupersedingCompletedTaskButAllowsFollowUp()
+    {
+        var proposal = MakeRevision();
+        var existing = proposal with { Tasks = proposal.Tasks.Take(2).ToArray() };
+
+        Assert.That(DecomposePlanRevision.TryValidateAgainstPersisted(
+            proposal,
+            existing,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            out var error), Is.False);
+        Assert.That(error, Does.Contain("Completed task PLAN-20260725-001 cannot be superseded"));
+
+        var followUp = existing with
+        {
+            Tasks =
+            [
+                .. existing.Tasks,
+                new DecomposedSubTask(
+                    "PLAN-20260725-005",
+                    "Correct completed behavior",
+                    ["PLAN-20260725-001"],
+                    "high",
+                    "Corrective follow-up"),
+            ],
+        };
+        Assert.That(DecomposePlanRevision.TryValidateAgainstPersisted(
+            followUp,
+            existing,
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            out error), Is.True, error);
     }
 
     [Test]

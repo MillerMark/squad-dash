@@ -450,9 +450,13 @@ not required. Use the exact property names below; do not substitute familiar sho
 - `approvalGates[].presentationAnchor`: optional host-managed display hint; the Plan Visualizer sets
   this to indicate which task node is the primary visual anchor for the gate control. Do not emit it
   in new plans; the host writes and preserves it across edits.
-- `tasks[].parentTaskId`: optional. Use only in a revised plan to split a blocked task into smaller
-  replacements. Keep the original parent task in the full proposal and point every replacement at it.
-  SquadDash marks the parent superseded only after the revised plan is approved.
+- `tasks[].parentTaskId`: optional. Use only in a revised plan when one or more new tasks supersede
+  an existing non-completed task. Keep the original parent task in the full proposal and point each
+  replacement at it. One-for-one replacement is valid; splitting into several tasks is optional.
+  A pending task may instead be edited directly under its existing ID. Keep a started parent's
+  historical contract unchanged and put revised work on its replacement tasks. Never supersede a
+  completed task; add a normal corrective follow-up task that depends on it. SquadDash marks a parent
+  superseded only after the revised plan is approved.
 - `tasks[].amendmentGateId`: host-owned compatibility metadata for a dynamically inserted amendment;
   never emit it in an ordinary new plan.
 - `validations`: optional array of at most 16 first-class, non-mutating cross-task validation nodes.
@@ -708,8 +712,9 @@ If the user explicitly asks to retry or replan a blocked approved plan, emit:
 
 `action` must be `retry-as-written` or `replan-failed-task`. Never infer recovery merely because a
 plan is blocked; emit this payload only for explicit user intent. Replanning asks SquadDash to obtain
-a complete revised `TASKS_JSON`, including the existing tasks and smaller replacement tasks whose
-`parentTaskId` identifies the blocked parent. The revised graph requires another user approval.
+a complete revised `TASKS_JSON`, including the existing tasks and one or more replacement tasks whose
+`parentTaskId` identifies the non-completed parent. A pending task may also be edited in place. The
+revised graph requires another user approval.
 
 ## DECOMPOSE_STEP_RESULT_JSON schema
 

@@ -9685,7 +9685,7 @@ public partial class MainWindow : Window
             BeginPlanHumanProofCoverageReview(
                 group: null,
                 parserInput,
-                additionalDiagnostics: []);
+                additionalDiagnostics: parseDiagnostic?.GetRepairDiagnostics() ?? []);
             return;
         }
 
@@ -11036,10 +11036,8 @@ public partial class MainWindow : Window
         }
 
         var existingGroup = PendingDecomposePlanAdapter.FromPlan(durablePlan).Group;
-        var supersedableIds = durablePlan.Tasks
-            .Where(task => task.Status is PlanTaskStatus.Failed or
-                                           PlanTaskStatus.Partial or
-                                           PlanTaskStatus.HumanReviewRequired)
+        var replaceableIds = durablePlan.Tasks
+            .Where(task => task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded))
             .Select(task => task.TaskId)
             .ToHashSet(StringComparer.Ordinal);
         var completedIds = durablePlan.Tasks
@@ -11047,38 +11045,17 @@ public partial class MainWindow : Window
             .Select(task => task.TaskId)
             .ToHashSet(StringComparer.Ordinal);
         var editablePendingIds = durablePlan.Tasks
-            .Where(IsUntouchedPendingPlanTask)
+            .Where(task => task.Status == PlanTaskStatus.Pending)
             .Select(task => task.TaskId)
             .ToHashSet(StringComparer.Ordinal);
-        if (durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
-            !string.IsNullOrWhiteSpace(durablePlan.InterruptionData?.InterruptedTaskId))
-        {
-            supersedableIds.Add(durablePlan.InterruptionData.InterruptedTaskId!);
-        }
-
         return DecomposePlanRevision.TryValidateAgainstPersisted(
             proposal,
             existingGroup,
-            supersedableIds,
+            replaceableIds,
             completedIds,
             editablePendingIds,
             out error);
     }
-
-    private static bool IsUntouchedPendingPlanTask(PlanTask task) =>
-        task.Status == PlanTaskStatus.Pending &&
-        string.IsNullOrWhiteSpace(task.Commit) &&
-        task.CompletedAt is null &&
-        string.IsNullOrWhiteSpace(task.CompletionSummary) &&
-        task.AttemptHistory is not { Count: > 0 } &&
-        task.ProofEvidence is not { Count: > 0 } &&
-        task.ProvenanceChain is not { Entries.Count: > 0 } &&
-        task.Handoff is null &&
-        task.VerificationHistory is not { Count: > 0 } &&
-        task.Commits is not { Count: > 0 } &&
-        task.ReviewActivity is not { Count: > 0 } &&
-        task.ExecutionAnomalies is not { Count: > 0 } &&
-        task.NoOpEvidence is not { Count: > 0 };
 
     private void QueueDecomposeRepair(
         IReadOnlyList<string> validationDiagnostics,
@@ -11101,8 +11078,7 @@ public partial class MainWindow : Window
         {
             StopDecomposeRepair(
                 $"The automatic task-plan repair was still invalid and SquadDash stopped retrying because {decision.Reason}." +
-                (string.IsNullOrWhiteSpace(validationError) ? string.Empty : $" Reason: {validationError}"),
-                rejectedCandidate);
+                (string.IsNullOrWhiteSpace(validationError) ? string.Empty : $" Reason: {validationError}"));
             return;
         }
 
@@ -11127,10 +11103,13 @@ public partial class MainWindow : Window
         SyncSendButton();
     }
 
-    private void StopDecomposeRepair(string reason, string? retryResponse = null)
+    private void StopDecomposeRepair(string reason)
     {
         ResetDecomposeRepairState();
-        AppendPlanStagingFailure(reason, retryResponse, ownerView: null);
+        // Re-submitting an unchanged, deterministically invalid candidate cannot succeed.
+        // Keep "Retry staging" for transport/storage failures where retrying the same bytes
+        // can help, but do not offer it after validation has exhausted plan repairs.
+        AppendPlanStagingFailure(reason, retryResponse: null, ownerView: null);
         RestoreInterruptedPlanRecoverySurfaces();
     }
 
@@ -21821,7 +21800,7 @@ public partial class MainWindow : Window
             - partial-adopt: adopt committed + uncommitted work as a partial result
             - revert-and-retry: revert candidate commits and retry the task from scratch
             - clean-retry: retry from clean state without reverting (no unrecorded commits exist)
-            - replan: break the blocked task into smaller subtasks
+            - replan: revise the remaining graph or supersede the blocked task with one or more replacements
             
             Respond with PLAN_RECOVERY_OPTIONS_JSON: followed by a JSON object with:
             - groupId: "{{groupId}}"
