@@ -431,6 +431,9 @@ public partial class MainWindow : Window
     private string?                 _planProviderWaitInterruptionReason;
     private bool                    _planBranchLeasePausePending;
     private bool                    _decomposeRepairPending;
+    private int                     _decomposeRepairAttemptsQueued;
+    private IReadOnlyList<string>   _decomposeRepairDiagnostics = [];
+    private string?                 _decomposeRepairCandidateHash;
     private const string PlanHumanProofCoverageQueueTag = "plan-human-proof-coverage";
     private PendingPlanHumanProofCoverageReview? _pendingPlanHumanProofCoverageReview;
     private Paragraph? _planValidationStatusParagraph;
@@ -6143,9 +6146,8 @@ public partial class MainWindow : Window
 
                         if (_decomposeRepairPending && !hasTasksPayload && !handledHumanProofCoverageReview)
                         {
-                            _decomposeRepairPending = false;
-                            AppendLine("⚠ The automatic task-plan repair response did not contain TASKS_JSON. " +
-                                       "The plan was not staged; please ask the AI to try again.");
+                            StopDecomposeRepair(
+                                "The automatic task-plan repair response did not contain TASKS_JSON.");
                         }
                         if (_planRevisionRepairPending && !hasAcceptedRevisionPayload)
                         {
@@ -9663,6 +9665,11 @@ public partial class MainWindow : Window
                         ? string.Join("\n", responseSegments)
                         : null;
                 AppendPlanStagingFailure(reason, retryResponse, ownerView);
+                if (_decomposeRepairPending)
+                {
+                    ResetDecomposeRepairState();
+                    RestoreInterruptedPlanRecoverySurfaces();
+                }
                 SquadDashTrace.Write(TraceCategory.General,
                     $"TASKS_JSON transport was detected but not resolved: {reason}");
             }
@@ -9853,21 +9860,17 @@ public partial class MainWindow : Window
 
         var diagnostics = pending.AdditionalDiagnostics.ToList();
         if (review.Status == "revision-required")
-            diagnostics.Add(PlanHumanProofCoverageReview.BuildRepairDiagnostic(review));
+            diagnostics.AddRange(PlanHumanProofCoverageReview.BuildIssueRepairDiagnostics(review));
         if (diagnostics.Count > 0 || pending.Group is null)
         {
             _pendingPlanHumanProofCoverageReview = null;
-            QueueDecomposeRepair(
-                diagnostics.Count == 0
-                    ? null
-                    : string.Join(Environment.NewLine + "- ", diagnostics),
-                pending.RejectedCandidate);
+            QueueDecomposeRepair(diagnostics, pending.RejectedCandidate);
             DeletePendingPlanHumanProofCoverageReviewBestEffort(
                 pending.CheckId,
                 "semantic preflight transitioned to plan repair");
             return true;
         }
-        _decomposeRepairPending = false;
+        ResetDecomposeRepairState();
         SquadDashTrace.Write("PlanPreflight",
             $"Complete plan preflight passed plan={pending.Group.GroupId}.");
         var staged = StageValidatedDecomposeGroup(
@@ -9928,7 +9931,7 @@ public partial class MainWindow : Window
     {
         var pending = _pendingPlanHumanProofCoverageReview;
         _pendingPlanHumanProofCoverageReview = null;
-        _decomposeRepairPending = false;
+        ResetDecomposeRepairState();
         if (pending is null) return;
         RemovePlanValidationStatus();
         AppendPlanStagingFailure(reason, pending.RejectedCandidate, ownerView: null);
@@ -10843,13 +10846,29 @@ public partial class MainWindow : Window
         string? retryResponse,
         TranscriptTurnView? ownerView)
     {
-        var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
+        RemovePlanValidationStatus();
+        var visibleOwner = ownerView is { SuppressTranscript: false } ? ownerView : null;
+        var blocks = visibleOwner?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
+        var durableNotice = "Plan was not staged. " + reason;
         var message = CreateTranscriptParagraph(bottomMargin: 6);
         var warning = new Run("⚠ Plan was not staged. ") { FontWeight = FontWeights.SemiBold };
         warning.SetResourceReference(TextElement.ForegroundProperty, "PlanPreflightWarningText");
         message.Inlines.Add(warning);
         message.Inlines.Add(new Run(reason));
         blocks.Add(message);
+        if (visibleOwner is null)
+            _conversationManager.AppendDurableCoordinatorHostNotice(durableNotice);
+        else
+        {
+            visibleOwner.HostNotices.Add(new TranscriptHostNoticeEntry(
+                AllocateNarrativeSequence(visibleOwner),
+                durableNotice,
+                DateTimeOffset.Now));
+            _conversationManager.SaveTranscriptTurnToConversation(
+                visibleOwner,
+                DateTimeOffset.UtcNow,
+                "plan-staging-failure");
+        }
 
         if (string.IsNullOrWhiteSpace(retryResponse))
             return;
@@ -10874,7 +10893,7 @@ public partial class MainWindow : Window
             panel.IsEnabled = false;
             if (blocks.Contains(container))
                 blocks.Remove(container);
-            TryStartDecomposeGroupFromResponse(retryResponse, ownerView);
+            TryStartDecomposeGroupFromResponse(retryResponse, visibleOwner);
         };
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
@@ -11027,6 +11046,10 @@ public partial class MainWindow : Window
             .Where(task => task.Status == PlanTaskStatus.Complete)
             .Select(task => task.TaskId)
             .ToHashSet(StringComparer.Ordinal);
+        var editablePendingIds = durablePlan.Tasks
+            .Where(IsUntouchedPendingPlanTask)
+            .Select(task => task.TaskId)
+            .ToHashSet(StringComparer.Ordinal);
         if (durablePlan.LifecycleStatus is PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked &&
             !string.IsNullOrWhiteSpace(durablePlan.InterruptionData?.InterruptedTaskId))
         {
@@ -11038,30 +11061,59 @@ public partial class MainWindow : Window
             existingGroup,
             supersedableIds,
             completedIds,
+            editablePendingIds,
             out error);
     }
 
-    private void QueueDecomposeRepair(string? validationError, string? rejectedCandidate)
+    private static bool IsUntouchedPendingPlanTask(PlanTask task) =>
+        task.Status == PlanTaskStatus.Pending &&
+        string.IsNullOrWhiteSpace(task.Commit) &&
+        task.CompletedAt is null &&
+        string.IsNullOrWhiteSpace(task.CompletionSummary) &&
+        task.AttemptHistory is not { Count: > 0 } &&
+        task.ProofEvidence is not { Count: > 0 } &&
+        task.ProvenanceChain is not { Entries.Count: > 0 } &&
+        task.Handoff is null &&
+        task.VerificationHistory is not { Count: > 0 } &&
+        task.Commits is not { Count: > 0 } &&
+        task.ReviewActivity is not { Count: > 0 } &&
+        task.ExecutionAnomalies is not { Count: > 0 } &&
+        task.NoOpEvidence is not { Count: > 0 };
+
+    private void QueueDecomposeRepair(
+        IReadOnlyList<string> validationDiagnostics,
+        string? rejectedCandidate)
     {
-        if (_decomposeRepairPending)
+        var trackedDiagnostics = TaskPlanRepairRetryPolicy.NormalizeForTracking(validationDiagnostics);
+        var candidateHash = string.IsNullOrWhiteSpace(rejectedCandidate)
+            ? null
+            : PlanHumanProofCoverageReview.ComputeCandidateHash(rejectedCandidate);
+        var decision = TaskPlanRepairRetryPolicy.Evaluate(
+            _decomposeRepairAttemptsQueued,
+            _decomposeRepairDiagnostics,
+            trackedDiagnostics,
+            _decomposeRepairCandidateHash,
+            candidateHash);
+        var validationError = trackedDiagnostics.Count == 0
+            ? null
+            : string.Join(Environment.NewLine + "- ", trackedDiagnostics);
+        if (!decision.ShouldRetry)
         {
-            _decomposeRepairPending = false;
-            RemovePlanValidationStatus();
-            AppendLine("⚠ The automatic task-plan repair attempt was still invalid. " +
-                       "SquadDash stopped retrying; the plan was not staged." +
-                       (string.IsNullOrWhiteSpace(validationError)
-                           ? string.Empty
-                           : $" Reason: {validationError}"));
-            // Starting the repair turn removes the previous live recovery controls. If the
-            // one allowed repair also fails, put the still-current recovery surface back at
-            // the true transcript end so the user is never forced to hunt through history.
-            RestoreInterruptedPlanRecoverySurfaces();
+            StopDecomposeRepair(
+                $"The automatic task-plan repair was still invalid and SquadDash stopped retrying because {decision.Reason}." +
+                (string.IsNullOrWhiteSpace(validationError) ? string.Empty : $" Reason: {validationError}"),
+                rejectedCandidate);
             return;
         }
 
         _decomposeRepairPending = true;
+        _decomposeRepairAttemptsQueued++;
+        _decomposeRepairDiagnostics = trackedDiagnostics;
+        _decomposeRepairCandidateHash = candidateHash;
         UpdatePlanValidationStatus(
-            "SquadDash found plan-contract issues and asked AI to correct them automatically…");
+            _decomposeRepairAttemptsQueued == 1
+                ? "SquadDash found plan-contract issues and asked AI to correct them automatically…"
+                : "The first repair improved validation. SquadDash is trying one final correction…");
         var prompt = TaskPlanRepairPromptBuilder.Build(
             rejectedCandidate,
             validationError,
@@ -11073,6 +11125,22 @@ public partial class MainWindow : Window
             isSystemInjected: true);
         SyncQueuePanel();
         SyncSendButton();
+    }
+
+    private void StopDecomposeRepair(string reason, string? retryResponse = null)
+    {
+        ResetDecomposeRepairState();
+        AppendPlanStagingFailure(reason, retryResponse, ownerView: null);
+        RestoreInterruptedPlanRecoverySurfaces();
+    }
+
+    private void ResetDecomposeRepairState()
+    {
+        _decomposeRepairPending = false;
+        _decomposeRepairAttemptsQueued = 0;
+        _decomposeRepairDiagnostics = [];
+        _decomposeRepairCandidateHash = null;
+        RemovePlanValidationStatus();
     }
 
     private void AppendPendingDecomposeApproval(

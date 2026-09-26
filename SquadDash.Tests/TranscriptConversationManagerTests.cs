@@ -12,6 +12,58 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class TranscriptConversationManagerTests {
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void PersistConversationState_DoesNotFoldSuppressedCoordinatorTurnIntoTranscript()
+    {
+        using var workspace = new TestWorkspace();
+        var sessionWorkspace = SessionWorkspace.Create(workspace.RootPath);
+        var thread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Squad",
+            DateTimeOffset.UtcNow);
+        var suppressed = new TranscriptTurnView(
+            thread,
+            "internal repair",
+            DateTimeOffset.UtcNow,
+            new Section(),
+            Array.Empty<Block>())
+        {
+            SuppressTranscript = true,
+        };
+        var manager = MakeManager(
+            workspace: sessionWorkspace,
+            coordinatorThread: thread,
+            currentTurn: suppressed);
+        var visible = MakeTurn("Visible coordinator response");
+        manager.ConversationState = manager.ConversationState with { Turns = [visible] };
+
+        manager.PersistConversationState(manager.ConversationState, "test-suppressed-turn");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(manager.ConversationState.Turns, Has.Count.EqualTo(1));
+            Assert.That(manager.ConversationState.Turns[0].ResponseText,
+                Is.EqualTo("Visible coordinator response"));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void AppendDurableCoordinatorHostNotice_AttachesOutcomeToVisibleHistory()
+    {
+        using var workspace = new TestWorkspace();
+        var manager = MakeManager(workspace: SessionWorkspace.Create(workspace.RootPath));
+        manager.ConversationState = manager.ConversationState with
+        {
+            Turns = [MakeTurn("Visible coordinator response")],
+        };
+
+        manager.AppendDurableCoordinatorHostNotice("Plan was not staged. Invalid transport envelope.");
+
+        var notice = manager.ConversationState.Turns.Single().GetHostNotices().Single();
+        Assert.That(notice.Text, Is.EqualTo("Plan was not staged. Invalid transport envelope."));
+    }
+
     // ── ResetHistoryNavigation ────────────────────────────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]

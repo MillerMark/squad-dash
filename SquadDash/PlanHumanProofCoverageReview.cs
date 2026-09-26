@@ -189,12 +189,17 @@ internal static class PlanHumanProofCoverageReview
 
     internal static string BuildRepairDiagnostic(PlanHumanProofCoverageReviewPayload review)
     {
-        var details = review.Issues.Select((issue, index) =>
-            $"{index + 1}. {issue.TargetId}: '{issue.ObservableOutcome}'. {issue.Reason} " +
-            $"Required correction: {issue.Recommendation}");
+        var details = BuildIssueRepairDiagnostics(review)
+            .Select((detail, index) => $"{index + 1}. {detail}");
         return "Semantic plan-contract validation failed. " + review.Summary + Environment.NewLine +
                string.Join(Environment.NewLine, details);
     }
+
+    internal static IReadOnlyList<string> BuildIssueRepairDiagnostics(
+        PlanHumanProofCoverageReviewPayload review) =>
+        review.Issues.Select(issue =>
+            $"{issue.TargetId}: '{issue.ObservableOutcome}'. {issue.Reason} " +
+            $"Required correction: {issue.Recommendation}").ToArray();
 }
 
 internal sealed class PlanHumanProofCoverageCandidateStore(string squadFolderPath)

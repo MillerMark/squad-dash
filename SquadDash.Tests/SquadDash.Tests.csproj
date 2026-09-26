@@ -457,6 +457,7 @@
     <Compile Include="..\SquadDash\TasksJsonParser.cs" Link="Source\TasksJsonParser.cs" />
     <Compile Include="..\SquadDash\HumanVerificationReadinessPolicy.cs" Link="Source\HumanVerificationReadinessPolicy.cs" />
     <Compile Include="..\SquadDash\TaskPlanRepairPromptBuilder.cs" Link="Source\TaskPlanRepairPromptBuilder.cs" />
+    <Compile Include="..\SquadDash\TaskPlanRepairRetryPolicy.cs" Link="Source\TaskPlanRepairRetryPolicy.cs" />
     <Compile Include="..\SquadDash\DecomposedTasksWriter.cs" Link="Source\DecomposedTasksWriter.cs" />
     <Compile Include="..\SquadDash\DecomposeStepResult.cs" Link="Source\DecomposeStepResult.cs" />
     <Compile Include="..\SquadDash\ReportedCommitReconciler.cs" Link="Source\ReportedCommitReconciler.cs" />

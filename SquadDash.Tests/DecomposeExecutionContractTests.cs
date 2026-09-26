@@ -496,6 +496,7 @@ internal sealed class DecomposeRevisionTests
             existing,
             new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
             new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
             out var error), Is.True, error);
 
         Assert.That(DecomposePlanRevision.TryValidateAgainstPersisted(
@@ -503,12 +504,13 @@ internal sealed class DecomposeRevisionTests
             existing,
             new HashSet<string>(StringComparer.Ordinal),
             new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
             out error), Is.False);
         Assert.That(error, Does.Contain("not currently eligible for replanning"));
     }
 
     [Test]
-    public void ValidateRevision_RejectsRewritingExistingPendingTaskWithoutReplacement()
+    public void ValidateRevision_AllowsRewritingUntouchedPendingTaskInPlace()
     {
         var existing = MakeRevision() with { Tasks = MakeRevision().Tasks.Take(2).ToArray() };
         var rewritten = existing with
@@ -523,10 +525,10 @@ internal sealed class DecomposeRevisionTests
         Assert.That(DecomposePlanRevision.TryValidateAgainstPersisted(
             rewritten,
             existing,
-            new HashSet<string>(["PLAN-20260725-002"], StringComparer.Ordinal),
             new HashSet<string>(StringComparer.Ordinal),
-            out var error), Is.False);
-        Assert.That(error, Does.Contain("keep existing tasks unchanged"));
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(["PLAN-20260725-002"], StringComparer.Ordinal),
+            out var error), Is.True, error);
     }
 
     [Test]
@@ -556,8 +558,56 @@ internal sealed class DecomposeRevisionTests
             existing,
             new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
             new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
             out var error), Is.False);
-        Assert.That(error, Does.Contain("keep existing tasks unchanged"));
+        Assert.That(error, Does.Contain("after work or review had begun"));
+    }
+
+    [Test]
+    public void ValidateRevision_RejectsEditingAndReplacingSamePendingTask()
+    {
+        var existing = MakeRevision() with { Tasks = MakeRevision().Tasks.Take(2).ToArray() };
+        var proposal = MakeRevision() with
+        {
+            Tasks =
+            [
+                existing.Tasks[0] with { Title = "Changed parent" },
+                existing.Tasks[1],
+                .. MakeRevision().Tasks.Skip(2),
+            ],
+        };
+
+        Assert.That(DecomposePlanRevision.TryValidateAgainstPersisted(
+            proposal,
+            existing,
+            new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
+            out var error), Is.False);
+        Assert.That(error, Does.Contain("choose an in-place edit or replacement tasks, not both"));
+    }
+
+    [Test]
+    public void ValidateRevision_AllowsEditingUntouchedTaskWhileReplacingDifferentBlockedTask()
+    {
+        var existing = MakeRevision() with { Tasks = MakeRevision().Tasks.Take(2).ToArray() };
+        var proposal = MakeRevision() with
+        {
+            Tasks =
+            [
+                existing.Tasks[0],
+                existing.Tasks[1] with { Title = "Clarified untouched task" },
+                .. MakeRevision().Tasks.Skip(2),
+            ],
+        };
+
+        Assert.That(DecomposePlanRevision.TryValidateAgainstPersisted(
+            proposal,
+            existing,
+            new HashSet<string>(["PLAN-20260725-001"], StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(["PLAN-20260725-002"], StringComparer.Ordinal),
+            out var error), Is.True, error);
     }
 
     [Test]

@@ -9,6 +9,7 @@ internal static class DecomposePlanRevision
         DecomposedTaskGroup existing,
         IReadOnlySet<string> blockedTaskIds,
         IReadOnlySet<string> completedTaskIds,
+        IReadOnlySet<string> editablePendingTaskIds,
         out string? error)
     {
         error = null;
@@ -21,18 +22,30 @@ internal static class DecomposePlanRevision
                 return false;
             }
 
-            if (completedTaskIds.Contains(existingTask.Id) && !SameTaskContract(existingTask, proposedTask))
+            if (SameTaskContract(existingTask, proposedTask))
+                continue;
+
+            if (completedTaskIds.Contains(existingTask.Id))
             {
                 error = $"Revised plan changed completed task {existingTask.Id}.";
                 return false;
             }
 
-            if (!SameTaskContract(existingTask, proposedTask))
+            if (editablePendingTaskIds.Contains(existingTask.Id))
             {
-                error = $"Revised plan changed existing task {existingTask.Id}; keep existing tasks unchanged " +
-                        "and add smaller replacement tasks with parentTaskId.";
-                return false;
+                if (proposal.Tasks.Any(task =>
+                        string.Equals(task.ParentTaskId, existingTask.Id, StringComparison.Ordinal)))
+                {
+                    error = $"Revised plan both changed pending task {existingTask.Id} and added replacements for it; " +
+                            "choose an in-place edit or replacement tasks, not both.";
+                    return false;
+                }
+                continue;
             }
+
+            error = $"Revised plan changed task {existingTask.Id} after work or review had begun; keep its " +
+                    "historical contract unchanged and, when eligible, add replacement tasks with parentTaskId.";
+            return false;
         }
 
         foreach (var parentId in proposal.Tasks

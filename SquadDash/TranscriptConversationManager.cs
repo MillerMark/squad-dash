@@ -855,6 +855,50 @@ internal sealed class TranscriptConversationManager {
         PersistConversationStateInBackground(state, reason);
     }
 
+    internal void AppendDurableCoordinatorHostNotice(string text)
+    {
+        if (_getWorkspace() is null || string.IsNullOrWhiteSpace(text))
+            return;
+
+        var turns = _conversationState.Turns.ToList();
+        var targetIndex = FindLastInteractiveTurnIndex(turns);
+        var occurredAt = DateTimeOffset.UtcNow;
+        if (targetIndex < 0)
+        {
+            turns.Add(new TranscriptTurnRecord(
+                occurredAt,
+                occurredAt,
+                "SquadDash plan validation",
+                string.Empty,
+                string.Empty,
+                true,
+                Array.Empty<TranscriptToolRecord>(),
+                HostNotices: [new TranscriptHostNoticeRecord(text.Trim(), 1, occurredAt)])
+            {
+                IsSystemInjected = true,
+            });
+        }
+        else
+        {
+            var turn = turns[targetIndex];
+            var nextSequence = turn.GetThoughts().Select(item => item.Sequence ?? 0)
+                .Concat(turn.Tools.Select(item => item.ThinkingBlockSequence ?? 0))
+                .Concat(turn.GetResponseSegments().Select(item => item.Sequence ?? 0))
+                .Concat(turn.GetHostNotices().Select(item => item.Sequence ?? 0))
+                .DefaultIfEmpty(0)
+                .Max() + 1;
+            turns[targetIndex] = turn with
+            {
+                HostNotices = turn.GetHostNotices()
+                    .Append(new TranscriptHostNoticeRecord(text.Trim(), nextSequence, occurredAt))
+                    .ToArray(),
+            };
+        }
+
+        PersistConversationState(_conversationState with { Turns = turns },
+            "AppendDurableCoordinatorHostNotice");
+    }
+
     /// <summary>
     /// Attaches an agent report stub to the last saved coordinator turn so it is
     /// re-rendered as a button when the conversation is loaded on next startup.
@@ -1093,7 +1137,7 @@ internal sealed class TranscriptConversationManager {
 
     private WorkspaceConversationState IncludeCurrentCoordinatorTurnIfPresent(WorkspaceConversationState state, string reason) {
         var currentTurn = _getCurrentTurn();
-        if (currentTurn is null)
+        if (currentTurn is null || currentTurn.SuppressTranscript)
             return state;
 
         var partialRecord = BuildTranscriptTurnRecordPreservingAgentReports(
