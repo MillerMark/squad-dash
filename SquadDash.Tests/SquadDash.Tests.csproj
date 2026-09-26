@@ -9,6 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\SquadDash\HomeBranchResolver.cs" Link="Source\HomeBranchResolver.cs" />
+    <Compile Include="..\SquadDash\HomeBranchRepositoryReader.cs" Link="Source\HomeBranchRepositoryReader.cs" />
+    <Compile Include="..\SquadDash\HomeBranchActions.cs" Link="Source\HomeBranchActions.cs" />
     <Compile Include="..\SquadDash\GuidedTours\NativeDragContinuationPolicy.cs" Link="Source\NativeDragContinuationPolicy.cs" />
     <Compile Include="..\SquadDash\GuidedTourCoordinator.cs" Link="Source\GuidedTourCoordinator.cs" />
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourCommandRegistry.cs" Link="Source\GuidedTourCommandRegistry.cs" />

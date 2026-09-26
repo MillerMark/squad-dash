@@ -6,6 +6,36 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class ApplicationSettingsStoreTests {
     [Test]
+    public void HomeBranch_UnsetAndClearedSettings_DoNotInventMain() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Assert.That(store.Load().GetHomeBranch(repo), Is.Null);
+        store.SaveHomeBranch(repo, " master ");
+        Assert.That(store.Load().GetHomeBranch(repo), Is.EqualTo("master"));
+        store.SaveHomeBranch(repo, " ");
+        Assert.Multiple(() => {
+            Assert.That(store.Load().GetHomeBranch(repo), Is.Null);
+            Assert.That(store.Load().GetHomeBranch(""), Is.Null);
+            Assert.That(store.Load().HomeBranchByWorkspace.ContainsKey(repo), Is.False);
+        });
+    }
+
+    [Test]
+    public void IsHomeBranch_UsesResolvedTargetRatherThanMainMasterHeuristic() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var snapshot = store.Load();
+        var resolution = HomeBranchResolver.Resolve(null, "master", ["main", "master"]);
+        Assert.Multiple(() => {
+            Assert.That(snapshot.IsHomeBranch(resolution, "master"), Is.True);
+            Assert.That(snapshot.IsHomeBranch(resolution, "main"), Is.False);
+            Assert.That(snapshot.IsHomeBranch(resolution, "MASTER"), Is.False);
+            Assert.That(snapshot.IsHomeBranch(HomeBranchResolver.Resolve(null, null, []), "main"), Is.False);
+        });
+    }
+
+    [Test]
     public void PlanAgentRoutingPolicy_DefaultsToPlanExecutionAndPersistsAllModes() {
         using var workspace = new TestWorkspace();
         var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));

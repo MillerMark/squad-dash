@@ -484,7 +484,10 @@ internal sealed class ApplicationSettingsStore {
         var current = LoadCore();
         var dict = current.HomeBranchByWorkspace
             .ToDictionary(e => e.Key, e => e.Value, StringComparer.OrdinalIgnoreCase);
-        dict[normalizedWorkspace] = string.IsNullOrWhiteSpace(branch) ? "main" : branch.Trim();
+        if (string.IsNullOrWhiteSpace(branch))
+            dict.Remove(normalizedWorkspace);
+        else
+            dict[normalizedWorkspace] = branch.Trim();
         var updated = current with { HomeBranchByWorkspace = dict };
         SaveCore(updated);
         return updated;
@@ -1356,7 +1359,7 @@ internal sealed record ApplicationSettingsSnapshot(
 
     /// <summary>
     /// Per-workspace home branch name. Keyed by normalised workspace folder path.
-    /// Default is "main" when not set.
+    /// When unset, the home branch must be resolved from local repository metadata.
     /// </summary>
     public IReadOnlyDictionary<string, string> HomeBranchByWorkspace { get; init; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -1441,30 +1444,18 @@ internal sealed record ApplicationSettingsSnapshot(
         return RuntimeIssueSimulationByWorkspace.TryGetValue(key, out var v) ? v : DeveloperRuntimeIssueSimulation.None;
     }
 
-    public string GetHomeBranch(string workspaceFolder) {
+    /// <summary>Returns only the configured name, or null. Resolve and validate it against local refs before use.</summary>
+    public string? GetHomeBranch(string workspaceFolder) {
         var key = WorkspacePaths.NormalizeFolder(workspaceFolder);
-        if (key == string.Empty) return "main";
-        return HomeBranchByWorkspace.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v : "main";
+        if (key == string.Empty) return null;
+        return HomeBranchByWorkspace.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
     }
 
     /// <summary>
-    /// Returns true when <paramref name="branch"/> should be treated as the home branch —
-    /// either it matches the explicitly configured home branch, or no home branch has been
-    /// set and the branch is the conventional default (<c>main</c> or <c>master</c>).
+    /// Returns true only when <paramref name="branch"/> exactly matches the resolved local home branch.
+    /// Unresolved targets never match; main and master are distinct branch names.
     /// </summary>
-    public bool IsHomeBranch(string workspaceFolder, string branch) {
-        var key = WorkspacePaths.NormalizeFolder(workspaceFolder);
-        bool hasExplicit = key != string.Empty
-            && HomeBranchByWorkspace.TryGetValue(key, out var v)
-            && !string.IsNullOrWhiteSpace(v);
-
-        if (hasExplicit)
-            return string.Equals(branch, HomeBranchByWorkspace[key], StringComparison.OrdinalIgnoreCase);
-
-        // No explicit home branch — treat main/master as home.
-        return string.Equals(branch, "main", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(branch, "master", StringComparison.OrdinalIgnoreCase);
-    }
+    public bool IsHomeBranch(HomeBranchResolution resolution, string branch) => resolution.IsHomeBranch(branch);
 
     public string? Theme { get; init; }
     public string? LastUsedModel { get; init; }

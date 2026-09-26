@@ -50321,8 +50321,11 @@ public partial class MainWindow : Window
             await Dispatcher.InvokeAsync(UpdateBranchIndicator);
     }
 
-    private void UpdateBranchIndicator()
+    private int _branchIndicatorRevision;
+
+    private async void UpdateBranchIndicator()
     {
+        var revision = ++_branchIndicatorRevision;
         if (_currentWorkspace is null)
         {
             SetPromptStripVisibilityPreservingViewports(
@@ -50368,11 +50371,28 @@ public partial class MainWindow : Window
             Visibility.Visible,
             "branch strip shown for repository");
 
-        var homeBranch = _settingsSnapshot.GetHomeBranch(_currentWorkspace.FolderPath);
+        HomeBranchResolution resolution;
+        string? resolutionError = null;
+        try
+        {
+            resolution = await ResolveHomeBranchAsync(workspaceFolder);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Branch", $"Could not resolve home branch: {ex}");
+            if (revision != _branchIndicatorRevision) return;
+            resolutionError = $"Could not read the local home branch: {ex.Message}";
+            resolution = new(null, HomeBranchResolutionSource.None, false);
+        }
+        if (revision != _branchIndicatorRevision
+            || _currentWorkspace?.FolderPath != workspaceFolder || _currentBranch != branch)
+            return;
+        if ((resolutionError ?? resolution.Notice) is { } notice)
+            BranchIndicatorStrip.ToolTip = MakeThemedToolTip($"{identity.BuildTooltip(includeRevealHint: false)}\n\n{notice}");
 
         bool isMaintenance = branch.StartsWith("maintenance/", StringComparison.OrdinalIgnoreCase)
                           || branch.StartsWith("hotfix/", StringComparison.OrdinalIgnoreCase);
-        bool isHomeBranch = _settingsSnapshot.IsHomeBranch(_currentWorkspace.FolderPath, branch);
+        bool isHomeBranch = _settingsSnapshot.IsHomeBranch(resolution, branch);
 
         if (isMaintenance)
         {
@@ -56452,7 +56472,7 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void ShowBranchContextMenu()
+    private async void ShowBranchContextMenu()
     {
         try
         {
@@ -56463,8 +56483,9 @@ public partial class MainWindow : Window
             // No git repo — no menu to show
             if (string.IsNullOrEmpty(branch)) return;
 
-            var homeBranch = _settingsSnapshot.GetHomeBranch(workspaceFolder);
-            bool isOnMain = _settingsSnapshot.IsHomeBranch(workspaceFolder, branch);
+            var resolution = await ResolveHomeBranchAsync(workspaceFolder);
+            if (_currentWorkspace?.FolderPath != workspaceFolder || _currentBranch != branch) return;
+            bool isHomeBranch = _settingsSnapshot.IsHomeBranch(resolution, branch);
             bool hasRemote = HasGitRemote(workspaceFolder);
 
             var menu = new ContextMenu();
@@ -56473,6 +56494,13 @@ public partial class MainWindow : Window
             var headerItem = new MenuItem { Header = branch, IsEnabled = false };
             headerItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             menu.Items.Add(headerItem);
+
+            if (resolution.Notice is { } notice)
+            {
+                var noticeItem = new MenuItem { Header = notice, IsEnabled = false };
+                noticeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                menu.Items.Add(noticeItem);
+            }
 
             var sep1 = new Separator();
             sep1.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
@@ -56507,72 +56535,101 @@ public partial class MainWindow : Window
                 menu.Items.Add(pushItem);
             }
 
-            if (!isOnMain && hasRemote)
+            if (!isHomeBranch)
             {
                 bool alreadyQueued = _promptQueue.Items.Any(i => i.SourceTag == "branch-indicator");
-
-                var mergeItem = new MenuItem { Header = $"Merge this branch into {homeBranch} →", IsEnabled = !alreadyQueued };
-                mergeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                mergeItem.Click += async (_, _) =>
+                var actions = resolution.IsResolved ? new HomeBranchActions(resolution, branch) : null;
+                var mergeItem = new MenuItem
                 {
-                    if (_isPromptRunning || IsNativeLoopRunning)
-                    {
-                        BranchNameText.Text += " — queued, waiting for active turn to finish";
-                        _promptQueue.EnqueueAtFront($"Merge current branch '{branch}' into '{homeBranch}' with --ff-only and push", _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
-                        _promptQueue.RenumberSequentially();
-                        SyncQueuePanel();
-                        _ = DrainQueueIfNeededAsync();
-                        return;
-                    }
-
-                    var result = MessageBox.Show(
-                        $"Merge '{branch}' into '{homeBranch}' with --ff-only, then push?\n\nThis cannot be undone.",
-                        "Confirm Merge",
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Question);
-                    if (result != MessageBoxResult.Yes) return;
-
-                    try
-                    {
-                        await RunGitAsync(workspaceFolder, $"checkout {homeBranch}");
-                        await RunGitAsync(workspaceFolder, $"merge {branch} --ff-only");
-                        await RunGitAsync(workspaceFolder, $"push origin {homeBranch}");
-                        UpdateBranchIndicator();
-                    }
-                    catch (Exception ex)
-                    {
-                        UIErrorHelper.ShowError("Merge Failed",
-                            $"Merge failed.\n\nThis may be because the branches have diverged and a fast-forward merge is not possible.\n\nTo resolve, either rebase '{branch}' onto '{homeBranch}' first, or perform the merge manually.\n\nDetails: {ex.Message}");
-                        try { await RunGitAsync(workspaceFolder, $"checkout {branch}"); } catch { }
-                        UpdateBranchIndicator();
-                    }
+                    Header = actions?.MergeLabel ?? "Merge into home branch (not resolved)",
+                    IsEnabled = actions is not null && !alreadyQueued && hasRemote
                 };
+                mergeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 menu.Items.Add(mergeItem);
 
-                var switchItem = new MenuItem { Header = $"Switch to {homeBranch}", IsEnabled = !alreadyQueued };
-                switchItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                switchItem.Click += async (_, _) =>
+                var switchItem = new MenuItem
                 {
-                    if (_isPromptRunning || IsNativeLoopRunning)
-                    {
-                        BranchNameText.Text += " — queued, waiting for active turn to finish";
-                        _promptQueue.EnqueueAtFront($"Switch git branch to {homeBranch}", _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
-                        _promptQueue.RenumberSequentially();
-                        SyncQueuePanel();
-                        _ = DrainQueueIfNeededAsync();
-                        return;
-                    }
-                    try
-                    {
-                        await RunGitAsync(workspaceFolder, $"checkout {homeBranch}");
-                        UpdateBranchIndicator();
-                    }
-                    catch (Exception ex)
-                    {
-                        UIErrorHelper.ShowError("Switch Branch", $"Could not switch branch:\n\n{ex.Message}");
-                    }
+                    Header = actions?.SwitchLabel ?? "Switch to home branch (not resolved)",
+                    IsEnabled = actions is not null && !alreadyQueued
                 };
+                switchItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 menu.Items.Add(switchItem);
+
+                if (actions is not null)
+                {
+                    mergeItem.Click += async (_, _) =>
+                    {
+                        var step = HomeBranchGitStep.VerifyTarget;
+                        try
+                        {
+                            await VerifyHomeBranchTargetAsync(workspaceFolder, resolution, actions);
+                            if (_isPromptRunning || IsNativeLoopRunning)
+                            {
+                                BranchNameText.Text += " — queued, waiting for active turn to finish";
+                                _promptQueue.EnqueueAtFront(actions.QueuedMergePrompt, _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
+                                _promptQueue.RenumberSequentially();
+                                SyncQueuePanel();
+                                _ = DrainQueueIfNeededAsync();
+                                return;
+                            }
+
+                            var result = MessageBox.Show(actions.Confirmation, "Confirm Merge",
+                                MessageBoxButton.YesNo, MessageBoxImage.Question);
+                            if (result != MessageBoxResult.Yes) return;
+
+                            await VerifyHomeBranchTargetAsync(workspaceFolder, resolution, actions);
+                            step = HomeBranchGitStep.Checkout;
+                            await RunGitAsync(workspaceFolder, actions.CheckoutArguments);
+                            step = HomeBranchGitStep.FastForwardMerge;
+                            await RunGitAsync(workspaceFolder, actions.MergeArguments);
+                            step = HomeBranchGitStep.Push;
+                            await RunGitAsync(workspaceFolder, actions.PushArguments);
+                            UpdateBranchIndicator();
+                        }
+                        catch (Exception ex)
+                        {
+                            SquadDashTrace.Write("Branch", $"{step} failed: {ex}");
+                            var message = HomeBranchFailure.Describe(step, ex.Message, actions);
+                            if (step != HomeBranchGitStep.VerifyTarget)
+                            {
+                                try { await RunGitAsync(workspaceFolder, actions.RestoreArguments); }
+                                catch (Exception restoreError)
+                                {
+                                    SquadDashTrace.Write("Branch", $"Restore of '{branch}' failed: {restoreError}");
+                                    message += $"\n\nCould not restore '{branch}': {restoreError.Message}";
+                                }
+                            }
+                            UIErrorHelper.ShowError("Branch Operation Failed", message);
+                            UpdateBranchIndicator();
+                        }
+                    };
+
+                    switchItem.Click += async (_, _) =>
+                    {
+                        var step = HomeBranchGitStep.VerifyTarget;
+                        try
+                        {
+                            await VerifyHomeBranchTargetAsync(workspaceFolder, resolution, actions);
+                            if (_isPromptRunning || IsNativeLoopRunning)
+                            {
+                                BranchNameText.Text += " — queued, waiting for active turn to finish";
+                                _promptQueue.EnqueueAtFront(actions.QueuedSwitchPrompt, _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
+                                _promptQueue.RenumberSequentially();
+                                SyncQueuePanel();
+                                _ = DrainQueueIfNeededAsync();
+                                return;
+                            }
+                            step = HomeBranchGitStep.Checkout;
+                            await RunGitAsync(workspaceFolder, actions.CheckoutArguments);
+                            UpdateBranchIndicator();
+                        }
+                        catch (Exception ex)
+                        {
+                            SquadDashTrace.Write("Branch", $"{step} failed: {ex}");
+                            UIErrorHelper.ShowError("Switch Branch", HomeBranchFailure.Describe(step, ex.Message, actions));
+                        }
+                    };
+                }
 
                 var sep2 = new Separator();
                 sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
@@ -56581,10 +56638,19 @@ public partial class MainWindow : Window
 
             var setHomeItem = new MenuItem { Header = "Set as home branch" };
             setHomeItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-            setHomeItem.Click += (_, _) =>
+            setHomeItem.Click += async (_, _) =>
             {
-                _settingsManager.Replace(_settingsStore.SaveHomeBranch(workspaceFolder, branch));
-                UpdateBranchIndicator();
+                try
+                {
+                    await RunGitAsync(workspaceFolder, HomeBranchActions.LocalBranchVerificationArguments(branch));
+                    _settingsManager.Replace(_settingsStore.SaveHomeBranch(workspaceFolder, branch));
+                    UpdateBranchIndicator();
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write("Branch", $"Could not set home branch '{branch}': {ex}");
+                    UIErrorHelper.ShowError("Set Home Branch", $"Could not save '{branch}' as home. Select an existing local branch.\n\n{ex.Message}");
+                }
             };
             menu.Items.Add(setHomeItem);
 
@@ -56634,6 +56700,17 @@ public partial class MainWindow : Window
         {
             HandleUiCallbackException(nameof(ShowBranchContextMenu), ex);
         }
+    }
+
+    private Task<HomeBranchResolution> ResolveHomeBranchAsync(string workspaceFolder) =>
+        HomeBranchRepositoryReader.ResolveAsync(workspaceFolder, _settingsSnapshot.GetHomeBranch(workspaceFolder), RunGitAsync);
+
+    private async Task VerifyHomeBranchTargetAsync(
+        string workspaceFolder, HomeBranchResolution expected, HomeBranchActions actions)
+    {
+        var current = await ResolveHomeBranchAsync(workspaceFolder);
+        HomeBranchRepositoryReader.VerifyUnchangedTarget(expected, current);
+        await RunGitAsync(workspaceFolder, actions.VerifyArguments);
     }
 
     private static async Task<string> RunGitAsync(string workingDirectory, string arguments)
