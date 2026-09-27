@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 
 namespace SquadDash;
@@ -25,12 +26,13 @@ internal sealed class PlanValidationDetailsWindow : ChromedWindow
         : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.CanResize)
     {
         Title = $"Validation Details — {presentation.ValidationTitle}";
-        Width = 980;
-        Height = 720;
+        Width = 1470;
+        Height = 1080;
         MinWidth = 720;
         MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ShowInTaskbar = true;
+        Loaded += (_, _) => FitToMonitor();
         _settingsStore = settingsStore ?? new ApplicationSettingsStore();
         _fontMultiplier = _settingsStore.Load().ValidationDetailsFontMultiplier;
         SetResourceReference(EnvironmentFontSizeProperty, "FontSizeBody");
@@ -303,4 +305,41 @@ internal sealed class PlanValidationDetailsWindow : ChromedWindow
     }
 
     private static string ShortSha(string sha) => sha.Length <= 8 ? sha : sha[..8];
+
+    /// <summary>
+    /// Clamps the window to the work area of the monitor it is shown on (excluding the taskbar)
+    /// so the enlarged default size never overflows a smaller screen, then re-centers it there.
+    /// </summary>
+    private void FitToMonitor()
+    {
+        var workArea = GetLogicalWorkArea();
+        if (workArea.Width <= 0 || workArea.Height <= 0)
+            return;
+
+        var width = Math.Min(Width, workArea.Width);
+        var height = Math.Min(Height, workArea.Height);
+        Width = width;
+        Height = height;
+
+        Left = workArea.Left + Math.Max(0, (workArea.Width - width) / 2);
+        Top = workArea.Top + Math.Max(0, (workArea.Height - height) / 2);
+        WindowStartupLocation = WindowStartupLocation.Manual;
+    }
+
+    private Rect GetLogicalWorkArea()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == nint.Zero)
+            return SystemParameters.WorkArea;
+
+        var physical = NativeMethods.GetWorkAreaForWindow(hwnd);
+        var source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget is null)
+            return SystemParameters.WorkArea;
+
+        var toDip = source.CompositionTarget.TransformFromDevice;
+        var topLeft = toDip.Transform(new Point(physical.Left, physical.Top));
+        var bottomRight = toDip.Transform(new Point(physical.Right, physical.Bottom));
+        return new Rect(topLeft, bottomRight);
+    }
 }
