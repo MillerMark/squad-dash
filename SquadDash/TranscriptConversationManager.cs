@@ -1340,6 +1340,9 @@ internal sealed class TranscriptConversationManager {
     }
 
     private static TranscriptToolRecord BuildTranscriptToolRecord(ToolTranscriptEntry entry) {
+        var capturedEdits = entry.CapturedEdits ??
+            ToolTranscriptFormatter.TryExtractCapturedEdits(
+                entry.Descriptor, entry.OutputText, entry.ArgsJson);
         return new TranscriptToolRecord(
             entry.ToolCallId,
             entry.Descriptor,
@@ -1359,7 +1362,8 @@ internal sealed class TranscriptConversationManager {
                 entry.Success)),
             entry.IsCompleted,
             entry.Success) {
-            ThinkingBlockSequence = entry.ThinkingBlock.Sequence
+            ThinkingBlockSequence = entry.ThinkingBlock.Sequence,
+            CapturedEdits = capturedEdits.Count > 0 ? capturedEdits : null
         };
     }
 

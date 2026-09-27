@@ -72,7 +72,7 @@ internal sealed class WorkspaceConversationStoreSafetyTests {
     }
 
     [Test]
-    public void Save_ExplicitClearCreatesTimestampedRescueBackup() {
+    public void Save_ExplicitClearRemovesTranscriptRecoveryFiles() {
         using var workspace = new TestWorkspace();
         var root = workspace.GetPath("state");
         var store = new WorkspaceConversationStore(root);
@@ -104,15 +104,16 @@ internal sealed class WorkspaceConversationStoreSafetyTests {
 
         var workspaceDirectory = Directory.GetDirectories(root).Single();
         var rescueFiles = Directory.GetFiles(workspaceDirectory, "conversation.explicit-clear.*.json");
-        var rescue = JsonSerializer.Deserialize<WorkspaceConversationState>(File.ReadAllText(rescueFiles.Single()));
+        var backupFiles = Directory.GetFiles(workspaceDirectory, "conversation.json.*")
+            .Where(path => !string.Equals(Path.GetFileName(path), "conversation.json", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
 
         Assert.Multiple(() => {
             Assert.That(cleared.Turns, Is.Empty);
             Assert.That(cleared.ClearedAt, Is.Not.Null);
-            Assert.That(rescueFiles, Has.Length.EqualTo(1));
-            Assert.That(rescue, Is.Not.Null);
-            Assert.That(rescue!.SessionId, Is.EqualTo("session-1"));
-            Assert.That(rescue.Turns, Has.Count.EqualTo(1));
+            Assert.That(rescueFiles, Is.Empty);
+            Assert.That(backupFiles, Is.Empty,
+                "An explicit transcript clear must not leave durable transcript or edit-history recovery copies.");
         });
     }
 

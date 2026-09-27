@@ -21,6 +21,19 @@ internal sealed class CommitViewerWindow : ChromedWindow
     private readonly StackPanel _diffPanel = new();
     private readonly TextBlock _heading = new();
     private readonly TextBlock _status = new();
+    private readonly StackPanel _capturedScopePanel = new() {
+        Orientation = Orientation.Horizontal,
+        Margin = new Thickness(0, 9, 0, 0),
+        Visibility = Visibility.Collapsed
+    };
+    private readonly Button _thisEditButton = new() { Content = "This edit", Padding = new Thickness(10, 4, 10, 4) };
+    private readonly Button _entireTurnButton = new() { Content = "Entire turn", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(6, 0, 0, 0) };
+    private CapturedEditCall? _originatingEditCall;
+    private Func<IReadOnlyList<CapturedEditCall>>? _turnEditProvider;
+    private string? _capturedSelectedPath;
+    private bool _showEntireTurn;
+    private readonly Dictionary<string, IReadOnlyList<CapturedTimelineEntry>> _capturedTimelines =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly CommitViewerCodeFontStore _codeFontStore = new();
     private readonly double _codeHeaderFontRatio;
     private double _codeFontSize;
@@ -83,10 +96,17 @@ internal sealed class CommitViewerWindow : ChromedWindow
         _status.Margin = new Thickness(0, 3, 0, 0);
         _status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
         _status.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        _thisEditButton.SetResourceReference(StyleProperty, "ThemedButtonStyle");
+        _entireTurnButton.SetResourceReference(StyleProperty, "ThemedButtonStyle");
 
         var header = new StackPanel { Margin = new Thickness(16, 13, 16, 12) };
         header.Children.Add(_heading);
         header.Children.Add(_status);
+        _thisEditButton.Click += (_, _) => ShowCapturedScope(entireTurn: false);
+        _entireTurnButton.Click += (_, _) => ShowCapturedScope(entireTurn: true);
+        _capturedScopePanel.Children.Add(_thisEditButton);
+        _capturedScopePanel.Children.Add(_entireTurnButton);
+        header.Children.Add(_capturedScopePanel);
 
         _fileList.BorderThickness = new Thickness(0);
         _fileList.Padding = new Thickness(5);
@@ -189,6 +209,29 @@ internal sealed class CommitViewerWindow : ChromedWindow
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
         ArgumentNullException.ThrowIfNull(unifiedDiffText);
         return Task.FromResult(new CommitViewerWindow(displayName, unifiedDiffText));
+    }
+
+    internal static Task<CommitViewerWindow> CreateFromCapturedEditsAsync(
+        CapturedEditCall originatingCall,
+        string selectedPath,
+        Func<IReadOnlyList<CapturedEditCall>> turnEditProvider)
+    {
+        ArgumentNullException.ThrowIfNull(originatingCall);
+        ArgumentException.ThrowIfNullOrWhiteSpace(selectedPath);
+        ArgumentNullException.ThrowIfNull(turnEditProvider);
+        if (originatingCall.Files.Count == 0)
+            throw new ArgumentException("At least one captured file edit is required.", nameof(originatingCall));
+
+        var selected = originatingCall.Files.FirstOrDefault(file =>
+            string.Equals(file.Path, selectedPath, StringComparison.OrdinalIgnoreCase)) ?? originatingCall.Files[0];
+        var window = new CommitViewerWindow(selected.DisplayName, selected.UnifiedDiff) {
+            _originatingEditCall = originatingCall,
+            _turnEditProvider = turnEditProvider,
+            _capturedSelectedPath = selected.Path
+        };
+        window._capturedScopePanel.Visibility = Visibility.Visible;
+        window.ShowCapturedScope(entireTurn: false);
+        return Task.FromResult(window);
     }
 
     internal static async Task<CommitViewerWindow> CreateAsync(
@@ -370,17 +413,20 @@ internal sealed class CommitViewerWindow : ChromedWindow
     {
         var path = new TextBlock
         {
-            Text = file.Path,
+            Text = file.Path + (file.IsNewFile ? " ➕" : string.Empty),
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(2, 0, 8, 0)
         };
         path.SetResourceReference(TextBlock.ForegroundProperty, "TableCellText");
         path.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        if (file.IsDeletedFile)
+            path.TextDecorations = TextDecorations.Strikethrough;
 
         var summary = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        if (ToolTranscriptFormatter.IsCapturedContentSnapshot(_suppliedPatch))
+        if (file.IsCapturedContentSnapshot ||
+            (_originatingEditCall is null && ToolTranscriptFormatter.IsCapturedContentSnapshot(_suppliedPatch)))
         {
             summary.Text = "Content";
             summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
@@ -410,9 +456,121 @@ internal sealed class CommitViewerWindow : ChromedWindow
         return new ListBoxItem { Content = row, Tag = file, ToolTip = file.Path };
     }
 
+    private void ShowCapturedScope(bool entireTurn)
+    {
+        if (_originatingEditCall is null)
+            return;
+
+        _showEntireTurn = entireTurn;
+        _thisEditButton.FontWeight = entireTurn ? FontWeights.Normal : FontWeights.SemiBold;
+        _entireTurnButton.FontWeight = entireTurn ? FontWeights.SemiBold : FontWeights.Normal;
+        var calls = (entireTurn ? _turnEditProvider?.Invoke() : [_originatingEditCall])
+            ?? [_originatingEditCall];
+        calls = calls
+            .Where(call => call.Files.Count > 0)
+            .GroupBy(call => call.ToolCallId, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .OrderBy(call => call.StartedAt)
+            .ToArray();
+        if (calls.All(call => !string.Equals(
+                call.ToolCallId, _originatingEditCall.ToolCallId, StringComparison.Ordinal)))
+            calls = calls.Append(_originatingEditCall).OrderBy(call => call.StartedAt).ToArray();
+
+        _capturedTimelines.Clear();
+        foreach (var entry in calls.SelectMany(call => call.Files.Select(edit =>
+                     new CapturedTimelineEntry(call, edit))))
+        {
+            var matchingPaths = _capturedTimelines.Keys
+                .Where(path => ToolTranscriptFormatter.AreSameEditPath(path, entry.Edit.Path))
+                .ToArray();
+            var timelinePath = matchingPaths.Length == 1 ? matchingPaths[0] : entry.Edit.Path;
+            if (!_capturedTimelines.TryGetValue(timelinePath, out var existing))
+                existing = Array.Empty<CapturedTimelineEntry>();
+            _capturedTimelines[timelinePath] = existing.Append(entry).ToArray();
+        }
+
+        _fileList.Items.Clear();
+        foreach (var (path, timeline) in _capturedTimelines)
+        {
+            var finalEdit = timeline[^1].Edit;
+            var file = new CommitFile(
+                path,
+                timeline.Sum(entry => entry.Edit.AddedLineCount),
+                timeline.Sum(entry => entry.Edit.RemovedLineCount),
+                false)
+            {
+                IsNewFile = timeline.Any(entry => entry.Edit.IsNewFile) && !finalEdit.IsDeletedFile,
+                IsDeletedFile = finalEdit.IsDeletedFile,
+                IsCapturedContentSnapshot = timeline.All(entry =>
+                    ToolTranscriptFormatter.IsCapturedContentSnapshot(entry.Edit.UnifiedDiff))
+            };
+            _fileList.Items.Add(CreateFileItem(file));
+        }
+
+        Title = entireTurn ? "Changes - Entire turn" : "Changes - This edit";
+        _status.Text = entireTurn
+            ? $"Entire turn · {calls.Count} edit call{(calls.Count == 1 ? "" : "s")} · {_capturedTimelines.Count} changed file{(_capturedTimelines.Count == 1 ? "" : "s")}"
+            : $"This edit · {_originatingEditCall.Files.Count} changed file{(_originatingEditCall.Files.Count == 1 ? "" : "s")}";
+
+        var selectedIndex = 0;
+        if (!string.IsNullOrWhiteSpace(_capturedSelectedPath))
+        {
+            for (var index = 0; index < _fileList.Items.Count; index++)
+            {
+                if (_fileList.Items[index] is ListBoxItem { Tag: CommitFile candidate } &&
+                    ToolTranscriptFormatter.AreSameEditPath(candidate.Path, _capturedSelectedPath))
+                {
+                    selectedIndex = index;
+                    break;
+                }
+            }
+        }
+        if (_fileList.Items.Count > 0)
+            _fileList.SelectedIndex = selectedIndex;
+    }
+
+    private void RenderCapturedTimeline(IReadOnlyList<CapturedTimelineEntry> timeline)
+    {
+        _diffPanel.Children.Clear();
+        if (timeline.Count == 0)
+        {
+            ShowMessage("No captured edits are available for this file.");
+            return;
+        }
+
+        _heading.Text = timeline[0].Edit.DisplayName;
+        FrameworkElement? originHeader = null;
+        foreach (var entry in timeline.OrderBy(item => item.Call.StartedAt))
+        {
+            var isOrigin = _originatingEditCall is not null && string.Equals(
+                entry.Call.ToolCallId, _originatingEditCall.ToolCallId, StringComparison.Ordinal);
+            var header = new TextBlock
+            {
+                Text = $"{entry.Call.StartedAt.ToLocalTime():g}{(isOrigin ? " · Selected edit" : string.Empty)}",
+                FontWeight = isOrigin ? FontWeights.Bold : FontWeights.SemiBold,
+                Margin = new Thickness(4, _diffPanel.Children.Count == 0 ? 2 : 14, 4, 5)
+            };
+            header.SetResourceReference(TextBlock.ForegroundProperty,
+                isOrigin ? "TaskLinkText" : "SubtleText");
+            _diffPanel.Children.Add(header);
+            if (isOrigin)
+                originHeader = header;
+            AppendDiff(entry.Edit.UnifiedDiff);
+        }
+
+        if (_showEntireTurn && originHeader is not null)
+            Dispatcher.BeginInvoke(new Action(originHeader.BringIntoView));
+    }
+
     private async void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_fileList.SelectedItem is not ListBoxItem { Tag: CommitFile file }) return;
+        if (_capturedTimelines.TryGetValue(file.Path, out var timeline))
+        {
+            _capturedSelectedPath = file.Path;
+            RenderCapturedTimeline(timeline);
+            return;
+        }
         if (_suppliedPatch is not null)
         {
             RenderDiff(_suppliedPatch);
@@ -441,6 +599,11 @@ internal sealed class CommitViewerWindow : ChromedWindow
             return;
         }
 
+        AppendDiff(text);
+    }
+
+    private void AppendDiff(string text)
+    {
         var inHunk = false;
         foreach (var rawLine in text.Replace("\r\n", "\n").Split('\n'))
         {
@@ -521,7 +684,14 @@ internal sealed class CommitViewerWindow : ChromedWindow
     }
 
     private static string ShortSha(string sha) => sha.Length > 8 ? sha[..8] : sha;
-    private sealed record CommitFile(string Path, int Added, int Removed, bool IsBinary);
+    private sealed record CommitFile(string Path, int Added, int Removed, bool IsBinary)
+    {
+        public bool IsNewFile { get; init; }
+        public bool IsDeletedFile { get; init; }
+        public bool IsCapturedContentSnapshot { get; init; }
+    }
+
+    private sealed record CapturedTimelineEntry(CapturedEditCall Call, CapturedFileEdit Edit);
 
     private const uint MonitorDefaultToNearest = 2;
 

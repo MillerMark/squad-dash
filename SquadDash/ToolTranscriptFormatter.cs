@@ -503,14 +503,46 @@ internal static class ToolTranscriptFormatter {
 
     internal static string? TryExtractEditUnifiedDiff(
         ToolTranscriptDescriptor descriptor, string? outputText, string? argsJson = null) {
-        if (!IsEditToolName(descriptor.ToolName))
+        var edits = TryExtractCapturedEdits(descriptor, outputText, argsJson);
+        if (edits.Count == 0)
             return null;
-
-        return TryExtractOutputDiff(descriptor, outputText) ??
-            TryBuildArgumentDiff(descriptor, argsJson);
+        return SelectCapturedEdit(descriptor, edits)?.UnifiedDiff;
     }
 
-    private static string? TryExtractOutputDiff(ToolTranscriptDescriptor descriptor, string? outputText) {
+    internal static IReadOnlyList<CapturedFileEdit> TryExtractCapturedEdits(
+        ToolTranscriptDescriptor descriptor, string? outputText, string? argsJson = null) {
+        if (!IsEditToolName(descriptor.ToolName))
+            return Array.Empty<CapturedFileEdit>();
+
+        var patches = TryExtractOutputDiffs(outputText);
+        if (patches is null || patches.Count == 0) {
+            var argumentDiff = TryBuildArgumentDiff(descriptor, argsJson);
+            patches = TryExtractOutputDiffs(argumentDiff);
+        }
+        if (patches is null || patches.Count == 0)
+            return Array.Empty<CapturedFileEdit>();
+
+        return patches
+            .Select(BuildCapturedFileEdit)
+            .GroupBy(edit => edit.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(group => {
+                var entries = group.ToArray();
+                return entries.Length == 1
+                    ? entries[0]
+                    : new CapturedFileEdit(
+                        entries[0].Path,
+                        string.Join("\n\n", entries.Select(entry => entry.UnifiedDiff)),
+                        entries.Sum(entry => entry.AddedLineCount),
+                        entries.Sum(entry => entry.RemovedLineCount),
+                        entries.Any(entry => entry.IsNewFile),
+                        entries.Any(entry => entry.IsDeletedFile));
+            })
+            .ToArray();
+    }
+
+    private sealed record ExtractedPatch(string Path, string Text);
+
+    private static IReadOnlyList<ExtractedPatch>? TryExtractOutputDiffs(string? outputText) {
         if (string.IsNullOrWhiteSpace(outputText))
             return null;
 
@@ -521,7 +553,7 @@ internal static class ToolTranscriptFormatter {
                                line.EndsWith(" chars truncated]", StringComparison.Ordinal))))
             return null;
 
-        var patches = new List<(string Path, string Text)>();
+        var patches = new List<ExtractedPatch>();
         for (var index = 0; index < lines.Length; index++) {
             var start = index;
             if (lines[index].StartsWith("diff --git ", StringComparison.Ordinal)) {
@@ -568,22 +600,10 @@ internal static class ToolTranscriptFormatter {
                   index + 1 < lines.Length && lines[index + 1].StartsWith("+++ ", StringComparison.Ordinal)))
                 return null;
             if (sawHunk && path is not null)
-                patches.Add((path, string.Join("\n", lines[start..index])));
+                patches.Add(new ExtractedPatch(path, string.Join("\n", lines[start..index])));
             index--;
         }
-
-        var target = descriptor.Path ?? GetEditDisplayText(descriptor);
-        if (string.IsNullOrWhiteSpace(target))
-            return patches.FirstOrDefault().Text;
-
-        var normalizedTarget = target.Replace('\\', '/');
-        while (normalizedTarget.StartsWith("./", StringComparison.Ordinal) ||
-               normalizedTarget.StartsWith("../", StringComparison.Ordinal))
-            normalizedTarget = normalizedTarget[(normalizedTarget.IndexOf('/') + 1)..];
-        var matches = patches.Where(patch =>
-            MatchesDiffPath(patch.Path.Replace('\\', '/'), normalizedTarget))
-            .ToArray();
-        return matches.Length == 1 ? matches[0].Text : null;
+        return patches;
     }
 
     private static string? TryBuildArgumentDiff(ToolTranscriptDescriptor descriptor, string? argsJson) {
@@ -599,7 +619,7 @@ internal static class ToolTranscriptFormatter {
                     ? args.GetString()
                     : GetArgumentString(args, "patch", "input");
                 var unified = TryConvertApplyPatch(input);
-                return TryExtractOutputDiff(descriptor, unified);
+                return unified;
             }
 
             var path = GetArgumentString(args, "path", "file_path") ?? descriptor.Path;
@@ -632,6 +652,59 @@ internal static class ToolTranscriptFormatter {
             SquadDashTrace.Write("Transcript", $"Cannot reconstruct captured file edit arguments: {ex.Message}");
             return null;
         }
+    }
+
+    private static string NormalizeTargetPath(string target) {
+        var normalizedTarget = target.Replace('\\', '/');
+        while (normalizedTarget.StartsWith("./", StringComparison.Ordinal) ||
+               normalizedTarget.StartsWith("../", StringComparison.Ordinal))
+            normalizedTarget = normalizedTarget[(normalizedTarget.IndexOf('/') + 1)..];
+        return normalizedTarget;
+    }
+
+    private static CapturedFileEdit? SelectCapturedEdit(
+        ToolTranscriptDescriptor descriptor,
+        IReadOnlyList<CapturedFileEdit> edits) {
+        var target = descriptor.Path ?? GetEditDisplayText(descriptor);
+        if (string.IsNullOrWhiteSpace(target))
+            return edits.FirstOrDefault();
+
+        var normalizedTarget = NormalizeTargetPath(target);
+        var matches = edits.Where(edit => MatchesDiffPath(
+                edit.Path.Replace('\\', '/'), normalizedTarget))
+            .ToArray();
+        return matches.Length == 1 ? matches[0] : null;
+    }
+
+    private static CapturedFileEdit BuildCapturedFileEdit(ExtractedPatch patch) {
+        var lines = patch.Text.ReplaceLineEndings("\n").Split('\n');
+        var added = 0;
+        var removed = 0;
+        var inHunk = false;
+        foreach (var line in lines) {
+            if (line.StartsWith("diff --git ", StringComparison.Ordinal))
+                inHunk = false;
+            if (line.StartsWith("@@", StringComparison.Ordinal)) {
+                inHunk = true;
+                continue;
+            }
+            if (!inHunk)
+                continue;
+            if (line.StartsWith('+'))
+                added++;
+            else if (line.StartsWith('-'))
+                removed++;
+        }
+
+        var text = patch.Text;
+        var isNew = text.Contains("new file mode", StringComparison.OrdinalIgnoreCase) ||
+                    text.Contains("create file mode", StringComparison.OrdinalIgnoreCase) ||
+                    lines.Any(line => line.StartsWith("--- ", StringComparison.Ordinal) &&
+                                      NormalizeDiffPath(line[4..]) == "/dev/null");
+        var isDeleted = text.Contains("deleted file mode", StringComparison.OrdinalIgnoreCase) ||
+                        lines.Any(line => line.StartsWith("+++ ", StringComparison.Ordinal) &&
+                                          NormalizeDiffPath(line[4..]) == "/dev/null");
+        return new CapturedFileEdit(patch.Path, patch.Text, added, removed, isNew, isDeleted);
     }
 
     private static string? GetArgumentString(JsonElement args, params string[] names) {
@@ -732,6 +805,9 @@ internal static class ToolTranscriptFormatter {
         (!Path.IsPathRooted(target) && path.EndsWith("/" + target, StringComparison.OrdinalIgnoreCase)) ||
         (!Path.IsPathRooted(path) && target.EndsWith("/" + path, StringComparison.OrdinalIgnoreCase));
 
+    internal static bool AreSameEditPath(string first, string second) =>
+        MatchesDiffPath(first.Replace('\\', '/'), second.Replace('\\', '/'));
+
     private static bool TryGetHunkCount(Group group, out int count) {
         count = 1;
         return !group.Success || int.TryParse(group.Value, out count);
@@ -753,18 +829,25 @@ internal static class ToolTranscriptFormatter {
 
     public static ToolEditDiffSummary? TryBuildEditDiffSummary(
         ToolTranscriptDescriptor descriptor, string? outputText, string? argsJson = null) {
-        var patch = TryExtractEditUnifiedDiff(descriptor, outputText, argsJson);
-        if (NormalizeFileToolName(descriptor.ToolName) is not ("edit" or "apply_patch") && patch is null)
+        var edits = TryExtractCapturedEdits(descriptor, outputText, argsJson);
+        var selected = SelectCapturedEdit(descriptor, edits);
+        if (edits.Count > 0 && selected is not null) {
+            return new ToolEditDiffSummary(
+                selected.DisplayName,
+                edits.Sum(edit => edit.AddedLineCount),
+                edits.Sum(edit => edit.RemovedLineCount),
+                selected.IsNewFile,
+                selected.IsDeletedFile);
+        }
+
+        if (NormalizeFileToolName(descriptor.ToolName) is not ("edit" or "apply_patch"))
             return null;
 
-        var displayDescriptor = patch is null ? descriptor
-            : descriptor with { DisplayText = TryExtractEditTargetPath(patch), Path = null };
-        var displayName = ResolveEditDisplayName(displayDescriptor, outputText);
+        var displayName = ResolveEditDisplayName(descriptor, outputText);
         if (string.IsNullOrWhiteSpace(displayName))
             return null;
 
-        var normalized = (TryExtractOutputDiff(descriptor, outputText) is not null
-            ? outputText! : patch ?? outputText ?? string.Empty).ReplaceLineEndings("\n");
+        var normalized = (outputText ?? string.Empty).ReplaceLineEndings("\n");
         var lines = normalized.Split('\n');
         var addedLineCount = 0;
         var removedLineCount = 0;
@@ -777,9 +860,9 @@ internal static class ToolTranscriptFormatter {
                 inHunk = true;
                 continue;
             }
-            if (patch is null
-                ? line.StartsWith("+++", StringComparison.Ordinal) || line.StartsWith("---", StringComparison.Ordinal)
-                : !inHunk)
+            if (!inHunk ||
+                line.StartsWith("+++", StringComparison.Ordinal) ||
+                line.StartsWith("---", StringComparison.Ordinal))
                 continue;
 
             if (line.StartsWith('+'))
@@ -788,20 +871,14 @@ internal static class ToolTranscriptFormatter {
                 removedLineCount++;
         }
 
-        // Line counts summarize the whole edit tool call, but lifecycle decoration belongs to
-        // the file named by the row/link. A multi-file patch can add one file and delete another;
-        // deriving both flags from the complete output makes the named file appear both new and
-        // deleted (a plus marker and strikethrough at the same time).
-        var lifecycleLines = (patch ?? normalized).ReplaceLineEndings("\n").Split('\n');
-        var lifecycleText = string.Join("\n", lifecycleLines);
         var isNewFile =
-            lifecycleText.Contains("new file mode", StringComparison.OrdinalIgnoreCase) ||
-            lifecycleText.Contains("create file mode", StringComparison.OrdinalIgnoreCase) ||
-            lifecycleLines.Any(line => line.StartsWith("--- ", StringComparison.Ordinal) &&
+            normalized.Contains("new file mode", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Contains("create file mode", StringComparison.OrdinalIgnoreCase) ||
+            lines.Any(line => line.StartsWith("--- ", StringComparison.Ordinal) &&
                 NormalizeDiffPath(line[4..]) == "/dev/null");
         var isDeletedFile =
-            lifecycleText.Contains("deleted file mode", StringComparison.OrdinalIgnoreCase) ||
-            lifecycleLines.Any(line => line.StartsWith("+++ ", StringComparison.Ordinal) &&
+            normalized.Contains("deleted file mode", StringComparison.OrdinalIgnoreCase) ||
+            lines.Any(line => line.StartsWith("+++ ", StringComparison.Ordinal) &&
                 NormalizeDiffPath(line[4..]) == "/dev/null");
 
         return new ToolEditDiffSummary(

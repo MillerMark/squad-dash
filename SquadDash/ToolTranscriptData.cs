@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace SquadDash;
 
@@ -33,6 +35,38 @@ internal sealed record ToolEditDiffSummary(
     int RemovedLineCount,
     bool IsNewFile,
     bool IsDeletedFile);
+
+/// <summary>
+/// Durable, per-file representation of one captured edit.  Unlike raw tool output this record
+/// is deliberately small enough to retain for the lifetime of its transcript turn.
+/// </summary>
+internal sealed record CapturedFileEdit(
+    string Path,
+    string UnifiedDiff,
+    int AddedLineCount,
+    int RemovedLineCount,
+    bool IsNewFile,
+    bool IsDeletedFile) {
+
+    [JsonIgnore]
+    public string DisplayName {
+        get {
+            try {
+                var name = System.IO.Path.GetFileName(Path);
+                return string.IsNullOrWhiteSpace(name) ? Path : name;
+            }
+            catch (ArgumentException) {
+                return Path;
+            }
+        }
+    }
+}
+
+/// <summary>A captured edit tool call, including every file changed by that call.</summary>
+internal sealed record CapturedEditCall(
+    string ToolCallId,
+    DateTimeOffset StartedAt,
+    IReadOnlyList<CapturedFileEdit> Files);
 
 internal static class ToolTranscriptOutputLimiter {
     internal const int DefaultLiveOutputCharLimit = 100_000;

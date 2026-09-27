@@ -36,8 +36,9 @@ internal sealed class CommitViewerWindowTests
                     new ToolTranscriptDescriptor("apply_patch", DisplayText: displayText),
                     ToolTranscriptFormatterTests.AbsolutePlanOutput,
                     JsonSerializer.Serialize(ToolTranscriptFormatterTests.AbsolutePlanInput),
-                    async (name, patch) =>
-                        viewer = await CommitViewerWindow.CreateFromPatchAsync(name, patch)), Is.True);
+                    null,
+                    async edit => viewer = await CommitViewerWindow.CreateFromPatchAsync(
+                        edit.DisplayName, edit.UnifiedDiff)), Is.True);
                 var link = message.Inlines.OfType<Hyperlink>().Single();
                 Assert.That(link.Inlines.OfType<Run>().Single().Text, Is.EqualTo("plan.md"));
                 link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
@@ -78,8 +79,8 @@ internal sealed class CommitViewerWindowTests
                 var message = new TextBlock();
                 message.Resources["TaskLinkText"] = Brushes.CornflowerBlue;
                 var rendered = ToolEditLinkPresenter.TryRender(message, new ToolTranscriptDescriptor(tool),
-                    output, args, async (name, patch) =>
-                        viewer = await CommitViewerWindow.CreateFromPatchAsync(name, patch));
+                    output, args, null, async edit => viewer = await CommitViewerWindow.CreateFromPatchAsync(
+                        edit.DisplayName, edit.UnifiedDiff));
                 Assert.That(rendered, Is.True);
                 message.Measure(new Size(800, 100));
                 message.Arrange(new Rect(0, 0, 800, 100));
@@ -92,8 +93,8 @@ internal sealed class CommitViewerWindowTests
                     Assert.That(link.ToolTip, Is.TypeOf<ToolTip>());
                     // TextRange omits nested Hyperlink text in TextBlock; inspect its runs separately.
                     Assert.That(string.Concat(message.Inlines.OfType<Run>().Select(run => run.Text)),
-                        Is.EqualTo(tool is "write" or "write_file" ? " (captured content)" :
-                            $" +{added} -{removed}" + (isNew ? " ➕" : "")));
+                        Is.EqualTo((isNew ? " ➕" : "") + $" +{added} -{removed}" +
+                            (tool is "write" or "write_file" ? " (captured content)" : "")));
                 });
                 message.Resources["TaskLinkText"] = Brushes.DarkBlue;
                 Assert.That(link.Foreground, Is.SameAs(message.Resources["TaskLinkText"]), "Link follows theme changes.");
@@ -129,12 +130,104 @@ internal sealed class CommitViewerWindowTests
             var descriptor = new ToolTranscriptDescriptor("edit", Path: "file.cs");
             var message = new TextBlock();
             ToolEditLinkPresenter.TryRender(message, descriptor,
-                "--- a/file.cs\n+++ /dev/null\n@@ -1 +0,0 @@\n-old", null, (_, _) => Task.CompletedTask);
+                "--- a/file.cs\n+++ /dev/null\n@@ -1 +0,0 @@\n-old", null, null, _ => Task.CompletedTask);
             Assert.That(message.Inlines.OfType<Hyperlink>().Single().Inlines.OfType<Run>().Single().TextDecorations,
                 Is.EqualTo(TextDecorations.Strikethrough));
             message.Inlines.Clear();
-            ToolEditLinkPresenter.TryRender(message, descriptor, "File updated.", null, (_, _) => Task.CompletedTask);
+            ToolEditLinkPresenter.TryRender(message, descriptor, "File updated.", null, null, _ => Task.CompletedTask);
             Assert.That(message.Inlines.OfType<Hyperlink>(), Is.Empty);
+        });
+
+    [Test]
+    public void TranscriptFileLink_MultiFileEditRendersEveryFileAndPerFileNewMarkers() =>
+        WpfTestContext.Run(() =>
+        {
+            var output = """
+                diff --git a/src/old.cs b/src/old.cs
+                --- a/src/old.cs
+                +++ b/src/old.cs
+                @@ -1 +1 @@
+                -old
+                +new
+                diff --git a/src/new-one.cs b/src/new-one.cs
+                new file mode 100644
+                --- /dev/null
+                +++ b/src/new-one.cs
+                @@ -0,0 +1 @@
+                +one
+                diff --git a/src/new-two.cs b/src/new-two.cs
+                new file mode 100644
+                --- /dev/null
+                +++ b/src/new-two.cs
+                @@ -0,0 +1 @@
+                +two
+                """;
+            var descriptor = new ToolTranscriptDescriptor("apply_patch", DisplayText: "src/old.cs");
+            var edits = ToolTranscriptFormatter.TryExtractCapturedEdits(descriptor, output);
+            var message = new TextBlock();
+            CapturedFileEdit? clicked = null;
+
+            Assert.That(ToolEditLinkPresenter.TryRender(
+                message, descriptor, output, null, edits, edit => {
+                    clicked = edit;
+                    return Task.CompletedTask;
+                }), Is.True);
+
+            var links = message.Inlines.OfType<Hyperlink>().ToArray();
+            Assert.Multiple(() => {
+                Assert.That(links.Select(link => link.Inlines.OfType<Run>().Single().Text),
+                    Is.EqualTo(new[] { "old.cs", "new-one.cs", "new-two.cs" }));
+                Assert.That(string.Concat(message.Inlines.OfType<Run>().Select(run => run.Text)),
+                    Does.Contain("+1 -1").And.Contain("➕ +1 -0"));
+            });
+            links[2].RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+            Assert.That(clicked?.DisplayName, Is.EqualTo("new-two.cs"));
+        });
+
+    [Test]
+    public void CapturedEditViewer_EntireTurnShowsEveryFileAndKeepsClickedFileSelected() =>
+        WpfTestContext.Run(() =>
+        {
+            var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            var resources = new ResourceDictionary {
+                ["FontSizeBody"] = 13.0, ["FontSizeNormal"] = 13.0,
+                ["FontSizeSmall"] = 12.0, ["FontSizeSubtitle"] = 18.0
+            };
+            app.Resources.MergedDictionaries.Add(resources);
+            CommitViewerWindow? viewer = null;
+            try {
+                static CapturedFileEdit Edit(string path, string before, string after) => new(
+                    path,
+                    $"--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-{before}\n+{after}",
+                    1, 1, false, false);
+                var origin = new CapturedEditCall("call-1", DateTimeOffset.UtcNow.AddMinutes(-2), [
+                    Edit("src/first.cs", "old", "one"),
+                    Edit("src/second.cs", "old", "two")
+                ]);
+                var later = new CapturedEditCall("call-2", DateTimeOffset.UtcNow.AddMinutes(-1), [
+                    Edit("C:/repo/src/first.cs", "one", "three"),
+                    Edit("src/third.cs", "old", "four")
+                ]);
+                viewer = CommitViewerWindow.CreateFromCapturedEditsAsync(
+                    origin, "src/second.cs", () => [origin, later]).Result;
+
+                var fileList = ViewerField<ListBox>(viewer, "_fileList");
+                Assert.That(fileList.Items, Has.Count.EqualTo(2));
+                ViewerField<Button>(viewer, "_entireTurnButton")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+                Assert.Multiple(() => {
+                    Assert.That(fileList.Items, Has.Count.EqualTo(3));
+                    Assert.That(((ListBoxItem)fileList.SelectedItem).ToolTip,
+                        Is.EqualTo("src/second.cs"));
+                    Assert.That(ViewerField<TextBlock>(viewer, "_status").Text,
+                        Does.StartWith("Entire turn · 2 edit calls · 3 changed files"));
+                });
+            }
+            finally {
+                viewer?.Close();
+                app.Resources.MergedDictionaries.Remove(resources);
+            }
         });
 
     [Test]
@@ -151,7 +244,7 @@ internal sealed class CommitViewerWindowTests
             Assert.That(source, Does.Contain("expander.Content = detailPanel;\n\n        AttachToolTimingTooltip(headerPanel, entry);")
                 .Or.Contain("expander.Content = detailPanel;\r\n\r\n        AttachToolTimingTooltip(headerPanel, entry);"));
             Assert.That(source, Does.Not.Contain("DiffHoverPopup"));
-            Assert.That(source, Does.Contain("ToolEditLinkPresenter.TryRender(entry.MessageTextBlock, entry.Descriptor, entry.OutputText, entry.ArgsJson,"));
+            Assert.That(source, Does.Contain("ToolEditLinkPresenter.TryRender("));
             Assert.That(source, Does.Contain("_agentThreadRegistry.SetToolEntry(toolCallId, entry);"));
             Assert.That(source, Does.Contain("entry.IsCompleted &&\n            entry.Success &&")
                 .Or.Contain("entry.IsCompleted &&\r\n            entry.Success &&"));

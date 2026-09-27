@@ -220,6 +220,7 @@ internal sealed class ToolTranscriptEntry : ICopyable {
     public string? ProgressText { get; set; }
     public string? OutputText { get; set; }
     public string? DetailContent { get; set; }
+    public IReadOnlyList<CapturedFileEdit>? CapturedEdits { get; set; }
     public bool IsCompleted { get; set; }
     public bool Success { get; set; }
     public int PollCount { get; set; } = 0;

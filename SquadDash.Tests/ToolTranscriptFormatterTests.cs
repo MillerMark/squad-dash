@@ -283,6 +283,43 @@ internal sealed class ToolTranscriptFormatterTests {
     }
 
     [Test]
+    public void TryExtractCapturedEdits_MultiFileCallReturnsPerFileCountsAndLifecycle() {
+        const string output = """
+            diff --git a/src/ExpressionContracts.cs b/src/ExpressionContracts.cs
+            --- a/src/ExpressionContracts.cs
+            +++ b/src/ExpressionContracts.cs
+            @@ -1 +1,2 @@
+             existing
+            +strict
+            diff --git a/tests/ExpressionLanguageTests.cs b/tests/ExpressionLanguageTests.cs
+            --- a/tests/ExpressionLanguageTests.cs
+            +++ b/tests/ExpressionLanguageTests.cs
+            @@ -1,2 +1 @@
+             existing
+            -unused
+            diff --git a/tests/AuthoringSessionTests.cs b/tests/AuthoringSessionTests.cs
+            new file mode 100644
+            --- /dev/null
+            +++ b/tests/AuthoringSessionTests.cs
+            @@ -0,0 +1,2 @@
+            +first
+            +second
+            """;
+
+        var edits = ToolTranscriptFormatter.TryExtractCapturedEdits(
+            new ToolTranscriptDescriptor("apply_patch", DisplayText: "src/ExpressionContracts.cs"), output);
+
+        Assert.Multiple(() => {
+            Assert.That(edits.Select(edit => edit.DisplayName), Is.EqualTo(new[] {
+                "ExpressionContracts.cs", "ExpressionLanguageTests.cs", "AuthoringSessionTests.cs"
+            }));
+            Assert.That(edits.Select(edit => (edit.AddedLineCount, edit.RemovedLineCount)),
+                Is.EqualTo(new[] { (1, 0), (0, 1), (2, 0) }));
+            Assert.That(edits.Select(edit => edit.IsNewFile), Is.EqualTo(new[] { false, false, true }));
+        });
+    }
+
+    [Test]
     public void EditSummary_MultiFileOutputUsesSelectedFileForLifecycleDecoration() {
         const string updated = """
             diff --git a/src/Program.cs b/src/Program.cs

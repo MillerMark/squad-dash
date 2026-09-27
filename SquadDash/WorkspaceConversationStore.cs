@@ -92,15 +92,13 @@ internal sealed class WorkspaceConversationStore {
         }
 
         var isExplicitClear = IsExplicitClear(normalized);
-        if (isExplicitClear && HasMeaningfulContent(existing)) {
-            CreateBackup(normalizedWorkspace, existing);
-            CreateRescueBackup(normalizedWorkspace, existing, "explicit-clear");
-        }
-        else if (HasMeaningfulContent(existing))
+        if (!isExplicitClear && HasMeaningfulContent(existing))
             CreateBackup(normalizedWorkspace, existing);
 
         var writeSw = Stopwatch.StartNew();
         SaveCore(normalizedWorkspace, normalized);
+        if (isExplicitClear)
+            PurgeConversationRecoveryFiles(normalizedWorkspace);
         writeSw.Stop();
         SquadDashTrace.Write(TraceCategory.Shutdown, $"ConversationStore.Save: written in {writeSw.ElapsedMilliseconds}ms.");
         return normalized;
@@ -128,6 +126,34 @@ internal sealed class WorkspaceConversationStore {
         var path = GetConversationPath(normalizedWorkspace);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         JsonFileStorage.AtomicWrite(path, state);
+    }
+
+    private void PurgeConversationRecoveryFiles(string normalizedWorkspace) {
+        var primaryPath = GetConversationPath(normalizedWorkspace);
+        var directory = Path.GetDirectoryName(primaryPath)!;
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
+            primaryPath + ".bak",
+            primaryPath + ".backup",
+            primaryPath + ".tmp"
+        };
+        if (Directory.Exists(directory)) {
+            foreach (var path in Directory.EnumerateFiles(directory, "conversation.json~RF*.TMP"))
+                candidates.Add(path);
+            foreach (var path in Directory.EnumerateFiles(directory, "conversation.*.json"))
+                if (!string.Equals(path, primaryPath, StringComparison.OrdinalIgnoreCase))
+                    candidates.Add(path);
+        }
+
+        foreach (var path in candidates) {
+            try {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                SquadDashTrace.Write("Persistence",
+                    $"ConversationStore.Clear: could not remove stale transcript recovery file {Path.GetFileName(path)}: {ex.Message}");
+            }
+        }
     }
 
     private WorkspaceConversationState LoadStateWithRecovery(string normalizedWorkspace, bool repairPrimary) {
@@ -527,11 +553,38 @@ internal sealed class WorkspaceConversationStore {
 
         TranscriptToolRecord[] tools;
         int? toolsSuppressedCount = null;
+        var durableTools = turn.Tools
+            .Select(tool => {
+                var captured = tool.CapturedEdits ?? ToolTranscriptFormatter.TryExtractCapturedEdits(
+                    tool.Descriptor, tool.OutputText, tool.ArgsJson);
+                return tool with {
+                    CapturedEdits = captured.Count > 0 ? captured : null
+                };
+            })
+            .ToArray();
 
         if (suppressAll) {
-            // > 7 days: collapse all tools to a count stub; content not worth persisting.
-            toolsSuppressedCount = turn.Tools.Count + (turn.ToolsSuppressedCount ?? 0);
-            tools = Array.Empty<TranscriptToolRecord>();
+            // > 7 days: collapse ordinary tools to a count stub, but retain compact captured
+            // edits so file links keep working for the full lifetime of the transcript turn.
+            tools = durableTools
+                .Where(tool => tool.CapturedEdits is { Count: > 0 })
+                .Select(tool => new TranscriptToolRecord(
+                    tool.ToolCallId?.Trim(),
+                    NormalizeDescriptor(tool.Descriptor),
+                    null,
+                    tool.StartedAt.ToUniversalTime(),
+                    tool.FinishedAt?.ToUniversalTime(),
+                    null,
+                    null,
+                    null,
+                    true,
+                    tool.Success) {
+                    ThinkingBlockSequence = NormalizeSequence(tool.ThinkingBlockSequence),
+                    CapturedEdits = NormalizeCapturedEdits(tool.CapturedEdits)
+                })
+                .ToArray();
+            var suppressed = durableTools.Length - tools.Length + (turn.ToolsSuppressedCount ?? 0);
+            toolsSuppressedCount = suppressed > 0 ? suppressed : null;
         } else {
             var inferredTerminalToolSuccess = owningThreadStatus?.Trim() switch {
                 "Completed" => true,
@@ -539,7 +592,7 @@ internal sealed class WorkspaceConversationStore {
                 "Cancelled" => false,
                 _ => (bool?)null
             };
-            tools = turn.Tools
+            tools = durableTools
                 .TakeLast(MaxToolsPerTurn)
                 .Select(tool => {
                     var isCompleted = tool.IsCompleted;
@@ -595,7 +648,8 @@ internal sealed class WorkspaceConversationStore {
                         detailContent,
                         isCompleted,
                         success) {
-                        ThinkingBlockSequence = NormalizeSequence(tool.ThinkingBlockSequence)
+                        ThinkingBlockSequence = NormalizeSequence(tool.ThinkingBlockSequence),
+                        CapturedEdits = NormalizeCapturedEdits(tool.CapturedEdits)
                     };
                 })
                 .ToArray();
@@ -616,6 +670,22 @@ internal sealed class WorkspaceConversationStore {
             AgentReports        = turn.AgentReports is { Count: > 0 } ? turn.AgentReports : null,
             IsSystemInjected    = turn.IsSystemInjected,
         };
+    }
+
+    private static IReadOnlyList<CapturedFileEdit>? NormalizeCapturedEdits(
+        IReadOnlyList<CapturedFileEdit>? edits) {
+        if (edits is not { Count: > 0 })
+            return null;
+
+        var normalized = edits
+            .Where(edit => !string.IsNullOrWhiteSpace(edit.Path) &&
+                           !string.IsNullOrWhiteSpace(edit.UnifiedDiff))
+            .Select(edit => edit with {
+                Path = edit.Path.Trim(),
+                UnifiedDiff = edit.UnifiedDiff.ReplaceLineEndings("\n").TrimEnd()
+            })
+            .ToArray();
+        return normalized.Length > 0 ? normalized : null;
     }
 
     private static TranscriptThoughtRecord NormalizeThought(TranscriptThoughtRecord thought) {
@@ -1239,6 +1309,7 @@ internal sealed record TranscriptToolRecord(
     bool IsCompleted,
     bool Success) {
     public int? ThinkingBlockSequence { get; init; }
+    public IReadOnlyList<CapturedFileEdit>? CapturedEdits { get; init; }
 }
 
 internal sealed record TranscriptResponseSegmentRecord(

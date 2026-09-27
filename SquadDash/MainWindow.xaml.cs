@@ -46750,6 +46750,10 @@ public partial class MainWindow : Window
         entry.ProgressText = tool.ProgressText;
         entry.OutputText = ToolTranscriptOutputLimiter.TrimForLiveTranscript(entry.Descriptor, tool.OutputText);
         entry.DetailContent = ToolTranscriptOutputLimiter.TrimForLiveTranscript(entry.Descriptor, tool.DetailContent);
+        entry.CapturedEdits = tool.CapturedEdits is { Count: > 0 }
+            ? tool.CapturedEdits
+            : ToolTranscriptFormatter.TryExtractCapturedEdits(
+                entry.Descriptor, entry.OutputText, entry.ArgsJson);
         entry.IsCompleted = tool.IsCompleted;
         entry.Success = tool.Success;
         RenderToolEntry(entry);
@@ -46889,12 +46893,28 @@ public partial class MainWindow : Window
         entry.EmojiImage.Visibility = entry.EmojiImage.Source is not null
             ? Visibility.Visible : Visibility.Collapsed;
 
+        if (entry.IsCompleted && entry.Success)
+            entry.CapturedEdits ??= ToolTranscriptFormatter.TryExtractCapturedEdits(
+                entry.Descriptor, entry.OutputText, entry.ArgsJson);
+
         if (entry.IsCompleted &&
             entry.Success &&
-            ToolEditLinkPresenter.TryRender(entry.MessageTextBlock, entry.Descriptor, entry.OutputText, entry.ArgsJson,
-                async (displayName, patch) =>
+            ToolEditLinkPresenter.TryRender(
+                entry.MessageTextBlock,
+                entry.Descriptor,
+                entry.OutputText,
+                entry.ArgsJson,
+                entry.CapturedEdits,
+                async clickedEdit =>
                 {
-                    var viewer = await CommitViewerWindow.CreateFromPatchAsync(displayName, patch);
+                    var originatingCall = new CapturedEditCall(
+                        entry.ToolCallId,
+                        entry.StartedAt,
+                        entry.CapturedEdits ?? Array.Empty<CapturedFileEdit>());
+                    var viewer = await CommitViewerWindow.CreateFromCapturedEditsAsync(
+                        originatingCall,
+                        clickedEdit.Path,
+                        () => BuildCapturedTurnEdits(entry.Turn));
                     viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);
                     if (CanShowOwnedWindow())
                         viewer.Owner = this;
@@ -46913,6 +46933,20 @@ public partial class MainWindow : Window
         entry.MessageTextBlock.Text = !string.IsNullOrEmpty(toolEmoji) && rawText.StartsWith(toolEmoji, StringComparison.Ordinal)
             ? rawText[toolEmoji.Length..].TrimStart(' ')
             : rawText;
+    }
+
+    private static IReadOnlyList<CapturedEditCall> BuildCapturedTurnEdits(TranscriptTurnView turn) {
+        var calls = new List<CapturedEditCall>();
+        foreach (var entry in turn.ToolEntries
+                     .Where(candidate => candidate.IsCompleted && candidate.Success)
+                     .OrderBy(candidate => candidate.StartedAt)) {
+            entry.CapturedEdits ??= ToolTranscriptFormatter.TryExtractCapturedEdits(
+                entry.Descriptor, entry.OutputText, entry.ArgsJson);
+            if (entry.CapturedEdits.Count == 0)
+                continue;
+            calls.Add(new CapturedEditCall(entry.ToolCallId, entry.StartedAt, entry.CapturedEdits));
+        }
+        return calls;
     }
 
     private void AdvanceToolSpinner()

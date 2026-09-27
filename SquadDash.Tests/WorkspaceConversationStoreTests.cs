@@ -23,8 +23,9 @@ internal sealed class WorkspaceConversationStoreTests {
     public void TearDown() => _workspace.Dispose();
 
     [TestCase(1, false, true)]
-    [TestCase(4, false, false)]
-    [TestCase(1, true, false)]
+    [TestCase(4, false, true)]
+    [TestCase(8, false, true)]
+    [TestCase(1, true, true)]
     public void CapturedEditPatch_RoundTripsOrDegradesWhenRetentionRemovesContent(
         int ageDays, bool oversized, bool canOpen) {
         var startedAt = DateTimeOffset.UtcNow.AddDays(-ageDays);
@@ -39,11 +40,14 @@ internal sealed class WorkspaceConversationStoreTests {
 
         var restored = _store.Load(_workspacePath).Turns.Single().Tools.Single();
         var liveOutput = ToolTranscriptOutputLimiter.TrimForLiveTranscript(restored.Descriptor, restored.OutputText);
-        var extracted = ToolTranscriptFormatter.TryExtractEditUnifiedDiff(restored.Descriptor, liveOutput);
+        var extracted = restored.CapturedEdits?.Single().UnifiedDiff ??
+            ToolTranscriptFormatter.TryExtractEditUnifiedDiff(restored.Descriptor, liveOutput);
 
         Assert.That(extracted, canOpen ? Is.EqualTo(patch) : Is.Null);
         if (ageDays > 3)
             Assert.That(restored.OutputText, Is.Null);
+        if (ageDays > 7)
+            Assert.That(restored.ArgsJson, Is.Null);
     }
 
     [Test]
