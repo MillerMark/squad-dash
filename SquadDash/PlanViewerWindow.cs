@@ -8163,6 +8163,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return link;
     }
 
+    private InlineUIContainer CreateValidationResultIcon(bool passed)
+    {
+        var icon = (Viewbox)FindResource(passed ? "TaskSucceeded" : "TaskFailed");
+        icon.Width = 14;
+        icon.Height = 14;
+        icon.Margin = new Thickness(0, 0, 4, 0);
+        icon.VerticalAlignment = VerticalAlignment.Center;
+        return new InlineUIContainer(icon)
+        {
+            BaselineAlignment = BaselineAlignment.Center,
+        };
+    }
+
     private void PopulateValidationDetail(PlanValidationNode validation, Plan? plan)
     {
         if (_detailDocument is null)
@@ -8185,16 +8198,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _detailDocument.Blocks.Add(idPara);
 
         // Status with color indicator
-        var statusColorKey = validation.Status switch
+        var status = validation.Status?.ToLowerInvariant();
+        var statusColorKey = status switch
         {
-            "passed" or "complete" => "PriorityLow",
-            "failed" => "PriorityHigh",
+            "passed" or "complete" => "TaskSuccessText",
+            "failed" => "TaskFailureText",
             "executing" or "running" => "ActivePanelBorder",
             _ => "SubtleText",
         };
-        var statusRun = new Run($"● {validation.Status ?? "unknown"}");
+        var statusPara = new Paragraph();
+        var statusRun = new Run(validation.Status ?? "unknown");
+        if (status is "passed" or "complete" or "failed")
+            statusPara.Inlines.Add(CreateValidationResultIcon(status is "passed" or "complete"));
+        else
+            statusRun.Text = "● " + statusRun.Text;
         statusRun.SetResourceReference(TextElement.ForegroundProperty, statusColorKey);
-        var statusPara = new Paragraph(statusRun);
+        statusPara.Inlines.Add(statusRun);
         statusPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
         statusPara.Margin = new Thickness(0, 0, 0, 4);
         _detailDocument.Blocks.Add(statusPara);
@@ -8255,12 +8274,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         var evidenceText = validation.Evidence![i];
                         var isPassedAssertion = string.Equals(validation.Status, "passed", StringComparison.OrdinalIgnoreCase)
                             || evidenceText.StartsWith("pass", StringComparison.OrdinalIgnoreCase);
-                        var indicator = isPassedAssertion ? "✓" : "✗";
-                        var indicatorColor = isPassedAssertion ? "PriorityLow" : "PriorityHigh";
-
-                        var indicatorRun = new Run(indicator + " ");
-                        indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
-                        para.Inlines.Add(indicatorRun);
+                        para.Inlines.Add(CreateValidationResultIcon(isPassedAssertion));
                         para.Inlines.Add(new Run(assertion));
                         para.Inlines.Add(new LineBreak());
 
@@ -8337,15 +8351,21 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 for (int i = 0; i < validation.Assertions.Count; i++)
                 {
                     var assertion = validation.Assertions[i];
-                    var hasEvidence = validation.Evidence is not null && i < validation.Evidence.Count;
-                    var indicator = hasEvidence
-                        ? (validation.Evidence![i].StartsWith("pass", StringComparison.OrdinalIgnoreCase) ? "✓ " : "✗ ")
-                        : "• ";
-                    var indicatorColor = indicator == "✓ " ? "PriorityLow" : indicator == "✗ " ? "PriorityHigh" : "SubtleText";
+                    var hasEvidence = validation.Evidence is not null
+                        && i < validation.Evidence.Count
+                        && !string.IsNullOrWhiteSpace(validation.Evidence[i]);
                     var para = new Paragraph();
-                    var indicatorRun = new Run(indicator);
-                    indicatorRun.SetResourceReference(TextElement.ForegroundProperty, indicatorColor);
-                    para.Inlines.Add(indicatorRun);
+                    if (hasEvidence)
+                    {
+                        para.Inlines.Add(CreateValidationResultIcon(
+                            validation.Evidence![i].StartsWith("pass", StringComparison.OrdinalIgnoreCase)));
+                    }
+                    else
+                    {
+                        var indicatorRun = new Run("• ");
+                        indicatorRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+                        para.Inlines.Add(indicatorRun);
+                    }
                     var assertionRun = new Run(assertion);
                     assertionRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                     para.Inlines.Add(assertionRun);
