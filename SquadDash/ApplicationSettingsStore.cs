@@ -162,6 +162,18 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveValidationDetailsFontMultiplier(double validationDetailsFontMultiplier) {
+        using var mutex = AcquireMutex();
+
+        var current = LoadCore();
+        var updated = current with {
+            ValidationDetailsFontMultiplier = ApplicationSettingsSnapshot.NormalizeValidationDetailsFontMultiplier(validationDetailsFontMultiplier)
+        };
+
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveAgentImagePath(
         string workspaceFolder,
         string agentKey,
@@ -1402,6 +1414,7 @@ internal sealed record ApplicationSettingsSnapshot(
     /// Font size for the documentation source editor (DocSourceTextBox). Global/machine-wide.
     /// </summary>
     public double DocSourceFontSize { get; init; } = 12;
+    public double ValidationDetailsFontMultiplier { get; init; } = 1.0;
     public IReadOnlyDictionary<string, DeveloperStartupIssueSimulation> StartupIssueSimulationByWorkspace { get; init; } =
         new Dictionary<string, DeveloperStartupIssueSimulation>(StringComparer.OrdinalIgnoreCase);
 
@@ -2033,6 +2046,7 @@ internal sealed record ApplicationSettingsSnapshot(
             TranscriptFontSize = NormalizeFontSize(TranscriptFontSize),
             InboxFontSize = NormalizeFontSize(InboxFontSize),
             DocSourceFontSize = NormalizeFontSize(DocSourceFontSize),
+            ValidationDetailsFontMultiplier = NormalizeValidationDetailsFontMultiplier(ValidationDetailsFontMultiplier),
             Theme = Theme is "Light" or "Dark" or "Auto" ? Theme : null,
             LastUsedModel = string.IsNullOrWhiteSpace(LastUsedModel) ? null : LastUsedModel.Trim(),
             ModelProvider = ModelProvider is ModelProvider.Custom
@@ -2146,6 +2160,13 @@ internal sealed record ApplicationSettingsSnapshot(
         return double.IsFinite(fontSize) && fontSize > 0
             ? fontSize
             : 14;
+    }
+
+    internal static double NormalizeValidationDetailsFontMultiplier(double multiplier) {
+        if (!double.IsFinite(multiplier) || multiplier <= 0)
+            return 1.0;
+
+        return Math.Clamp(multiplier, 0.5, 3.0);
     }
 
     internal static string NormalizeCopilotDefaultModel(string? model) =>

@@ -141,6 +141,74 @@ internal sealed class ApplicationSettingsStoreTests {
     }
 
     [Test]
+    public void SaveValidationDetailsFontMultiplier_PersistsGlobally() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+
+        store.SaveValidationDetailsFontMultiplier(1.75);
+
+        Assert.That(store.Load().ValidationDetailsFontMultiplier, Is.EqualTo(1.75));
+    }
+
+    [Test]
+    public void SaveValidationDetailsFontMultiplier_RoundTripsAcrossIndependentStoreInstances() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var storeOne = new ApplicationSettingsStore(settingsPath);
+        storeOne.SaveValidationDetailsFontMultiplier(2.25);
+
+        var storeTwo = new ApplicationSettingsStore(settingsPath);
+
+        Assert.That(storeTwo.Load().ValidationDetailsFontMultiplier, Is.EqualTo(2.25));
+    }
+
+    [Test]
+    public void SaveValidationDetailsFontMultiplier_SurvivesUnrelatedSavesAndWorkspaceSwitches() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+        var repoOne = workspace.GetPath("repo-one");
+        var repoTwo = workspace.GetPath("repo-two");
+        Directory.CreateDirectory(repoOne);
+        Directory.CreateDirectory(repoTwo);
+
+        store.SaveValidationDetailsFontMultiplier(1.6);
+        store.RememberFolder(repoOne);
+        store.SaveWindowPlacement(repoOne, new WorkspaceWindowPlacement(10, 20, 1200, 900, false));
+        store.RememberFolder(repoTwo);
+        store.SaveAgentAccentColor(repoTwo, "Squad", "#FF4472C4");
+
+        Assert.That(store.Load().ValidationDetailsFontMultiplier, Is.EqualTo(1.6));
+    }
+
+    [Test]
+    public void SaveValidationDetailsFontMultiplier_NormalizesInvalidAndClampedValues() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+
+        Assert.Multiple(() => {
+            Assert.That(store.SaveValidationDetailsFontMultiplier(double.NaN).ValidationDetailsFontMultiplier, Is.EqualTo(1.0));
+            Assert.That(store.SaveValidationDetailsFontMultiplier(0).ValidationDetailsFontMultiplier, Is.EqualTo(1.0));
+            Assert.That(store.SaveValidationDetailsFontMultiplier(double.NegativeInfinity).ValidationDetailsFontMultiplier, Is.EqualTo(1.0));
+            Assert.That(store.SaveValidationDetailsFontMultiplier(0.25).ValidationDetailsFontMultiplier, Is.EqualTo(0.5));
+            Assert.That(store.SaveValidationDetailsFontMultiplier(4.2).ValidationDetailsFontMultiplier, Is.EqualTo(3.0));
+            Assert.That(store.SaveValidationDetailsFontMultiplier(2.4).ValidationDetailsFontMultiplier, Is.EqualTo(2.4));
+        });
+    }
+
+    [Test]
+    public void NormalizeValidationDetailsFontMultiplier_AppliesExpectedRules() {
+        Assert.Multiple(() => {
+            Assert.That(ApplicationSettingsSnapshot.NormalizeValidationDetailsFontMultiplier(double.PositiveInfinity), Is.EqualTo(1.0));
+            Assert.That(ApplicationSettingsSnapshot.NormalizeValidationDetailsFontMultiplier(-1), Is.EqualTo(1.0));
+            Assert.That(ApplicationSettingsSnapshot.NormalizeValidationDetailsFontMultiplier(0.4), Is.EqualTo(0.5));
+            Assert.That(ApplicationSettingsSnapshot.NormalizeValidationDetailsFontMultiplier(3.4), Is.EqualTo(3.0));
+            Assert.That(ApplicationSettingsSnapshot.NormalizeValidationDetailsFontMultiplier(1.3), Is.EqualTo(1.3));
+        });
+    }
+
+    [Test]
     public void SaveSpeechRegion_SurvivesSubsequentSaves() {
         using var workspace = new TestWorkspace();
         var settingsPath = workspace.GetPath("settings", "settings.json");
@@ -507,8 +575,11 @@ internal sealed class ApplicationSettingsStoreTests {
 
         var loaded = store.Load();
 
-        Assert.That(loaded, Is.Not.Null);
-        Assert.That(loaded.RecentFolders, Is.Empty);
+        Assert.Multiple(() => {
+            Assert.That(loaded, Is.Not.Null);
+            Assert.That(loaded.RecentFolders, Is.Empty);
+            Assert.That(loaded.ValidationDetailsFontMultiplier, Is.EqualTo(1.0));
+        });
     }
 
     [Test]
@@ -577,6 +648,20 @@ internal sealed class ApplicationSettingsStoreTests {
             Assert.That(loaded.SettingsSchemaVersion,
                 Is.EqualTo(ApplicationSettingsSnapshot.CurrentSchemaVersion));
         });
+    }
+
+    [Test]
+    public void Load_WhenOlderJsonMissingValidationDetailsFontMultiplier_DefaultsToOne() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+
+        store.SaveValidationDetailsFontMultiplier(2.2);
+        var legacy = JsonNode.Parse(File.ReadAllText(settingsPath))!.AsObject();
+        legacy.Remove(nameof(ApplicationSettingsSnapshot.ValidationDetailsFontMultiplier));
+        File.WriteAllText(settingsPath, legacy.ToJsonString(JsonFileStorage.PrettyPrint));
+
+        Assert.That(store.Load().ValidationDetailsFontMultiplier, Is.EqualTo(1.0));
     }
 
     // QueuePaused persistence regression tests
