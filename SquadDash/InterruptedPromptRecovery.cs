@@ -46,9 +46,19 @@ internal sealed record InterruptedPromptRecoveryState(
     string? PlanId = null,
     string? PlanTaskId = null,
     string? PlanRevision = null,
-    string? PlanExecutionAttemptId = null) {
+    string? PlanExecutionAttemptId = null,
+    DateTimeOffset? LastConfirmedActivityAt = null,
+    string? LastConfirmedActivity = null,
+    int? PendingChangedFileCount = null,
+    bool AutomaticContinuationAttempted = false) {
 
     internal const int CurrentSchemaVersion = 1;
+}
+
+internal static class InterruptedPromptAutomaticRecoveryPolicy
+{
+    internal static bool ShouldAutomaticallyContinue(InterruptedPromptRecoveryState recovery) =>
+        recovery.FailureCount == 1 && !recovery.AutomaticContinuationAttempted;
 }
 
 internal static class InterruptedPromptPlanRecoveryPolicy
@@ -226,10 +236,28 @@ internal static partial class InterruptedPromptRecoveryPresentation {
         var timeoutClarification = isBridgeInactivity
             ? string.Empty
             : " This timeout does not by itself indicate that the model ran out of tokens or budget; SquadDash reports those conditions separately when the provider supplies them.";
-        return $"{failureLead}{restoredText}{timeoutClarification}\n\n" +
+        var evidence = BuildRecoveryEvidence(state);
+        var automaticRecoveryText = state.AutomaticContinuationAttempted || state.FailureCount > 1
+            ? " SquadDash already attempted automatic recovery; this checkpoint now needs your direction."
+            : string.Empty;
+        return $"{failureLead}{restoredText}{timeoutClarification}{automaticRecoveryText}{evidence}\n\n" +
                $"SquadDash marked this request Interrupted—recoverable and paused queued prompts and loop progress at this checkpoint.{activeAgentsText} Child-agent work may have produced partial edits or artifacts, and any later child report remains part of this recovery.\n\n" +
                "Continuing will preserve the same request lineage, inspect existing changes and child-agent output, clean up temporary resources created by the interrupted run when identifiable, and continue only if the audit finds remaining work.\n\n" +
                $"[{BuildPrimaryActionLabel(state)}] [{EditPromptAction}] [{ViewDiagnosticsAction}] [{DismissAction}]{doctorAction}";
+    }
+
+    internal static string BuildAutomaticRecoveryText(
+        InterruptedPromptRecoveryState state,
+        bool restoredAfterRestart = false) {
+        var duration = state.InactivitySeconds is { } seconds
+            ? FormatDuration(seconds)
+            : "the inactivity limit";
+        var restoredText = restoredAfterRestart
+            ? " The preserved recovery checkpoint was restored after restart."
+            : string.Empty;
+        return $"Squad stopped producing bridge activity for {duration}, so SquadDash restarted the runtime.{restoredText}" +
+               BuildRecoveryEvidence(state) + "\n\n" +
+               "SquadDash is automatically auditing and continuing the preserved work. Queued prompts and loop progress remain held only while that audit runs; no action is required unless recovery cannot continue safely.";
     }
 
     internal static string BuildResumeAttemptText(InterruptedPromptRecoveryState state) {
@@ -350,6 +378,13 @@ internal static partial class InterruptedPromptRecoveryPresentation {
             builder.AppendLine($"Failure category: {state.FailureCategory}");
         if (state.OriginalTurnStartedAt is { } startedAt)
             builder.AppendLine($"Original turn started: {startedAt.ToLocalTime():F}");
+        if (state.LastConfirmedActivityAt is { } lastActivityAt)
+            builder.AppendLine($"Last confirmed activity: {lastActivityAt.ToLocalTime():F}");
+        if (!string.IsNullOrWhiteSpace(state.LastConfirmedActivity))
+            builder.AppendLine($"Last activity detail: {state.LastConfirmedActivity}");
+        if (state.PendingChangedFileCount is { } changedFileCount)
+            builder.AppendLine($"Current changed worktree entries: {changedFileCount}");
+        builder.AppendLine($"Automatic continuation attempted: {state.AutomaticContinuationAttempted}");
         if (!string.IsNullOrWhiteSpace(state.SessionId))
             builder.AppendLine($"Session: {state.SessionId}");
         if (!string.IsNullOrWhiteSpace(recoveryPath))
@@ -358,6 +393,37 @@ internal static partial class InterruptedPromptRecoveryPresentation {
         builder.AppendLine("Raw error");
         builder.Append(state.ErrorMessage);
         return builder.ToString();
+    }
+
+    private static string BuildRecoveryEvidence(InterruptedPromptRecoveryState state) {
+        var facts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(state.LastConfirmedActivity)) {
+            var activityOwners = state.ActiveAgentLabels
+                .Select(CleanLabel)
+                .Where(label => !string.IsNullOrWhiteSpace(label))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(2)
+                .ToArray();
+            var activityOwner = activityOwners.Length == 1
+                ? $"{activityOwners[0]} — "
+                : string.Empty;
+            var timing = state.LastConfirmedActivityAt is { } activityAt
+                ? $" at {activityAt.ToLocalTime():t}"
+                : string.Empty;
+            facts.Add($"Last confirmed activity: {activityOwner}{state.LastConfirmedActivity.Trim()}{timing}");
+        }
+        else if (state.LastConfirmedActivityAt is { } activityAt) {
+            facts.Add($"Last confirmed activity was at {activityAt.ToLocalTime():t}");
+        }
+
+        if (state.PendingChangedFileCount is { } changedFileCount) {
+            facts.Add(changedFileCount == 1
+                ? "The working tree currently contains 1 changed entry"
+                : $"The working tree currently contains {changedFileCount} changed entries");
+        }
+
+        facts.Add("No completion handoff was received");
+        return facts.Count == 0 ? string.Empty : $"\n\n{string.Join(". ", facts)}.";
     }
 
     private static string CleanLabel(string? value) =>

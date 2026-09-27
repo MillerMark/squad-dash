@@ -110,6 +110,11 @@ type ShutdownRequest = {
     type: "shutdown";
 };
 
+type HealthCheckRequest = {
+    type: "health_check";
+    requestId: string;
+};
+
 type RunLoopRequest = {
     type: "run_loop";
     requestId?: string;
@@ -188,7 +193,7 @@ type PersonalInitRequest = {
     requestId?: string;
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | NamedAgentRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | RcAgentRosterBroadcastRequest | RcCommitBroadcastRequest | RcPromptBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
+type BridgeRequest = PromptRequest | DelegateRequest | NamedAgentRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | HealthCheckRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | RcAgentRosterBroadcastRequest | RcCommitBroadcastRequest | RcPromptBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
 let activeTunnelProc: ReturnType<typeof spawn> | null = null;
@@ -729,6 +734,11 @@ function tryParseRequest(line: string): BridgeRequest | null {
 
         if (parsed.type === "shutdown")
             return { type: "shutdown" };
+
+        if (parsed.type === "health_check") {
+            const requestId = extractOptionalString(parsed.requestId);
+            return requestId ? { type: "health_check", requestId } : null;
+        }
 
         if (parsed.type === "delegate")
             return tryParseDelegateRequest(parsed as Partial<DelegateRequest>);
@@ -1779,6 +1789,11 @@ async function main() {
 
             await bridge.shutdown();
             return;
+        }
+
+        if (request.type === "health_check") {
+            emit({ type: "bridge_health", requestId: request.requestId, message: "ok" });
+            continue;
         }
 
         if (request.type === "abort") {

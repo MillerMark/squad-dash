@@ -157,6 +157,47 @@ internal sealed class InterruptedPromptRecoveryTests {
     }
 
     [Test]
+    public void AutomaticRecoveryPolicy_AllowsOneDurableAttemptOnly() {
+        var firstFailure = CreateState(failureCount: 1);
+
+        Assert.Multiple(() => {
+            Assert.That(
+                InterruptedPromptAutomaticRecoveryPolicy.ShouldAutomaticallyContinue(firstFailure),
+                Is.True);
+            Assert.That(
+                InterruptedPromptAutomaticRecoveryPolicy.ShouldAutomaticallyContinue(
+                    firstFailure with { AutomaticContinuationAttempted = true }),
+                Is.False);
+            Assert.That(
+                InterruptedPromptAutomaticRecoveryPolicy.ShouldAutomaticallyContinue(
+                    CreateState(failureCount: 2)),
+                Is.False);
+        });
+    }
+
+    [Test]
+    public void AutomaticRecoveryText_ShowsConcreteEvidenceWithoutRequiringAChoice() {
+        var activityAt = new DateTimeOffset(2026, 9, 27, 8, 37, 54, TimeSpan.FromHours(-4));
+        var state = CreateState() with {
+            InactivitySeconds = 900,
+            LastConfirmedActivityAt = activityAt,
+            LastConfirmedActivity = "Verifying final source changes",
+            PendingChangedFileCount = 23,
+        };
+
+        var text = InterruptedPromptRecoveryPresentation.BuildAutomaticRecoveryText(state);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("15 minutes"));
+            Assert.That(text, Does.Contain("Verifying final source changes").And.Contain("8:37"));
+            Assert.That(text, Does.Contain("23 changed entries"));
+            Assert.That(text, Does.Contain("No completion handoff was received"));
+            Assert.That(text, Does.Contain("automatically auditing and continuing"));
+            Assert.That(text, Does.Not.Contain("[Continue with"));
+        });
+    }
+
+    [Test]
     public void LatestUnresolved_AcceptsFailedTailTurnButRejectsLaterInteraction() {
         var interruptedAt = DateTimeOffset.UtcNow;
         var state = CreateState() with { InterruptedAt = interruptedAt };
@@ -277,6 +318,10 @@ internal sealed class InterruptedPromptRecoveryTests {
             FailureCategory = ProviderFailureCategory.Timeout.ToString(),
             OriginalTurnStartedAt = DateTimeOffset.UtcNow.AddMinutes(-10),
             ActiveAgentThreadIds = ["thread-shuri"],
+            LastConfirmedActivityAt = DateTimeOffset.UtcNow.AddMinutes(-1),
+            LastConfirmedActivity = "Running final verification",
+            PendingChangedFileCount = 4,
+            AutomaticContinuationAttempted = true,
         };
 
         store.Save(state);
@@ -293,6 +338,10 @@ internal sealed class InterruptedPromptRecoveryTests {
             Assert.That(loaded.FailureCategory, Is.EqualTo(ProviderFailureCategory.Timeout.ToString()));
             Assert.That(loaded.OriginalTurnStartedAt, Is.EqualTo(state.OriginalTurnStartedAt));
             Assert.That(loaded.ActiveAgentThreadIds, Is.EqualTo(new[] { "thread-shuri" }));
+            Assert.That(loaded.LastConfirmedActivityAt, Is.EqualTo(state.LastConfirmedActivityAt));
+            Assert.That(loaded.LastConfirmedActivity, Is.EqualTo("Running final verification"));
+            Assert.That(loaded.PendingChangedFileCount, Is.EqualTo(4));
+            Assert.That(loaded.AutomaticContinuationAttempted, Is.True);
             Assert.That(File.Exists(store.PathForDiagnostics), Is.True);
         });
 

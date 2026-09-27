@@ -18,8 +18,9 @@ internal sealed record SquadSdkProcessResetEventArgs(
     string Reason);
 
 public sealed class SquadSdkProcess : IAsyncDisposable {
-    private static readonly TimeSpan DefaultPromptInactivityTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan DefaultPromptInactivityTimeout = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan DefaultPromptTimeoutPollInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan DefaultBridgeHealthProbeTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultBackgroundCancelResponseTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan BridgeDeltaTraceInterval = TimeSpan.FromSeconds(1);
     private const string SessionResetEventType = "session_reset";
@@ -36,10 +37,12 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private readonly Queue<string> _recentErrorLines = new();
     private readonly Dictionary<string, PendingBridgeRequest> _pendingRequests = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingBackgroundCancelRequest> _pendingBackgroundCancels = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingBridgeHealthChecks = new(StringComparer.Ordinal);
     private readonly HashSet<string> _userAbortRequestIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _systemInterruptReasons = new(StringComparer.Ordinal);
     private readonly TimeSpan _promptInactivityTimeout;
     private readonly TimeSpan _promptTimeoutPollInterval;
+    private readonly TimeSpan _bridgeHealthProbeTimeout;
     private readonly IWorkspacePaths? _workspacePaths;
 
     private bool _disposed;
@@ -102,6 +105,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         _processStartInfoFactory = processStartInfoFactory;
         _promptInactivityTimeout = DefaultPromptInactivityTimeout;
         _promptTimeoutPollInterval = DefaultPromptTimeoutPollInterval;
+        _bridgeHealthProbeTimeout = DefaultBridgeHealthProbeTimeout;
     }
 
     internal SquadSdkProcess(
@@ -116,6 +120,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         _promptTimeoutPollInterval = options?.PromptTimeoutPollInterval > TimeSpan.Zero
             ? options.PromptTimeoutPollInterval
             : DefaultPromptTimeoutPollInterval;
+        _bridgeHealthProbeTimeout = options?.BridgeHealthProbeTimeout > TimeSpan.Zero
+            ? options.BridgeHealthProbeTimeout
+            : DefaultBridgeHealthProbeTimeout;
     }
 
     public async Task RunPromptAsync(
@@ -520,10 +527,51 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             var lastActivityAt = pendingRequest.GetLastActivityAt();
             SquadDashTrace.Write(
                 "Bridge",
-                $"Prompt inactivity timeout reached after {idleFor.TotalSeconds:0}s. lastActivityAt={lastActivityAt:O}. Restarting bridge process.");
+                $"Bridge inactivity check reached after {idleFor.TotalSeconds:0}s. lastActivityAt={lastActivityAt:O}. Probing bridge health.");
+            if (await ProbeBridgeHealthAsync().ConfigureAwait(false)) {
+                if (pendingRequest.Completion.Task.IsCompleted)
+                    return await pendingRequest.Completion.Task.ConfigureAwait(false);
+
+                pendingRequest.MarkActivity();
+                SquadDashTrace.Write(
+                    "Bridge",
+                    "Bridge responded to the inactivity health check; the active request remains governed by its request-tree inactivity lease.");
+                continue;
+            }
+
+            SquadDashTrace.Write(
+                "Bridge",
+                $"Prompt inactivity timeout reached after {idleFor.TotalSeconds:0}s. lastActivityAt={lastActivityAt:O}. Bridge health check did not respond; restarting bridge process.");
             ResetProcess();
             throw new TimeoutException(BuildFailureMessage(
-                $"Timed out waiting for Squad to finish responding after {_promptInactivityTimeout.TotalSeconds:0} seconds without bridge activity."));
+                $"Timed out waiting for Squad to finish responding after {_promptInactivityTimeout.TotalSeconds:0} seconds without bridge activity; the bridge health check did not respond."));
+        }
+    }
+
+    private async Task<bool> ProbeBridgeHealthAsync() {
+        var requestId = Guid.NewGuid().ToString("N");
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_stateLock) {
+            if (_activeProcess is null || _activeProcessInput is null)
+                return false;
+            _pendingBridgeHealthChecks[requestId] = completion;
+        }
+
+        try {
+            await SendBridgeRequestAsync(new SquadSdkHealthCheckRequest(requestId)).ConfigureAwait(false);
+            var completed = await Task.WhenAny(
+                completion.Task,
+                Task.Delay(_bridgeHealthProbeTimeout)).ConfigureAwait(false);
+            return completed == completion.Task && await completion.Task.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) {
+            SquadDashTrace.Write("Bridge", $"Bridge health check failed: {ex.Message}");
+            return false;
+        }
+        finally {
+            lock (_stateLock) {
+                _pendingBridgeHealthChecks.Remove(requestId);
+            }
         }
     }
 
@@ -963,6 +1011,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     }
 
     private void HandleBridgeEvent(SquadSdkEvent evt) {
+        if (TryCompleteBridgeHealthCheck(evt))
+            return;
+
         var backgroundCancelHandled = TryCompleteBackgroundCancel(evt);
 
         var pendingRequest = ResolvePendingRequest(evt);
@@ -1002,6 +1053,23 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 }
                 break;
         }
+    }
+
+    private bool TryCompleteBridgeHealthCheck(SquadSdkEvent evt) {
+        if (!string.Equals(evt.Type, "bridge_health", StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(evt.RequestId))
+            return false;
+
+        TaskCompletionSource<bool>? completion;
+        lock (_stateLock) {
+            _pendingBridgeHealthChecks.TryGetValue(evt.RequestId, out completion);
+        }
+        if (completion is null)
+            return false;
+
+        SquadDashTrace.Write("Bridge", $"Bridge health check acknowledged requestId={evt.RequestId}.");
+        completion.TrySetResult(true);
+        return true;
     }
 
     private PendingBridgeRequest? ResolvePendingRequest(SquadSdkEvent evt) {
@@ -1052,6 +1120,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         string[] pendingRequestIds;
         PendingBridgeRequest[] pendingRequests;
         PendingBackgroundCancelRequest[] pendingCancels;
+        TaskCompletionSource<bool>[] pendingHealthChecks;
         Task? outputReaderTask;
 
         lock (_stateLock) {
@@ -1062,6 +1131,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             pendingRequests = _pendingRequests.Values.ToArray();
             pendingCancels = _pendingBackgroundCancels.Values.ToArray();
             _pendingBackgroundCancels.Clear();
+            pendingHealthChecks = _pendingBridgeHealthChecks.Values.ToArray();
+            _pendingBridgeHealthChecks.Clear();
             outputReaderTask = _outputReaderTask;
             _activeProcess = null;
             _activeProcessGeneration = 0;
@@ -1072,6 +1143,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
         foreach (var pendingCancel in pendingCancels)
             pendingCancel.Completion.TrySetResult(false);
+
+        foreach (var pendingHealthCheck in pendingHealthChecks)
+            pendingHealthCheck.TrySetResult(false);
 
         if (pendingRequests.Length == 0)
             return;
@@ -1233,6 +1307,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         int processGeneration;
         PendingBridgeRequest[] pendingRequests = [];
         PendingBackgroundCancelRequest[] pendingCancels;
+        TaskCompletionSource<bool>[] pendingHealthChecks;
 
         lock (_stateLock) {
             processToKill = _activeProcess;
@@ -1246,6 +1321,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             }
             pendingCancels = _pendingBackgroundCancels.Values.ToArray();
             _pendingBackgroundCancels.Clear();
+            pendingHealthChecks = _pendingBridgeHealthChecks.Values.ToArray();
+            _pendingBridgeHealthChecks.Clear();
             _activeProcess = null;
             _activeProcessGeneration = 0;
             _activeProcessInput = null;
@@ -1255,6 +1332,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
         foreach (var pendingCancel in pendingCancels)
             pendingCancel.Completion.TrySetResult(false);
+        foreach (var pendingHealthCheck in pendingHealthChecks)
+            pendingHealthCheck.TrySetResult(false);
 
         if (pendingPromptException is Exception promptException) {
             foreach (var pendingRequest in pendingRequests)
@@ -1907,8 +1986,9 @@ internal sealed record SquadSdkForceStopResult(
     int PendingCancelCount);
 
 internal sealed class SquadSdkProcessOptions {
-    public TimeSpan PromptInactivityTimeout { get; init; } = TimeSpan.FromMinutes(10);
+    public TimeSpan PromptInactivityTimeout { get; init; } = TimeSpan.FromMinutes(15);
     public TimeSpan PromptTimeoutPollInterval { get; init; } = TimeSpan.FromMilliseconds(250);
+    public TimeSpan BridgeHealthProbeTimeout { get; init; } = TimeSpan.FromSeconds(5);
 }
 
 internal sealed record SquadSdkPromptRequest(
@@ -1993,6 +2073,10 @@ internal sealed record SquadSdkProviderConfiguration(
 internal sealed record SquadSdkAbortRequest(
     [property: JsonPropertyName("requestId")] string RequestId,
     [property: JsonPropertyName("type")] string Type = "abort");
+
+internal sealed record SquadSdkHealthCheckRequest(
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("type")] string Type = "health_check");
 
 internal sealed record SquadSdkCancelBackgroundTaskRequest(
     [property: JsonPropertyName("taskId")] string TaskId,

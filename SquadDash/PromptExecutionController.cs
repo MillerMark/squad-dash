@@ -1759,6 +1759,7 @@ internal sealed class PromptExecutionController {
         var workspace = _workspaceContext.GetCurrentWorkspace();
         if (workspace is not null) {
             _conversationManager.ClearAndPersist(workspace.FolderPath);
+            ClearInterruptedPromptRecovery(workspace, "transcript-cleared");
         }
 
         _clearSessionView();
@@ -2264,12 +2265,22 @@ internal sealed class PromptExecutionController {
                     ex.Message);
                 _clearRuntimeIssue();
                 MarkActiveToolsAsFailed("Interrupted—recoverable: the provider or agent session timed out; continuation is available.");
-                _transcriptSink.AppendLine(
-                    InterruptedPromptRecoveryPresentation.BuildCardText(recovery),
-                    ThemeBrush("SystemWarningText"));
-                _updateLeadAgent("Waiting", string.Empty, "The request was interrupted. Continue the preserved work when ready.");
+                if (_onInterruptedPromptRecoverySaved is null) {
+                    _transcriptSink.AppendLine(
+                        InterruptedPromptRecoveryPresentation.BuildCardText(recovery),
+                        ThemeBrush("SystemWarningText"));
+                }
+                var automaticRecovery = InterruptedPromptAutomaticRecoveryPolicy.ShouldAutomaticallyContinue(recovery);
+                _updateLeadAgent(
+                    "Waiting",
+                    string.Empty,
+                    automaticRecovery
+                        ? "The runtime restarted. Automatic recovery is queued."
+                        : "The request was interrupted. Continue the preserved work when ready.");
                 _updateSessionState("Waiting");
-                _setInstallStatus("Interrupted work can be resumed from the transcript.");
+                _setInstallStatus(automaticRecovery
+                    ? "Runtime restarted; SquadDash will automatically audit and continue the preserved work."
+                    : "Interrupted work can be resumed from the transcript.");
                 return;
             }
             if (TryHandlePlanRuntimeFailure?.Invoke(ex.Message) == true) {
@@ -2348,6 +2359,11 @@ internal sealed class PromptExecutionController {
         IReadOnlyList<FollowUpAttachment> attachments,
         string errorMessage) {
         var agents = _agentRosterView.GetAgents();
+        var activeThreads = agents
+            .Where(card => !card.IsLeadAgent)
+            .SelectMany(card => card.Threads)
+            .Where(thread => thread.IsCurrentBackgroundRun && thread.CompletedAt is null)
+            .ToArray();
         var targetCard = string.IsNullOrWhiteSpace(dispatch.TargetAgentHandle)
             ? null
             : agents.FirstOrDefault(card =>
@@ -2355,15 +2371,12 @@ internal sealed class PromptExecutionController {
                 string.Equals(card.DisplayName.TrimStart('@'), dispatch.TargetAgentHandle.Trim().TrimStart('@'), StringComparison.OrdinalIgnoreCase));
         var activeAgentLabels = agents
             .Where(card => !card.IsLeadAgent)
-            .Where(card => card.Threads.Any(thread => thread.IsCurrentBackgroundRun && thread.CompletedAt is null))
+            .Where(card => card.Threads.Any(activeThreads.Contains))
             .Select(card => string.IsNullOrWhiteSpace(card.DisplayName) ? card.Name : card.DisplayName)
             .Where(label => !string.IsNullOrWhiteSpace(label))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var activeAgentThreadIds = agents
-            .Where(card => !card.IsLeadAgent)
-            .SelectMany(card => card.Threads)
-            .Where(thread => thread.IsCurrentBackgroundRun && thread.CompletedAt is null)
+        var activeAgentThreadIds = activeThreads
             .Select(thread => thread.ThreadId)
             .Where(id => !string.IsNullOrWhiteSpace(id))
             .Distinct(StringComparer.Ordinal)
@@ -2387,6 +2400,16 @@ internal sealed class PromptExecutionController {
                                      activeExecution.ActiveValidationId is null
             ? activeExecution.PlanExecutionAttempt
             : null;
+        var latestActiveThread = activeThreads
+            .OrderByDescending(thread => thread.LastObservedActivityAt ?? thread.StartedAt)
+            .FirstOrDefault();
+        var lastConfirmedActivity = latestActiveThread is null
+            ? null
+            : FirstNonEmptyRecoveryActivity(
+                latestActiveThread.LatestIntent,
+                latestActiveThread.RecentActivity.LastOrDefault(),
+                latestActiveThread.DetailText,
+                latestActiveThread.StatusText);
         var state = new InterruptedPromptRecoveryState(
             InterruptedPromptRecoveryState.CurrentSchemaVersion,
             Guid.NewGuid().ToString("N"),
@@ -2418,11 +2441,16 @@ internal sealed class PromptExecutionController {
             interruptedPlanAttempt?.PlanId,
             interruptedPlanAttempt?.TaskId,
             interruptedPlanAttempt?.Revision,
-            interruptedPlanAttempt?.AttemptId);
+            interruptedPlanAttempt?.AttemptId,
+            latestActiveThread?.LastObservedActivityAt,
+            lastConfirmedActivity);
         recoveryStore.Save(state);
         _onInterruptedPromptRecoverySaved?.Invoke(state);
         return state;
     }
+
+    private static string? FirstNonEmptyRecoveryActivity(params string?[] values) =>
+        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
 
     private void ClearInterruptedPromptRecovery(SessionWorkspace? workspace, string reason) {
         if (workspace is null)

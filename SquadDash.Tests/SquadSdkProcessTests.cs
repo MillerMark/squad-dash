@@ -15,6 +15,13 @@ internal sealed class SquadSdkProcessTests {
     [TearDown]
     public void TearDown() => _workspace.Dispose();
 
+    [Test]
+    public void DefaultBridgeInactivityCheck_IsFifteenMinutes() {
+        var options = new SquadSdkProcessOptions();
+
+        Assert.That(options.PromptInactivityTimeout, Is.EqualTo(TimeSpan.FromMinutes(15)));
+    }
+
     // ------------------------------------------------------------------
     // Argument validation (no process needed)
     // ------------------------------------------------------------------
@@ -771,13 +778,45 @@ internal sealed class SquadSdkProcessTests {
             () => BuildPowerShellScriptStartInfo("Start-Sleep -Seconds 60"),
             new SquadSdkProcessOptions {
                 PromptInactivityTimeout = TimeSpan.FromMilliseconds(500),
-                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50)
+                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50),
+                BridgeHealthProbeTimeout = TimeSpan.FromMilliseconds(100)
             });
 
         var ex = Assert.ThrowsAsync<TimeoutException>(
             async () => await sut.RunPromptAsync("hello", _workspace.RootPath));
 
-        Assert.That(ex!.Message, Does.Contain("without bridge activity"));
+        Assert.That(ex!.Message,
+            Does.Contain("without bridge activity").And.Contain("health check did not respond"));
+    }
+
+    [Test]
+    public async Task RunPromptAsync_HealthySilentBridgeContinuesPastHostInactivityCheck() {
+        await using var sut = new SquadSdkProcess(
+            () => BuildPowerShellScriptStartInfo("""
+                $promptRequestId = $null
+                while (($line = [Console]::In.ReadLine()) -ne $null) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $request = $line | ConvertFrom-Json
+                    if ($request.type -eq 'prompt') {
+                        $promptRequestId = $request.requestId
+                        continue
+                    }
+                    if ($request.type -eq 'health_check') {
+                        Write-Output ('{"type":"bridge_health","requestId":"' + $request.requestId + '","message":"ok"}')
+                        Write-Output ('{"type":"done","requestId":"' + $promptRequestId + '"}')
+                        break
+                    }
+                }
+                """),
+            new SquadSdkProcessOptions {
+                PromptInactivityTimeout = TimeSpan.FromMilliseconds(500),
+                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50),
+                BridgeHealthProbeTimeout = TimeSpan.FromSeconds(2)
+            });
+
+        Assert.That(
+            async () => await sut.RunPromptAsync("hello", _workspace.RootPath),
+            Throws.Nothing);
     }
 
     [Test]
@@ -790,7 +829,8 @@ internal sealed class SquadSdkProcessTests {
                 """),
             new SquadSdkProcessOptions {
                 PromptInactivityTimeout = TimeSpan.FromMilliseconds(500),
-                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50)
+                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50),
+                BridgeHealthProbeTimeout = TimeSpan.FromMilliseconds(100)
             });
 
         var ex = Assert.ThrowsAsync<TimeoutException>(
@@ -812,7 +852,8 @@ internal sealed class SquadSdkProcessTests {
                 """),
             new SquadSdkProcessOptions {
                 PromptInactivityTimeout = TimeSpan.FromMilliseconds(500),
-                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50)
+                PromptTimeoutPollInterval = TimeSpan.FromMilliseconds(50),
+                BridgeHealthProbeTimeout = TimeSpan.FromMilliseconds(100)
             });
 
         var ex = Assert.ThrowsAsync<TimeoutException>(
