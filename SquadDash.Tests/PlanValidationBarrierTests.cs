@@ -91,6 +91,71 @@ internal sealed class PlanValidationBarrierTests
     }
 
     [Test]
+    public void FailedValidation_FixRequest_InsertsRepairAndPreservesAcceptedWork()
+    {
+        var plan = MakePlanWithReadyValidation();
+        plan = PlanStoreUpdater.ApplyValidationResult(
+            plan,
+            "V1",
+            passed: false,
+            "The declared output is malformed.",
+            ["[FAIL] A produces the declared output.: Reproduced with a finite input."],
+            validatedCommit: "bbb2222");
+
+        var repaired = PlanStoreUpdater.ApplyValidationRepairRequested(plan, "V1");
+        var repairTask = repaired.Tasks.Single(task => task.TaskId == "V1-FIX-001");
+        var validation = repaired.Validations!.Single(item => item.ValidationId == "V1");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+            Assert.That(repaired.Tasks.Select(task => task.TaskId),
+                Is.EqualTo(new[] { "T1", "V1-FIX-001", "T2" }));
+            Assert.That(repaired.Tasks.Single(task => task.TaskId == "T1").Commit,
+                Is.EqualTo("aaa1111"), "Accepted task commits must remain intact.");
+            Assert.That(repairTask.Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(repairTask.DependsOn, Is.EqualTo(new[] { "T1" }));
+            Assert.That(repairTask.Description, Does.Contain("The declared output is malformed."));
+            Assert.That(repairTask.Description,
+                Does.Contain("[FAIL] A produces the declared output.: Reproduced with a finite input."));
+            Assert.That(validation.Status, Is.EqualTo(PlanValidationStatus.Pending));
+            Assert.That(validation.AfterTaskIds, Is.EqualTo(new[] { "T1", "V1-FIX-001" }));
+            Assert.That(validation.Summary, Is.EqualTo("The declared output is malformed."));
+            Assert.That(validation.ValidatedCommit, Is.EqualTo("bbb2222"));
+            Assert.That(repaired.Progress, Is.EqualTo(new PlanProgress(1, 3)));
+            Assert.That(repaired.Timestamps.InterruptedAt, Is.Null);
+        });
+    }
+
+    [Test]
+    public void FailedValidation_FixRequest_RunsOnlyOnceAndBecomesReadyAfterRepair()
+    {
+        var plan = MakePlanWithReadyValidation();
+        plan = PlanStoreUpdater.ApplyValidationResult(
+            plan,
+            "V1",
+            passed: false,
+            "Assertion failed.",
+            ["[FAIL] A produces the declared output.: Reproduced."],
+            validatedCommit: "bbb2222");
+        plan = PlanStoreUpdater.ApplyValidationRepairRequested(plan, "V1");
+
+        var repeated = PlanStoreUpdater.ApplyValidationRepairRequested(plan, "V1");
+        Assert.That(repeated, Is.SameAs(plan), "A repeated click must not create another repair task.");
+
+        var completedRepair = plan with
+        {
+            Tasks = plan.Tasks.Select(task => task.TaskId == "V1-FIX-001"
+                ? task with { Status = PlanTaskStatus.Complete, Commit = "ccc3333" }
+                : task).ToArray(),
+        };
+        var ready = PlanStoreUpdater.ApplyReadyValidations(completedRepair);
+
+        Assert.That(ready.Validations!.Single().Status, Is.EqualTo(PlanValidationStatus.Ready),
+            "Completing the bounded repair should deterministically make the validation runnable.");
+    }
+
+    [Test]
     public void HumanProofOnlyGap_CreatesPendingCheckpointWithoutBlockingPlan()
     {
         var plan = MakePlanWithReadyValidation();

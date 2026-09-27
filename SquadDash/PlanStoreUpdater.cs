@@ -982,6 +982,84 @@ internal static class PlanStoreUpdater
     }
 
     /// <summary>
+    /// Inserts one bounded repair task after the work covered by a failed validation. Completed
+    /// tasks and commits remain accepted. The validation becomes pending behind the repair task
+    /// and therefore reruns automatically when that task is accepted.
+    /// </summary>
+    internal static Plan ApplyValidationRepairRequested(Plan existing, string validationId)
+    {
+        var validation = (existing.Validations ?? []).FirstOrDefault(candidate =>
+            string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal) &&
+            candidate.Status == PlanValidationStatus.Failed);
+        if (validation is null || existing.LifecycleStatus != PlanLifecycleStatus.Blocked)
+            return existing;
+
+        var repairNumber = 1;
+        string repairTaskId;
+        do
+        {
+            repairTaskId = $"{validationId}-FIX-{repairNumber:000}";
+            repairNumber++;
+        } while (existing.Tasks.Any(task =>
+                     string.Equals(task.TaskId, repairTaskId, StringComparison.Ordinal)));
+
+        var failedEvidence = (validation.Evidence ?? [])
+            .Where(item => item.StartsWith("[FAIL] ", StringComparison.Ordinal))
+            .ToArray();
+        var evidenceText = failedEvidence.Length == 0
+            ? validation.Summary ?? "The validation failed without assertion-specific evidence."
+            : string.Join("\n", failedEvidence);
+        var repairTask = new PlanTask(
+            repairTaskId,
+            $"Repair validation failure: {validation.Title}",
+            "A non-mutating plan validation found a real defect in the accumulated implementation. " +
+            "Preserve all accepted work, inspect the current repository, implement the smallest complete correction, " +
+            "add regression coverage for the failed assertion, and return the normal committed task handoff. " +
+            "SquadDash will automatically rerun the validation after this repair is accepted.\n\n" +
+            $"Validation summary: {validation.Summary ?? "No summary was recorded."}\n\n" +
+            "Failed assertion evidence:\n" + evidenceText,
+            validation.AfterTaskIds.Distinct(StringComparer.Ordinal).ToArray(),
+            "high",
+            PlanTaskStatus.Pending,
+            AgentRoutingMode: "generic",
+            GenericAgentReason:
+                "This host-created repair may cross the contracts joined by the failed validation and has no preapproved single-specialist assignment.");
+
+        var beforeIds = validation.BeforeTaskIds.ToHashSet(StringComparer.Ordinal);
+        var indexedTasks = existing.Tasks.Select((task, index) => (task, index)).ToArray();
+        var insertionIndex = indexedTasks
+            .Where(entry => beforeIds.Contains(entry.task.TaskId))
+            .Select(entry => entry.index)
+            .DefaultIfEmpty(existing.Tasks.Count)
+            .Min();
+        var tasks = existing.Tasks.ToList();
+        tasks.Insert(insertionIndex, repairTask);
+
+        var updatedValidation = validation with
+        {
+            AfterTaskIds = validation.AfterTaskIds.Append(repairTaskId).ToArray(),
+            Status = PlanValidationStatus.Pending,
+            StartedAt = null,
+            CompletedAt = null,
+        };
+        var now = DateTimeOffset.UtcNow;
+        return existing with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = tasks,
+            Validations = existing.Validations!.Select(candidate =>
+                string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal)
+                    ? updatedValidation
+                    : candidate).ToArray(),
+            Progress = new PlanProgress(
+                tasks.Count(task => task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded),
+                tasks.Count),
+            InterruptionData = null,
+            Timestamps = existing.Timestamps with { InterruptedAt = null, LastRunAt = now },
+        };
+    }
+
+    /// <summary>
     /// Detects completed validation verdicts whose covered outputs have changed (i.e., the task
     /// producing the output was reopened or re-accepted with new work) and marks them
     /// <see cref="PlanValidationStatus.Stale"/>. Called at both transitions so stale verdicts

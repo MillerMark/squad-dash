@@ -69,7 +69,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<PendingDecomposePlan>? _requestAiReview;
     private readonly Action<PlanVisualizerReviewPayload?>? _saveReviewState;
     private readonly Action<Dictionary<string, double>>? _saveLayoutNudges;
-    private readonly Action<Plan, string>? _onRetryValidation;
+    private readonly Action<Plan, string>? _onFixValidation;
+    private readonly Action<Plan, string>? _onReviewValidation;
     private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
     private readonly Func<IReadOnlyList<RosterAgent>>? _getAssignableAgents;
     private readonly Action<string>? _onDescriptionLinkClicked;
@@ -258,7 +259,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<PendingDecomposePlan>? requestAiReview = null,
         Action<PlanVisualizerReviewPayload?>? saveReviewState = null,
         Action<Dictionary<string, double>>? saveLayoutNudges = null,
-        Action<Plan, string>? onRetryValidation = null,
+        Action<Plan, string>? onFixValidation = null,
+        Action<Plan, string>? onReviewValidation = null,
         Func<ApplicationSettingsSnapshot>? getSettings = null,
         Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
         Func<Plan, PlanRecoveryPrimaryActionPresentation?>? resolveInterruptedPrimaryAction = null,
@@ -318,7 +320,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _requestAiReview = requestAiReview;
         _saveReviewState = saveReviewState;
         _saveLayoutNudges = saveLayoutNudges;
-        _onRetryValidation = onRetryValidation;
+        _onFixValidation = onFixValidation;
+        _onReviewValidation = onReviewValidation;
         _getSettings = getSettings;
         _getAssignableAgents = getAssignableAgents;
         _onDescriptionLinkClicked = onDescriptionLinkClicked;
@@ -809,7 +812,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var onReplanRemainingWork = _onReplanRemainingWork;
         var onApproveGate      = _onApproveGate;
         var onUnapproveGate    = _onUnapproveGate;
-        var onRetryValidation  = _onRetryValidation;
+        var onFixValidation    = _onFixValidation;
+        var onReviewValidation = _onReviewValidation;
         var group = plan.Group;
         var currentInterruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
         var completedWorkReview = durablePlan is null || string.IsNullOrWhiteSpace(currentInterruptedTaskId)
@@ -1005,26 +1009,43 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var failedValidation = durablePlan?.Validations?.FirstOrDefault(candidate =>
             candidate.Status == PlanValidationStatus.Failed);
-        if (durablePlan is not null && failedValidation is not null && onRetryValidation is not null)
+        if (durablePlan is not null && failedValidation is not null &&
+            (onFixValidation is not null || onReviewValidation is not null))
         {
             var validationPanel = new WrapPanel
             {
                 Orientation = Orientation.Horizontal,
                 Margin = new Thickness(0, 0, 0, 8),
             };
-            var retryValidationButton = TranscriptQuickReplyFactory.CreateButton(
-                "Retry Validation",
-                quickReplyFontSize,
-                toolTip: ToolTipHelper.MakeThemedToolTip(
-                    $"Retry the non-mutating validation “{failedValidation.Title}.” Completed implementation steps and commits remain accepted."));
-            retryValidationButton.Focusable = false;
-            retryValidationButton.Click += (_, _) =>
+            if (onFixValidation is not null)
             {
-                validationPanel.IsEnabled = false;
-                onRetryValidation(durablePlan, failedValidation.ValidationId);
-                Close();
-            };
-            validationPanel.Children.Add(retryValidationButton);
+                var fixValidationButton = TranscriptQuickReplyFactory.CreateButton(
+                    "Fix defect and revalidate",
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(
+                        $"Create one bounded repair step for “{failedValidation.Title},” preserve completed work, and rerun validation automatically."));
+                fixValidationButton.Focusable = false;
+                fixValidationButton.Click += (_, _) =>
+                {
+                    validationPanel.IsEnabled = false;
+                    onFixValidation(durablePlan, failedValidation.ValidationId);
+                    Close();
+                };
+                validationPanel.Children.Add(fixValidationButton);
+            }
+            if (onReviewValidation is not null)
+            {
+                var reviewText = new TextBlock
+                {
+                    Margin = new Thickness(12, 5, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var reviewLink = new Hyperlink(new Run("Review details")) { Cursor = Cursors.Hand };
+                reviewLink.Click += (_, _) =>
+                    onReviewValidation(durablePlan, failedValidation.ValidationId);
+                reviewText.Inlines.Add(reviewLink);
+                validationPanel.Children.Add(reviewText);
+            }
             header.Children.Add(validationPanel);
         }
 

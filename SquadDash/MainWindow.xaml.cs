@@ -357,6 +357,8 @@ public partial class MainWindow : Window
         _approvalTranscriptCards = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PlanApprovalReviewWindow>
         _openPlanApprovalReviewWindows = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PlanValidationDetailsWindow>
+        _openPlanValidationDetailsWindows = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
     private DispatcherTimer? _approvalResumeRetryTimer;
     private string? _approvalResumeRetryPlanId;
@@ -13483,8 +13485,10 @@ public partial class MainWindow : Window
             requestAiReview: requestAiReview,
             saveReviewState: saveReviewState,
             saveLayoutNudges: saveLayoutNudges,
-            onRetryValidation: (current, validationId) =>
-                _ = RetryFailedPlanValidationAsync(current.PlanId, validationId),
+            onFixValidation: (current, validationId) =>
+                _ = FixFailedPlanValidationAsync(current.PlanId, validationId),
+            onReviewValidation: (current, validationId) =>
+                OpenPlanValidationDetails(current.PlanId, validationId),
             getSettings: () => _settingsSnapshot,
             getAssignableAgents: GetAssignablePlanAgentsForViewer,
             resolveInterruptedPrimaryAction: ResolveInterruptedPrimaryAction,
@@ -15583,7 +15587,8 @@ public partial class MainWindow : Window
     {
         void Publish()
         {
-            var validation = _planStore?.Load(planId)?.Validations?.FirstOrDefault(candidate =>
+            var plan = _planStore?.Load(planId);
+            var validation = plan?.Validations?.FirstOrDefault(candidate =>
                 string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal));
             var preparesHumanReview =
                 PlanValidationHumanProofRecoveryPolicy.IsLegacyHumanProofOnlyFailure(validation);
@@ -15602,32 +15607,98 @@ public partial class MainWindow : Window
                 CoordinatorThread.Document.Blocks.Remove(existing);
 
             var section = new Section { Tag = tag };
-            var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-            var retry = TranscriptQuickReplyFactory.CreateButton(
-                preparesHumanReview ? "Prepare Review Checklist" : "Retry Validation",
+            var card = new Border
+            {
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 12, 14, 12),
+                Margin = new Thickness(0, 6, 0, 8),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            card.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+            card.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+            var cardContent = new StackPanel();
+            var heading = new TextBlock
+            {
+                Text = preparesHumanReview ? "Validation needs review" : "Validation failed",
+                FontWeight = FontWeights.SemiBold,
+                FontSize = _transcriptFontSize + 1,
+            };
+            heading.SetResourceReference(TextBlock.ForegroundProperty,
+                preparesHumanReview ? "BodyText" : "PriorityCritical");
+            cardContent.Children.Add(heading);
+            if (validation is not null)
+            {
+                var title = new TextBlock
+                {
+                    Text = validation.Title,
+                    FontWeight = FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 5, 0, 0),
+                };
+                title.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+                cardContent.Children.Add(title);
+
+                var summary = new TextBlock
+                {
+                    Text = validation.Summary ?? "The validation did not return acceptable evidence.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 5, 0, 0),
+                    MaxWidth = 900,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                };
+                summary.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                cardContent.Children.Add(summary);
+            }
+
+            var actions = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 10, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var primary = TranscriptQuickReplyFactory.CreateButton(
+                preparesHumanReview ? "Prepare Review Checklist" : "Fix defect and revalidate",
                 _transcriptFontSize,
                 toolTip: ToolTipHelper.MakeThemedToolTip(
                     preparesHumanReview
                         ? "Re-evaluate this non-mutating audit under the human-review protocol and present the specific observations as checkboxes."
-                        : "Retry only this non-mutating validation. Completed implementation tasks and commits remain accepted."));
-            retry.Click += async (_, _) =>
+                        : "Add one bounded repair step from the recorded failure evidence, preserve completed work, and rerun this validation after the repair."));
+            primary.Click += async (_, _) =>
             {
-                retry.IsEnabled = false;
+                primary.IsEnabled = false;
                 try
                 {
                     CoordinatorThread.Document.Blocks.Remove(section);
-                    await RetryFailedPlanValidationAsync(planId, validationId);
+                    if (preparesHumanReview)
+                        await RetryFailedPlanValidationAsync(planId, validationId);
+                    else
+                        await FixFailedPlanValidationAsync(planId, validationId);
                 }
                 catch (Exception ex)
                 {
-                    retry.IsEnabled = true;
+                    primary.IsEnabled = true;
                     if (!CoordinatorThread.Document.Blocks.Contains(section))
                         CoordinatorThread.Document.Blocks.Add(section);
-                    HandleUiCallbackException("Retry validation", ex);
+                    HandleUiCallbackException("Validation recovery", ex);
                 }
             };
-            panel.Children.Add(retry);
-            section.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, tag));
+            actions.Children.Add(primary);
+            if (plan is not null && validation is not null)
+            {
+                var reviewText = new TextBlock
+                {
+                    Margin = new Thickness(12, 5, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var review = new Hyperlink(new Run("Review details")) { Cursor = Cursors.Hand };
+                review.Click += (_, _) => OpenPlanValidationDetails(planId, validationId);
+                reviewText.Inlines.Add(review);
+                actions.Children.Add(reviewText);
+            }
+            cardContent.Children.Add(actions);
+            card.Child = cardContent;
+            section.Blocks.Add(new BlockUIContainer(card));
             CoordinatorThread.Document.Blocks.Add(section);
             ScrollToEndIfAtBottom(CoordinatorThread);
         }
@@ -15671,6 +15742,65 @@ public partial class MainWindow : Window
                 ? $"Preparing review checklist · {validation.Title}. A fact-checker will identify only the specific human observations still needed; completed implementation work remains accepted."
                 : $"Retrying validation · {validation.Title}. Completed implementation work remains accepted.");
         await StartOrResumeDurablePlanAsync(updated);
+    }
+
+    private async Task FixFailedPlanValidationAsync(string planId, string validationId)
+    {
+        if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+            throw new InvalidOperationException(
+                "Wait for the current prompt or plan turn to finish before repairing validation.");
+
+        var plan = _planStore?.Load(planId)
+            ?? throw new InvalidOperationException($"Plan {planId} is no longer available.");
+        var validation = plan.Validations?.FirstOrDefault(candidate =>
+            string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal));
+        if (validation is null || validation.Status != PlanValidationStatus.Failed)
+            throw new InvalidOperationException("This validation is no longer waiting for a repair.");
+
+        var updated = PlanStoreUpdater.ApplyValidationRepairRequested(plan, validationId);
+        if (ReferenceEquals(updated, plan))
+            throw new InvalidOperationException("SquadDash could not create a bounded repair step for this validation.");
+        if (!TryPublishPlanProgress(updated, out var error))
+            throw new InvalidOperationException(error ?? "The validation repair could not be saved.");
+
+        RefreshPlanProjectionBestEffort(updated, "validation-defect-repair");
+        LoadTasksPanel();
+        PrepareForHostRecoveryAction();
+        ScheduleDecomposeSystemEntry(
+            $"Repairing validation defect · {validation.Title}. Completed work remains accepted; " +
+            "the failed assertion evidence is attached to one bounded repair step, and validation will rerun automatically afterward.");
+        await StartOrResumeDurablePlanAsync(updated);
+    }
+
+    private void OpenPlanValidationDetails(string planId, string validationId)
+    {
+        var plan = _planStore?.Load(planId)
+            ?? throw new InvalidOperationException($"Plan {planId} is no longer available.");
+        var validation = plan.Validations?.FirstOrDefault(candidate =>
+            string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException($"Validation {validationId} is no longer part of this plan.");
+        var key = $"{planId}:{validationId}";
+        if (_openPlanValidationDetailsWindows.TryGetValue(key, out var existing))
+        {
+            if (existing.WindowState == WindowState.Minimized)
+                existing.WindowState = WindowState.Normal;
+            existing.Activate();
+            return;
+        }
+
+        var window = new PlanValidationDetailsWindow(
+            PlanValidationDetailsPresentationBuilder.Build(plan, validation))
+        {
+            Owner = CanShowOwnedWindow() ? this : null,
+        };
+        _openPlanValidationDetailsWindows[key] = window;
+        window.Closed += (_, _) =>
+        {
+            _openPlanValidationDetailsWindows.Remove(key);
+            FloatingWindowPositionStore.Shared.Save($"ValidationDetails:{key}", window);
+        };
+        FloatingWindowPositionStore.Shared.TryRestore($"ValidationDetails:{key}", window);
+        window.Show();
     }
 
     private Plan? ApplyAndPublishValidationResult(
