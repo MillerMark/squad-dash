@@ -9,6 +9,16 @@ namespace SquadDash;
 
 internal enum LoopStopState { None, StopRequested, Aborted }
 
+internal enum LoopIterationProgressKind
+{
+    CoordinatorOutput,
+    ToolActivity,
+    WorkerActivity,
+    VerificationActivity,
+    CommitObserved,
+    RestartCheckpoint,
+}
+
 /// <summary>
 /// Drives the Native-Loop-in-Bridge feature.
 /// Runs iterations on a background Task; all WPF UI callbacks are marshalled
@@ -28,6 +38,8 @@ internal sealed class LoopController {
     private readonly Func<Task>                  _onBeforeIteration;
     private readonly Func<Task>                  _onBeforeWait;
     private readonly ILoopClock                  _clock;
+    private readonly Func<bool>                  _isIterationTimeoutSuspended;
+    private readonly SemaphoreSlim               _iterationProgressSignal = new(0, 1);
 
     private volatile bool         _stopRequested;
     private volatile bool         _recoveryHoldRequested;
@@ -70,7 +82,8 @@ internal sealed class LoopController {
         Action<DateTimeOffset>      onWaiting,
         Func<Task>?                 onBeforeIteration = null,
         Func<Task>?                 onBeforeWait      = null,
-        ILoopClock?                 clock             = null) {
+        ILoopClock?                 clock             = null,
+        Func<bool>?                 isIterationTimeoutSuspended = null) {
 
         _executePromptAsync   = executePromptAsync;
         _abortPrompt          = abortPrompt;
@@ -82,6 +95,28 @@ internal sealed class LoopController {
         _onBeforeIteration    = onBeforeIteration ?? (() => Task.CompletedTask);
         _onBeforeWait         = onBeforeWait      ?? (() => Task.CompletedTask);
         _clock                = clock             ?? SystemLoopClock.Instance;
+        _isIterationTimeoutSuspended = isIterationTimeoutSuspended ?? (() => false);
+    }
+
+    /// <summary>
+    /// Renews the active iteration's inactivity lease from an explicit host-observed progress
+    /// event. The signal is coalesced; progress is evidence that work is alive, not a counter.
+    /// </summary>
+    internal void RenewIterationLease(LoopIterationProgressKind kind)
+    {
+        if (!IsRunning)
+            return;
+
+        try
+        {
+            if (_iterationProgressSignal.CurrentCount == 0)
+                _iterationProgressSignal.Release();
+            SquadDashTrace.Write("Loop", $"Iteration inactivity lease renewed kind={kind}.");
+        }
+        catch (SemaphoreFullException)
+        {
+            // Another progress event already renewed the same lease window.
+        }
     }
 
     /// <summary>
@@ -179,6 +214,8 @@ internal sealed class LoopController {
                 iteration++;
                 _onIterationStarted(iteration);
 
+                while (_iterationProgressSignal.Wait(0)) { }
+
                 // continuousContext=false → each iteration gets its own session so
                 // agent state does not accumulate across rounds.
                 var sessionId = continuousContext ? null : Guid.NewGuid().ToString("N");
@@ -194,20 +231,41 @@ internal sealed class LoopController {
                 var prompt     = BuildAugmentedPrompt(expandedInstructions, config.Commands);
                 var promptTask = _executePromptAsync(prompt, sessionId);
 
-                // Race the prompt against the per-iteration wall-clock timeout.
-                // Task.Delay with a dedicated CTS fires independently of the outer ct,
-                // so we can distinguish a true timeout from a user-requested abort.
-                using var timeoutCts = new CancellationTokenSource(
-                    TimeSpan.FromMinutes(config.TimeoutMinutes));
-                var timeoutExpired = Task.Delay(Timeout.InfiniteTimeSpan, timeoutCts.Token);
+                var inactivityLimit = TimeSpan.FromMinutes(config.TimeoutMinutes);
+                var timedOut = false;
+                while (!promptTask.IsCompleted && !ct.IsCancellationRequested)
+                {
+                    using var leaseCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    var progressObserved = _iterationProgressSignal.WaitAsync(leaseCts.Token);
+                    var inactivityExpired = Task.Delay(inactivityLimit, leaseCts.Token);
+                    var completed = await Task.WhenAny(promptTask, progressObserved, inactivityExpired);
+                    leaseCts.Cancel();
 
-                if (await Task.WhenAny(promptTask, timeoutExpired) != promptTask) {
+                    if (completed == promptTask)
+                        break;
+                    if (ct.IsCancellationRequested)
+                        break;
+                    if (completed == progressObserved)
+                        continue;
+                    if (_isIterationTimeoutSuspended())
+                    {
+                        SquadDashTrace.Write(
+                            "Loop",
+                            $"Iteration {iteration} inactivity limit reached while a restart checkpoint owns continuation; timeout suspended.");
+                        continue;
+                    }
+
+                    timedOut = true;
+                    break;
+                }
+
+                if (timedOut) {
                     // Timeout fired before the prompt finished — abort it, then report.
                     _abortPrompt();
                     try { await promptTask; } catch { /* swallow post-abort exception */ }
                     IsRunning = false;
                     ReportTerminalError(
-                        $"Iteration {iteration} timed out after {config.TimeoutMinutes} min",
+                        $"Iteration {iteration} timed out after {config.TimeoutMinutes} min without confirmed progress",
                         ref terminalErrorReported);
                     break;
                 }

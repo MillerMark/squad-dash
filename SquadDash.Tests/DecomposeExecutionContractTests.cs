@@ -486,6 +486,37 @@ internal sealed class DecomposeRevisionTests
     }
 
     [Test]
+    public void HasOnlyAllowedChanges_HostOwnedSquadRuntimeFiles_DoNotBlockRecovery()
+    {
+        const string status = """
+             M .squad/diagnostics/recent-prompts.json
+             M .squad/logs/plan-execution.ndjson
+            ?? .squad/plans/PLAN-1.json
+            ?? .squad/tmp/agent-artifacts/result.json
+            ?? .squad/archive/agent-artifacts/2026-09-28/result.json
+             M .squad/instructions/decompose-planning.md
+             M .squad/loop-executing-plan.md
+            """;
+
+        Assert.That(
+            DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, [], out var disallowed),
+            Is.True);
+        Assert.That(disallowed, Is.Empty);
+    }
+
+    [TestCase(" M .squad/team.md")]
+    [TestCase(" M .squad/routing.md")]
+    [TestCase(" M .squad/decisions.md")]
+    [TestCase("?? .squad/notes/user-note.md")]
+    public void HasOnlyAllowedChanges_UserOwnedSquadFilesStillBlockRecovery(string status)
+    {
+        Assert.That(
+            DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, [], out var disallowed),
+            Is.False);
+        Assert.That(disallowed, Has.Count.EqualTo(1));
+    }
+
+    [Test]
     public void Normalize_AllowsOneForOneReplacementAndRewiresDownstream()
     {
         var proposal = MakeRevision() with

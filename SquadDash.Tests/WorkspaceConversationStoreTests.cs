@@ -856,6 +856,53 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void SaveAndLoad_RoundTripsPendingPlanContinuation()
+    {
+        var recordedAt = DateTimeOffset.Parse("2026-09-28T13:58:37-04:00");
+        var pending = new PendingPlanContinuationState(
+            "PLAN-20260928",
+            "revision-1",
+            "continue-working",
+            recordedAt);
+
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with { PendingPlanContinuation = pending });
+
+        var loaded = _store.Load(_workspacePath).PendingPlanContinuation;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded, Is.Not.Null);
+            Assert.That(loaded!.PlanId, Is.EqualTo("PLAN-20260928"));
+            Assert.That(loaded.Revision, Is.EqualTo("revision-1"));
+            Assert.That(loaded.Action, Is.EqualTo("continue-working"));
+            Assert.That(loaded.RecordedAt, Is.EqualTo(recordedAt.ToUniversalTime()));
+            Assert.That(loaded.BuildProtocolResponse(), Does.Contain(DecomposeRecoveryDecisionParser.Marker));
+        });
+    }
+
+    [Test]
+    public void SaveAndLoad_RoundTripsPlanRestartCheckpoint()
+    {
+        var checkpointAt = DateTimeOffset.Parse("2026-09-28T11:27:58-04:00");
+        var execution = new ActiveLoopExecutionState(
+            "D:/repo/.squad/loop-executing-plan.md",
+            "PLAN-20260928",
+            "PLAN-20260928",
+            "revision-1",
+            LastCompletedIteration: 4,
+            RestartCheckpointRequestedAt: checkpointAt);
+
+        _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with { ActiveLoopExecution = execution });
+
+        var loaded = _store.Load(_workspacePath).ActiveLoopExecution;
+        Assert.That(loaded?.RestartCheckpointRequestedAt, Is.EqualTo(checkpointAt.ToUniversalTime()));
+    }
+
+    [Test]
     public void StartupResume_IsOwnedByTheWorkspaceThatPersistedTheEnvelope()
     {
         var otherWorkspace = _workspace.GetPath("other-workspace");

@@ -428,7 +428,8 @@ internal sealed class WorkspaceConversationStore {
                state.QueueLastChangedAt is not null ||
                !string.IsNullOrWhiteSpace(state.ActiveExecutingPlanGroupId) ||
                state.ActiveLoopExecution is not null ||
-               state.PendingManualLoopResume is not null;
+               state.PendingManualLoopResume is not null ||
+               state.PendingPlanContinuation is not null;
     }
 
     private static bool IsExplicitClear(WorkspaceConversationState state) {
@@ -515,6 +516,7 @@ internal sealed class WorkspaceConversationStore {
                 : state.ActiveExecutingPlanGroupId.Trim(),
             ActiveLoopExecution       = ActiveLoopExecutionState.Normalize(state.ActiveLoopExecution),
             PendingManualLoopResume   = ActiveLoopExecutionState.Normalize(state.PendingManualLoopResume),
+            PendingPlanContinuation   = PendingPlanContinuationState.Normalize(state.PendingPlanContinuation),
             ActiveDraftSimResponse   = state.ActiveDraftSimResponse,
             ActiveDraftSimDelaySeconds = state.ActiveDraftSimDelaySeconds,
         };
@@ -952,6 +954,11 @@ internal sealed record WorkspaceConversationState(
     /// startup claim; the transcript must offer the user an explicit Resume Loop action.
     /// </summary>
     public ActiveLoopExecutionState? PendingManualLoopResume { get; init; }
+    /// <summary>
+    /// Structured plan continuation awaiting a confirmed runner start. This survives process
+    /// restarts and is cleared only after the matching plan publishes a new start boundary.
+    /// </summary>
+    public PendingPlanContinuationState? PendingPlanContinuation { get; init; }
     /// <summary>Sim response for the active-draft tab set by /test-queue $ActiveDraft$. Null when not in sim mode.</summary>
     public string? ActiveDraftSimResponse { get; init; }
     /// <summary>Delay in seconds for the active-draft sim entry. Only meaningful when ActiveDraftSimResponse is non-null.</summary>
@@ -1026,7 +1033,8 @@ internal sealed record ActiveLoopExecutionState(
     AssessedRecoveryContinuationState? AssessedRecoveryContinuation = null,
     string? PendingDecomposeRevision = null,
     PlanBranchLease? BranchLease = null,
-    string? PendingInboxLinkRepairError = null)
+    string? PendingInboxLinkRepairError = null,
+    DateTimeOffset? RestartCheckpointRequestedAt = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
 
@@ -1166,7 +1174,8 @@ internal sealed record ActiveLoopExecutionState(
             branchLease,
             string.IsNullOrWhiteSpace(state.PendingInboxLinkRepairError)
                 ? null
-                : state.PendingInboxLinkRepairError.Trim());
+                : state.PendingInboxLinkRepairError.Trim(),
+            state.RestartCheckpointRequestedAt?.ToUniversalTime());
     }
 }
 

@@ -226,6 +226,7 @@
     <Compile Include="..\SquadDash\LoopStopResumePolicy.cs" Link="Source\LoopStopResumePolicy.cs" />
     <Compile Include="..\SquadDash\LoopResumeExecutionPolicy.cs" Link="Source\LoopResumeExecutionPolicy.cs" />
     <Compile Include="..\SquadDash\LoopController.cs" Link="Source\LoopController.cs" />
+    <Compile Include="..\SquadDash\PlanIterationProgressPolicy.cs" Link="Source\PlanIterationProgressPolicy.cs" />
     <Compile Include="..\SquadDash\LoopClock.cs" Link="Source\LoopClock.cs" />
     <Compile Include="..\SquadDash\LoopBoundaryDiagnostics.cs" Link="Source\LoopBoundaryDiagnostics.cs" />
     <Compile Include="..\SquadDash\PromptQueue.cs" Link="Source\PromptQueue.cs" />
@@ -317,6 +318,7 @@
     <Compile Include="..\SquadDash\WorkspaceOpenCoordinator.cs" Link="Source\WorkspaceOpenCoordinator.cs" />
     <Compile Include="..\SquadDash\FollowUpAttachment.cs" Link="Source\FollowUpAttachment.cs" />
     <Compile Include="..\SquadDash\WorkspaceConversationStore.cs" Link="Source\WorkspaceConversationStore.cs" />
+    <Compile Include="..\SquadDash\PendingPlanContinuationState.cs" Link="Source\PendingPlanContinuationState.cs" />
     <Compile Include="..\SquadDash\QueueRecoveryHoldState.cs" Link="Source\QueueRecoveryHoldState.cs" />
     <Compile Include="..\SquadDash\InterruptedPromptFreshnessContext.cs" Link="Source\InterruptedPromptFreshnessContext.cs" />
     <Compile Include="..\SquadDash\DecomposeRecoveryDispatchPolicy.cs" Link="Source\DecomposeRecoveryDispatchPolicy.cs" />

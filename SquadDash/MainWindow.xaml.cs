@@ -447,6 +447,11 @@ public partial class MainWindow : Window
     private PendingPlanRecoveryAssessment? _pendingPlanRecoveryAssessment;
     private string? _pendingDecomposeRecoveryResponse;
     private bool _pendingDecomposeRecoveryDispatchScheduled;
+    private DateTimeOffset? _pendingDecomposeRecoveryDispatchScheduledAt;
+    private long _pendingDecomposeRecoveryDispatchGeneration;
+    private bool _pendingDecomposeRecoveryDispatchInFlight;
+    private DateTimeOffset? _pendingPlanContinuationClaimedAt;
+    private int _pendingPlanContinuationDispatchAttempts;
     private bool _planRecoveryAssessmentApplying;
 
     // ── Panel docking ────────────────────────────────────────────────────────
@@ -1347,6 +1352,7 @@ public partial class MainWindow : Window
             try
             {
                 RefreshStatusPresentation();
+                EnsurePendingPlanContinuationDispatched();
             }
             catch (Exception ex)
             {
@@ -1810,7 +1816,8 @@ public partial class MainWindow : Window
                           .Task.Unwrap(),
             onBeforeWait: () =>
                 Dispatcher.InvokeAsync(() => DrainQueueIfNeededAsync())
-                          .Task.Unwrap());
+                          .Task.Unwrap(),
+            isIterationTimeoutSuspended: () => _restartPending);
 
         var transcriptCommitResolver = new GitCommitReferenceResolver(
             () => _currentWorkspace?.FolderPath);
@@ -5713,6 +5720,10 @@ public partial class MainWindow : Window
         if (ShouldIgnoreForceStoppedBridgeEvent(evt))
             return;
 
+        if (_activeDecomposeGroupId is not null &&
+            PlanIterationProgressPolicy.TryResolve(evt, out var progressKind))
+            _loopController.RenewIterationLease(progressKind);
+
         if (!string.Equals(evt.Type, "sdk_diagnostics", StringComparison.Ordinal))
             _pec.MarkActivity(evt);
 
@@ -9547,14 +9558,16 @@ public partial class MainWindow : Window
         _activeDecomposeGroupId = groupId;
         _planExecutionLog = new PlanExecutionLog(_currentWorkspace.FolderPath);
         _planExecutionLog.Append(new PlanExecutionLogEntry(
-            Kind: resumeFromIteration > 0 ? "plan_restart" : "plan_started",
+            Kind: "plan_started",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
             PlanId: groupId,
             Revision: revision,
             Round: resumeFromIteration > 0 ? resumeFromIteration : null,
             TaskId: _CodeHealthGroupRunner?.CurrentStepId,
             TaskTitle: _CodeHealthGroupRunner?.GetCurrentStepTitle(),
-            Message: null,
+            Message: resumeFromIteration > 0
+                ? $"Resumed from completed iteration {resumeFromIteration}."
+                : null,
             Outcome: null));
         _decomposeContinuationTaskId = isConfirmedContinuation ? continuationTaskId : null;
         _decomposeContinuationPaths = isConfirmedContinuation ? [.. continuationPaths!] : [];
@@ -9648,6 +9661,21 @@ public partial class MainWindow : Window
         await _loopController.StartAsync(config, continuousContext: true,
             _currentWorkspace?.FolderPath, resumeFromIteration, filterText: groupId,
             featureGroups: _featureGroupStore?.Load(), hostAssignsExactPlanTask: true);
+        if (_conversationManager.ConversationState.PendingPlanContinuation is { } continuation &&
+            string.Equals(continuation.PlanId, groupId, StringComparison.Ordinal) &&
+            string.Equals(continuation.Revision, revision, StringComparison.Ordinal))
+        {
+            _conversationManager.UpdatePendingPlanContinuationState(null);
+            _pendingDecomposeRecoveryResponse = null;
+            _pendingDecomposeRecoveryDispatchScheduled = false;
+            _pendingDecomposeRecoveryDispatchScheduledAt = null;
+            _pendingDecomposeRecoveryDispatchGeneration++;
+            _pendingPlanContinuationClaimedAt = null;
+            _pendingPlanContinuationDispatchAttempts = 0;
+            SquadDashTrace.Write(
+                "PlanRecovery",
+                $"Cleared durable plan continuation after confirmed plan start plan={groupId} revision={revision}.");
+        }
         var resumedTaskId = _conversationManager.ConversationState.ActiveLoopExecution?
             .PlanExecutionAttempt?.TaskId
             ?? _CodeHealthGroupRunner?.CurrentStepId;
@@ -11422,8 +11450,28 @@ public partial class MainWindow : Window
 
     private async Task ApplyDecomposeRecoveryFromResponseSafelyAsync(string? rawResponse)
     {
+        DecomposeRecoveryDecisionParser.TryParse(rawResponse, out var pendingDecision);
+        if (pendingDecision is not null &&
+            pendingDecision.Action is "continue-working" or "resume-verification")
+        {
+            var existing = _conversationManager.ConversationState.PendingPlanContinuation;
+            if (existing is null ||
+                !string.Equals(existing.PlanId, pendingDecision.GroupId, StringComparison.Ordinal) ||
+                !string.Equals(existing.Revision, pendingDecision.Revision, StringComparison.Ordinal) ||
+                !string.Equals(existing.Action, pendingDecision.Action, StringComparison.Ordinal))
+            {
+                _pendingPlanContinuationClaimedAt = null;
+                _pendingPlanContinuationDispatchAttempts = 0;
+                _conversationManager.UpdatePendingPlanContinuationState(
+                    new PendingPlanContinuationState(
+                        pendingDecision.GroupId,
+                        pendingDecision.Revision,
+                        pendingDecision.Action,
+                        DateTimeOffset.UtcNow));
+            }
+        }
+
         if (DecomposeRecoveryDispatchPolicy.ShouldDefer(_isPromptRunning, _loopController.IsRunning) &&
-            DecomposeRecoveryDecisionParser.TryParse(rawResponse, out var pendingDecision) &&
             pendingDecision is not null)
         {
             _pendingDecomposeRecoveryResponse = rawResponse;
@@ -11446,14 +11494,96 @@ public partial class MainWindow : Window
             return;
 
         _pendingDecomposeRecoveryDispatchScheduled = true;
+        _pendingDecomposeRecoveryDispatchScheduledAt = DateTimeOffset.UtcNow;
+        var dispatchGeneration = ++_pendingDecomposeRecoveryDispatchGeneration;
         Dispatcher.InvokeAsync(
             async () =>
             {
+                if (dispatchGeneration != _pendingDecomposeRecoveryDispatchGeneration)
+                    return;
                 _pendingDecomposeRecoveryResponse = null;
                 _pendingDecomposeRecoveryDispatchScheduled = false;
-                await ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
+                _pendingDecomposeRecoveryDispatchScheduledAt = null;
+                _pendingDecomposeRecoveryDispatchInFlight = true;
+                _pendingPlanContinuationClaimedAt = DateTimeOffset.UtcNow;
+                _pendingPlanContinuationDispatchAttempts++;
+                try
+                {
+                    await ApplyDecomposeRecoveryFromResponseSafelyAsync(rawResponse);
+                }
+                finally
+                {
+                    _pendingDecomposeRecoveryDispatchInFlight = false;
+                }
             },
             System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private void EnsurePendingPlanContinuationDispatched()
+    {
+        if (_pendingDecomposeRecoveryDispatchInFlight)
+            return;
+
+        if (_pendingPlanContinuationClaimedAt is { } claimedAt &&
+            _conversationManager.ConversationState.PendingPlanContinuation is { } claimed &&
+            _planStore?.Load(claimed.PlanId) is { } claimedPlan)
+        {
+            var runnerOwnsPlan = _loopController.IsRunning &&
+                                 string.Equals(_activeDecomposeGroupId, claimed.PlanId, StringComparison.Ordinal);
+            var mayRetryLostClaim = !runnerOwnsPlan &&
+                                    !_isPromptRunning &&
+                                    claimedPlan.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+                                    DateTimeOffset.UtcNow - claimedAt >= TimeSpan.FromSeconds(5) &&
+                                    _pendingPlanContinuationDispatchAttempts < 3;
+            if (!mayRetryLostClaim)
+                return;
+
+            _pendingPlanContinuationClaimedAt = null;
+            SquadDashTrace.Write(
+                "PlanRecovery",
+                $"Retrying unconfirmed durable plan continuation plan={claimed.PlanId} attempt={_pendingPlanContinuationDispatchAttempts + 1}.");
+        }
+
+        if (_pendingDecomposeRecoveryDispatchScheduled &&
+            _pendingDecomposeRecoveryDispatchScheduledAt is { } scheduledAt &&
+            DateTimeOffset.UtcNow - scheduledAt >= TimeSpan.FromSeconds(5))
+        {
+            _pendingDecomposeRecoveryDispatchScheduled = false;
+            _pendingDecomposeRecoveryDispatchScheduledAt = null;
+            SquadDashTrace.Write(
+                "PlanRecovery",
+                "Reclaiming a deferred plan-continuation dispatch that did not reach the UI dispatcher.");
+        }
+
+        if (_pendingDecomposeRecoveryResponse is null &&
+            _conversationManager.ConversationState.PendingPlanContinuation is { } pending)
+            _pendingDecomposeRecoveryResponse = pending.BuildProtocolResponse();
+
+        TryDispatchPendingDecomposeRecoveryResponse();
+    }
+
+    private void RestorePendingPlanContinuation()
+    {
+        var pending = _conversationManager.ConversationState.PendingPlanContinuation;
+        if (pending is null || _planStore is null)
+            return;
+
+        var plan = _planStore.Load(pending.PlanId);
+        if (plan is null ||
+            PlanLifecycleStatus.IsTerminal(plan.LifecycleStatus) ||
+            !string.Equals(plan.Revision, pending.Revision, StringComparison.Ordinal))
+        {
+            _conversationManager.UpdatePendingPlanContinuationState(null);
+            return;
+        }
+
+        _pendingDecomposeRecoveryResponse = pending.BuildProtocolResponse();
+        _pendingPlanContinuationClaimedAt = null;
+        _pendingPlanContinuationDispatchAttempts = 0;
+        SquadDashTrace.Write(
+            "PlanRecovery",
+            $"Restored durable plan continuation plan={pending.PlanId} action={pending.Action}.");
+        TryDispatchPendingDecomposeRecoveryResponse();
     }
 
     private bool TryRouteInterruptedStepResultToRecovery(string? rawResponse)
@@ -19969,16 +20099,41 @@ public partial class MainWindow : Window
                     completedWorkReview.ComparisonHint,
                     () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
             }
-            AddAsyncAction(
-                $"Continue Working on {stepLabel}",
-                "Continue from the preserved repository state without discarding existing commits or repeating completed work.",
-                async () =>
+            if (durablePlan is not null && primaryRecoveryAction is not null)
+            {
+                switch (primaryRecoveryAction.Kind)
                 {
-                    if (primaryRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.ResumeVerification)
-                        await AssessPlanRecoveryAsync(plan, taskId);
-                    else
-                        await RetryDecomposeTaskAsync(plan, taskId);
-                });
+                    case PlanRecoveryPrimaryActionKind.AcceptStep:
+                    case PlanRecoveryPrimaryActionKind.AcceptUnattributedStep:
+                    case PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp:
+                    case PlanRecoveryPrimaryActionKind.ApproveAmendment:
+                        AddAsyncResultAction(
+                            primaryRecoveryAction.Label,
+                            primaryRecoveryAction.Hint,
+                            async () => await AcceptInterruptedStepAfterReviewAsync(
+                                _planStore?.Load(durablePlan.PlanId) ?? durablePlan));
+                        break;
+                    case PlanRecoveryPrimaryActionKind.ResumeVerification:
+                        AddAsyncAction(
+                            primaryRecoveryAction.Label,
+                            primaryRecoveryAction.Hint,
+                            async () => await AssessPlanRecoveryAsync(plan, taskId));
+                        break;
+                    default:
+                        AddAsyncAction(
+                            primaryRecoveryAction.Label,
+                            primaryRecoveryAction.Hint,
+                            async () => await RetryDecomposeTaskAsync(plan, taskId));
+                        break;
+                }
+            }
+            if (primaryRecoveryAction?.Kind is not PlanRecoveryPrimaryActionKind.ContinueWorking)
+            {
+                AddAsyncAction(
+                    $"Continue Working on {stepLabel}",
+                    "Keep this step incomplete and continue from the preserved repository state without discarding existing commits.",
+                    async () => await RetryDecomposeTaskAsync(plan, taskId));
+            }
             AddUtilityAction(
                 "Copy Diagnostic Report",
                 "Copy the plan identity, recorded error, and technical details for a SquadDash issue report.",
@@ -19996,7 +20151,7 @@ public partial class MainWindow : Window
             if (durablePlan is not null)
             {
                 AddAction(
-                    "Stop Plan",
+                    "End Plan",
                     "Stop this incomplete plan without discarding its history or repository work.",
                     () => EndInterruptedPlan(_planStore?.Load(durablePlan.PlanId) ?? durablePlan),
                     tone: QuickReplyTone.Destructive);
@@ -20038,7 +20193,7 @@ public partial class MainWindow : Window
             if (durablePlan is not null)
             {
                 AddAction(
-                    "Stop Plan",
+                    "End Plan",
                     "Stop this incomplete plan without discarding its history or repository work.",
                     () => EndInterruptedPlan(_planStore?.Load(durablePlan.PlanId) ?? durablePlan),
                     tone: QuickReplyTone.Destructive);
@@ -38762,6 +38917,7 @@ public partial class MainWindow : Window
         RestoreInterruptedPlanRecoverySurfaces();
         RestoreFailedPlanValidationRecoverySurface();
         RestoreInterruptedPromptRecoverySurface();
+        RestorePendingPlanContinuation();
         // A queued semantic preflight and its candidate correlation are one durable operation.
         // Restore the correlation before queue hydration can dispatch the recovered prompt.
         RestorePendingPlanHumanProofCoverageReview();
@@ -44971,10 +45127,11 @@ public partial class MainWindow : Window
             var status = await RunGitAsync(
                 _currentWorkspace.FolderPath,
                 "status --porcelain --untracked-files=all");
-            var changedFileCount = status
-                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-                .Length;
-            return recovery with { PendingChangedFileCount = changedFileCount };
+            DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+                status,
+                Array.Empty<string>(),
+                out var userOwnedPaths);
+            return recovery with { PendingChangedFileCount = userOwnedPaths.Count };
         }
         catch (Exception ex)
         {
@@ -50928,7 +51085,14 @@ public partial class MainWindow : Window
             return;
 
         var branch = await Task.Run(() => ReadGitBranch(folder));
+        var previousHead = ReadCachedRecoveryHeadCommit();
         await RefreshRecoveryGitSnapshotAsync(refreshSurfaces: true);
+        var currentHead = ReadCachedRecoveryHeadCommit();
+        if (_activeDecomposeGroupId is not null &&
+            !string.IsNullOrWhiteSpace(previousHead) &&
+            !string.IsNullOrWhiteSpace(currentHead) &&
+            !string.Equals(previousHead, currentHead, StringComparison.OrdinalIgnoreCase))
+            _loopController.RenewIterationLease(LoopIterationProgressKind.CommitObserved);
         if (branch != _currentBranch)
             await Dispatcher.InvokeAsync(UpdateBranchIndicator);
     }
@@ -51514,6 +51678,15 @@ public partial class MainWindow : Window
 
         _lastHandledRestartRequestId = request.RequestId;
         _restartPending = true;
+        _loopController.RenewIterationLease(LoopIterationProgressKind.RestartCheckpoint);
+        if (_conversationManager.ConversationState.ActiveLoopExecution is { IsExecutingPlan: true } execution)
+        {
+            _conversationManager.UpdateActiveLoopExecutionState(
+                execution with { RestartCheckpointRequestedAt = DateTimeOffset.UtcNow });
+            SquadDashTrace.Write(
+                "PlanRecovery",
+                $"Persisted restart checkpoint plan={execution.DecomposeGroupId} revision={execution.DecomposeRevision} iteration={execution.LastCompletedIteration}.");
+        }
         UpdateRestartStatusPanelVisibility();
 
         TryCompletePendingRestart("restart-request");

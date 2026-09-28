@@ -466,6 +466,73 @@ internal sealed class LoopControllerTests {
         Assert.That(controller.IsRunning, Is.False);
     }
 
+    [Test]
+    public async Task Timeout_ExplicitProgressRenewsTheInactivityLease()
+    {
+        var promptFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var error = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var abortCalled = false;
+        LoopController? controller = null;
+        controller = new LoopController(
+            executePromptAsync: async (_, _) => await promptFinished.Task,
+            abortPrompt: () => abortCalled = true,
+            onIterationStarted: _ => { },
+            onStopped: () => stopped.TrySetResult(),
+            onError: message => error.TrySetResult(message),
+            onIterationCompleted: _ => controller!.RequestStop(),
+            onWaiting: _ => { });
+        var config = new LoopMdConfig(
+            IntervalMinutes: 0.0001,
+            TimeoutMinutes: 0.0015, // 90 ms of inactivity
+            Description: "",
+            Instructions: "test prompt");
+
+        _ = controller.StartAsync(config, continuousContext: true);
+        await Task.Delay(55);
+        controller.RenewIterationLease(LoopIterationProgressKind.ToolActivity);
+        await Task.Delay(55);
+        controller.RenewIterationLease(LoopIterationProgressKind.WorkerActivity);
+        await Task.Delay(55);
+
+        Assert.That(abortCalled, Is.False, "confirmed activity must reset, not merely extend, the inactivity lease");
+        Assert.That(error.Task.IsCompleted, Is.False);
+        promptFinished.TrySetResult();
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Test]
+    public async Task Timeout_RestartCheckpointSuspendsOrdinaryIterationTimeout()
+    {
+        var promptFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var restartPending = true;
+        var abortCalled = false;
+        LoopController? controller = null;
+        controller = new LoopController(
+            executePromptAsync: async (_, _) => await promptFinished.Task,
+            abortPrompt: () => abortCalled = true,
+            onIterationStarted: _ => { },
+            onStopped: () => stopped.TrySetResult(),
+            onError: _ => Assert.Fail("restart-owned continuation must not surface as a timeout"),
+            onIterationCompleted: _ => controller!.RequestStop(),
+            onWaiting: _ => { },
+            isIterationTimeoutSuspended: () => restartPending);
+        var config = new LoopMdConfig(
+            IntervalMinutes: 0.0001,
+            TimeoutMinutes: 0.001, // 60 ms
+            Description: "",
+            Instructions: "test prompt");
+
+        _ = controller.StartAsync(config, continuousContext: true);
+        await Task.Delay(150);
+
+        Assert.That(abortCalled, Is.False);
+        restartPending = false;
+        promptFinished.TrySetResult();
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     // ── onBeforeIteration ─────────────────────────────────────────────────────
 
     [Test]

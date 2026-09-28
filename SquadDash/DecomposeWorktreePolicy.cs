@@ -38,7 +38,8 @@ internal static class DecomposeWorktreePolicy
             var renameSeparator = path.LastIndexOf(" -> ", StringComparison.Ordinal);
             if (renameSeparator >= 0) path = path[(renameSeparator + 4)..];
             path = Normalize(path);
-            if (!allowed.Contains(path)) disallowed.Add(path);
+            if (!allowed.Contains(path) && !IsHostOwnedRuntimePath(path))
+                disallowed.Add(path);
         }
         disallowedPaths = disallowed;
         return disallowed.Count == 0;
@@ -76,6 +77,28 @@ internal static class DecomposeWorktreePolicy
         var current = currentPaths.Select(Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var confirmed = confirmedPaths.Select(Normalize).ToHashSet(StringComparer.OrdinalIgnoreCase);
         return current.SetEquals(confirmed);
+    }
+
+    /// <summary>
+    /// Returns whether a dirty path is generated and maintained by SquadDash itself. These
+    /// files are execution state, diagnostics, projections, or agent transport artifacts;
+    /// they are not user source changes and must never block plan continuation or be described
+    /// as uncommitted task work.
+    /// </summary>
+    internal static bool IsHostOwnedRuntimePath(string path)
+    {
+        var normalized = Normalize(path);
+        return normalized.StartsWith("squad/diagnostics/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith("squad/logs/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith("squad/plans/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith("squad/tmp/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith("squad/archive/agent-artifacts/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.StartsWith("squad/instructions/", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("squad/loop-executing-plan.md", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("squad/tasks.md", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("squad/code-health-state.json", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("squad/code-health-state.json.backup", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("squad/codehealth-stub-state.json", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Normalize(string path) => path.Replace('\\', '/').TrimStart('.', '/');

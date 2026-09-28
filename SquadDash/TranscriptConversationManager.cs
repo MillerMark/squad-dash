@@ -1674,6 +1674,21 @@ internal sealed class TranscriptConversationManager {
             nameof(UpdatePendingManualLoopResumeState));
     }
 
+    internal void UpdatePendingPlanContinuationState(PendingPlanContinuationState? continuation)
+    {
+        var normalized = PendingPlanContinuationState.Normalize(continuation);
+        if (Equals(_conversationState.PendingPlanContinuation, normalized))
+            return;
+
+        _conversationState = _conversationState with
+        {
+            PendingPlanContinuation = normalized,
+        };
+        PersistConversationStateInBackground(
+            _conversationState,
+            nameof(UpdatePendingPlanContinuationState));
+    }
+
     internal void NavigateHistory(int direction) {
         var result = PromptHistoryNavigator.Navigate(
             _promptHistory,
