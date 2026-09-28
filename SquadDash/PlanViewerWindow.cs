@@ -8205,6 +8205,20 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return trimmed.StartsWith("pass", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Leading vertical space to place above each assertion paragraph in the validation inspector:
+    /// 80% of the body line height, computed from the current (zoom-scaled) body font size and the
+    /// UI font's line spacing so the spacing tracks the active font size.
+    /// </summary>
+    private double GetAssertionLeadingSpace()
+    {
+        var fontSize = FindResource("FontSizeBody") is double resolved ? resolved : SystemFonts.MessageFontSize;
+        var lineSpacing = SystemFonts.MessageFontFamily.LineSpacing;
+        if (double.IsNaN(lineSpacing) || lineSpacing <= 0)
+            lineSpacing = 1.3;
+        return fontSize * lineSpacing * 0.8;
+    }
+
     private void PopulateValidationDetail(PlanValidationNode validation, Plan? plan)
     {
         if (_detailDocument is null)
@@ -8291,6 +8305,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 assertList.MarkerStyle = TextMarkerStyle.None;
                 assertList.Margin = new Thickness(0, 0, 0, 12);
+                var assertionLeading = GetAssertionLeadingSpace();
                 for (int i = 0; i < validation.Assertions.Count; i++)
                 {
                     var assertion = validation.Assertions[i];
@@ -8321,6 +8336,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         para.Inlines.Add(new Run("• " + assertion));
                     }
 
+                    para.Margin = new Thickness(0, assertionLeading, 0, 0);
                     assertList.ListItems.Add(new ListItem(para));
                 }
 
@@ -8377,6 +8393,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 assertList.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
                 assertList.MarkerStyle = TextMarkerStyle.None;
                 assertList.Margin = new Thickness(0, 0, 0, 12);
+                var assertionLeading = GetAssertionLeadingSpace();
                 for (int i = 0; i < validation.Assertions.Count; i++)
                 {
                     var assertion = validation.Assertions[i];
@@ -8398,6 +8415,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var assertionRun = new Run(assertion);
                     assertionRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                     para.Inlines.Add(assertionRun);
+                    para.Margin = new Thickness(0, assertionLeading, 0, 0);
                     assertList.ListItems.Add(new ListItem(para));
                 }
                 _detailDocument.Blocks.Add(assertList);
