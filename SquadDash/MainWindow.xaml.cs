@@ -7410,7 +7410,7 @@ public partial class MainWindow : Window
         _loopIsWaiting = false;
         _loopRoundStartedAt = DateTimeOffset.Now;
         _loopPlanStartedAt ??= _loopRoundStartedAt;
-        _pec.SetIsLoopRunning(true);
+        SetNativePlanRunnerActive(true, _activeDecomposeGroupId);
         _settingsManager.Replace(_settingsStore.SaveLoopActive(true));
         AppendLoopOutputLine($"▶ Round {iteration} started — {LoopTimestamp()}", LoopLifecycleBrush);
         if (PlanLoopTranscriptPresentation.ShouldShowLoopBookkeeping(_activeDecomposeGroupId is not null))
@@ -7451,7 +7451,7 @@ public partial class MainWindow : Window
         bool shouldResumeAfterQueue = resumeDecision.ResumeAfterQueue;
         bool shouldPreserveForRestart = resumeDecision.PreserveForRestart;
 
-        _pec.SetIsLoopRunning(false);
+        SetNativePlanRunnerActive(false, stoppedPlanId);
         TryDispatchPendingDecomposeRecoveryResponse();
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-stopped");
         _loopCurrentIteration = 0;
@@ -7621,7 +7621,7 @@ public partial class MainWindow : Window
                 interruptionReason,
                 failedIteration,
                 preferDurableTaskId: false);
-        _pec.SetIsLoopRunning(false);
+        SetNativePlanRunnerActive(false, blockedGroupId);
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-error");
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
@@ -7762,7 +7762,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        _pec.SetIsLoopRunning(false);
+        SetNativePlanRunnerActive(false, durable.PlanId);
         _settingsManager.Replace(_settingsStore.SaveLoopActive(false));
         _loopCurrentIteration = 0;
         _loopIsWaiting = false;
@@ -7840,6 +7840,25 @@ public partial class MainWindow : Window
         }
         SoundNotifications.Play(SoundEvent.LoopIterationComplete);
         SyncLoopPanel();
+    }
+
+    private void SetNativePlanRunnerActive(bool active, string? planId)
+    {
+        if (IsLoopRunning == active)
+            return;
+
+        _pec.SetIsLoopRunning(active);
+        RefreshOpenPlanViewerRunnerState(planId);
+    }
+
+    private void RefreshOpenPlanViewerRunnerState(string? planId)
+    {
+        if (string.IsNullOrWhiteSpace(planId))
+            return;
+
+        foreach (var entry in _openPlanViewerWindows.Where(entry =>
+                     string.Equals(entry.GroupId, planId, StringComparison.Ordinal)))
+            entry.Window.NotifyPlanRunnerStateChanged();
     }
 
     private void OnNativeLoopWaiting(DateTimeOffset nextAt)

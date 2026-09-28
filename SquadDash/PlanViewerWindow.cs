@@ -780,6 +780,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             RebuildPreservingScroll(_plan, _durablePlan);
     }
 
+    internal void NotifyPlanRunnerStateChanged()
+    {
+        if (_plan is not null)
+            RebuildPreservingScroll(_plan, _durablePlan);
+    }
+
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
         EndGraphPan();
