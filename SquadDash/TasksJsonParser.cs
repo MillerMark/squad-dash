@@ -30,7 +30,10 @@ internal static class TasksJsonParser
         new(@"^[A-Z]+-\d{8}$", RegexOptions.Compiled);
 
     private static readonly Regex TaskIdPattern =
-        new(@"^([A-Z]+-\d{8})-(?:\d{3}|AMD-\d{3})$", RegexOptions.Compiled);
+        new(@"^([A-Z]+-\d{8})-(?:\d{3}|AMD-\d{3}|VAL-\d{3}-FIX-\d{3})$", RegexOptions.Compiled);
+
+    private const string TaskIdFormatDescription =
+        "{groupId}-NNN, {groupId}-AMD-NNN, or {groupId}-VAL-NNN-FIX-NNN pattern";
 
     private static readonly Regex ValidationIdPattern =
         new(@"^([A-Z]+-\d{8})-VAL-\d{3}$", RegexOptions.Compiled);
@@ -198,7 +201,7 @@ internal static class TasksJsonParser
             if (!m.Success || m.Groups[1].Value != parsed.GroupId)
             {
                 return Fail("invalid-task-id",
-                    $"task id '{task.Id}' does not match {{groupId}}-NNN or {{groupId}}-AMD-NNN pattern");
+                    $"task id '{task.Id}' does not match {TaskIdFormatDescription}");
             }
 
             if (!validIds.Add(task.Id))
@@ -786,7 +789,7 @@ internal static class TasksJsonParser
             {
                 var match = TaskIdPattern.Match(task.Id);
                 if (!match.Success || match.Groups[1].Value != parsed.GroupId)
-                    Add("invalid-task-id", $"task id '{task.Id}' does not match {{groupId}}-NNN or {{groupId}}-AMD-NNN pattern");
+                    Add("invalid-task-id", $"task id '{task.Id}' does not match {TaskIdFormatDescription}");
                 if (!taskIds.Add(task.Id))
                     Add("duplicate-task-id", $"duplicate task id '{task.Id}'");
             }

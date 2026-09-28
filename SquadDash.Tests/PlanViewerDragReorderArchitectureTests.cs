@@ -63,6 +63,33 @@ internal sealed class PlanViewerDragReorderArchitectureTests
         });
     }
 
+    [Test]
+    public void FailedPersistenceRestoresPreDragOrderAndExplainsThatOrderWasNotSaved()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var methodStart = source.IndexOf("private void CommitTaskCardDrag()", StringComparison.Ordinal);
+        var nextMethod = source.IndexOf(
+            "private bool TryResolveMilestoneVerticalBoundsForColumn(",
+            methodStart,
+            StringComparison.Ordinal);
+
+        Assert.That(methodStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(nextMethod, Is.GreaterThan(methodStart));
+
+        var method = source[methodStart..nextMethod];
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("failurePrefix: \"Order wasn’t saved. \""),
+                "A rejected reorder should describe the user-visible outcome before technical validation details.");
+            Assert.That(method, Does.Contain("if (!PersistCommittedTaskCardReorder())")
+                .And.Contain("_lastCommittedColumnOrder = null;")
+                .And.Contain("dragState.PreDragTaskNudges")
+                .And.Contain("dragState.OriginalTop")
+                .And.Contain("sibling.OriginalTop"),
+                "A failed save must restore both the persisted-order marker and every pre-drag visual position.");
+        });
+    }
+
     private static string FindRepoFile(params string[] pathParts)
     {
         var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);

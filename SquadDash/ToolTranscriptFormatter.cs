@@ -968,6 +968,7 @@ internal static class ToolTranscriptFormatter {
     private static string NormalizePresentationToolName(string toolName) => toolName switch {
         "rg" => "grep",
         "delegate_roster_agent" => "task",
+        "delegate_temporary_agent" => "task",
         _ => toolName
     };
 

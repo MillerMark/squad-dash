@@ -188,6 +188,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public IReadOnlyList<(FrameworkElement Card, double OriginalTop, string TaskId)> SiblingCards { get; init; } = [];
         public List<string> CurrentColumnOrder { get; init; } = [];
         public IReadOnlyList<string> PreDragColumnOrder { get; init; } = [];
+        public IReadOnlyDictionary<string, double> PreDragTaskNudges { get; init; } =
+            new Dictionary<string, double>(StringComparer.Ordinal);
         public Dictionary<string, double> DisplacedSiblingTops { get; init; } = new(StringComparer.Ordinal);
         public Dictionary<string, IReadOnlyList<(UIElement Element, double OriginalTop)>> SiblingOverlayElements { get; init; } =
             new(StringComparer.Ordinal);
@@ -4809,20 +4811,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
         string? selectKind = null,
         string? selectId = null,
         bool beginEditingSelection = false,
-        bool preserveReview = false)
+        bool preserveReview = false,
+        string? failurePrefix = null)
     {
         if (_saveDefinitionEdit is null || _plan is null) return false;
         if (!StagedPlanEditor.TryValidate(candidate, out var normalized, out var error) || normalized is null)
         {
-            UIErrorHelper.ShowError("Edit Plan", error ?? "The edit would make the plan invalid.", this);
+            UIErrorHelper.ShowError(
+                "Edit Plan",
+                (failurePrefix ?? string.Empty) + (error ?? "The edit would make the plan invalid."),
+                this);
             return false;
         }
         if (_durablePlan is not null &&
             _durablePlan.LifecycleStatus != PlanLifecycleStatus.Staged &&
             !StagedPlanEditor.TryValidateUnlockedChanges(_durablePlan, normalized, out error))
         {
-            UIErrorHelper.ShowError("Edit Plan", error ??
-                "The edit would change work that has already started.", this);
+            UIErrorHelper.ShowError(
+                "Edit Plan",
+                (failurePrefix ?? string.Empty) + (error ??
+                    "The edit would change work that has already started."),
+                this);
             return false;
         }
         try
@@ -4878,7 +4887,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         catch (Exception exception)
         {
-            UIErrorHelper.ShowError("Edit Plan", exception.Message, this);
+            UIErrorHelper.ShowError(
+                "Edit Plan",
+                (failurePrefix ?? string.Empty) + exception.Message,
+                this);
             return false;
         }
     }
@@ -10003,17 +10015,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return true;
     }
 
-    private void PersistCommittedTaskCardReorder()
+    private bool PersistCommittedTaskCardReorder()
     {
         if (_lastCommittedColumnOrder is not { } committed)
-            return;
+            return false;
 
         if (_saveDefinitionEdit is not null &&
             _plan is not null &&
             TryApplyCommittedColumnReorder(_plan.Group, committed, out var reorderedGroup))
         {
-            ApplyStagedMutation(reorderedGroup, preserveReview: true);
-            return;
+            return ApplyStagedMutation(
+                reorderedGroup,
+                preserveReview: true,
+                failurePrefix: "Order wasn’t saved. ");
         }
 
         if (_durablePlan is not null &&
@@ -10021,13 +10035,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
         {
             _durablePlan = reorderedDurablePlan;
             _plan = PendingDecomposePlanAdapter.FromPlan(reorderedDurablePlan);
-            return;
+            return true;
         }
 
         if (_plan is null)
-            return;
+            return false;
         if (TryApplyCommittedColumnReorder(_plan.Group, committed, out var reorderedPendingGroup))
+        {
             _plan = _plan with { Group = reorderedPendingGroup };
+            return true;
+        }
+        return false;
     }
 
     private static double ResolveSlotTop(TaskCardDragState dragState, int orderIndex)
@@ -10617,6 +10635,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             SiblingCards = siblingCards,
             CurrentColumnOrder = preDragColumnOrder.ToList(),
             PreDragColumnOrder = preDragColumnOrder,
+            PreDragTaskNudges = new Dictionary<string, double>(_taskNudges, StringComparer.Ordinal),
             DisplacedSiblingTops = new Dictionary<string, double>(StringComparer.Ordinal),
             SiblingOverlayElements = siblingOverlayElements,
             ColumnSlotTops = columnSlotTops,
@@ -10839,7 +10858,29 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _lastCommittedColumnOrder = new CommittedColumnReorder(
                 dragState.ColumnIdentifier,
                 dragState.CurrentColumnOrder.ToArray());
-            PersistCommittedTaskCardReorder();
+            if (!PersistCommittedTaskCardReorder())
+            {
+                _lastCommittedColumnOrder = null;
+                _taskNudges = new Dictionary<string, double>(
+                    dragState.PreDragTaskNudges,
+                    StringComparer.Ordinal);
+                Canvas.SetTop(dragState.Element, dragState.OriginalTop);
+                Canvas.SetLeft(dragState.Element, dragState.ColumnX);
+                foreach (var (overlay, originalTop) in dragState.DragOverlayElements)
+                    Canvas.SetTop(overlay, originalTop);
+                foreach (var sibling in dragState.SiblingCards)
+                {
+                    ApplyTaskCardTopAndConnectors(
+                        sibling.TaskId,
+                        dragState.ColumnX,
+                        sibling.OriginalTop);
+                    if (!dragState.SiblingOverlayElements.TryGetValue(sibling.TaskId, out var overlays))
+                        continue;
+                    foreach (var (overlay, originalTop) in overlays)
+                        Canvas.SetTop(overlay, originalTop);
+                }
+                UpdateTaskCardDragConnectors(dragState, dragState.OriginalTop);
+            }
         }
 
         // Save nudge state and trigger a rebuild for durable plans (staged plans

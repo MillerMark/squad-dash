@@ -408,6 +408,32 @@ internal sealed class AgentThreadRegistryTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void CaptureBackgroundAgentLaunchInfo_RecognizesDelegateTemporaryAgentAsGenericWorker() {
+        var registry = MakeRegistry();
+        using var document = System.Text.Json.JsonDocument.Parse("""
+            {
+              "description": "Repair validation failure",
+              "name": "validation-repair",
+              "prompt": "Correct the validated defect and return the commit."
+            }
+            """);
+
+        var launch = registry.CaptureBackgroundAgentLaunchInfo(new SquadSdkEvent {
+            ToolName = "delegate_temporary_agent",
+            ToolCallId = "tool-validation-repair",
+            Args = document.RootElement.Clone()
+        }, launchedByCoordinator: true);
+
+        Assert.That(launch, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(launch!.ToolCallId, Is.EqualTo("tool-validation-repair"));
+            Assert.That(launch.TaskName, Is.EqualTo("validation-repair"));
+            Assert.That(launch.DisplayName, Is.EqualTo("Temporary Agent"));
+            Assert.That(launch.IsVerifiedRosterAssignment, Is.False);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void CaptureBackgroundAgentLaunchInfo_MapsToolCallIdentityToCancellableTaskId() {
         var registry = MakeRegistry(getKnownTeamAgentDescriptors: () => [
             new TeamAgentDescriptor("Talia Rune", "talia-rune", "Diagnostics")

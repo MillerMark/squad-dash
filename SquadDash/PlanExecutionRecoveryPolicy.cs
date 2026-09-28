@@ -36,11 +36,13 @@ internal static class PlanExecutionRecoveryPolicy
         int freshAttemptCount,
         PlanExecutionFailureKind failureKind = PlanExecutionFailureKind.EnvelopeContract)
     {
-        // A worker that exhausted provider/runtime recovery is an operational stop, not corrupt
-        // provenance. Preserve its attempt and working tree for an explicit resume instead of
-        // spending money on a replacement worker or trying to repair a result that never existed.
+        // A failed observed worker cannot be repaired by rewriting its result envelope. Start one
+        // clean, bounded attempt with fresh launch evidence; only a repeated worker failure stops
+        // automatic execution.
         if (HasTerminalWorkerFailure(attempt))
-            return PlanExecutionRecoveryAction.Block;
+            return freshAttemptCount < MaxFreshAttemptsPerTask
+                ? PlanExecutionRecoveryAction.StartFreshAttempt
+                : PlanExecutionRecoveryAction.Block;
 
         if (HasTerminalEvidenceContamination(attempt, expectedAssignments))
             return freshAttemptCount < MaxFreshAttemptsPerTask

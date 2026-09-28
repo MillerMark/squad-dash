@@ -46524,7 +46524,9 @@ public partial class MainWindow : Window
     private void CompleteToolExecution(SquadSdkEvent evt) =>
         CompleteToolExecution(CoordinatorThread, evt);
 
-    private void CapturePlanAwareBackgroundAgentLaunch(TranscriptThreadState ownerThread, SquadSdkEvent evt)
+    private void CapturePlanAwareBackgroundAgentLaunch(
+        TranscriptThreadState ownerThread,
+        SquadSdkEvent evt)
     {
         var execution = _conversationManager.ConversationState.ActiveLoopExecution;
         var attempt = execution?.PlanExecutionAttempt;
@@ -46544,6 +46546,27 @@ public partial class MainWindow : Window
 
         _conversationManager.UpdateActiveLoopExecutionState(
             execution with { PlanExecutionAttempt = updated });
+    }
+
+    private void DiscardPreToolRejectedPlanAgentLaunch(SquadSdkEvent evt)
+    {
+        if (evt.Success != false || string.IsNullOrWhiteSpace(evt.ToolCallId))
+            return;
+        var rejection = string.Join(
+            "\n",
+            new[] { evt.OutputText, evt.Reason, evt.Message, evt.Description }
+                .Where(value => !string.IsNullOrWhiteSpace(value)));
+        if (!rejection.Contains("Denied by preToolUse hook", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var attempt = execution?.PlanExecutionAttempt;
+        if (execution is null || attempt is null)
+            return;
+        var updated = attempt.DiscardRejectedLaunch(evt.ToolCallId);
+        if (!Equals(updated, attempt))
+            _conversationManager.UpdateActiveLoopExecutionState(
+                execution with { PlanExecutionAttempt = updated });
     }
 
     private void RecordPlanContextRead(TranscriptThreadState thread, SquadSdkEvent evt)
@@ -46584,7 +46607,10 @@ public partial class MainWindow : Window
         if (!TryGetOrCreateToolEntry(thread, evt, out var entry))
             return;
 
-        CapturePlanAwareBackgroundAgentLaunch(thread, evt);
+        if (evt.Success == false)
+            DiscardPreToolRejectedPlanAgentLaunch(evt);
+        else
+            CapturePlanAwareBackgroundAgentLaunch(thread, evt);
 
         entry.IsCompleted = true;
         entry.Success = evt.Success ?? true;
@@ -46839,7 +46865,11 @@ public partial class MainWindow : Window
 
     private void SyncTaskToolTranscriptLink(ToolTranscriptEntry entry)
     {
-        if (!string.Equals(entry.Descriptor.ToolName, "task", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(entry.Descriptor.ToolName, "task", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(
+                entry.Descriptor.ToolName,
+                "delegate_temporary_agent",
+                StringComparison.OrdinalIgnoreCase))
         {
             entry.TranscriptThreadId = null;
             entry.TranscriptButton.Visibility = Visibility.Collapsed;

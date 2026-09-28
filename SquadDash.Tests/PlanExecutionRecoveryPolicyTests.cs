@@ -83,7 +83,7 @@ internal sealed class PlanExecutionRecoveryPolicyTests
     }
 
     [Test]
-    public void FailedObservedPrimaryLaunch_PreservesAttemptAndBlocksAutomaticRetry()
+    public void FailedObservedPrimaryLaunch_StartsOneCleanBoundedAttempt()
     {
         var attempt = Attempt() with
         {
@@ -95,10 +95,16 @@ internal sealed class PlanExecutionRecoveryPolicyTests
             }]
         };
 
-        Assert.That(
-            PlanExecutionRecoveryPolicy.Resolve(attempt, [Assignment], 0, 0),
-            Is.EqualTo(PlanExecutionRecoveryAction.Block));
-        Assert.That(PlanExecutionRecoveryPolicy.HasTerminalWorkerFailure(attempt), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PlanExecutionRecoveryPolicy.Resolve(attempt, [Assignment], 0, 0),
+                Is.EqualTo(PlanExecutionRecoveryAction.StartFreshAttempt));
+            Assert.That(
+                PlanExecutionRecoveryPolicy.Resolve(attempt, [Assignment], 0, 1),
+                Is.EqualTo(PlanExecutionRecoveryAction.Block));
+            Assert.That(PlanExecutionRecoveryPolicy.HasTerminalWorkerFailure(attempt), Is.True);
+        });
     }
 
     [Test]

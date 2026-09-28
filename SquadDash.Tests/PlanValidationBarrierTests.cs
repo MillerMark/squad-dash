@@ -114,6 +114,7 @@ internal sealed class PlanValidationBarrierTests
             Assert.That(repaired.Tasks.Single(task => task.TaskId == "T1").Commit,
                 Is.EqualTo("aaa1111"), "Accepted task commits must remain intact.");
             Assert.That(repairTask.Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(repairTask.DisplayStepLabel, Is.EqualTo("Validation Repair 1"));
             Assert.That(repairTask.DependsOn, Is.EqualTo(new[] { "T1" }));
             Assert.That(repairTask.Description, Does.Contain("The declared output is malformed."));
             Assert.That(repairTask.Description,

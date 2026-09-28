@@ -689,7 +689,9 @@ internal sealed class AgentThreadRegistry {
         PlanExecutionAttemptState? activeAttempt = null,
         bool launchedByCoordinator = false,
         string? launchingOwnerToolCallId = null) {
-        var isTemporaryTask = string.Equals(evt.ToolName, "task", StringComparison.OrdinalIgnoreCase);
+        var isTemporaryTask =
+            string.Equals(evt.ToolName, "task", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(evt.ToolName, "delegate_temporary_agent", StringComparison.OrdinalIgnoreCase);
         var isNamedRosterTask = string.Equals(evt.ToolName, "delegate_roster_agent", StringComparison.OrdinalIgnoreCase);
         if ((!isTemporaryTask && !isNamedRosterTask) ||
             string.IsNullOrWhiteSpace(evt.ToolCallId)) {

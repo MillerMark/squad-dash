@@ -172,6 +172,53 @@ internal sealed record PlanExecutionAttemptState(
         return RecordUnexpectedPrimaryLaunch(launch.ToolCallId);
     }
 
+    internal PlanExecutionAttemptState DiscardRejectedLaunch(string toolCallId)
+    {
+        if (string.IsNullOrWhiteSpace(toolCallId))
+            return this;
+
+        var updatedAssignments = Assignments.Select(item =>
+            string.Equals(item.PrimaryToolCallId, toolCallId, StringComparison.Ordinal)
+                ? item with
+                {
+                    PrimaryToolCallId = null,
+                    LaunchedAt = null,
+                    CompletedAt = null,
+                    Succeeded = null,
+                    ObservedContextPaths = null,
+                    ChildToolCallIds = null
+                }
+                : item with
+                {
+                    ChildToolCallIds = item.ChildToolCallIds?
+                        .Where(id => !string.Equals(id, toolCallId, StringComparison.Ordinal))
+                        .ToArray()
+                }).ToArray();
+        var unexpected = UnexpectedPrimaryToolCallIds?
+            .Where(id => !string.Equals(id, toolCallId, StringComparison.Ordinal))
+            .ToArray();
+        var genericChildren = GenericChildToolCallIds?
+            .Where(id => !string.Equals(id, toolCallId, StringComparison.Ordinal))
+            .ToArray();
+
+        return string.Equals(GenericPrimaryToolCallId, toolCallId, StringComparison.Ordinal)
+            ? this with
+            {
+                Assignments = updatedAssignments,
+                UnexpectedPrimaryToolCallIds = unexpected,
+                GenericPrimaryToolCallId = null,
+                GenericChildToolCallIds = null,
+                GenericCompletedAt = null,
+                GenericSucceeded = null
+            }
+            : this with
+            {
+                Assignments = updatedAssignments,
+                UnexpectedPrimaryToolCallIds = unexpected,
+                GenericChildToolCallIds = genericChildren
+            };
+    }
+
     internal PlanExecutionAttemptState RecordPrimaryCompletion(
         string primaryToolCallId,
         DateTimeOffset completedAt,

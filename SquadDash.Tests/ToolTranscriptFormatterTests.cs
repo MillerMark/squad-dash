@@ -790,6 +790,13 @@ internal sealed class ToolTranscriptFormatterTests {
     }
 
     [Test]
+    public void ResolveToolIconKey_ForDelegateTemporaryAgent_UsesTaskIcon() {
+        var iconKey = ToolTranscriptFormatter.ResolveToolIconKey("delegate_temporary_agent");
+
+        Assert.That(iconKey, Is.EqualTo("ToolIcon_task"));
+    }
+
+    [Test]
     public void BuildRunningText_ForDelegateRosterAgent_UsesAgentIdentityOnly() {
         var descriptor = new ToolTranscriptDescriptor(
             "delegate_roster_agent",

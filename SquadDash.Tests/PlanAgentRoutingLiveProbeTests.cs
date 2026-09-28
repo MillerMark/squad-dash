@@ -92,6 +92,49 @@ internal sealed class PlanAgentRoutingLiveProbeTests
             $"Expected ValidateGeneric to accept the complete attempt, but got: {validationError}");
     }
 
+    [Test]
+    public void GenericAttempt_PreToolDeniedLaunchCanBeReplacedBySuccessfulTemporaryDelegate()
+    {
+        var attempt = PlanExecutionAttemptState.CreateGeneric(
+            PlanId, TaskId, Revision, _workspacePath);
+        var deniedLaunch = new BackgroundAgentLaunchInfo(
+            ToolCallId: "tool-task-denied",
+            TaskName: "validation-repair",
+            Mode: "sync",
+            DisplayName: "Temporary Agent",
+            AccentKey: null,
+            RoleText: null,
+            Description: "Repair validation failure",
+            AgentType: "general-purpose",
+            Prompt: null,
+            AssignedTaskId: null,
+            AssignedPlanRevision: null,
+            AssignedAgentHandle: null,
+            IsVerifiedRosterAssignment: false,
+            StartedAt: DateTimeOffset.UtcNow);
+        attempt = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt, deniedLaunch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+
+        attempt = attempt.DiscardRejectedLaunch(deniedLaunch.ToolCallId);
+
+        var successfulLaunch = deniedLaunch with { ToolCallId = "tool-delegate-temporary-success" };
+        attempt = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt, successfulLaunch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+        attempt = attempt.RecordPrimaryCompletion(
+            successfulLaunch.ToolCallId, DateTimeOffset.UtcNow, succeeded: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(attempt.GenericPrimaryToolCallId, Is.EqualTo(successfulLaunch.ToolCallId));
+            Assert.That(attempt.GenericSucceeded, Is.True);
+            Assert.That(attempt.UnexpectedPrimaryToolCallIds, Is.Null.Or.Empty);
+            Assert.That(
+                PlanAgentAssignmentValidator.ValidateGeneric(
+                    TaskId, Revision, attempt, attempt.AttemptId, null),
+                Is.Null);
+        });
+    }
+
     // ------------------------------------------------------------------
     // Test 2: fail-closed — second generic primary tool call ID
     // ------------------------------------------------------------------

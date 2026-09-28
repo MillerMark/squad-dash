@@ -159,6 +159,30 @@ internal sealed class TasksJsonParserTests
     }
 
     [Test]
+    public void TryParse_HostValidationRepairTaskId_ReturnsTrueAndPreservesDependency()
+    {
+        const string groupId = "FEAT-20991231";
+        var tasksJson = $$"""
+            [
+              { "id": "{{groupId}}-001", "title": "Accepted", "description": "Accepted", "dependsOn": [], "priority": "high" },
+              { "id": "{{groupId}}-VAL-002-FIX-001", "title": "Validation repair", "description": "Repair validation 2", "dependsOn": ["{{groupId}}-001"], "priority": "high", "agentRoutingMode": "generic", "genericAgentReason": "Host-created validation repair." },
+              { "id": "{{groupId}}-002", "title": "Continue", "description": "Continue", "dependsOn": ["{{groupId}}-VAL-002-FIX-001"], "priority": "high" }
+            ]
+            """;
+
+        var parsed = TasksJsonParser.TryParse(
+            WrapJson(MinimalGroupJson(groupId: groupId, tasksJson: tasksJson)), out var group);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True);
+            Assert.That(group!.Tasks[1].Id, Is.EqualTo($"{groupId}-VAL-002-FIX-001"));
+            Assert.That(group.Tasks[2].DependsOn,
+                Is.EqualTo(new[] { $"{groupId}-VAL-002-FIX-001" }));
+        });
+    }
+
+    [Test]
     public void TryParse_FencedJsonWithTrailingTranscriptProse_ReturnsTrue()
     {
         var text = $"""

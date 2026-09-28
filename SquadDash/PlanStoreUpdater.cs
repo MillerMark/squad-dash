@@ -1023,7 +1023,8 @@ internal static class PlanStoreUpdater
             PlanTaskStatus.Pending,
             AgentRoutingMode: "generic",
             GenericAgentReason:
-                "This host-created repair may cross the contracts joined by the failed validation and has no preapproved single-specialist assignment.");
+                "This host-created repair may cross the contracts joined by the failed validation and has no preapproved single-specialist assignment.",
+            DisplayStepLabel: $"Validation Repair {repairNumber - 1}");
 
         var beforeIds = validation.BeforeTaskIds.ToHashSet(StringComparer.Ordinal);
         var indexedTasks = existing.Tasks.Select((task, index) => (task, index)).ToArray();
