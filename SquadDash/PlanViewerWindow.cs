@@ -8336,8 +8336,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
                         para.Inlines.Add(new Run("• " + assertion));
                     }
 
-                    para.Margin = new Thickness(0, assertionLeading, 0, 0);
-                    assertList.ListItems.Add(new ListItem(para));
+                    para.Margin = new Thickness(0);
+                    // Item padding reserves leading even where WPF suppresses/collapses block margins.
+                    assertList.ListItems.Add(new ListItem(para)
+                    {
+                        Padding = new Thickness(0, assertionLeading, 0, 0),
+                    });
                 }
 
                 _detailDocument.Blocks.Add(assertList);
@@ -8415,8 +8419,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var assertionRun = new Run(assertion);
                     assertionRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
                     para.Inlines.Add(assertionRun);
-                    para.Margin = new Thickness(0, assertionLeading, 0, 0);
-                    assertList.ListItems.Add(new ListItem(para));
+                    para.Margin = new Thickness(0);
+                    assertList.ListItems.Add(new ListItem(para)
+                    {
+                        Padding = new Thickness(0, assertionLeading, 0, 0),
+                    });
                 }
                 _detailDocument.Blocks.Add(assertList);
             }

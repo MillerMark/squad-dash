@@ -1,4 +1,9 @@
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
 using System.Xml.Linq;
 
 namespace SquadDash.Tests;
@@ -73,6 +78,131 @@ internal sealed class PlanViewerValidationIconArchitectureTests
             Assert.That(assertions, Does.Not.Contain("\u2713").And.Not.Contain("\u2717")
                 .And.Not.Contain("PriorityHigh").And.Not.Contain("PriorityLow"));
         });
+    }
+
+    [Test]
+    public void BothAssertionBranches_ReserveFontRelativeLeadingInsideEachListItem()
+    {
+        var source = ReadViewer();
+        var assertions = Section(source, "var hasResultView =", "// After Task IDs");
+        var leading = Section(source, "private double GetAssertionLeadingSpace()", "private void PopulateValidationDetail(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Regex.Matches(assertions, @"var assertionLeading = GetAssertionLeadingSpace\(\);"),
+                Has.Count.EqualTo(2));
+            Assert.That(Regex.Matches(assertions,
+                @"para\.Margin = new Thickness\(0\);\s*(?://[^\n]*\n\s*)?assertList\.ListItems\.Add\(new ListItem\(para\)\s*\{\s*Padding = new Thickness\(0, assertionLeading, 0, 0\),\s*\}\);"),
+                Has.Count.EqualTo(2), "Both branches must reserve non-collapsing leading, not inner paragraph margins.");
+            Assert.That(leading, Does.Contain("FindResource(\"FontSizeBody\")")
+                .And.Contain("SystemFonts.MessageFontFamily.LineSpacing")
+                .And.Contain("return fontSize * lineSpacing * 0.8;"));
+            Assert.That(assertions, Does.Not.Contain("para.LineHeight").And.Not.Contain("assertList.LineHeight"),
+                "Wrapped assertion text and evidence must keep their existing line spacing.");
+        });
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void AssertionLeading_ItemPaddingAddsEightyPercentOfLineHeightWithoutChangingInternalSpacing(
+        [Values(10.0, 14.0, 24.0)] double fontSize,
+        [Values(100.0, 150.0)] double zoom,
+        [Values(false, true)] bool withEvidence,
+        [Values(false, true)] bool withHeader)
+    {
+        var baseline = MeasureAssertionLayout(fontSize, zoom, withEvidence, withHeader, false);
+        var padded = MeasureAssertionLayout(fontSize, zoom, withEvidence, withHeader, true);
+        var expectedLeading = baseline.LineHeight * 0.8;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(padded.Bounds[0].Top - baseline.Bounds[0].Top,
+                Is.EqualTo(expectedLeading).Within(0.1), "Even the first assertion gets its leading.");
+            for (var i = 0; i < padded.Bounds.Length; i++)
+            {
+                Assert.That(padded.Bounds[i].Height, Is.EqualTo(baseline.Bounds[i].Height).Within(0.1),
+                    "Wrapped text and evidence retain their original internal spacing.");
+                Assert.That(padded.Bounds[i].Left, Is.EqualTo(baseline.Bounds[i].Left).Within(0.1),
+                    "List indentation is unchanged.");
+                if (i > 0)
+                {
+                    var oldGap = baseline.Bounds[i].Top - baseline.Bounds[i - 1].Bottom;
+                    var newGap = padded.Bounds[i].Top - padded.Bounds[i - 1].Bottom;
+                    Assert.That(newGap - oldGap, Is.EqualTo(expectedLeading).Within(0.1),
+                        "Every inter-assertion gap gains 80% of a body line.");
+                }
+            }
+        });
+    }
+
+    private static (Rect[] Bounds, double LineHeight) MeasureAssertionLayout(
+        double fontSize, double zoom, bool withEvidence, bool withHeader, bool padded)
+    {
+        var leading = fontSize * SystemFonts.MessageFontFamily.LineSpacing * 0.8;
+        var list = new List { MarkerStyle = TextMarkerStyle.None, Margin = new Thickness(0, 0, 0, 12) };
+        var paragraphs = new List<Paragraph>();
+        var assertionRuns = new List<Run>();
+        for (var i = 0; i < 3; i++)
+        {
+            var paragraph = new Paragraph { Margin = new Thickness(0) };
+            if (withEvidence)
+            {
+                paragraph.Inlines.Add(new InlineUIContainer(new Viewbox
+                {
+                    Width = 14, Height = 14, Margin = new Thickness(0, 0, 4, 0),
+                    Child = new Border { Width = 14, Height = 14 },
+                }) { BaselineAlignment = BaselineAlignment.Center });
+            }
+            else
+            {
+                paragraph.Inlines.Add(new Run("\u2022 "));
+            }
+            var assertion = new Run(string.Join(" ", Enumerable.Repeat("Wrapped assertion text", 12)));
+            paragraph.Inlines.Add(assertion);
+            assertionRuns.Add(assertion);
+            if (withEvidence)
+            {
+                paragraph.Inlines.Add(new LineBreak());
+                paragraph.Inlines.Add(new Run("    [PASS] Evidence sub-line")
+                {
+                    FontStyle = FontStyles.Italic, FontSize = fontSize * 0.85,
+                });
+            }
+            list.ListItems.Add(new ListItem(paragraph)
+            {
+                Padding = new Thickness(0, padded ? leading : 0, 0, 0),
+            });
+            paragraphs.Add(paragraph);
+        }
+        var document = new FlowDocument
+        {
+            FontFamily = new FontFamily("Segoe UI, Segoe UI Emoji"),
+            FontSize = fontSize,
+            PagePadding = new Thickness(0),
+        };
+        if (withHeader)
+        {
+            document.Blocks.Add(new Paragraph(new Run("Assertions"))
+            {
+                Margin = new Thickness(0, 12, 0, 4),
+            });
+        }
+        document.Blocks.Add(list);
+        var viewer = new FlowDocumentScrollViewer { Document = document, Zoom = zoom };
+        viewer.Measure(new Size(400, 2000));
+        viewer.Arrange(new Rect(0, 0, 400, 2000));
+        viewer.UpdateLayout();
+        var line2 = assertionRuns[0].ContentStart.GetLineStartPosition(1)!;
+        var line3 = assertionRuns[0].ContentStart.GetLineStartPosition(2)!;
+        var lineHeight = line3.GetCharacterRect(LogicalDirection.Forward).Top
+            - line2.GetCharacterRect(LogicalDirection.Forward).Top;
+        var bounds = paragraphs.Select(p =>
+        {
+            var first = p.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+            var last = p.ContentEnd.GetCharacterRect(LogicalDirection.Backward);
+            return new Rect(first.Left, first.Top, 0, last.Bottom - first.Top);
+        }).ToArray();
+        return (bounds, lineHeight);
     }
 
     [Test]
