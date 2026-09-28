@@ -8176,6 +8176,17 @@ internal sealed class PlanViewerWindow : ChromedWindow
         };
     }
 
+    /// <summary>
+    /// Determines whether a stored assertion evidence line represents a pass. Canonical evidence is
+    /// written as "[PASS] assertion: ..." / "[FAIL] assertion: ..." by the plan validation pipeline,
+    /// so the leading "[" is skipped before matching. Legacy bare "pass"/"fail" prefixes are also honored.
+    /// </summary>
+    private static bool EvidenceIndicatesPass(string evidence)
+    {
+        var trimmed = evidence.TrimStart().TrimStart('[');
+        return trimmed.StartsWith("pass", StringComparison.OrdinalIgnoreCase);
+    }
+
     private void PopulateValidationDetail(PlanValidationNode validation, Plan? plan)
     {
         if (_detailDocument is null)
@@ -8273,7 +8284,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     {
                         var evidenceText = validation.Evidence![i];
                         var isPassedAssertion = string.Equals(validation.Status, "passed", StringComparison.OrdinalIgnoreCase)
-                            || evidenceText.StartsWith("pass", StringComparison.OrdinalIgnoreCase);
+                            || EvidenceIndicatesPass(evidenceText);
                         para.Inlines.Add(CreateValidationResultIcon(isPassedAssertion));
                         para.Inlines.Add(new Run(assertion));
                         para.Inlines.Add(new LineBreak());
@@ -8358,7 +8369,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     if (hasEvidence)
                     {
                         para.Inlines.Add(CreateValidationResultIcon(
-                            validation.Evidence![i].StartsWith("pass", StringComparison.OrdinalIgnoreCase)));
+                            EvidenceIndicatesPass(validation.Evidence![i])));
                     }
                     else
                     {

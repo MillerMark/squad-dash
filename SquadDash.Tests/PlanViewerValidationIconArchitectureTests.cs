@@ -58,7 +58,7 @@ internal sealed class PlanViewerValidationIconArchitectureTests
             Assert.That(Regex.Matches(assertions, @"para\.Inlines\.Add\(CreateValidationResultIcon\("),
                 Has.Count.EqualTo(2), "Both completed and nonterminal/evidence-backed branches render results.");
             Assert.That(assertions, Does.Contain("CreateValidationResultIcon(isPassedAssertion)")
-                .And.Contain("validation.Evidence![i].StartsWith(\"pass\", StringComparison.OrdinalIgnoreCase)"));
+                .And.Contain("EvidenceIndicatesPass(validation.Evidence![i])"));
             Assert.That(Regex.Matches(assertions,
                 @"!string\.IsNullOrWhiteSpace\(validation\.Evidence\[i\]\)"), Has.Count.EqualTo(2),
                 "Missing or blank evidence must not produce a failure icon.");
