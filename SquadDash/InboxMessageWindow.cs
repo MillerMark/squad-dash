@@ -802,7 +802,23 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     private void OnBodyViewerPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) return;
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            // FlowDocumentScrollViewer's default wheel handling scrolls only a small fixed
+            // increment (roughly a third of a line per notch), which feels sluggish. Scroll
+            // the inner ScrollViewer by a full three lines per notch, matching standard WPF
+            // ScrollViewer behavior, scaled to the current body font size.
+            var sv = FindScrollViewer(_bodyViewer);
+            if (sv is null) return;
+
+            const int linesPerNotch = 3;
+            var lineHeight = _bodyFontSize * 1.4;
+            var notches    = e.Delta / 120.0;
+            var deltaPx    = notches * linesPerNotch * lineHeight;
+            sv.ScrollToVerticalOffset(sv.VerticalOffset - deltaPx);
+            e.Handled = true;
+            return;
+        }
         e.Handled = true;
 
         const double step = 1.0;
