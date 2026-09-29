@@ -10,6 +10,18 @@ internal enum PlanTranscriptPhase
 
 internal static class PlanLoopTranscriptPresentation
 {
+    internal const string KeepPlanRunningLabel = "Keep Plan Running";
+    internal const string ViewActiveWorkLabel = "View Active Work";
+
+    internal static bool IsActivePauseRequest(Plan? plan, bool planRunnerActive) =>
+        planRunnerActive &&
+        plan is
+        {
+            IsPaused: true,
+            LifecycleStatus: PlanLifecycleStatus.Executing,
+            Progress.ExecutingTaskId: not null,
+        };
+
     internal static string BuildPhaseKey(
         string planId,
         PlanTranscriptPhase phase,
@@ -32,6 +44,16 @@ internal static class PlanLoopTranscriptPresentation
 
     internal static string BuildQueueDrainPauseMessage(Plan plan) =>
         $"Temporarily pausing “{plan.Title}” after the current turn to handle queued prompts.";
+
+    internal static string BuildPauseRequestedMessage(Plan plan)
+    {
+        var task = ResolveTask(plan, plan.Progress.ExecutingTaskId, taskTitle: null);
+        var displayLabel = task?.DisplayStepLabel?.Trim();
+        var subject = string.IsNullOrWhiteSpace(displayLabel)
+            ? "The current task"
+            : $"Step {displayLabel}";
+        return $"Pause requested. {subject} is still finishing. Plan execution will pause when this task completes.";
+    }
 
     internal static string BuildQueueDrainResumeMessage(
         Plan plan,

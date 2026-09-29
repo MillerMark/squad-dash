@@ -197,4 +197,28 @@ internal sealed class PlanLoopTranscriptPresentationTests
                 Is.False);
         });
     }
+
+    [Test]
+    public void PauseRequestedMessage_ExplainsThatTheCurrentTaskWillFinish()
+    {
+        var task = new PlanTask(
+            "PLAN-1-013", "Integrate authoring", "Integrate", [], "high",
+            PlanTaskStatus.Executing, DisplayStepLabel: "13");
+        var plan = new Plan(
+            "PLAN-1", "revision-1", PlanSource.Inbox, PlanLifecycleStatus.Executing,
+            "Authoring plan", "feature/plan", "Summary", [task], [],
+            new PlanProgress(12, 16, task.TaskId), new PlanTimestamps(DateTimeOffset.UtcNow),
+            IsPaused: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PlanLoopTranscriptPresentation.BuildPauseRequestedMessage(plan),
+                Is.EqualTo("Pause requested. Step 13 is still finishing. Plan execution will pause when this task completes."));
+            Assert.That(PlanLoopTranscriptPresentation.IsActivePauseRequest(plan, planRunnerActive: true), Is.True);
+            Assert.That(PlanLoopTranscriptPresentation.IsActivePauseRequest(plan, planRunnerActive: false), Is.False);
+            Assert.That(PlanLoopTranscriptPresentation.KeepPlanRunningLabel, Is.EqualTo("Keep Plan Running"));
+            Assert.That(PlanLoopTranscriptPresentation.ViewActiveWorkLabel, Is.EqualTo("View Active Work"));
+        });
+    }
 }

@@ -9,6 +9,16 @@ using System.Windows.Threading;
 
 namespace SquadDash;
 
+internal sealed record RestoredToolReconciliation(
+    string? ToolCallId,
+    ToolTranscriptDescriptor Descriptor,
+    DateTimeOffset StartedAt,
+    DateTimeOffset FinishedAt,
+    string ProgressText,
+    string? OutputText,
+    string DetailContent,
+    bool Success);
+
 /// <summary>
 /// Owns workspace conversation state, prompt history, and all persistence operations
 /// for transcript turns, agent threads, and conversation state.
@@ -63,6 +73,7 @@ internal sealed class TranscriptConversationManager {
     private const int PrependBatchSize  = 20;
     private static readonly TimeSpan AgentThreadSnapshotPersistDebounce = TimeSpan.FromMilliseconds(1000);
     private bool _prependInProgress;
+    private readonly HashSet<RestoredToolLocator> _restoredIncompleteTools = [];
 
     // Pending session-gap boundary to inject at the end of the loaded conversation turns.
     // Set by PrependSessionBoundary() before LoadWorkspaceConversationAsync() is called.
@@ -286,6 +297,8 @@ internal sealed class TranscriptConversationManager {
             SquadDashTrace.Write(TraceCategory.UI, "SessionGap: skipped boundary because transcript was explicitly cleared.");
         }
 
+        PrepareRestoredIncompleteToolReconciliation();
+
         // Reset virtual window so stale state from a previous workspace never leaks in.
         _allCoordinatorTurns        = [];
         _coordinatorRenderedFromIndex = 0;
@@ -344,6 +357,159 @@ internal sealed class TranscriptConversationManager {
         await RenderAllSequentiallyAsync(agentRenders, turns, dataLoadMs);
         _syncAgentCardsWithThreads();
     }
+
+    internal IReadOnlyList<RestoredToolReconciliation> ReconcileRestoredIncompleteTools(
+        IReadOnlyList<SquadBackgroundAgentInfo> backgroundAgents,
+        DateTimeOffset reconciledAt)
+    {
+        if (_restoredIncompleteTools.Count == 0)
+            return Array.Empty<RestoredToolReconciliation>();
+
+        var agentsByToolCallId = backgroundAgents
+            .Where(agent => !string.IsNullOrWhiteSpace(agent.ToolCallId))
+            .GroupBy(agent => agent.ToolCallId!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
+        var reconciliations = new List<RestoredToolReconciliation>();
+        var remaining = new HashSet<RestoredToolLocator>();
+
+        var turns = ReconcileTurns(
+            _conversationState.Turns,
+            threadId: null,
+            agentsByToolCallId,
+            reconciledAt,
+            reconciliations,
+            remaining);
+        var threads = _conversationState.GetThreads()
+            .Select(thread => thread with
+            {
+                Turns = ReconcileTurns(
+                    thread.Turns,
+                    thread.ThreadId,
+                    agentsByToolCallId,
+                    reconciledAt,
+                    reconciliations,
+                    remaining)
+            })
+            .ToArray();
+
+        _restoredIncompleteTools.Clear();
+        _restoredIncompleteTools.UnionWith(remaining);
+        if (reconciliations.Count == 0)
+            return reconciliations;
+
+        _conversationState = _conversationState with { Turns = turns, Threads = threads };
+        _allCoordinatorTurns = turns;
+        foreach (var thread in threads)
+            if (_pendingAgentRenders.ContainsKey(thread.ThreadId))
+                _pendingAgentRenders[thread.ThreadId] = thread.Turns;
+        PersistConversationStateInBackground(
+            _conversationState,
+            nameof(ReconcileRestoredIncompleteTools));
+        return reconciliations;
+    }
+
+    internal void PrepareRestoredIncompleteToolReconciliation()
+    {
+        _restoredIncompleteTools.Clear();
+        Capture(_conversationState.Turns, threadId: null);
+        foreach (var thread in _conversationState.GetThreads())
+            Capture(thread.Turns, thread.ThreadId);
+
+        void Capture(IReadOnlyList<TranscriptTurnRecord> turns, string? threadId)
+        {
+            for (var turnIndex = 0; turnIndex < turns.Count; turnIndex++)
+            for (var toolIndex = 0; toolIndex < turns[turnIndex].Tools.Count; toolIndex++)
+                if (!turns[turnIndex].Tools[toolIndex].IsCompleted)
+                    _restoredIncompleteTools.Add(new RestoredToolLocator(threadId, turnIndex, toolIndex));
+        }
+    }
+
+    private IReadOnlyList<TranscriptTurnRecord> ReconcileTurns(
+        IReadOnlyList<TranscriptTurnRecord> turns,
+        string? threadId,
+        IReadOnlyDictionary<string, SquadBackgroundAgentInfo> agentsByToolCallId,
+        DateTimeOffset reconciledAt,
+        ICollection<RestoredToolReconciliation> reconciliations,
+        ISet<RestoredToolLocator> remaining)
+    {
+        var updatedTurns = turns.ToArray();
+        for (var turnIndex = 0; turnIndex < updatedTurns.Length; turnIndex++)
+        {
+            var turn = updatedTurns[turnIndex];
+            var tools = turn.Tools.ToArray();
+            var changed = false;
+            for (var toolIndex = 0; toolIndex < tools.Length; toolIndex++)
+            {
+                var locator = new RestoredToolLocator(threadId, turnIndex, toolIndex);
+                if (!_restoredIncompleteTools.Contains(locator) || tools[toolIndex].IsCompleted)
+                    continue;
+
+                var tool = tools[toolIndex];
+                SquadBackgroundAgentInfo? agent = null;
+                var hasSnapshot = !string.IsNullOrWhiteSpace(tool.ToolCallId) &&
+                                  agentsByToolCallId.TryGetValue(tool.ToolCallId.Trim(), out agent);
+                var snapshotStatus = hasSnapshot
+                    ? AgentThreadRegistry.HumanizeThreadStatus(agent!.Status)
+                    : string.Empty;
+                if (hasSnapshot && !AgentThreadRegistry.IsTerminalBackgroundStatus(snapshotStatus))
+                {
+                    remaining.Add(locator);
+                    continue;
+                }
+
+                var success = hasSnapshot && string.Equals(snapshotStatus, "Completed", StringComparison.Ordinal);
+                var finishedAt = hasSnapshot && DateTimeOffset.TryParse(agent!.CompletedAt, out var completedAt)
+                    ? completedAt.ToUniversalTime()
+                    : reconciledAt.ToUniversalTime();
+                var progress = hasSnapshot
+                    ? success ? "Completed after reconnecting." : "Stopped before reconnecting."
+                    : "Interrupted by application restart.";
+                var output = string.IsNullOrWhiteSpace(tool.OutputText) && hasSnapshot
+                    ? agent!.LatestResponse?.TrimEnd()
+                    : tool.OutputText;
+                var detail = ToolTranscriptDetailContent.Build(new ToolTranscriptDetail(
+                    tool.Descriptor,
+                    tool.ArgsJson,
+                    output,
+                    tool.StartedAt,
+                    finishedAt,
+                    progress,
+                    IsCompleted: true,
+                    Success: success));
+                tools[toolIndex] = tool with
+                {
+                    FinishedAt = finishedAt,
+                    ProgressText = progress,
+                    OutputText = output,
+                    DetailContent = detail,
+                    IsCompleted = true,
+                    Success = success
+                };
+                reconciliations.Add(new RestoredToolReconciliation(
+                    tool.ToolCallId,
+                    tool.Descriptor,
+                    tool.StartedAt,
+                    finishedAt,
+                    progress,
+                    output,
+                    detail,
+                    success));
+                changed = true;
+            }
+
+            if (changed)
+            {
+                var completedAt = turn.CompletedAt;
+                if (completedAt is null && tools.All(tool => tool.IsCompleted))
+                    completedAt = tools.Max(tool => tool.FinishedAt) ?? reconciledAt;
+                updatedTurns[turnIndex] = turn with { Tools = tools, CompletedAt = completedAt };
+            }
+        }
+
+        return updatedTurns;
+    }
+
+    private sealed record RestoredToolLocator(string? ThreadId, int TurnIndex, int ToolIndex);
 
     internal static IReadOnlyList<TranscriptTurnRecord> ApplyPendingSessionBoundary(
         IReadOnlyList<TranscriptTurnRecord> existingTurns,
@@ -788,7 +954,7 @@ internal sealed class TranscriptConversationManager {
         var promptHistoryArray = _promptHistory.Select(e => e.Text).ToArray();
         _promptHistoryStore.Save(promptHistoryArray);
 
-        PersistConversationState(_conversationState with {
+        PersistConversationStateInBackground(_conversationState with {
             SessionId = _currentSessionId,
             SessionUpdatedAt = _currentSessionId is null
                 ? _conversationState.SessionUpdatedAt
@@ -797,7 +963,8 @@ internal sealed class TranscriptConversationManager {
             PromptHistory = promptHistoryArray,
             Turns = turns,
             Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
-        }, $"SaveTranscriptTurnToConversation:{reason}");
+        }, $"SaveTranscriptTurnToConversation:{reason}",
+            includeCurrentCoordinatorTurn: !ReferenceEquals(_getCurrentTurn(), turn));
     }
 
     internal void SaveAgentThreadToConversation(TranscriptThreadState thread, DateTimeOffset completedAt) {
@@ -1142,8 +1309,8 @@ internal sealed class TranscriptConversationManager {
 
         var partialRecord = BuildTranscriptTurnRecordPreservingAgentReports(
             currentTurn,
-            DateTimeOffset.UtcNow,
-            state.Turns);
+            completedAt: null,
+            existingTurns: state.Turns);
         var turns = state.Turns
             .Where(existing =>
                 existing.StartedAt != partialRecord.StartedAt ||
@@ -1245,7 +1412,7 @@ internal sealed class TranscriptConversationManager {
 
     private TranscriptTurnRecord BuildTranscriptTurnRecordPreservingAgentReports(
         TranscriptTurnView turn,
-        DateTimeOffset completedAt,
+        DateTimeOffset? completedAt,
         IReadOnlyList<TranscriptTurnRecord> existingTurns) {
         var record = BuildTranscriptTurnRecord(turn, completedAt);
         var existingRecord = existingTurns.FirstOrDefault(existing => IsSameTranscriptTurn(existing, record));
@@ -1286,7 +1453,7 @@ internal sealed class TranscriptConversationManager {
 
     internal TranscriptTurnRecord BuildTranscriptTurnRecord(
         TranscriptTurnView turn,
-        DateTimeOffset completedAt) {
+        DateTimeOffset? completedAt) {
         var rawResponseText = MainWindow.GetSanitizedTurnResponseText(turn);
 
         var toolEntries = _getToolEntries();
@@ -1311,7 +1478,7 @@ internal sealed class TranscriptConversationManager {
 
         return new TranscriptTurnRecord(
             turn.StartedAt.ToUniversalTime(),
-            completedAt.ToUniversalTime(),
+            completedAt?.ToUniversalTime(),
             turn.Prompt,
             string.Join(
                 Environment.NewLine + Environment.NewLine,
@@ -1386,7 +1553,13 @@ internal sealed class TranscriptConversationManager {
         var turns = thread.SavedTurns.ToList();
 
         if (includeCurrentTurn && thread.CurrentTurn is not null) {
-            var partialTurn = BuildTranscriptTurnRecord(thread.CurrentTurn, DateTimeOffset.UtcNow);
+            var matchingSavedTurn = turns.FirstOrDefault(existing =>
+                existing.StartedAt == thread.CurrentTurn.StartedAt &&
+                string.Equals(existing.Prompt, thread.CurrentTurn.Prompt, StringComparison.Ordinal));
+            var partialTurn = BuildTranscriptTurnRecordPreservingAgentReports(
+                thread.CurrentTurn,
+                matchingSavedTurn?.CompletedAt,
+                turns);
             turns.RemoveAll(existing =>
                 existing.StartedAt == partialTurn.StartedAt &&
                 string.Equals(existing.Prompt, partialTurn.Prompt, StringComparison.Ordinal));
@@ -1788,9 +1961,13 @@ internal sealed class TranscriptConversationManager {
         }, "AgentThreadSnapshotTimer");
     }
 
-    private void PersistConversationStateInBackground(WorkspaceConversationState state, string reason = "unspecified") {
+    private void PersistConversationStateInBackground(
+        WorkspaceConversationState state,
+        string reason = "unspecified",
+        bool includeCurrentCoordinatorTurn = true) {
         var workspace = _getWorkspace();
-        state = IncludeCurrentCoordinatorTurnIfPresent(state, reason);
+        if (includeCurrentCoordinatorTurn)
+            state = IncludeCurrentCoordinatorTurnIfPresent(state, reason);
         var version = RegisterConversationSaveRequest();
         if (workspace is null) {
             _conversationState = state;

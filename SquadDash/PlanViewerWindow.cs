@@ -862,15 +862,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
             return button;
         }
 
+        var pauseRequested = PlanLoopTranscriptPresentation.IsActivePauseRequest(
+            durablePlan,
+            planRunnerActive);
+
         if (durablePlan is not null && !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus))
         {
             if (durablePlan.IsPaused)
             {
-                if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing &&
-                    durablePlan.Progress.ExecutingTaskId is not null)
+                if (pauseRequested)
                 {
-                    AddPrimaryButton("Pausing…", "The current step will finish and no new step will start.",
-                        () => { }, enabled: false);
+                    if (onResumePlan is not null)
+                        AddPrimaryButton(
+                            PlanLoopTranscriptPresentation.KeepPlanRunningLabel,
+                            "Cancel the pause request. The current task continues and the next task may start normally.",
+                            () => onResumePlan(durablePlan));
+                    AddPrimaryButton(
+                        PlanLoopTranscriptPresentation.ViewActiveWorkLabel,
+                        "Center the plan on the task that is still running.",
+                        EnsureAutomaticScrollTargetVisible);
+                }
+                else if (durablePlan.LifecycleStatus == PlanLifecycleStatus.Executing &&
+                         !planRunnerActive && onResumePlan is not null)
+                {
+                    AddPrimaryButton(
+                        "Resume Plan",
+                        "Resume this paused plan because it currently has no active runner.",
+                        () => onResumePlan(durablePlan));
                 }
                 else if (onResumePlan is not null)
                     AddPrimaryButton("Resume", "Release this plan's durable pause. Work proceeds only when its current boundary allows it.",
@@ -907,7 +925,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
         }
 
-        if (_editHistory is not null)
+        if (_editHistory is not null && !pauseRequested)
         {
             if (primaryControls.Children.Count > 0)
             {
@@ -935,6 +953,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         if (primaryControls.Children.Count > 0)
             header.Children.Add(primaryControls);
+
+        if (pauseRequested && durablePlan is not null)
+        {
+            var pauseStatus = new TextBlock
+            {
+                Text = PlanLoopTranscriptPresentation.BuildPauseRequestedMessage(durablePlan),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+            pauseStatus.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            pauseStatus.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            header.Children.Add(pauseStatus);
+        }
 
         _actionStatusText = new TextBlock
         {

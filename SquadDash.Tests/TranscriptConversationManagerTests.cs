@@ -13,6 +13,69 @@ namespace SquadDash.Tests;
 internal sealed class TranscriptConversationManagerTests {
 
     [Test, Apartment(ApartmentState.STA)]
+    public void RestoredIncompleteTool_RemainsPendingUntilAuthoritativeSnapshotIsTerminal()
+    {
+        var manager = MakeManager();
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        manager.ConversationState = BuildPendingToolState(startedAt);
+        manager.PrepareRestoredIncompleteToolReconciliation();
+        var liveResult = manager.ReconcileRestoredIncompleteTools(
+            [new SquadBackgroundAgentInfo { ToolCallId = "delegate-1", Status = "working" }],
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(liveResult, Is.Empty);
+            Assert.That(manager.ConversationState.Turns.Single().Tools.Single().IsCompleted, Is.False);
+        });
+
+        var completedAt = DateTimeOffset.UtcNow;
+        var terminalResult = manager.ReconcileRestoredIncompleteTools(
+            [new SquadBackgroundAgentInfo
+            {
+                ToolCallId = "delegate-1",
+                Status = "completed",
+                CompletedAt = completedAt.ToString("O"),
+                LatestResponse = "Finished the delegated work."
+            }],
+            completedAt);
+
+        var tool = manager.ConversationState.Turns.Single().Tools.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(terminalResult, Has.Count.EqualTo(1));
+            Assert.That(tool.IsCompleted, Is.True);
+            Assert.That(tool.Success, Is.True);
+            Assert.That(tool.OutputText, Is.EqualTo("Finished the delegated work."));
+            Assert.That(manager.ConversationState.Turns.Single().CompletedAt, Is.Not.Null);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RestoredIncompleteTool_WithoutSnapshotMatchIsInterruptedOnce()
+    {
+        var manager = MakeManager();
+        manager.ConversationState = BuildPendingToolState(DateTimeOffset.UtcNow.AddMinutes(-3));
+        manager.PrepareRestoredIncompleteToolReconciliation();
+        var first = manager.ReconcileRestoredIncompleteTools(
+            Array.Empty<SquadBackgroundAgentInfo>(),
+            DateTimeOffset.UtcNow);
+        var second = manager.ReconcileRestoredIncompleteTools(
+            Array.Empty<SquadBackgroundAgentInfo>(),
+            DateTimeOffset.UtcNow.AddSeconds(1));
+
+        var tool = manager.ConversationState.Turns.Single().Tools.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(first, Has.Count.EqualTo(1));
+            Assert.That(second, Is.Empty);
+            Assert.That(tool.IsCompleted, Is.True);
+            Assert.That(tool.Success, Is.False);
+            Assert.That(tool.ProgressText, Is.EqualTo("Interrupted by application restart."));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void PersistConversationState_DoesNotFoldSuppressedCoordinatorTurnIntoTranscript()
     {
         using var workspace = new TestWorkspace();
@@ -511,8 +574,45 @@ internal sealed class TranscriptConversationManagerTests {
         var savedTurn = manager.ConversationState.Turns.Single();
         Assert.Multiple(() => {
             Assert.That(savedTurn.ResponseText, Is.EqualTo("Final coordinator response."));
+            Assert.That(savedTurn.CompletedAt, Is.EqualTo(completedAt.ToUniversalTime()));
             Assert.That(savedTurn.AgentReports, Is.Not.Null);
             Assert.That(savedTurn.AgentReports!.Single(), Is.EqualTo(report));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void BuildTranscriptThreadRecord_PreservesCompletionForSavedCurrentAgentTurn() {
+        var startedAt = new DateTimeOffset(2026, 9, 28, 13, 10, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMinutes(3);
+        var thread = new TranscriptThreadState(
+            "agent-1",
+            TranscriptThreadKind.Agent,
+            "Lyra",
+            startedAt);
+        var currentTurn = new TranscriptTurnView(
+            thread,
+            "Implement the task",
+            startedAt,
+            new Section(),
+            []);
+        currentTurn.ResponseTextBuilder.Append("Implementation complete.");
+        thread.CurrentTurn = currentTurn;
+        thread.SavedTurns.Add(new TranscriptTurnRecord(
+            startedAt,
+            completedAt,
+            currentTurn.Prompt,
+            string.Empty,
+            "Implementation complete.",
+            true,
+            Array.Empty<TranscriptToolRecord>()));
+
+        var manager = MakeManager();
+        var record = manager.BuildTranscriptThreadRecord(thread, includeCurrentTurn: true);
+
+        Assert.Multiple(() => {
+            Assert.That(record.Turns, Has.Count.EqualTo(1));
+            Assert.That(record.Turns[0].CompletedAt, Is.EqualTo(completedAt));
+            Assert.That(record.Turns[0].ResponseText, Is.EqualTo("Implementation complete."));
         });
     }
 
@@ -1020,6 +1120,35 @@ internal sealed class TranscriptConversationManagerTests {
             SessionBoundaryStartupTime     = startupTime,
             SessionBoundaryAppVersion      = "test"
         };
+
+    private static WorkspaceConversationState BuildPendingToolState(DateTimeOffset startedAt) =>
+        new(
+            "session-pending",
+            DateTimeOffset.UtcNow,
+            null,
+            Array.Empty<string>(),
+            [
+                new TranscriptTurnRecord(
+                    startedAt,
+                    null,
+                    "Executing plan",
+                    string.Empty,
+                    string.Empty,
+                    true,
+                    [
+                        new TranscriptToolRecord(
+                            "delegate-1",
+                            new ToolTranscriptDescriptor("delegate_temporary_agent", DisplayText: "Worker"),
+                            null,
+                            startedAt,
+                            FinishedAt: null,
+                            ProgressText: "Running",
+                            OutputText: null,
+                            DetailContent: null,
+                            IsCompleted: false,
+                            Success: false)
+                    ])
+            ]);
 
     private static AgentThreadRegistry MakeRegistry() =>
         new AgentThreadRegistry(

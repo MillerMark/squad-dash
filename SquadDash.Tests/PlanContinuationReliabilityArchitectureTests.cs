@@ -65,6 +65,117 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
         });
     }
 
+    [Test]
+    public void PauseRequest_UsesSafeControlsAndCannotBecomeARecoveryCard()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var requestPause = Method(
+            main,
+            "private bool RequestPlanPauseAfterCurrentStep(",
+            "private bool CancelPlanPauseAfterCurrentStep(");
+        var pauseCard = Method(
+            main,
+            "private void ShowPlanPauseRequestedEntry(",
+            "private sealed record PlanPauseRequestedTag");
+        var recoveryCard = Method(
+            main,
+            "private void AppendDecomposeRecoveryActions(",
+            "private async Task ShowRecoveryReassessmentWhenStaleAsync(");
+        var endPlan = Method(
+            main,
+            "private void EndInterruptedPlan(",
+            "private void SyncCodeHealthPanel(");
+        var activeWorkGuard = Method(
+            main,
+            "private bool HasActivePlanWork(",
+            "private bool IsPlanRecoveryActionBusy(");
+        var recoveryBusyGuard = Method(
+            main,
+            "private bool IsPlanRecoveryActionBusy(",
+            "private bool CancelPlanPauseAfterCurrentStep(");
+        var cancelPause = Method(
+            main,
+            "private bool CancelPlanPauseAfterCurrentStep(",
+            "private void ShowPlanPauseRequestedEntry(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(requestPause, Does.Contain("PlanStoreUpdater.ApplyPause(current)")
+                .And.Contain("PublishPlanProgress(current)")
+                .And.Contain("ShowPlanPauseRequestedEntry(current)")
+                .And.Not.Contain("ScheduleDecomposeSystemEntry("));
+            Assert.That(pauseCard, Does.Contain("KeepPlanRunningLabel")
+                .And.Contain("ViewActiveWorkLabel")
+                .And.Not.Contain("End Plan")
+                .And.Not.Contain("RetryDecomposeTaskAsync"));
+            Assert.That(recoveryCard, Does.Contain("PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan)")
+                .And.Contain("planRunnerActive"));
+            Assert.That(endPlan, Does.Contain("HasActivePlanWork(current.PlanId)")
+                .And.Contain("HasActionableInterruption(current)")
+                .And.Contain("MessageBox.Show("));
+            Assert.That(activeWorkGuard, Does.Contain("_isPromptRunning")
+                .And.Contain("_loopController.IsRunning")
+                .And.Contain("PlanExecutionAttempt is { Status: \"active\" }")
+                .And.Contain("ActiveVerificationTaskId")
+                .And.Contain("ActiveValidationId"));
+            Assert.That(recoveryBusyGuard, Does.Contain("_isPromptRunning")
+                .And.Contain("IsLoopRunning")
+                .And.Contain("_loopController.IsRunning")
+                .And.Contain("HasActivePlanWork(planId)"));
+            Assert.That(main, Does.Contain("IsPlanRecoveryActionBusy(plan.Group.GroupId)")
+                .And.Contain("IsPlanRecoveryActionBusy(displayedPlan.PlanId)"));
+            Assert.That(cancelPause, Does.Contain("RemovePlanPauseRequestedEntries(plan.PlanId)"));
+            Assert.That(pauseCard, Does.Contain("RemovePlanPauseRequestedEntries(plan.PlanId)"));
+            Assert.That(main, Does.Contain("if (pausedAfterStep && stoppedPlanId is not null)")
+                .And.Contain("RemovePlanPauseRequestedEntries(stoppedPlanId)"));
+            Assert.That(viewer, Does.Contain("KeepPlanRunningLabel")
+                .And.Contain("ViewActiveWorkLabel")
+                .And.Contain("BuildPauseRequestedMessage(durablePlan)")
+                .And.Contain("IsActivePauseRequest("));
+        });
+    }
+
+    [Test]
+    public void RecoveryDeveloperPreview_BypassesOnlyTheDurableInterruptionRequirement()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var recoveryCard = Method(
+            main,
+            "private void AppendDecomposeRecoveryActions(",
+            "private async Task ShowRecoveryReassessmentWhenStaleAsync(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(recoveryCard, Does.Contain("bool developerPreview = false"));
+            Assert.That(recoveryCard, Does.Contain("if (!developerPreview &&"));
+            Assert.That(main, Does.Contain("developerPreview: true"));
+        });
+    }
+
+    [Test]
+    public void BackgroundStatusEntry_PreservesThePendingCoordinatorDelegation()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var showSystem = Method(
+            main,
+            "private TranscriptResponseEntry? ShowSystemTranscriptEntry(",
+            "private void MaybePublishRoutingIssueSystemEntry(");
+        var subagentStarted = Method(
+            main,
+            "private void HandleSubagentStarted(",
+            "private void HandleSubagentMessageDelta(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(showSystem, Does.Contain("suspendedCoordinatorTurn")
+                .And.Contain("_currentTurn = suspendedCoordinatorTurn")
+                .And.Contain("active worker remains pending"));
+            Assert.That(subagentStarted, Does.Contain("PersistAgentThreadSnapshot(thread)")
+                .And.Not.Contain("SaveCurrentTurnToConversation("));
+        });
+    }
+
     private static string Method(string source, string startMarker, string endMarker)
     {
         var start = source.IndexOf(startMarker, StringComparison.Ordinal);

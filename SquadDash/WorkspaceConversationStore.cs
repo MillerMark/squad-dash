@@ -613,10 +613,10 @@ internal sealed class WorkspaceConversationStore {
                         inferredCompletion = true;
                     }
 
-                    // Any tool still marked incomplete at load time was abandoned (the session
-                    // ended without a tool_complete event).  Mark it failed so it never shows
-                    // "Status: Running" on a past turn.
-                    if (!isCompleted) {
+                    // Incomplete tools on a completed turn were abandoned without a
+                    // tool_complete event. An in-progress turn intentionally has CompletedAt
+                    // unset and must remain pending while its background worker is still alive.
+                    if (!isCompleted && turn.CompletedAt is not null) {
                         isCompleted = true;
                         success = false;
                         inferredCompletion = true;

@@ -121,7 +121,7 @@ internal sealed class ApprovalAmendmentContinuationArchitectureTests
         var pauseCondition = source.IndexOf(
             "else if (PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan) &&",
             StringComparison.Ordinal);
-        var editHistory = source.IndexOf("if (_editHistory is not null)", pauseCondition, StringComparison.Ordinal);
+        var editHistory = source.IndexOf("if (_editHistory is not null", pauseCondition, StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {

@@ -596,6 +596,8 @@ public partial class MainWindow : Window
     // _activeToolName moved to PromptExecutionController.ActiveToolName
     private AgentThreadRegistry _agentThreadRegistry = null!;
     private BackgroundTaskPresenter _backgroundTaskPresenter = null!;
+    private bool _hasAuthoritativeBackgroundTaskSnapshot;
+    private bool _workspaceConversationHydrated;
     private TranscriptConversationManager _conversationManager = null!;
     private TranscriptPanelController _transcriptPanelController = null!;
     private MarkdownDocumentRenderer _markdownRenderer = null!;
@@ -6429,6 +6431,7 @@ public partial class MainWindow : Window
 
     private void HandleBackgroundTasksChanged(SquadSdkEvent evt)
     {
+        _hasAuthoritativeBackgroundTaskSnapshot = true;
         var previousAgents = _backgroundTaskPresenter.BackgroundAgents;
         var previousShells = _backgroundTaskPresenter.BackgroundShells;
         _backgroundTaskPresenter.BackgroundAgents = evt.BackgroundAgents ?? Array.Empty<SquadBackgroundAgentInfo>();
@@ -6438,6 +6441,8 @@ public partial class MainWindow : Window
                 _shellDescriptions[shell.ShellId] = shell.Description;
 
         _agentThreadRegistry.SyncBackgroundAgentThreads(_backgroundTaskPresenter.BackgroundAgents);
+        if (_workspaceConversationHydrated)
+            ReconcileRestoredIncompleteToolsFromBackgroundSnapshot();
         SyncAgentCardsWithThreads();
 
         SquadDashTrace.Write(
@@ -6454,6 +6459,48 @@ public partial class MainWindow : Window
         if (!_restartPending)
             ApplyPendingBridgeSettingsRestartIfIdle("background-tasks-changed");
         TryCompletePendingRestart("background-tasks-changed");
+    }
+
+    private void ReconcileRestoredIncompleteToolsFromBackgroundSnapshot()
+    {
+        var reconciliations = _conversationManager.ReconcileRestoredIncompleteTools(
+            _backgroundTaskPresenter.BackgroundAgents,
+            DateTimeOffset.UtcNow);
+        foreach (var reconciliation in reconciliations)
+        {
+            ToolTranscriptEntry? entry = null;
+            if (!string.IsNullOrWhiteSpace(reconciliation.ToolCallId) &&
+                _agentThreadRegistry.TryGetToolEntry(reconciliation.ToolCallId, out var entryById))
+            {
+                entry = entryById;
+            }
+            entry ??= _agentThreadRegistry.ToolEntries.Values.FirstOrDefault(candidate =>
+                !candidate.IsCompleted &&
+                candidate.StartedAt == reconciliation.StartedAt &&
+                string.Equals(
+                    candidate.Descriptor.ToolName,
+                    reconciliation.Descriptor.ToolName,
+                    StringComparison.OrdinalIgnoreCase));
+            if (entry is null)
+                continue;
+
+            entry.FinishedAt = reconciliation.FinishedAt;
+            entry.ProgressText = reconciliation.ProgressText;
+            entry.OutputText = reconciliation.OutputText;
+            entry.DetailContent = reconciliation.DetailContent;
+            entry.IsCompleted = true;
+            entry.Success = reconciliation.Success;
+            RenderToolEntry(entry);
+        }
+
+        if (reconciliations.Count > 0)
+        {
+            UpdateToolSpinnerState();
+            SyncActiveToolName();
+            SquadDashTrace.Write(
+                "Persistence",
+                $"Reconciled {reconciliations.Count} restored tool entr{(reconciliations.Count == 1 ? "y" : "ies")} from authoritative background-task snapshot.");
+        }
     }
 
     private bool ShouldIgnoreForceStoppedBridgeEvent(SquadSdkEvent evt)
@@ -6519,11 +6566,9 @@ public partial class MainWindow : Window
             $"Subagent started {BackgroundTaskPresenter.BuildBackgroundAgentLabel(thread)} description={evt.AgentDescription?.Trim() ?? "(none)"}");
         SyncAgentCardsWithThreads();
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_started");
-        // Persist the coordinator's completed "dispatching…" response immediately.
-        // RunPromptAsync only resolves (and the ExecuteCoordinatorTurnAsync finally-block only
-        // runs) after ALL background agents finish, so the coordinator turn would otherwise
-        // remain in-memory and be lost if the app restarts while the sub-agent is running.
-        _conversationManager.SaveCurrentTurnToConversation(DateTimeOffset.UtcNow, "subagent-started");
+        // Persist the coordinator turn as an in-progress snapshot. It must not acquire a
+        // CompletedAt timestamp until the delegated worker returns and the coordinator turn
+        // actually finishes; otherwise an active delegation is presented as failed history.
         _conversationManager.PersistAgentThreadSnapshot(thread);
     }
 
@@ -7470,7 +7515,10 @@ public partial class MainWindow : Window
         _loopRoundStartedAt = null;
 
         var interruptedTaskId = _CodeHealthGroupRunner?.CurrentStepId ?? stoppedExecution?.TaskId;
-        var pausedAfterStep = _pausePlanAfterCurrentStepRequested;
+        var pausedAfterStep = _pausePlanAfterCurrentStepRequested ||
+                              (stoppedPlanId is not null && _planStore?.Load(stoppedPlanId)?.IsPaused == true);
+        if (pausedAfterStep && stoppedPlanId is not null)
+            RemovePlanPauseRequestedEntries(stoppedPlanId);
         var abortedByUser = _planAbortRequestedByUser;
         var providerWaitReason = _planProviderWaitInterruptionReason;
         var unacceptedStopReason = _restartPending
@@ -11876,6 +11924,10 @@ public partial class MainWindow : Window
 
     private async Task QueuePlanRecoveryCorrectionAsync(PendingDecomposePlan plan, string taskId)
     {
+        if (IsPlanRecoveryActionBusy(plan.Group.GroupId))
+            throw new InvalidOperationException(
+                "Wait for the current prompt, loop, or active plan task to finish before preparing recovery work.");
+
         if (_pendingPlanTaskCorrectionContext is not null)
         {
             ReportPlanActionIssue(
@@ -12115,7 +12167,7 @@ public partial class MainWindow : Window
         bool allowUncommittedPreservedWork = false)
     {
         if (_currentWorkspace is null) return false;
-        if (_isPromptRunning || _loopController.IsRunning)
+        if (IsPlanRecoveryActionBusy(plan.Group.GroupId))
             throw new InvalidOperationException("Wait for the current prompt or loop to finish before retrying the plan.");
 
         var durablePlan = _planStore?.Load(plan.Group.GroupId)
@@ -13289,6 +13341,14 @@ public partial class MainWindow : Window
             ? p =>
               {
                   var current = _planStore?.Load(p.PlanId) ?? p;
+                  if (current.IsPaused &&
+                      current.LifecycleStatus == PlanLifecycleStatus.Executing &&
+                      string.Equals(_activeDecomposeGroupId, current.PlanId, StringComparison.Ordinal) &&
+                      IsLoopRunning)
+                  {
+                      CancelPlanPauseAfterCurrentStep(current);
+                      return;
+                  }
                   var resumed = current.IsPaused ? PlanStoreUpdater.ApplyResume(current) : current;
                   if (!ReferenceEquals(resumed, current))
                       PublishPlanProgress(resumed);
@@ -15106,7 +15166,8 @@ public partial class MainWindow : Window
                 PendingRepairResult = null,
             });
         LoadTasksPanel();
-        if (_pausePlanAfterCurrentStepRequested)
+        var durableAfterAcceptance = _planStore?.Load(groupId);
+        if (_pausePlanAfterCurrentStepRequested || durableAfterAcceptance?.IsPaused == true)
         {
             SuppressLoopResumeAfterExplicitStop("pause-plan-after-step");
             _loopController.RequestStop();
@@ -15114,7 +15175,6 @@ public partial class MainWindow : Window
                 $"Plan will pause after accepted task \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? result.TaskId}\".");
             return;
         }
-        var durableAfterAcceptance = _planStore?.Load(groupId);
         var readyValidation = durableAfterAcceptance is null
             ? null
             : PlanValidationScheduler.SelectNextSchedulable(durableAfterAcceptance);
@@ -19617,12 +19677,23 @@ public partial class MainWindow : Window
     private void AppendDecomposeRecoveryActions(
         PendingDecomposePlan plan,
         string taskId,
-        bool showEndPlan = false)
+        bool showEndPlan = false,
+        bool developerPreview = false)
     {
+        var durablePlan = _planStore?.Load(plan.Group.GroupId);
+        if (!developerPreview &&
+            (durablePlan is null || !PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan)))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Recovery controls suppressed because plan={plan.Group.GroupId} is not at an actionable interruption.");
+            return;
+        }
+        var planRunnerActive = durablePlan is not null && HasActivePlanWork(durablePlan.PlanId);
+
         var recoveryTag = new DecomposeRecoveryTag(plan.Group.GroupId, plan.Revision, taskId);
         var recoverySurface = new Section { Tag = recoveryTag };
         CoordinatorThread.Document.Blocks.Add(recoverySurface);
-        var durablePlan = _planStore?.Load(plan.Group.GroupId);
         var assessmentEvidence = durablePlan?.InterruptionData?.RecoveryAssessment;
         var durableTask = durablePlan?.Tasks.FirstOrDefault(task =>
             string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
@@ -20148,7 +20219,7 @@ public partial class MainWindow : Window
                 "Open Logs",
                 "Open the live SquadDash trace so the unexpected state can be investigated.",
                 ShowTraceWindow);
-            if (durablePlan is not null)
+            if (!planRunnerActive)
             {
                 AddAction(
                     "End Plan",
@@ -20190,7 +20261,7 @@ public partial class MainWindow : Window
                 "Create an editable replanning prompt with protected plan context attached.",
                 () => QueueDecomposeReplan(plan, taskId),
                 removeAfterAction: false);
-            if (durablePlan is not null)
+            if (!planRunnerActive)
             {
                 AddAction(
                     "End Plan",
@@ -20517,7 +20588,7 @@ public partial class MainWindow : Window
         AddAction("✎ Revise Remaining Plan…", "Create an editable replanning prompt with protected plan context attached.",
             () => QueueDecomposeReplan(plan, taskId));
 
-        if (showEndPlan)
+        if (showEndPlan && !planRunnerActive)
         {
             AddAction("End This Incomplete Plan",
                 "Mark this plan as stopped without retrying or replanning. The plan history is preserved.",
@@ -20940,7 +21011,7 @@ public partial class MainWindow : Window
         bool advisoryOnly = false)
     {
         if (_currentWorkspace is null || _planStore is null) return;
-        if (_isPromptRunning || _loopController.IsRunning)
+        if (IsPlanRecoveryActionBusy(plan.Group.GroupId))
             throw new InvalidOperationException(
                 "Wait for the current prompt or loop to finish before assessing interrupted work.");
         if (_pendingPlanRecoveryAssessment is not null)
@@ -22290,6 +22361,14 @@ public partial class MainWindow : Window
     private async Task<bool> AcceptInterruptedStepAfterReviewAsync(Plan displayedPlan)
     {
         if (_currentWorkspace is null || _planStore is null) return false;
+        if (IsPlanRecoveryActionBusy(displayedPlan.PlanId))
+        {
+            ReportPlanActionIssue(
+                displayedPlan.PlanId,
+                "Work still running",
+                "Wait for the current prompt, loop, or active plan task to finish before accepting interrupted work.");
+            return false;
+        }
         ClearPlanActionIssue(displayedPlan.PlanId);
         var workspace = _currentWorkspace.FolderPath;
         var storedPlan = _planStore.Load(displayedPlan.PlanId);
@@ -33793,7 +33872,8 @@ public partial class MainWindow : Window
                 AppendDecomposeRecoveryActions(
                     pendingPlan,
                     pendingPlan.Group.Tasks.First().Id,
-                    showEndPlan: true);
+                    showEndPlan: true,
+                    developerPreview: true);
                 break;
 
             case "RecoveryOptions":
@@ -38891,6 +38971,9 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace?.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
         await _conversationManager.LoadWorkspaceConversationAsync();
+        _workspaceConversationHydrated = true;
+        if (_hasAuthoritativeBackgroundTaskSnapshot)
+            ReconcileRestoredIncompleteToolsFromBackgroundSnapshot();
         // Recovery evidence lives in the persisted transcript, which is workspace-hydrated only
         // here. Reconcile it before rebuilding any recovery card or Inbox action.
         await ReconcileInterruptedPlanTaskEvidenceAsync();
@@ -47926,6 +48009,8 @@ public partial class MainWindow : Window
         DisposeTeamFileWatcher();
         DisposeCodeHealthMdWatcher();
         _conversationManager.CurrentSessionId = null;
+        _hasAuthoritativeBackgroundTaskSnapshot = false;
+        _workspaceConversationHydrated = false;
         SquadDashTrace.Write("Persistence", $"Coordinator CurrentTurn cleared reason=ClearSessionView currentTurnWasPresent={_currentTurn is not null}");
         _currentTurn = null;
         if (clearAgentReports && _currentWorkspace is not null)
@@ -48017,13 +48102,33 @@ public partial class MainWindow : Window
         if (_isClosing || string.IsNullOrWhiteSpace(text))
             return null;
 
+        // A host status entry may arrive while the coordinator is awaiting a background worker.
+        // Render it as a separate transcript item without replacing the live coordinator turn;
+        // otherwise the worker's eventual tool_complete event is orphaned and persisted as a failure.
+        var suspendedCoordinatorTurn = _isPromptRunning ? _currentTurn : null;
         SelectTranscriptThread(CoordinatorThread);
-        var turn = BeginTranscriptTurn(string.Empty);
-        AppendLine(text);
-        FinalizeCurrentTurnResponse();
-        SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=system-transcript-entry");
-        _currentTurn = null;
-        return turn.ResponseEntries.LastOrDefault();
+        try
+        {
+            var turn = BeginTranscriptTurn(string.Empty);
+            AppendLine(text);
+            FinalizeCurrentTurnResponse();
+            return turn.ResponseEntries.LastOrDefault();
+        }
+        finally
+        {
+            if (suspendedCoordinatorTurn is not null)
+            {
+                _currentTurn = suspendedCoordinatorTurn;
+                SquadDashTrace.Write(
+                    "Persistence",
+                    "Coordinator CurrentTurn restored after system-transcript-entry; active worker remains pending.");
+            }
+            else
+            {
+                SquadDashTrace.Write("Persistence", "Coordinator CurrentTurn cleared reason=system-transcript-entry");
+                _currentTurn = null;
+            }
+        }
     }
 
     private void MaybePublishRoutingIssueSystemEntry(string reason, bool force = false)
@@ -58133,14 +58238,118 @@ public partial class MainWindow : Window
     {
         if (!string.Equals(_activeDecomposeGroupId, plan.PlanId, StringComparison.Ordinal) || !IsLoopRunning)
             return false;
+
+        var current = _planStore?.Load(plan.PlanId) ?? plan;
+        if (!current.IsPaused)
+        {
+            current = PlanStoreUpdater.ApplyPause(current);
+            PublishPlanProgress(current);
+        }
+        if (_pausePlanAfterCurrentStepRequested)
+            return true;
+
         _pausePlanAfterCurrentStepRequested = true;
-        ScheduleDecomposeSystemEntry(
-            $"Plan {plan.DisplayName} will pause after the current step is accepted.",
-            plan.PlanId,
-            plan.Revision,
-            plan.Progress.ExecutingTaskId);
+        ShowPlanPauseRequestedEntry(current);
         return true;
     }
+
+    private bool HasActivePlanWork(string planId)
+    {
+        if (string.IsNullOrWhiteSpace(planId))
+            return false;
+
+        var runtimeOwnsPlan = string.Equals(
+            _activeDecomposeGroupId,
+            planId,
+            StringComparison.Ordinal);
+        if (runtimeOwnsPlan && (_isPromptRunning || IsLoopRunning || _loopController.IsRunning))
+            return true;
+
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (execution?.IsExecutingPlan != true ||
+            !string.Equals(execution.DecomposeGroupId, planId, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return execution.PlanExecutionAttempt is { Status: "active" } ||
+               !string.IsNullOrWhiteSpace(execution.ActiveVerificationTaskId) ||
+               !string.IsNullOrWhiteSpace(execution.ActiveValidationId);
+    }
+
+    private bool IsPlanRecoveryActionBusy(string planId) =>
+        _isPromptRunning || IsLoopRunning || _loopController.IsRunning || HasActivePlanWork(planId);
+
+    private bool CancelPlanPauseAfterCurrentStep(Plan plan)
+    {
+        if (!string.Equals(_activeDecomposeGroupId, plan.PlanId, StringComparison.Ordinal) || !IsLoopRunning)
+            return false;
+
+        var current = _planStore?.Load(plan.PlanId) ?? plan;
+        if (!_pausePlanAfterCurrentStepRequested && !current.IsPaused)
+        {
+            RemovePlanPauseRequestedEntries(plan.PlanId);
+            return false;
+        }
+
+        _pausePlanAfterCurrentStepRequested = false;
+        if (current.IsPaused)
+            PublishPlanProgress(PlanStoreUpdater.ApplyResume(current));
+        RemovePlanPauseRequestedEntries(plan.PlanId);
+        ShowSystemTranscriptEntry("Pause canceled. Plan execution will continue after the current task completes.");
+        return true;
+    }
+
+    private void ShowPlanPauseRequestedEntry(Plan plan)
+    {
+        RemovePlanPauseRequestedEntries(plan.PlanId);
+        ShowSystemTranscriptEntry(PlanLoopTranscriptPresentation.BuildPauseRequestedMessage(plan));
+
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        var container = TranscriptQuickReplyFactory.CreateContainer(
+            panel,
+            new PlanPauseRequestedTag(plan.PlanId, plan.Revision));
+
+        var keepRunning = TranscriptQuickReplyFactory.CreateButton(
+            PlanLoopTranscriptPresentation.KeepPlanRunningLabel,
+            _transcriptFontSize,
+            toolTip: ToolTipHelper.MakeThemedToolTip(
+                "Cancel the pause request. The current task continues and the next task may start normally."));
+        keepRunning.Focusable = false;
+        keepRunning.Click += (_, _) =>
+        {
+            var current = _planStore?.Load(plan.PlanId) ?? plan;
+            if (!CancelPlanPauseAfterCurrentStep(current))
+                OpenPlanFromStore(current);
+        };
+        panel.Children.Add(keepRunning);
+
+        var viewWork = TranscriptQuickReplyFactory.CreateButton(
+            PlanLoopTranscriptPresentation.ViewActiveWorkLabel,
+            _transcriptFontSize,
+            toolTip: ToolTipHelper.MakeThemedToolTip(
+                "Open the plan visualizer at the task that is still running."));
+        viewWork.Focusable = false;
+        viewWork.Click += (_, _) => OpenPlanFromStore(_planStore?.Load(plan.PlanId) ?? plan);
+        panel.Children.Add(viewWork);
+
+        CoordinatorThread.Document.Blocks.Add(container);
+        ScrollToEndIfAtBottom(CoordinatorThread);
+    }
+
+    private void RemovePlanPauseRequestedEntries(string planId)
+    {
+        var entries = CoordinatorThread.Document.Blocks
+            .OfType<BlockUIContainer>()
+            .Where(container =>
+                container.Tag is PlanPauseRequestedTag tag &&
+                string.Equals(tag.PlanId, planId, StringComparison.Ordinal))
+            .ToArray();
+        foreach (var entry in entries)
+            CoordinatorThread.Document.Blocks.Remove(entry);
+    }
+
+    private sealed record PlanPauseRequestedTag(string PlanId, string Revision);
 
     private async void AbortCurrentPlanWork(Plan plan)
     {
@@ -58715,7 +58924,24 @@ public partial class MainWindow : Window
     private void EndInterruptedPlan(Plan plan)
     {
         if (_planStore is null) return;
-        var updated = PlanStoreUpdater.ApplyStopped(plan);
+        var current = _planStore.Load(plan.PlanId) ?? plan;
+        if (HasActivePlanWork(current.PlanId))
+        {
+            ShowSystemTranscriptEntry(
+                "This plan still owns active work. Wait for it to finish or recover before ending the plan; existing files and execution evidence remain preserved.");
+            return;
+        }
+        if (!PlanRecoveryControlPolicy.HasActionableInterruption(current))
+            return;
+
+        var confirmation = MessageBox.Show(
+            "End this incomplete plan? Its history and repository work will be preserved, but the plan cannot be resumed.",
+            "End Incomplete Plan",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Warning);
+        if (confirmation != MessageBoxResult.OK) return;
+
+        var updated = PlanStoreUpdater.ApplyStopped(current);
         PublishPlanProgress(updated);
     }
 

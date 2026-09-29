@@ -883,6 +883,50 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void SaveAndLoad_PreservesIncompleteToolWhileCoordinatorTurnIsStillPending() {
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var pendingTool = new TranscriptToolRecord(
+            "delegate-1",
+            new ToolTranscriptDescriptor("delegate_roster_agent", DisplayText: "Lyra Morn"),
+            null,
+            startedAt,
+            FinishedAt: null,
+            ProgressText: "Running",
+            OutputText: null,
+            DetailContent: null,
+            IsCompleted: false,
+            Success: false);
+
+        _store.Save(
+            _workspacePath,
+            new WorkspaceConversationState(
+                "session-pending",
+                DateTimeOffset.UtcNow,
+                null,
+                Array.Empty<string>(),
+                [
+                    new TranscriptTurnRecord(
+                        startedAt,
+                        null,
+                        "Executing plan",
+                        string.Empty,
+                        string.Empty,
+                        true,
+                        [pendingTool])
+                ]));
+
+        var turn = _store.Load(_workspacePath).Turns.Single();
+        var tool = turn.Tools.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(turn.CompletedAt, Is.Null);
+            Assert.That(tool.IsCompleted, Is.False);
+            Assert.That(tool.FinishedAt, Is.Null);
+        });
+    }
+
+    [Test]
     public void SaveAndLoad_RoundTripsPlanRestartCheckpoint()
     {
         var checkpointAt = DateTimeOffset.Parse("2026-09-28T11:27:58-04:00");
