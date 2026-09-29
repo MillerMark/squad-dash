@@ -98,11 +98,19 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
             main,
             "private bool CancelPlanPauseAfterCurrentStep(",
             "private void ShowPlanPauseRequestedEntry(");
+        var pauseTransition = Method(
+            main,
+            "private bool TrySetPlanPauseState(",
+            "private void RefreshOpenPlanViewersAfterPauseTransition(");
+        var viewerRefresh = Method(
+            main,
+            "private void RefreshOpenPlanViewersAfterPauseTransition(",
+            "private bool CancelPlanPauseAfterCurrentStep(");
 
         Assert.Multiple(() =>
         {
-            Assert.That(requestPause, Does.Contain("PlanStoreUpdater.ApplyPause(current)")
-                .And.Contain("PublishPlanProgress(current)")
+            Assert.That(requestPause, Does.Contain("TrySetPlanPauseState(plan, pause: true")
+                .And.Contain("return false;")
                 .And.Contain("ShowPlanPauseRequestedEntry(current)")
                 .And.Not.Contain("ScheduleDecomposeSystemEntry("));
             Assert.That(pauseCard, Does.Contain("KeepPlanRunningLabel")
@@ -125,7 +133,15 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
                 .And.Contain("HasActivePlanWork(planId)"));
             Assert.That(main, Does.Contain("IsPlanRecoveryActionBusy(plan.Group.GroupId)")
                 .And.Contain("IsPlanRecoveryActionBusy(displayedPlan.PlanId)"));
-            Assert.That(cancelPause, Does.Contain("RemovePlanPauseRequestedEntries(plan.PlanId)"));
+            Assert.That(main, Does.Contain("TrySetPlanPauseState(current, pause: false, out var resumed"));
+            Assert.That(main, Does.Contain("TrySetPlanPauseState(durablePlan, pause: false, out var resumable")
+                .And.Not.Contain("PlanStoreUpdater.ApplyPause(")
+                .And.Not.Contain("PlanStoreUpdater.ApplyResume("));
+            Assert.That(pauseTransition, Does.Contain("PlanPauseTransitionCoordinator.TryApply")
+                .And.Contain("TryPublishPlanProgress(candidate, out var persistError)"));
+            Assert.That(viewerRefresh, Does.Contain("entry.Window.RefreshPlan("));
+            Assert.That(cancelPause, Does.Contain("TrySetPlanPauseState(current, pause: false")
+                .And.Contain("RemovePlanPauseRequestedEntries(plan.PlanId)"));
             Assert.That(pauseCard, Does.Contain("RemovePlanPauseRequestedEntries(plan.PlanId)"));
             Assert.That(main, Does.Contain("if (pausedAfterStep && stoppedPlanId is not null)")
                 .And.Contain("RemovePlanPauseRequestedEntries(stoppedPlanId)"));
@@ -149,6 +165,7 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
         {
             Assert.That(recoveryCard, Does.Contain("bool developerPreview = false"));
             Assert.That(recoveryCard, Does.Contain("if (!developerPreview &&"));
+            Assert.That(recoveryCard, Does.Contain("if (durablePlan is not null && !planRunnerActive)"));
             Assert.That(main, Does.Contain("developerPreview: true"));
         });
     }

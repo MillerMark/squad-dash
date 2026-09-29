@@ -11689,11 +11689,15 @@ public partial class MainWindow : Window
                  PlanLifecycleStatus.WaitingForCleanWorktree ||
              PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan)))
         {
-            var resumable = durablePlan.IsPaused
-                ? PlanStoreUpdater.ApplyResume(durablePlan)
-                : durablePlan;
-            if (!ReferenceEquals(resumable, durablePlan))
-                PublishPlanProgress(resumable);
+            if (!TrySetPlanPauseState(durablePlan, pause: false, out var resumable, out var resumeError))
+            {
+                ReportPlanActionIssue(
+                    durablePlan.PlanId,
+                    "Plan still paused",
+                    resumeError ?? "SquadDash could not save the request to resume this plan.");
+                return true;
+            }
+            ClearPlanActionIssue(durablePlan.PlanId);
             PrepareForHostRecoveryAction();
             ScheduleDecomposeSystemEntry(
                 $"Resume accepted for {resumable.Title}. SquadDash is checking its branch and worktree before continuing.");
@@ -13349,9 +13353,15 @@ public partial class MainWindow : Window
                       CancelPlanPauseAfterCurrentStep(current);
                       return;
                   }
-                  var resumed = current.IsPaused ? PlanStoreUpdater.ApplyResume(current) : current;
-                  if (!ReferenceEquals(resumed, current))
-                      PublishPlanProgress(resumed);
+                  if (!TrySetPlanPauseState(current, pause: false, out var resumed, out var resumeError))
+                  {
+                      ReportPlanActionIssue(
+                          current.PlanId,
+                          "Plan still paused",
+                          resumeError ?? "SquadDash could not save the request to resume this plan.");
+                      return;
+                  }
+                  ClearPlanActionIssue(current.PlanId);
                   var executingWithoutRunner = resumed.LifecycleStatus == PlanLifecycleStatus.Executing &&
                                                (!IsLoopRunning || !string.Equals(
                                                    _activeDecomposeGroupId,
@@ -13373,11 +13383,24 @@ public partial class MainWindow : Window
             ? p =>
               {
                   var current = _planStore?.Load(p.PlanId) ?? p;
-                  var paused = PlanStoreUpdater.ApplyPause(current);
-                  PublishPlanProgress(paused);
-                   if (current.LifecycleStatus == PlanLifecycleStatus.Executing)
-                       RequestPlanPauseAfterCurrentStep(paused);
-               }
+                  if (current.LifecycleStatus == PlanLifecycleStatus.Executing &&
+                      string.Equals(_activeDecomposeGroupId, current.PlanId, StringComparison.Ordinal) &&
+                      IsLoopRunning)
+                  {
+                      RequestPlanPauseAfterCurrentStep(current);
+                      return;
+                  }
+
+                  if (!TrySetPlanPauseState(current, pause: true, out _, out var pauseError))
+                  {
+                      ReportPlanActionIssue(
+                          current.PlanId,
+                          "Pause not saved",
+                          pauseError ?? "SquadDash could not save the pause request.");
+                      return;
+                  }
+                  ClearPlanActionIssue(current.PlanId);
+              }
             : null;
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
         PlanRecoveryPrimaryActionPresentation? ResolveInterruptedPrimaryAction(Plan current)
@@ -13541,7 +13564,9 @@ public partial class MainWindow : Window
                               if (string.Equals(_activeDecomposeGroupId, current.PlanId, StringComparison.Ordinal) &&
                                   IsLoopRunning)
                               {
-                                  RequestPlanPauseAfterCurrentStep(current);
+                                  if (!RequestPlanPauseAfterCurrentStep(current))
+                                      throw new InvalidOperationException(
+                                          "SquadDash could not save the pause request. The plan edit was not queued.");
                                   throw new PlanEditPauseRequiredException(
                                       "The change is waiting to be saved. SquadDash will pause after the current " +
                                       "task is accepted, then apply the edit before later work starts.");
@@ -20219,7 +20244,7 @@ public partial class MainWindow : Window
                 "Open Logs",
                 "Open the live SquadDash trace so the unexpected state can be investigated.",
                 ShowTraceWindow);
-            if (!planRunnerActive)
+            if (durablePlan is not null && !planRunnerActive)
             {
                 AddAction(
                     "End Plan",
@@ -20261,7 +20286,7 @@ public partial class MainWindow : Window
                 "Create an editable replanning prompt with protected plan context attached.",
                 () => QueueDecomposeReplan(plan, taskId),
                 removeAfterAction: false);
-            if (!planRunnerActive)
+            if (durablePlan is not null && !planRunnerActive)
             {
                 AddAction(
                     "End Plan",
@@ -58239,15 +58264,18 @@ public partial class MainWindow : Window
         if (!string.Equals(_activeDecomposeGroupId, plan.PlanId, StringComparison.Ordinal) || !IsLoopRunning)
             return false;
 
-        var current = _planStore?.Load(plan.PlanId) ?? plan;
-        if (!current.IsPaused)
+        if (!TrySetPlanPauseState(plan, pause: true, out var current, out var pauseError))
         {
-            current = PlanStoreUpdater.ApplyPause(current);
-            PublishPlanProgress(current);
+            ReportPlanActionIssue(
+                plan.PlanId,
+                "Pause not saved",
+                pauseError ?? "SquadDash could not save the pause request. Plan execution is still running.");
+            return false;
         }
         if (_pausePlanAfterCurrentStepRequested)
             return true;
 
+        ClearPlanActionIssue(plan.PlanId);
         _pausePlanAfterCurrentStepRequested = true;
         ShowPlanPauseRequestedEntry(current);
         return true;
@@ -58280,6 +58308,58 @@ public partial class MainWindow : Window
     private bool IsPlanRecoveryActionBusy(string planId) =>
         _isPromptRunning || IsLoopRunning || _loopController.IsRunning || HasActivePlanWork(planId);
 
+    private bool TrySetPlanPauseState(
+        Plan plan,
+        bool pause,
+        out Plan persistedPlan,
+        out string? error)
+    {
+        persistedPlan = plan;
+        if (_planStore is null)
+        {
+            error = "The plan store is unavailable.";
+            return false;
+        }
+
+        var current = _planStore.Load(plan.PlanId);
+        if (current is null)
+        {
+            error = $"The durable plan '{plan.PlanId}' is unavailable.";
+            return false;
+        }
+
+        return PlanPauseTransitionCoordinator.TryApply(
+            current,
+            pause,
+            candidate =>
+            {
+                var success = TryPublishPlanProgress(candidate, out var persistError);
+                return (success, persistError);
+            },
+            RefreshOpenPlanViewersAfterPauseTransition,
+            out persistedPlan,
+            out error);
+    }
+
+    private void RefreshOpenPlanViewersAfterPauseTransition(Plan plan)
+    {
+        foreach (var entry in _openPlanViewerWindows
+                     .Where(entry => string.Equals(entry.GroupId, plan.PlanId, StringComparison.Ordinal))
+                     .ToArray())
+        {
+            try
+            {
+                entry.Window.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(plan), plan);
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write(
+                    "PlanViewer",
+                    $"Could not refresh pause state for plan={plan.PlanId}: {ex.Message}");
+            }
+        }
+    }
+
     private bool CancelPlanPauseAfterCurrentStep(Plan plan)
     {
         if (!string.Equals(_activeDecomposeGroupId, plan.PlanId, StringComparison.Ordinal) || !IsLoopRunning)
@@ -58292,9 +58372,17 @@ public partial class MainWindow : Window
             return false;
         }
 
+        if (!TrySetPlanPauseState(current, pause: false, out _, out var resumeError))
+        {
+            ReportPlanActionIssue(
+                plan.PlanId,
+                "Pause still active",
+                resumeError ?? "SquadDash could not save the request to keep the plan running.");
+            return false;
+        }
+
+        ClearPlanActionIssue(plan.PlanId);
         _pausePlanAfterCurrentStepRequested = false;
-        if (current.IsPaused)
-            PublishPlanProgress(PlanStoreUpdater.ApplyResume(current));
         RemovePlanPauseRequestedEntries(plan.PlanId);
         ShowSystemTranscriptEntry("Pause canceled. Plan execution will continue after the current task completes.");
         return true;

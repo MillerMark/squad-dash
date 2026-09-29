@@ -76,6 +76,131 @@ internal sealed class TranscriptConversationManagerTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void RestoredIncompleteTool_UsesPersistedCompletedWorkerWhenSnapshotNoLongerListsIt()
+    {
+        var manager = MakeManager();
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        var completedAt = startedAt.AddMinutes(2);
+        manager.ConversationState = BuildPendingToolState(startedAt) with
+        {
+            Threads = [BuildWorkerThread(startedAt, "Completed", completedAt)]
+        };
+        manager.PrepareRestoredIncompleteToolReconciliation();
+
+        var result = manager.ReconcileRestoredIncompleteTools(
+            Array.Empty<SquadBackgroundAgentInfo>(),
+            DateTimeOffset.UtcNow);
+
+        var tool = manager.ConversationState.Turns.Single().Tools.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Has.Count.EqualTo(1));
+            Assert.That(tool.IsCompleted, Is.True);
+            Assert.That(tool.Success, Is.True);
+            Assert.That(tool.FinishedAt, Is.EqualTo(completedAt));
+            Assert.That(tool.OutputText, Is.EqualTo("Persisted worker result."));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RestoredIncompleteTool_MatchesLiveWorkerByPersistedAgentIdentity()
+    {
+        var manager = MakeManager();
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        manager.ConversationState = BuildPendingToolState(startedAt) with
+        {
+            Threads = [BuildWorkerThread(startedAt, "Running", completedAt: null)]
+        };
+        manager.PrepareRestoredIncompleteToolReconciliation();
+
+        var result = manager.ReconcileRestoredIncompleteTools(
+            [new SquadBackgroundAgentInfo { AgentId = "worker-1", Status = "running" }],
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.Empty);
+            Assert.That(manager.ConversationState.Turns.Single().Tools.Single().IsCompleted, Is.False);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RestoredIncompleteTool_PersistedCompletionWinsOverReusedLiveAgentIdentity()
+    {
+        var manager = MakeManager();
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        var completedAt = startedAt.AddMinutes(2);
+        manager.ConversationState = BuildPendingToolState(startedAt) with
+        {
+            Threads = [BuildWorkerThread(startedAt, "Completed", completedAt)]
+        };
+        manager.PrepareRestoredIncompleteToolReconciliation();
+
+        var result = manager.ReconcileRestoredIncompleteTools(
+            [new SquadBackgroundAgentInfo { AgentId = "worker-1", Status = "running" }],
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Has.Count.EqualTo(1));
+            Assert.That(manager.ConversationState.Turns.Single().Tools.Single().Success, Is.True);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RestoredIncompleteTool_DoesNotMatchDisplayNameWhenAgentIdsConflict()
+    {
+        var manager = MakeManager();
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        manager.ConversationState = BuildPendingToolState(startedAt) with
+        {
+            Threads = [BuildWorkerThread(startedAt, "Running", completedAt: null)]
+        };
+        manager.PrepareRestoredIncompleteToolReconciliation();
+
+        var result = manager.ReconcileRestoredIncompleteTools(
+            [new SquadBackgroundAgentInfo
+            {
+                AgentId = "different-worker",
+                AgentName = "worker",
+                AgentDisplayName = "Worker",
+                Status = "running"
+            }],
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Has.Count.EqualTo(1));
+            Assert.That(manager.ConversationState.Turns.Single().Tools.Single().Success, Is.False);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RestoredIncompleteTool_AmbiguousFallbackIdentityRemainsPending()
+    {
+        var manager = MakeManager();
+        var startedAt = DateTimeOffset.UtcNow.AddMinutes(-3);
+        manager.ConversationState = BuildPendingToolState(startedAt) with
+        {
+            Threads = [BuildWorkerThread(startedAt, "Running", completedAt: null, agentId: null)]
+        };
+        manager.PrepareRestoredIncompleteToolReconciliation();
+
+        var result = manager.ReconcileRestoredIncompleteTools(
+            [
+                new SquadBackgroundAgentInfo { AgentId = "worker-a", AgentName = "worker", Status = "running" },
+                new SquadBackgroundAgentInfo { AgentId = "worker-b", AgentName = "worker", Status = "running" }
+            ],
+            DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.Empty);
+            Assert.That(manager.ConversationState.Turns.Single().Tools.Single().IsCompleted, Is.False);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void PersistConversationState_DoesNotFoldSuppressedCoordinatorTurnIntoTranscript()
     {
         using var workspace = new TestWorkspace();
@@ -1149,6 +1274,33 @@ internal sealed class TranscriptConversationManagerTests {
                             Success: false)
                     ])
             ]);
+
+    private static TranscriptThreadRecord BuildWorkerThread(
+        DateTimeOffset startedAt,
+        string status,
+        DateTimeOffset? completedAt,
+        string? agentId = "worker-1") =>
+        new(
+            "worker-thread",
+            "Worker",
+            agentId,
+            "delegate-1",
+            "worker",
+            "Worker",
+            null,
+            "worker",
+            null,
+            "Execute delegated work",
+            "Persisted worker result.",
+            null,
+            null,
+            Array.Empty<string>(),
+            null,
+            status,
+            string.Empty,
+            startedAt,
+            completedAt,
+            Array.Empty<TranscriptTurnRecord>());
 
     private static AgentThreadRegistry MakeRegistry() =>
         new AgentThreadRegistry(

@@ -369,6 +369,7 @@ internal sealed class TranscriptConversationManager {
             .Where(agent => !string.IsNullOrWhiteSpace(agent.ToolCallId))
             .GroupBy(agent => agent.ToolCallId!.Trim(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.Last(), StringComparer.OrdinalIgnoreCase);
+        var persistedThreads = _conversationState.GetThreads();
         var reconciliations = new List<RestoredToolReconciliation>();
         var remaining = new HashSet<RestoredToolLocator>();
 
@@ -376,6 +377,8 @@ internal sealed class TranscriptConversationManager {
             _conversationState.Turns,
             threadId: null,
             agentsByToolCallId,
+            backgroundAgents,
+            persistedThreads,
             reconciledAt,
             reconciliations,
             remaining);
@@ -386,6 +389,8 @@ internal sealed class TranscriptConversationManager {
                     thread.Turns,
                     thread.ThreadId,
                     agentsByToolCallId,
+                    backgroundAgents,
+                    persistedThreads,
                     reconciledAt,
                     reconciliations,
                     remaining)
@@ -428,6 +433,8 @@ internal sealed class TranscriptConversationManager {
         IReadOnlyList<TranscriptTurnRecord> turns,
         string? threadId,
         IReadOnlyDictionary<string, SquadBackgroundAgentInfo> agentsByToolCallId,
+        IReadOnlyList<SquadBackgroundAgentInfo> backgroundAgents,
+        IReadOnlyList<TranscriptThreadRecord> persistedThreads,
         DateTimeOffset reconciledAt,
         ICollection<RestoredToolReconciliation> reconciliations,
         ISet<RestoredToolLocator> remaining)
@@ -445,27 +452,24 @@ internal sealed class TranscriptConversationManager {
                     continue;
 
                 var tool = tools[toolIndex];
-                SquadBackgroundAgentInfo? agent = null;
-                var hasSnapshot = !string.IsNullOrWhiteSpace(tool.ToolCallId) &&
-                                  agentsByToolCallId.TryGetValue(tool.ToolCallId.Trim(), out agent);
-                var snapshotStatus = hasSnapshot
-                    ? AgentThreadRegistry.HumanizeThreadStatus(agent!.Status)
-                    : string.Empty;
-                if (hasSnapshot && !AgentThreadRegistry.IsTerminalBackgroundStatus(snapshotStatus))
+                var evidence = ResolveRestoredWorkerEvidence(
+                    tool,
+                    agentsByToolCallId,
+                    backgroundAgents,
+                    persistedThreads);
+                if (evidence?.IsLive == true)
                 {
                     remaining.Add(locator);
                     continue;
                 }
 
-                var success = hasSnapshot && string.Equals(snapshotStatus, "Completed", StringComparison.Ordinal);
-                var finishedAt = hasSnapshot && DateTimeOffset.TryParse(agent!.CompletedAt, out var completedAt)
-                    ? completedAt.ToUniversalTime()
-                    : reconciledAt.ToUniversalTime();
-                var progress = hasSnapshot
+                var success = evidence?.Success == true;
+                var finishedAt = evidence?.CompletedAt?.ToUniversalTime() ?? reconciledAt.ToUniversalTime();
+                var progress = evidence is not null
                     ? success ? "Completed after reconnecting." : "Stopped before reconnecting."
                     : "Interrupted by application restart.";
-                var output = string.IsNullOrWhiteSpace(tool.OutputText) && hasSnapshot
-                    ? agent!.LatestResponse?.TrimEnd()
+                var output = string.IsNullOrWhiteSpace(tool.OutputText) && evidence is not null
+                    ? evidence.OutputText?.TrimEnd()
                     : tool.OutputText;
                 var detail = ToolTranscriptDetailContent.Build(new ToolTranscriptDetail(
                     tool.Descriptor,
@@ -509,7 +513,131 @@ internal sealed class TranscriptConversationManager {
         return updatedTurns;
     }
 
+    private static RestoredWorkerEvidence? ResolveRestoredWorkerEvidence(
+        TranscriptToolRecord tool,
+        IReadOnlyDictionary<string, SquadBackgroundAgentInfo> agentsByToolCallId,
+        IReadOnlyList<SquadBackgroundAgentInfo> backgroundAgents,
+        IReadOnlyList<TranscriptThreadRecord> persistedThreads)
+    {
+        var toolCallId = tool.ToolCallId?.Trim();
+        var persistedThread = string.IsNullOrWhiteSpace(toolCallId)
+            ? null
+            : persistedThreads.FirstOrDefault(thread =>
+                string.Equals(thread.ToolCallId, toolCallId, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(thread.OriginParentToolCallId, toolCallId, StringComparison.OrdinalIgnoreCase));
+
+        SquadBackgroundAgentInfo? directSnapshot = null;
+        if (!string.IsNullOrWhiteSpace(toolCallId))
+            agentsByToolCallId.TryGetValue(toolCallId, out directSnapshot);
+        if (directSnapshot is not null)
+            return BuildSnapshotEvidence(directSnapshot, persistedThread);
+
+        if (persistedThread is null)
+            return null;
+
+        var persistedStatus = AgentThreadRegistry.HumanizeThreadStatus(persistedThread.StatusText);
+        if (AgentThreadRegistry.IsTerminalBackgroundStatus(persistedStatus))
+        {
+            return new RestoredWorkerEvidence(
+                IsLive: false,
+                Success: string.Equals(persistedStatus, "Completed", StringComparison.Ordinal),
+                CompletedAt: persistedThread.CompletedAt,
+                OutputText: persistedThread.LatestResponse ?? persistedThread.LastCoordinatorAnnouncedResponse);
+        }
+
+        var identityMatch = FindPersistedThreadSnapshot(backgroundAgents, persistedThread);
+        if (identityMatch.IsAmbiguous)
+        {
+            // Ambiguous evidence cannot prove success, failure, or abandonment. Keep the
+            // restored tool pending until a later authoritative snapshot disambiguates it.
+            return new RestoredWorkerEvidence(
+                IsLive: true,
+                Success: false,
+                CompletedAt: null,
+                OutputText: null);
+        }
+        return identityMatch.Snapshot is null
+            ? null
+            : BuildSnapshotEvidence(identityMatch.Snapshot, persistedThread);
+    }
+
+    private static RestoredWorkerEvidence BuildSnapshotEvidence(
+        SquadBackgroundAgentInfo snapshot,
+        TranscriptThreadRecord? persistedThread)
+    {
+        var status = AgentThreadRegistry.HumanizeThreadStatus(snapshot.Status);
+        if (!AgentThreadRegistry.IsTerminalBackgroundStatus(status))
+            return new RestoredWorkerEvidence(
+                IsLive: true,
+                Success: false,
+                CompletedAt: null,
+                OutputText: null);
+
+        var completedAt = DateTimeOffset.TryParse(snapshot.CompletedAt, out var snapshotCompletedAt)
+            ? snapshotCompletedAt
+            : persistedThread?.CompletedAt;
+        var output = snapshot.LatestResponse ??
+                     persistedThread?.LatestResponse ??
+                     persistedThread?.LastCoordinatorAnnouncedResponse;
+        return new RestoredWorkerEvidence(
+            IsLive: false,
+            Success: string.Equals(status, "Completed", StringComparison.Ordinal),
+            CompletedAt: completedAt,
+            OutputText: output);
+    }
+
+    private static RestoredSnapshotMatch FindPersistedThreadSnapshot(
+        IReadOnlyList<SquadBackgroundAgentInfo> agents,
+        TranscriptThreadRecord thread)
+    {
+        var byAgentId = FindUniqueSnapshot(
+            agents.Where(agent => IdentityMatches(agent.AgentId, thread.AgentId)));
+        if (byAgentId.Snapshot is not null || byAgentId.IsAmbiguous)
+            return byAgentId;
+
+        // A name is a fallback only when one side omitted its stronger agent ID. Never let
+        // matching display/name text override two conflicting non-empty IDs.
+        var byAgentName = FindUniqueSnapshot(agents.Where(agent =>
+            (string.IsNullOrWhiteSpace(thread.AgentId) || string.IsNullOrWhiteSpace(agent.AgentId)) &&
+            IdentityMatches(agent.AgentName, thread.AgentName)));
+        if (byAgentName.Snapshot is not null || byAgentName.IsAmbiguous)
+            return byAgentName;
+
+        // Display text is the weakest identity. Use it only when the snapshot supplied no
+        // tool, agent, or roster name identity, and only when exactly one candidate matches.
+        return FindUniqueSnapshot(agents.Where(agent =>
+            string.IsNullOrWhiteSpace(agent.ToolCallId) &&
+            string.IsNullOrWhiteSpace(agent.AgentId) &&
+            string.IsNullOrWhiteSpace(agent.AgentName) &&
+            IdentityMatches(agent.AgentDisplayName, thread.AgentDisplayName)));
+    }
+
+    private static RestoredSnapshotMatch FindUniqueSnapshot(
+        IEnumerable<SquadBackgroundAgentInfo> candidates)
+    {
+        var matches = candidates.Take(2).ToArray();
+        return matches.Length switch
+        {
+            0 => new RestoredSnapshotMatch(null, IsAmbiguous: false),
+            1 => new RestoredSnapshotMatch(matches[0], IsAmbiguous: false),
+            _ => new RestoredSnapshotMatch(null, IsAmbiguous: true),
+        };
+    }
+
+    private static bool IdentityMatches(string? left, string? right) =>
+        !string.IsNullOrWhiteSpace(left) &&
+        !string.IsNullOrWhiteSpace(right) &&
+        string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
+
     private sealed record RestoredToolLocator(string? ThreadId, int TurnIndex, int ToolIndex);
+    private sealed record RestoredWorkerEvidence(
+        bool IsLive,
+        bool Success,
+        DateTimeOffset? CompletedAt,
+        string? OutputText);
+    private sealed record RestoredSnapshotMatch(
+        SquadBackgroundAgentInfo? Snapshot,
+        bool IsAmbiguous);
 
     internal static IReadOnlyList<TranscriptTurnRecord> ApplyPendingSessionBoundary(
         IReadOnlyList<TranscriptTurnRecord> existingTurns,
