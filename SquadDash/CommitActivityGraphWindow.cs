@@ -641,7 +641,17 @@ internal sealed class CommitActivityGraphWindow : ChromedWindow
         Top    = saved.Top;
         Width  = saved.Width;
         Height = saved.Height;
-        if (saved.IsMaximized) WindowState = WindowState.Maximized;
+        if (saved.IsMaximized)
+        {
+            // WPF throws if a window is shown Maximized while ShowActivated is false, so defer the
+            // maximize until after the window is shown (Loaded fires post-Show) to keep it non-activating.
+            void ApplyMaximizeAfterShown(object? sender, RoutedEventArgs e)
+            {
+                Loaded -= ApplyMaximizeAfterShown;
+                WindowState = WindowState.Maximized;
+            }
+            Loaded += ApplyMaximizeAfterShown;
+        }
     }
 
     private void SavePlacement()
