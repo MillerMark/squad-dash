@@ -174,6 +174,20 @@ internal static class AgentArtifactStore
         </artifact_file_instructions>
         """;
 
+    internal static string BindPromptInstructionToWorkspace(string instruction, string? workspaceRoot)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceRoot))
+            return instruction;
+
+        var authoritativeRoot = Path.GetFullPath(workspaceRoot);
+        return instruction + Environment.NewLine + Environment.NewLine +
+               "<artifact_workspace_root>" + Environment.NewLine +
+               $"The authoritative artifact workspace root for this turn is `{authoritativeRoot}`." + Environment.NewLine +
+               "Resolve every `.squad/tmp/agent-artifacts/` manifest path, Inbox app link, and file attachment relative to exactly this opened project workspace. " +
+               "The executor working directory is this workspace root. Never use a SquadDash session, configuration, cache, or state directory as the artifact workspace." + Environment.NewLine +
+               "</artifact_workspace_root>";
+    }
+
     internal static string NormalizeLanguage(string? language)
     {
         if (string.IsNullOrWhiteSpace(language))

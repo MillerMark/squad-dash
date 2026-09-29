@@ -355,9 +355,10 @@ not required. Use the exact property names below; do not substitute familiar sho
   At the exact step where a file or folder is needed, place a descriptive inline Markdown link such as
   `[Open sample solution](app://open-path:path/to/sample.sln)`, or
   `[Open fixture folder](app://open-path:path/to/fixture)`. A relative target is resolved from the
-  active SquadDash workspace directory supplied for the task—not from the Git repository root or the
-  shell's current directory. Require the executor to resolve and verify every target using that exact
-  rule before Inbox delivery. Use an absolute path when an artifact is outside the active workspace.
+  authoritative opened-project workspace root supplied for the task. That root is also the executor's
+  working directory and is normally the Git repository root; it is never a SquadDash session, config,
+  cache, or state directory. Require the executor to resolve and verify every target using that exact
+  rule before Inbox delivery. Use an absolute path when an artifact is outside the opened workspace.
   An Inbox `file` attachment may provide optional troubleshooting or reference detail, but it must not
   contain any step required for approval. Do not
   substitute a transcript promise, a non-clickable path mentioned only in prose, or an Inbox action

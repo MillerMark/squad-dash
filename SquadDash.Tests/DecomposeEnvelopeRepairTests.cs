@@ -542,10 +542,10 @@ public class DecomposeEnvelopeRepairTests
         Assert.Multiple(() =>
         {
             Assert.That(prompt, Does.Contain("INBOX_MESSAGE_JSON or INBOX_MESSAGE_JSON_FILE"));
-            Assert.That(prompt, Does.Contain("active SquadDash workspace directory"));
-            Assert.That(prompt, Does.Contain("not from the Git repository root"));
+            Assert.That(prompt, Does.Contain("authoritative opened-project workspace root"));
+            Assert.That(prompt, Does.Contain("never use a SquadDash session"));
             Assert.That(prompt, Does.Contain("use its absolute path"));
-            Assert.That(prompt, Does.Contain("confirm each resolved file or folder exists"));
+            Assert.That(prompt, Does.Contain("Confirm each resolved file or folder exists"));
             Assert.That(prompt, Does.Contain("Do not repeat implementation work"));
             Assert.That(prompt, Does.Contain("Correct every error below"));
             Assert.That(prompt, Does.Contain("approval-check:requirement-id"));

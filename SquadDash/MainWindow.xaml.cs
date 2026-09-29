@@ -10880,6 +10880,8 @@ public partial class MainWindow : Window
             FreshAttemptCount = 0,
             TaskBaselineCommit = null,
             PendingRepairResult = null,
+            PendingInboxLinkRepairError = null,
+            PendingInboxDeliveryRawResponse = null,
         });
         SquadDashTrace.Write("PlanRevision",
             $"Promoted active execution plan={planId} revision={revision} at a safe task boundary.");
@@ -13836,14 +13838,25 @@ public partial class MainWindow : Window
             inboxDelivery.HasInboxDelivery,
             inboxDelivery.Error);
         _capturedPlanInboxOpenPathError = inboxDecision.ResultError;
+        var stagedInboxResponse = inboxDelivery.HasInboxDelivery
+            ? rawResponse
+            : activeExecution?.PendingInboxDeliveryRawResponse;
         if (activeExecution is not null &&
-            !string.Equals(
-                activeExecution.PendingInboxLinkRepairError,
-                inboxDecision.PendingRepairError,
-                StringComparison.Ordinal))
+            (!string.Equals(
+                 activeExecution.PendingInboxLinkRepairError,
+                 inboxDecision.PendingRepairError,
+                 StringComparison.Ordinal) ||
+             !string.Equals(
+                 activeExecution.PendingInboxDeliveryRawResponse,
+                 stagedInboxResponse,
+                 StringComparison.Ordinal)))
         {
             _conversationManager.UpdateActiveLoopExecutionState(
-                activeExecution with { PendingInboxLinkRepairError = inboxDecision.PendingRepairError });
+                activeExecution with
+                {
+                    PendingInboxLinkRepairError = inboxDecision.PendingRepairError,
+                    PendingInboxDeliveryRawResponse = stagedInboxResponse,
+                });
             activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
         }
 
@@ -13931,6 +13944,17 @@ public partial class MainWindow : Window
         _capturedTaskVerificationResultError = null;
 
         var activeExec = _conversationManager.ConversationState.ActiveLoopExecution;
+        if (activeExec?.PendingInboxDeliveryRawResponse is not null &&
+            activeExec.PendingInboxLinkRepairError is null &&
+            activeExec.RepairRequestCount == 0 &&
+            activeExec.PendingRepairResult is null)
+        {
+            activeExec = PlanInboxLinkRepairPolicy.ClearPendingDelivery(activeExec);
+            _conversationManager.UpdateActiveLoopExecutionState(activeExec);
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                "INBOX_SAVE: discarded an unaccepted staged delivery at a fresh plan-iteration boundary");
+        }
         if (activeExec?.IsExecutingPlan == true)
         {
             var phasePlan = _planStore?.Load(_activeDecomposeGroupId)
@@ -14793,7 +14817,9 @@ public partial class MainWindow : Window
                             RecoveryTaskId = taskId,
                             RecoveryAttemptId = freshAttempt.AttemptId,
                             RepairRequestCount = 0,
-                            FreshAttemptCount = activeExecution.FreshAttemptCount + 1
+                            FreshAttemptCount = activeExecution.FreshAttemptCount + 1,
+                            PendingInboxLinkRepairError = null,
+                            PendingInboxDeliveryRawResponse = null,
                         });
                     var routingContext = DecomposePlanningInstructions.BuildPlanStepRoutingContext(
                         _currentWorkspace.SquadFolderPath,
@@ -14994,6 +15020,7 @@ public partial class MainWindow : Window
             handleBlock:
             if (!branchLeaseFailure)
                 _CodeHealthGroupRunner.MarkCurrentStepFailed();
+            activeExecution = FinalizeTerminalPlanInboxDelivery(activeExecution, error);
             var pendingAcceptance = taskCommitEvidence is not null && result is not null
                 ? new PlanWorkCompletePendingAcceptance(
                     taskId,
@@ -15043,6 +15070,8 @@ public partial class MainWindow : Window
                 Outcome: "accepted",
                 Phase: "envelope_repair"));
         }
+
+        activeExecution = CommitAcceptedPlanInboxDelivery(activeExecution);
 
         if (result.Status == "complete" && persistedTask is not null &&
             !PlanTaskExecutionPolicy.IsVerificationOnly(persistedTask))
@@ -59850,14 +59879,76 @@ public partial class MainWindow : Window
     /// and refreshes the panel. No-ops if already saved for this turn, if no block is found, or if
     /// the inbox store is unavailable.
     /// </summary>
-    private string? TrySaveInboxMessageFromResponse(string? rawResponse)
+    private string? TrySaveInboxMessageFromResponse(
+        string? rawResponse,
+        bool planEnvelopeAccepted = false)
     {
-        if (_inboxSavedForCurrentTurn)
+        var isExecutingPlan =
+            _conversationManager.ConversationState.ActiveLoopExecution?.IsExecutingPlan == true;
+        if (PlanInboxLinkRepairPolicy.ShouldStageDelivery(
+                isExecutingPlan,
+                planEnvelopeAccepted,
+                rawResponse))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Inbox,
+                "INBOX_SAVE: staged plan Inbox delivery until its result envelope is accepted");
+            return null;
+        }
+
+        if (_inboxSavedForCurrentTurn && !planEnvelopeAccepted)
             return null;
         var messageId = TrySaveInboxMessage(rawResponse);
         if (messageId is not null)
             _inboxSavedForCurrentTurn = true;
         return messageId;
+    }
+
+    private ActiveLoopExecutionState CommitAcceptedPlanInboxDelivery(
+        ActiveLoopExecutionState execution)
+    {
+        var rawResponse = execution.PendingInboxDeliveryRawResponse;
+        if (string.IsNullOrWhiteSpace(rawResponse))
+            return execution;
+
+        var messageId = TrySaveInboxMessageFromResponse(
+            rawResponse,
+            planEnvelopeAccepted: true);
+        if (messageId is null && PlanInboxLinkRepairPolicy.HasDeliveryIntent(rawResponse))
+        {
+            messageId = SaveInboxDeliveryFailure(
+                "The plan result was accepted, but its Inbox message could not be persisted.",
+                rawResponse);
+        }
+
+        var updated = PlanInboxLinkRepairPolicy.ClearPendingDelivery(execution);
+        _conversationManager.UpdateActiveLoopExecutionState(updated);
+        SquadDashTrace.Write(
+            TraceCategory.Inbox,
+            $"INBOX_SAVE: committed accepted plan Inbox delivery message={messageId ?? "(failure not persisted)"}");
+        return updated;
+    }
+
+    private ActiveLoopExecutionState FinalizeTerminalPlanInboxDelivery(
+        ActiveLoopExecutionState execution,
+        string? fallbackError)
+    {
+        var deliveryError = execution.PendingInboxLinkRepairError;
+        var rawResponse = execution.PendingInboxDeliveryRawResponse;
+        if (string.IsNullOrWhiteSpace(deliveryError) && string.IsNullOrWhiteSpace(rawResponse))
+            return execution;
+
+        if (!string.IsNullOrWhiteSpace(deliveryError))
+        {
+            SaveInboxDeliveryFailure(
+                "SquadDash could not deliver a plan-generated Inbox message after automatic repair was exhausted.\n\n" +
+                (deliveryError ?? fallbackError ?? "The Inbox delivery was invalid."),
+                rawResponse ?? _capturedTaskVerificationRawResponse ?? string.Empty);
+        }
+
+        var updated = PlanInboxLinkRepairPolicy.ClearPendingDelivery(execution);
+        _conversationManager.UpdateActiveLoopExecutionState(updated);
+        return updated;
     }
 
     /// <summary>
@@ -60127,14 +60218,14 @@ public partial class MainWindow : Window
                 out var artifactError) ||
             artifact is null)
         {
-            return SaveDegradedInboxFileMessage(
+            return SaveInboxDeliveryFailure(
                 $"INBOX_MESSAGE_JSON_FILE could not be loaded.\n\nPath: {extraction.Reference.Path}\nError: {artifactError}",
                 responseForParsing);
         }
 
         if (!InboxMessageParser.TryParseJsonObject(artifact.Content, out var dto) || dto is null)
         {
-            return SaveDegradedInboxFileMessage(
+            return SaveInboxDeliveryFailure(
                 $"INBOX_MESSAGE_JSON_FILE was loaded but did not contain a parseable inbox JSON object.\n\n" +
                 $"Source: {artifact.SourceRelativePath}\n" +
                 $"Archive: {artifact.ArchivedRelativePath ?? "(not archived)"}\n" +
@@ -60215,7 +60306,7 @@ public partial class MainWindow : Window
         return message.Id;
     }
 
-    private string SaveDegradedInboxFileMessage(string details, string rawResponse)
+    private string SaveInboxDeliveryFailure(string details, string rawResponse)
     {
         var rawSample = rawResponse.Length > 3000
             ? "...(truncated)...\n" + rawResponse[^3000..]
@@ -60224,12 +60315,12 @@ public partial class MainWindow : Window
         var degradedMessage = new InboxMessage
         {
             Id          = Guid.NewGuid().ToString("N"),
-            Subject     = "Inbox message file (parse error)",
+            Subject     = "Inbox delivery failed",
             From        = "system",
-            Body        = "This inbox message file could not be fully parsed. The details are attached below.",
+            Body        = "SquadDash could not deliver an Inbox message. The details are attached below.",
             Timestamp   = DateTimeOffset.Now,
             Attachments = [
-                new InboxAttachment { Type = "text", Label = "Parse error details", Content = details },
+                new InboxAttachment { Type = "text", Label = "Delivery failure details", Content = details },
                 new InboxAttachment { Type = "text", Label = "Raw response", Content = rawSample },
             ],
             Actions = [],

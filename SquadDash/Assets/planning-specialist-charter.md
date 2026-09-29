@@ -199,9 +199,10 @@ Before authoring a plan:
   rationale, and extended failure diagnostics outside the required operator path. Beside each relevant step, embed a
   descriptive inline link such as `[Open sample solution](app://open-path:path/to/sample.sln)` or
   `[Open fixture folder](app://open-path:path/to/fixture)`. A relative target is resolved from the active
-  SquadDash workspace directory, not from the Git repository root or shell directory. Require the
-  executor to resolve and verify every link target before delivery, and require an absolute path for an
-  artifact outside the active workspace. Attachments are optional troubleshooting/reference only and
+  authoritative opened-project workspace root supplied for the task. That root is the executor working
+  directory and is normally the Git repository root; it is never a SquadDash session, config, cache, or
+  state directory. Require the executor to resolve and verify every link target before delivery, and
+  require an absolute path for an artifact outside the opened workspace. Attachments are optional troubleshooting/reference only and
   must never hold steps required to complete approval. Require
   exact prompts, commands, responses, or other text the reviewer must copy, type, paste, or submit to
   appear alone in a fenced `text` or appropriate-language block immediately after its introducing step.

@@ -1034,6 +1034,7 @@ internal sealed record ActiveLoopExecutionState(
     string? PendingDecomposeRevision = null,
     PlanBranchLease? BranchLease = null,
     string? PendingInboxLinkRepairError = null,
+    string? PendingInboxDeliveryRawResponse = null,
     DateTimeOffset? RestartCheckpointRequestedAt = null)
 {
     internal bool IsExecutingPlan => !string.IsNullOrWhiteSpace(DecomposeGroupId);
@@ -1175,6 +1176,9 @@ internal sealed record ActiveLoopExecutionState(
             string.IsNullOrWhiteSpace(state.PendingInboxLinkRepairError)
                 ? null
                 : state.PendingInboxLinkRepairError.Trim(),
+            string.IsNullOrWhiteSpace(state.PendingInboxDeliveryRawResponse)
+                ? null
+                : state.PendingInboxDeliveryRawResponse,
             state.RestartCheckpointRequestedAt?.ToUniversalTime());
     }
 }

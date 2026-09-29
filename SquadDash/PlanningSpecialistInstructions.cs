@@ -158,10 +158,11 @@ internal static class PlanningSpecialistInstructions
                Put the full instructions in the Inbox body and embed a descriptive inline link beside each
                step that needs a supporting reference, solution, project, sample file, or folder. Use the existing
                `[Open label](app://open-path:path/from/workspace/root)` Inbox syntax. State explicitly in the
-               preparation task that a relative target is resolved from the active SquadDash workspace
-               directory, not from the Git repository root or shell directory; the executor must verify every
-               resolved target exists before delivery and must use an absolute path for an artifact outside the
-               active workspace. Attachments are optional troubleshooting or reference material and must
+               preparation task that a relative target is resolved from the authoritative opened-project
+               workspace root supplied for the task. That root is the executor working directory and is normally
+               the Git repository root; it is never a SquadDash session, config, cache, or state directory. The
+               executor must verify every resolved target exists before delivery and use an absolute path for an
+               artifact outside the opened workspace. Attachments are optional troubleshooting or reference material and must
                never contain steps required for approval. Require the
                Inbox JSON file escape hatch for long or parser-sensitive content. A transcript-only promise,
                prose-only path, or action that starts another agent is not delivery. The following gate must

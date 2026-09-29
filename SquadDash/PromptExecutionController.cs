@@ -2543,11 +2543,13 @@ internal sealed class PromptExecutionController {
         // very end of the response; placing it after TurnSummaryInstruction would break the match.
         // InboxMessageInstruction is placed before TurnSummaryInstruction so the ordering is:
         //   … triggeredCtx, inboxCtx, commitReportingCtx, TurnSummaryInstruction, hostCmdCtx
-        var artifactCtx = _instructionProvider.Get().ArtifactFiles;
+        var currentWorkspace = _workspaceContext.GetCurrentWorkspace();
+        var artifactCtx = AgentArtifactStore.BindPromptInstructionToWorkspace(
+            _instructionProvider.Get().ArtifactFiles,
+            currentWorkspace?.FolderPath);
         var inboxCtx = _instructionProvider.Get().InboxMessage;
         var commitReportingCtx = _instructionProvider.Get().CommitReporting;
         var subAgentApprovalGroupCtx = _instructionProvider.Get().SubAgentApprovalGroup;
-        var currentWorkspace = _workspaceContext.GetCurrentWorkspace();
         var decomposePlanningCtx = currentWorkspace is null
             ? null
             : DecomposePlanningInstructions.BuildOrdinaryPromptContext(

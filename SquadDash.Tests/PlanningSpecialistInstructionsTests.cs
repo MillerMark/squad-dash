@@ -65,7 +65,8 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("SquadDash Inbox"));
             Assert.That(charter, Does.Contain("chronologically in\n  the durable approval Inbox message"));
             Assert.That(charter, Does.Contain("source kit is internal staging"));
-            Assert.That(charter, Does.Contain("not from the Git repository root or shell directory"));
+            Assert.That(charter, Does.Contain("authoritative opened-project workspace root"));
+            Assert.That(charter, Does.Contain("never a SquadDash session, config, cache, or"));
             Assert.That(charter, Does.Contain("verify every link target before delivery"));
             Assert.That(charter, Does.Contain("absolute path"));
             Assert.That(charter, Does.Contain("exactly one accountable primary agent"));
@@ -128,8 +129,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("Compose the complete approval procedure"));
             Assert.That(guidance, Does.Contain("checkbox in the durable approval Inbox message"));
             Assert.That(guidance, Does.Contain("{{approval-check:requirement-id}}"));
-            Assert.That(guidance, Does.Contain("not from the Git repository root or shell directory"));
-            Assert.That(guidance, Does.Contain("verify every\n   resolved target exists before delivery"));
+            Assert.That(guidance, Does.Contain("authoritative opened-project"));
+            Assert.That(guidance, Does.Contain("never a SquadDash session, config, cache, or state directory"));
+            Assert.That(guidance, Does.Contain("executor must verify every resolved target exists before delivery"));
             Assert.That(guidance, Does.Contain("absolute path"));
         });
     }

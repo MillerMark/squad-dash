@@ -406,8 +406,8 @@ internal sealed class DefaultPromptInstructionProviderTests
             Assert.That(instruction, Does.Contain("not a second result payload"));
             Assert.That(instruction, Does.Contain("Do not claim the task complete"));
             Assert.That(instruction, Does.Contain("exact stable ID"));
-            Assert.That(instruction, Does.Contain("active SquadDash workspace directory"));
-            Assert.That(instruction, Does.Contain("verify every target exists"));
+            Assert.That(instruction, Does.Contain("authoritative opened-project workspace root"));
+            Assert.That(instruction, Does.Contain("Verify every target exists"));
             Assert.That(instruction, Does.Contain("absolute path"));
             Assert.That(instruction, Does.Contain("{{approval-check:requirement-id}}"));
             Assert.That(instruction, Does.Contain("contract examples"));

@@ -6,6 +6,27 @@ internal sealed record PlanInboxLinkRepairDecision(
 
 internal static class PlanInboxLinkRepairPolicy
 {
+    internal static bool HasDeliveryIntent(string? rawResponse) =>
+        !string.IsNullOrWhiteSpace(rawResponse) &&
+        (rawResponse.Contains(AgentArtifactStore.InboxMessageFileMarker, StringComparison.Ordinal) ||
+         rawResponse.Contains("INBOX_MESSAGE_JSON:", StringComparison.Ordinal));
+
+    internal static bool ShouldStageDelivery(
+        bool isExecutingPlan,
+        bool envelopeAccepted,
+        string? rawResponse) =>
+        isExecutingPlan &&
+        !envelopeAccepted &&
+        HasDeliveryIntent(rawResponse);
+
+    internal static ActiveLoopExecutionState ClearPendingDelivery(
+        ActiveLoopExecutionState execution) =>
+        execution with
+        {
+            PendingInboxLinkRepairError = null,
+            PendingInboxDeliveryRawResponse = null,
+        };
+
     internal static PlanInboxLinkRepairDecision Evaluate(
         string? pendingRepairError,
         bool hasInboxDelivery,

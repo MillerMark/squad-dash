@@ -336,9 +336,10 @@ internal static class DecomposeEnvelopeRepairPrompt
         or submit alone in a fenced `text` or appropriate-language block immediately after its introducing
         step so SquadDash can render its standard copy button. Use each required `{{"{{approval-check:requirement-id}}"}}` marker exactly
         once with its real stable ID, immediately after that check's expected result. Resolve every relative `app://open-path:`
-        target from the active SquadDash workspace directory, not from the Git repository root or the
-        shell's current directory, and confirm each resolved file or folder exists before returning it.
-        If a target is outside the active workspace, use its absolute path. Preserve the rest of the
+        target from the authoritative opened-project workspace root supplied for the task. That root is the
+        executor working directory and is normally the Git repository root; never use a SquadDash session,
+        config, cache, or state directory. Confirm each resolved file or folder exists before returning it.
+        If a target is outside the opened workspace, use its absolute path. Preserve the rest of the
         valid Inbox content. Return all corrections together; do not make the human reconcile partial attempts.
         """;
 }

@@ -89,9 +89,10 @@ or author a concise common heading for a shared workflow. Never repeat a full ch
 State every required action directly; do not
 tell the reviewer to follow a runbook, another Inbox message, kit instructions, linked steps, or an
 unspecified location. Place clickable file or folder links beside the steps that need them. Resolve relative `app://open-path:`
-targets from the active SquadDash workspace directory—not the Git repository root or shell directory—
-and verify every target exists before returning the Inbox payload. Use an absolute path for any linked
-artifact outside the active workspace.
+targets from the authoritative opened-project workspace root supplied for the task. That root is the
+executor working directory and is normally the Git repository root; it is never a SquadDash session,
+config, cache, or state directory. Verify every target exists before returning the Inbox payload and
+use an absolute path for any linked artifact outside the opened workspace.
 Immediately after each proof's final expected pass/fail observation, put
 `{{approval-check:requirement-id}}` on its own line using that proof's exact stable ID. SquadDash turns
 it into the live checkbox in the approval Inbox message; do not substitute a Markdown checkbox or

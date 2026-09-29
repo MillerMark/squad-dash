@@ -147,6 +147,24 @@ internal sealed class AgentArtifactStoreTests
     }
 
     [Test]
+    public void BindPromptInstructionToWorkspace_NamesOneAuthoritativeRoot()
+    {
+        using var workspace = new TestWorkspace();
+
+        var instruction = AgentArtifactStore.BindPromptInstructionToWorkspace(
+            AgentArtifactStore.BuildPromptInstruction(),
+            workspace.RootPath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain(Path.GetFullPath(workspace.RootPath)));
+            Assert.That(instruction, Does.Contain("authoritative artifact workspace root"));
+            Assert.That(instruction, Does.Contain("executor working directory is this workspace root"));
+            Assert.That(instruction, Does.Contain("Never use a SquadDash session, configuration, cache, or state directory"));
+        });
+    }
+
+    [Test]
     public void ExpandDisplayArtifacts_MissingFile_UsesMarkdownSafePathSeparators()
     {
         using var workspace = new TestWorkspace();
