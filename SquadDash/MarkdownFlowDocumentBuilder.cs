@@ -34,6 +34,7 @@ internal static class MarkdownFlowDocumentBuilder {
     internal const double OrderedListItemTopSpacingScale = 0.75;
 
     private sealed record HeadingMetadata(int Level);
+    private sealed record ListItemMetadata(string SourceText);
 
     private static readonly Brush DefaultForegroundBrush    = new SolidColorBrush(Color.FromRgb(0x32, 0x2A, 0x23));
     private static readonly Brush DefaultQuoteFillBrush     = new SolidColorBrush(Color.FromRgb(0xF6, 0xF1, 0xE8));
@@ -81,6 +82,18 @@ internal static class MarkdownFlowDocumentBuilder {
         }
 
         level = 0;
+        return false;
+    }
+
+    internal static bool TryGetListItemSourceText(Paragraph paragraph, out string sourceText)
+    {
+        if (paragraph.Tag is ListItemMetadata metadata)
+        {
+            sourceText = metadata.SourceText;
+            return true;
+        }
+
+        sourceText = string.Empty;
         return false;
     }
 
@@ -379,7 +392,8 @@ internal static class MarkdownFlowDocumentBuilder {
 
         foreach (var item in items) {
             var paragraph = new Paragraph {
-                Margin = new Thickness(0, 0, 0, 4)
+                Margin = new Thickness(0, 0, 0, 4),
+                Tag = new ListItemMetadata(item),
             };
             AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked);
             list.ListItems.Add(new ListItem(paragraph));
@@ -424,7 +438,8 @@ internal static class MarkdownFlowDocumentBuilder {
                     0,
                     1 + (baseFontSize * OrderedListItemTopSpacingScale),
                     0,
-                    1)
+                    1),
+                Tag = new ListItemMetadata(item),
             };
             AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked);
             list.ListItems.Add(new ListItem(paragraph));

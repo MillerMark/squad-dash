@@ -36,7 +36,9 @@ internal static class InboxApprovalChecklistPresenter
         var attached = 0;
         foreach (var (paragraph, parentList) in EnumerateParagraphs(document.Blocks).ToArray())
         {
-            var text = ReadInlineText(paragraph.Inlines).Trim();
+            var text = MarkdownFlowDocumentBuilder.TryGetListItemSourceText(paragraph, out var sourceText)
+                ? sourceText.Trim()
+                : ReadInlineText(paragraph.Inlines).Trim();
             var item = remaining.FirstOrDefault(candidate =>
                 string.Equals(text, $"☐ {candidate.Text}", StringComparison.Ordinal) ||
                 string.Equals(text, $"☑ {candidate.Text}", StringComparison.Ordinal) ||

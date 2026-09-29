@@ -159,6 +159,29 @@ internal sealed class InboxApprovalChecklistPresenterTests
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void Attach_FormulaWithMarkdownAsterisksStillBecomesLiveCheckbox()
+    {
+        const string question = "Can you author a*x^2 + b*x + c without entering any GUID?";
+        var document = MarkdownFlowDocumentBuilder.BuildInbox($"- ☐ {question}", 14);
+        var item = new PlanHumanReviewChecklistItem(
+            "gate-1", "formula", "formula", question,
+            PlanHumanReviewChecklist.UncommittedCandidate, false, false, null);
+
+        var attached = InboxApprovalChecklistPresenter.Attach(
+            document, [item], (_, _) => { }, fontSize: 14);
+
+        var checkbox = FindCheckBox(document.Blocks);
+        var list = document.Blocks.OfType<List>().Single();
+        var label = ((Grid)checkbox!.Content).Children.OfType<TextBlock>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(attached, Is.EqualTo(1));
+            Assert.That(label.Text, Is.EqualTo(question));
+            Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
+        });
+    }
+
     private static CheckBox? FindCheckBox(BlockCollection blocks)
     {
         foreach (var block in blocks)
