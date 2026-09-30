@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\SquadDash\FractionConverter.cs" Link="Source\FractionConverter.cs" />
     <Compile Include="..\SquadDash\HomeBranchResolver.cs" Link="Source\HomeBranchResolver.cs" />
     <Compile Include="..\SquadDash\HomeBranchRepositoryReader.cs" Link="Source\HomeBranchRepositoryReader.cs" />
     <Compile Include="..\SquadDash\HomeBranchActions.cs" Link="Source\HomeBranchActions.cs" />

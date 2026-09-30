@@ -206,7 +206,32 @@
                                        Text="{Binding RoleText}"
                                        FontSize="{DynamicResource FontSizeSmall}"
                                        Foreground="{DynamicResource AgentRoleText}"
-                                       TextWrapping="Wrap" />
+                                       TextWrapping="Wrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       LineHeight="{Binding FontSize, RelativeSource={RelativeSource Self}, Converter={StaticResource FractionConverter}, ConverterParameter=1.3}"
+                                       LineStackingStrategy="BlockLineHeight">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <!-- WPF has no MaxLines; cap whole lines while retaining native ellipsis. -->
+                                        <Setter Property="MaxHeight"
+                                                Value="{Binding LineHeight, RelativeSource={RelativeSource Self}, Converter={StaticResource FractionConverter}, ConverterParameter=2}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsInActivePanel}" Value="True">
+                                                <Setter Property="MaxHeight"
+                                                        Value="{Binding LineHeight, RelativeSource={RelativeSource Self}}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                                <TextBlock.ToolTip>
+                                    <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                                             FontSize="{DynamicResource FontSizeSmall}"
+                                             Foreground="{DynamicResource AgentRoleText}">
+                                        <TextBlock Text="{Binding RoleText}"
+                                                   TextWrapping="Wrap" />
+                                    </ToolTip>
+                                </TextBlock.ToolTip>
+                            </TextBlock>
                         </Border>
 
                         <StackPanel x:Name="StatusRow"
