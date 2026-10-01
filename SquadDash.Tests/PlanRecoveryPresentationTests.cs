@@ -72,9 +72,11 @@ internal sealed class PlanRecoveryPresentationTests
 
     [TestCase("5", "Task title", "Step 5")]
     [TestCase(" 5 ", "Task title", "Step 5")]
+    [TestCase("5A", "Task title", "Step 5A")]
+    [TestCase("15 Repair 1", "Task title", "Step 15 Repair 1")]
     [TestCase("Step 5", "Task title", "Step 5")]
     [TestCase(null, "Add profile grid", "Add profile grid")]
-    public void FormatStepLabel_AddsStepPrefixToNumericLabels(
+    public void FormatStepLabel_AddsStepPrefixToNumericLeadingLabels(
         string? displayLabel,
         string fallbackTitle,
         string expected)
@@ -317,7 +319,7 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
-    public void RecoveryAction_WithHostRecordedCandidateOffersDirectStepCompletion()
+    public void RecoveryAction_WithHostRecordedRepairCandidatePrefixesDisplayLabelWithStep()
     {
         const string commit = "abcdef1234567890";
         var evidence = new PlanTaskCommitEvidence(
@@ -333,7 +335,7 @@ internal sealed class PlanRecoveryPresentationTests
             Handoff: new PlanTaskHandoff(
                 commit, "Implemented the task.", ["Feature.cs"], evidence.Verification,
                 DateTimeOffset.UtcNow),
-            DisplayStepLabel: "7");
+            DisplayStepLabel: "15 Repair 1");
         var plan = TestPlan(evidence) with { Tasks = [task] };
 
         var action = PlanRecoveryActionPresentationBuilder.Build(plan, task.TaskId, currentHead: commit);
@@ -341,7 +343,7 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptStep));
-            Assert.That(action.Label, Is.EqualTo("Step 7 Is Complete & Continue"));
+            Assert.That(action.Label, Is.EqualTo("Step 15 Repair 1 Is Complete & Continue"));
             Assert.That(action.ProtocolAction, Is.EqualTo("accept-step-complete"));
             Assert.That(action.Hint, Does.Contain("No additional AI assessment"));
         });
@@ -455,7 +457,7 @@ internal sealed class PlanRecoveryPresentationTests
                 PlanAmendmentGateAcceptancePolicy.CanCombineWithTaskAcceptance(plan, task),
                 Is.False);
             Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptStep));
-            Assert.That(action.Label, Is.EqualTo("5A Is Complete & Continue"));
+            Assert.That(action.Label, Is.EqualTo("Step 5A Is Complete & Continue"));
             Assert.That(action.Hint, Does.Not.Contain("approve its checkpoint"));
         });
     }

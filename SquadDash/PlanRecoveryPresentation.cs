@@ -411,8 +411,8 @@ internal static class PlanRecoveryPresentationBuilder
             : !string.IsNullOrWhiteSpace(fallbackTitle)
                 ? fallbackTitle.Trim()
                 : "Step";
-        return int.TryParse(label, out var stepNumber)
-            ? $"Step {stepNumber}"
+        return char.IsDigit(label[0])
+            ? $"Step {label}"
             : label;
     }
 
