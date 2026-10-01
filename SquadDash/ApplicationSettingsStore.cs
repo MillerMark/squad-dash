@@ -11,6 +11,7 @@ namespace SquadDash;
 
 internal sealed class ApplicationSettingsStore {
     private const int MaxRecentFolders = 12;
+    internal const int RecentBranchRetentionDays = 90;
     private const string MutexName = @"Local\SquadDash.ApplicationSettings";
     private readonly string _settingsPath;
 
@@ -503,6 +504,48 @@ internal sealed class ApplicationSettingsStore {
         var updated = current with { HomeBranchByWorkspace = dict };
         SaveCore(updated);
         return updated;
+    }
+
+    public ApplicationSettingsSnapshot RecordRecentBranch(string workspaceFolder, string branch, DateTimeOffset nowUtc) {
+        if (string.IsNullOrWhiteSpace(workspaceFolder))
+            throw new ArgumentException("Workspace folder cannot be empty.", nameof(workspaceFolder));
+        if (string.IsNullOrWhiteSpace(branch))
+            throw new ArgumentException("Branch name cannot be empty.", nameof(branch));
+
+        using var mutex = AcquireMutex();
+        var normalizedWorkspace = WorkspacePaths.NormalizeFolder(workspaceFolder);
+        var normalizedBranch = branch.Trim();
+        var normalizedNowUtc = nowUtc.ToUniversalTime();
+        var cutoffUtc = normalizedNowUtc.AddDays(-RecentBranchRetentionDays);
+        var current = LoadCore();
+
+        var normalizedByWorkspace = NormalizeRecentBranchesByWorkspace(
+            current.RecentBranchesByWorkspace,
+            cutoffUtc);
+
+        var existingForWorkspace = normalizedByWorkspace.TryGetValue(normalizedWorkspace, out var existingEntries)
+            ? existingEntries
+            : Array.Empty<RecentBranchEntry>();
+
+        var updatedEntries = new List<RecentBranchEntry>(existingForWorkspace.Count + 1) {
+            new(normalizedBranch, normalizedNowUtc)
+        };
+        updatedEntries.AddRange(
+            existingForWorkspace.Where(entry =>
+                !string.Equals(entry.BranchName, normalizedBranch, StringComparison.Ordinal)));
+
+        normalizedByWorkspace[normalizedWorkspace] = NormalizeRecentBranchEntries(updatedEntries, cutoffUtc);
+
+        if (RecentBranchesByWorkspaceEqual(current.RecentBranchesByWorkspace, normalizedByWorkspace))
+            return current;
+
+        var updated = current with { RecentBranchesByWorkspace = normalizedByWorkspace };
+        SaveCore(updated);
+        return updated;
+    }
+
+    public IReadOnlyList<RecentBranchEntry> GetRecentBranches(string workspaceFolder, DateTimeOffset nowUtc) {
+        return Load().GetRecentBranches(workspaceFolder, nowUtc);
     }
 
     public ApplicationSettingsSnapshot SaveCliWorkspaceSelection(
@@ -1117,6 +1160,71 @@ internal sealed class ApplicationSettingsStore {
         return accentColorHex.Trim().ToUpperInvariant();
     }
 
+    internal static Dictionary<string, IReadOnlyList<RecentBranchEntry>> NormalizeRecentBranchesByWorkspace(
+        IReadOnlyDictionary<string, IReadOnlyList<RecentBranchEntry>>? recentBranchesByWorkspace,
+        DateTimeOffset cutoffUtc) {
+        var normalized = new Dictionary<string, IReadOnlyList<RecentBranchEntry>>(StringComparer.OrdinalIgnoreCase);
+        if (recentBranchesByWorkspace is null)
+            return normalized;
+
+        foreach (var entry in recentBranchesByWorkspace) {
+            var normalizedWorkspace = WorkspacePaths.NormalizeFolder(entry.Key);
+            if (normalizedWorkspace.Length == 0)
+                continue;
+
+            var normalizedEntries = NormalizeRecentBranchEntries(entry.Value, cutoffUtc);
+            if (normalizedEntries.Count == 0)
+                continue;
+
+            normalized[normalizedWorkspace] = normalizedEntries;
+        }
+
+        return normalized;
+    }
+
+    private static IReadOnlyList<RecentBranchEntry> NormalizeRecentBranchEntries(
+        IEnumerable<RecentBranchEntry>? entries,
+        DateTimeOffset cutoffUtc) {
+        var latestByBranch = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
+        if (entries is null)
+            return Array.Empty<RecentBranchEntry>();
+
+        foreach (var entry in entries) {
+            if (entry is null || string.IsNullOrWhiteSpace(entry.BranchName))
+                continue;
+
+            var branchName = entry.BranchName.Trim();
+            var lastVisitedUtc = entry.LastVisitedUtc.ToUniversalTime();
+            if (lastVisitedUtc < cutoffUtc)
+                continue;
+
+            if (!latestByBranch.TryGetValue(branchName, out var existingUtc) || lastVisitedUtc > existingUtc)
+                latestByBranch[branchName] = lastVisitedUtc;
+        }
+
+        return latestByBranch
+            .OrderByDescending(entry => entry.Value)
+            .Select(entry => new RecentBranchEntry(entry.Key, entry.Value))
+            .ToArray();
+    }
+
+    private static bool RecentBranchesByWorkspaceEqual(
+        IReadOnlyDictionary<string, IReadOnlyList<RecentBranchEntry>> left,
+        IReadOnlyDictionary<string, IReadOnlyList<RecentBranchEntry>> right) {
+        if (ReferenceEquals(left, right))
+            return true;
+        if (left.Count != right.Count)
+            return false;
+
+        foreach (var entry in left) {
+            if (!right.TryGetValue(entry.Key, out var rightEntries)
+                || !entry.Value.SequenceEqual(rightEntries))
+                return false;
+        }
+
+        return true;
+    }
+
     private static double NormalizeFontSize(double fontSize) {
         return double.IsFinite(fontSize) && fontSize > 0
             ? fontSize
@@ -1356,6 +1464,8 @@ internal sealed record WorkspaceDocsPanelState
     public string? DraftFollowUpOriginalPrompt { get; init; }
 }
 
+internal sealed record RecentBranchEntry(string BranchName, DateTimeOffset LastVisitedUtc);
+
 internal sealed record ApplicationSettingsSnapshot(
     string? LastOpenedFolder,
     IReadOnlyList<string> RecentFolders,
@@ -1375,6 +1485,12 @@ internal sealed record ApplicationSettingsSnapshot(
     /// </summary>
     public IReadOnlyDictionary<string, string> HomeBranchByWorkspace { get; init; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Per-workspace recently visited branches, newest first.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<RecentBranchEntry>> RecentBranchesByWorkspace { get; init; } =
+        new Dictionary<string, IReadOnlyList<RecentBranchEntry>>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Per-workspace CLI selection mode and optional custom path.
@@ -1462,6 +1578,18 @@ internal sealed record ApplicationSettingsSnapshot(
         var key = WorkspacePaths.NormalizeFolder(workspaceFolder);
         if (key == string.Empty) return null;
         return HomeBranchByWorkspace.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
+    }
+
+    public IReadOnlyList<RecentBranchEntry> GetRecentBranches(string workspaceFolder, DateTimeOffset nowUtc) {
+        var key = WorkspacePaths.NormalizeFolder(workspaceFolder);
+        if (key.Length == 0 || !RecentBranchesByWorkspace.TryGetValue(key, out var entries))
+            return Array.Empty<RecentBranchEntry>();
+
+        var cutoffUtc = nowUtc.ToUniversalTime().AddDays(-ApplicationSettingsStore.RecentBranchRetentionDays);
+        return entries
+            .Where(entry => entry.LastVisitedUtc.ToUniversalTime() >= cutoffUtc)
+            .OrderByDescending(entry => entry.LastVisitedUtc.ToUniversalTime())
+            .ToArray();
     }
 
     /// <summary>
@@ -2006,6 +2134,9 @@ internal sealed record ApplicationSettingsSnapshot(
             }
         }
 
+        var normalizedRecentBranchesByWorkspace = ApplicationSettingsStore.NormalizeRecentBranchesByWorkspace(
+            RecentBranchesByWorkspace, DateTimeOffset.MinValue);
+
         var normalizedCliSelections = new Dictionary<string, CliWorkspaceSelection>(StringComparer.OrdinalIgnoreCase);
         if (CliSelectionByWorkspace is not null) {
             foreach (var entry in CliSelectionByWorkspace) {
@@ -2147,6 +2278,7 @@ internal sealed record ApplicationSettingsSnapshot(
             RuntimeIssueSimulationByWorkspace = normalizedRuntimeSimulations,
             BridgeDiagnosticsEnabled = BridgeDiagnosticsEnabled,
             HomeBranchByWorkspace = normalizedHomeBranches,
+            RecentBranchesByWorkspace = normalizedRecentBranchesByWorkspace,
             CliSelectionByWorkspace = normalizedCliSelections,
             WorkspacePendingUpgradeByWorkspace = normalizedWorkspacePendingUpgrades,
             FontSizeScaleLevel = Math.Clamp(FontSizeScaleLevel, 0, 6),

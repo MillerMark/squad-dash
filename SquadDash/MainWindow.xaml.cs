@@ -51401,12 +51401,17 @@ public partial class MainWindow : Window
     }
 
     private int _branchIndicatorRevision;
+    private static readonly TimeSpan RecentBranchRefreshInterval = TimeSpan.FromMinutes(5);
+    private string? _lastRecordedBranchWorkspace;
+    private string? _lastRecordedBranch;
+    private DateTimeOffset _lastRecordedBranchUtc;
 
     private async void UpdateBranchIndicator()
     {
         var revision = ++_branchIndicatorRevision;
         if (_currentWorkspace is null)
         {
+            _lastRecordedBranch = null;
             SetPromptStripVisibilityPreservingViewports(
                 BranchIndicatorStrip,
                 Visibility.Collapsed,
@@ -51425,6 +51430,33 @@ public partial class MainWindow : Window
         var identity = WorkspaceIdentityPresentation.Resolve(workspaceFolder, branch);
         WorkspaceTitleText.ToolTip = MakeThemedToolTip(identity.BuildTooltip(includeRevealHint: true));
         BranchIndicatorStrip.ToolTip = MakeThemedToolTip(identity.BuildTooltip(includeRevealHint: false));
+
+        if (identity.RepositoryRoot is not null && !string.IsNullOrWhiteSpace(branch)
+            && branch != "(detached)" && !branch.StartsWith("(detached ", StringComparison.Ordinal))
+        {
+            var nowUtc = DateTimeOffset.UtcNow;
+            if (!string.Equals(_lastRecordedBranchWorkspace, workspaceFolder, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(_lastRecordedBranch, branch, StringComparison.Ordinal)
+                || nowUtc < _lastRecordedBranchUtc
+                || nowUtc - _lastRecordedBranchUtc >= RecentBranchRefreshInterval)
+            {
+                try
+                {
+                    _settingsManager.Replace(_settingsStore.RecordRecentBranch(workspaceFolder, branch, nowUtc));
+                    _lastRecordedBranchWorkspace = workspaceFolder;
+                    _lastRecordedBranch = branch;
+                    _lastRecordedBranchUtc = nowUtc;
+                }
+                catch (Exception ex)
+                {
+                    SquadDashTrace.Write("Branch", $"Could not record recent branch '{branch}': {ex}");
+                }
+            }
+        }
+        else
+        {
+            _lastRecordedBranch = null;
+        }
 
         if (string.IsNullOrEmpty(branch))
         {
@@ -57722,6 +57754,63 @@ public partial class MainWindow : Window
                 var sep2 = new Separator();
                 sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
                 menu.Items.Add(sep2);
+            }
+
+            var recentBranches = _settingsSnapshot.GetRecentBranches(workspaceFolder, DateTimeOffset.UtcNow)
+                .Where(entry => !string.Equals(entry.BranchName, branch, StringComparison.Ordinal)
+                    && !resolution.IsHomeBranch(entry.BranchName))
+                .ToArray();
+            if (recentBranches.Length > 0)
+            {
+                if (menu.Items[menu.Items.Count - 1] is not Separator)
+                {
+                    var recentSeparator = new Separator();
+                    recentSeparator.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                    menu.Items.Add(recentSeparator);
+                }
+
+                bool alreadyQueued = _promptQueue.Items.Any(i => i.SourceTag == "branch-indicator");
+                foreach (var recentBranch in recentBranches)
+                {
+                    var targetBranch = recentBranch.BranchName;
+                    var recentSwitchItem = new MenuItem
+                    {
+                        Header = $"Switch to {targetBranch}",
+                        IsEnabled = !alreadyQueued
+                    };
+                    recentSwitchItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+                    recentSwitchItem.Click += async (_, _) =>
+                    {
+                        try
+                        {
+                            var checkoutArguments = HomeBranchActions.CheckoutBranchArguments(targetBranch);
+                            if (_isPromptRunning || IsNativeLoopRunning)
+                            {
+                                BranchNameText.Text += " \u2014 queued, waiting for active turn to finish";
+                                var prompt = $"Switch git branch to '{targetBranch}' using git {checkoutArguments}. "
+                                    + "If checkout fails, report the error; do not discard or overwrite uncommitted changes.";
+                                _promptQueue.EnqueueAtFront(prompt, _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
+                                _promptQueue.RenumberSequentially();
+                                SyncQueuePanel();
+                                _ = DrainQueueIfNeededAsync();
+                                return;
+                            }
+
+                            await RunGitAsync(workspaceFolder, checkoutArguments);
+                            UpdateBranchIndicator();
+                        }
+                        catch (Exception ex)
+                        {
+                            SquadDashTrace.Write("Branch", $"Checkout of recent branch '{targetBranch}' failed: {ex}");
+                            UIErrorHelper.ShowError("Switch Branch", $"Could not switch to branch '{targetBranch}':\n\n{ex.Message}");
+                        }
+                    };
+                    menu.Items.Add(recentSwitchItem);
+                }
+
+                var afterRecentSeparator = new Separator();
+                afterRecentSeparator.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
+                menu.Items.Add(afterRecentSeparator);
             }
 
             var setHomeItem = new MenuItem { Header = "Set as home branch" };

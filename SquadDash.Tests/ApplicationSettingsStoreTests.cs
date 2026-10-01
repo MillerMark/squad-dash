@@ -36,6 +36,213 @@ internal sealed class ApplicationSettingsStoreTests {
     }
 
     [Test]
+    public void RecordRecentBranch_InsertsAndReturnsSnapshot() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+        var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.FromHours(-4));
+
+        var snapshot = store.RecordRecentBranch(repo, " feature/alpha ", now);
+        var fromSnapshot = snapshot.GetRecentBranches(repo, now);
+        var fromStore = store.GetRecentBranches(repo, now);
+
+        Assert.Multiple(() => {
+            Assert.That(fromSnapshot.Count, Is.EqualTo(1));
+            Assert.That(fromSnapshot[0].BranchName, Is.EqualTo("feature/alpha"));
+            Assert.That(fromSnapshot[0].LastVisitedUtc, Is.EqualTo(now.ToUniversalTime()));
+            Assert.That(fromStore, Is.EqualTo(fromSnapshot));
+        });
+    }
+
+    [Test]
+    public void RecordRecentBranch_BlankBranch_Throws() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+
+        Assert.Throws<ArgumentException>(() =>
+            store.RecordRecentBranch(repo, "   ", new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero)));
+    }
+
+    [Test]
+    public void RecordRecentBranch_RefreshesTimestampWithoutDuplicatingEntry() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+        var first = new DateTimeOffset(2026, 6, 1, 10, 0, 0, TimeSpan.FromHours(-4));
+        var second = first.AddMinutes(7);
+
+        store.RecordRecentBranch(repo, "feature/refresh", first);
+        var snapshot = store.RecordRecentBranch(repo, "feature/refresh", second);
+        var recent = snapshot.GetRecentBranches(repo, second);
+
+        Assert.Multiple(() => {
+            Assert.That(recent.Count, Is.EqualTo(1));
+            Assert.That(recent[0].BranchName, Is.EqualTo("feature/refresh"));
+            Assert.That(recent[0].LastVisitedUtc, Is.EqualTo(second.ToUniversalTime()));
+        });
+    }
+
+    [Test]
+    public void GetRecentBranches_ExpiresEntriesStrictlyOlderThanNinetyDays() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+        var now = new DateTimeOffset(2026, 9, 30, 0, 0, 0, TimeSpan.Zero);
+
+        store.RecordRecentBranch(repo, "old-91", now.AddDays(-91));
+        store.RecordRecentBranch(repo, "exact-90", now.AddDays(-90));
+        store.RecordRecentBranch(repo, "within-89", now.AddDays(-89));
+
+        var branches = store.GetRecentBranches(repo, now);
+
+        Assert.That(branches.Select(branch => branch.BranchName).ToArray(),
+            Is.EqualTo(new[] { "within-89", "exact-90" }));
+        Assert.That(store.Load().GetRecentBranches(repo, now.AddTicks(1)).Select(branch => branch.BranchName),
+            Is.EqualTo(new[] { "within-89" }));
+    }
+
+    [Test]
+    public void RecordRecentBranch_PrunesExpiredEntriesPersistentlyAcrossWorkspaces() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        var otherRepo = workspace.GetPath("other-repo");
+        var now = new DateTimeOffset(2026, 9, 30, 0, 0, 0, TimeSpan.Zero);
+
+        store.RecordRecentBranch(otherRepo, "expired", now.AddDays(-91));
+        store.RecordRecentBranch(otherRepo, "retained", now.AddDays(-89));
+        store.RecordRecentBranch(repo, "current", now);
+
+        var loaded = store.Load();
+        Assert.Multiple(() => {
+            Assert.That(loaded.RecentBranchesByWorkspace[otherRepo].Select(entry => entry.BranchName),
+                Is.EqualTo(new[] { "retained" }));
+            Assert.That(loaded.GetRecentBranches(repo, now).Select(entry => entry.BranchName),
+                Is.EqualTo(new[] { "current" }));
+            Assert.That(loaded.GetRecentBranches(workspace.GetPath("unknown"), now), Is.Empty);
+        });
+    }
+
+    [Test]
+    public void RecordRecentBranch_IdenticalObservationDoesNotWriteSettings() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+        var repo = workspace.GetPath("repo");
+        var now = new DateTimeOffset(2026, 9, 30, 0, 0, 0, TimeSpan.Zero);
+        store.RecordRecentBranch(repo, "current", now);
+        File.SetLastWriteTimeUtc(settingsPath, now.UtcDateTime);
+
+        store.RecordRecentBranch(repo, "current", now);
+
+        Assert.That(File.GetLastWriteTimeUtc(settingsPath), Is.EqualTo(now.UtcDateTime));
+    }
+
+    [Test]
+    public void GetRecentBranches_ReturnsNewestFirst() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+        var start = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+
+        store.RecordRecentBranch(repo, "one", start);
+        store.RecordRecentBranch(repo, "three", start.AddMinutes(2));
+        store.RecordRecentBranch(repo, "two", start.AddMinutes(1));
+
+        var branches = store.GetRecentBranches(repo, start.AddMinutes(2));
+        Assert.That(branches.Select(branch => branch.BranchName).ToArray(),
+            Is.EqualTo(new[] { "three", "two", "one" }));
+    }
+
+    [Test]
+    public void RecordRecentBranch_NormalizesWorkspaceKey() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+        var withTrailingSeparator = $"{repo}{Path.DirectorySeparatorChar}";
+        var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+
+        var snapshot = store.RecordRecentBranch(withTrailingSeparator, "feature/key", now);
+        var normalizedWorkspace = WorkspacePaths.NormalizeFolder(repo);
+
+        Assert.Multiple(() => {
+            Assert.That(snapshot.RecentBranchesByWorkspace.ContainsKey(normalizedWorkspace), Is.True);
+            Assert.That(store.GetRecentBranches(repo, now).Count, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void RecordRecentBranch_TreatsBranchNamesAsCaseSensitive() {
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+        var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+
+        store.RecordRecentBranch(repo, "Feature/Main", now);
+        store.RecordRecentBranch(repo, "feature/main", now.AddMinutes(1));
+
+        var branches = store.GetRecentBranches(repo, now.AddMinutes(1));
+        Assert.That(branches.Select(branch => branch.BranchName).ToArray(),
+            Is.EqualTo(new[] { "feature/main", "Feature/Main" }));
+    }
+
+    [Test]
+    public void RecentBranches_PersistAcrossIndependentStoresAndUnrelatedSaves() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+        var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+
+        var storeOne = new ApplicationSettingsStore(settingsPath);
+        storeOne.RecordRecentBranch(repo, "feature/persist", now);
+
+        var storeTwo = new ApplicationSettingsStore(settingsPath);
+        storeTwo.SavePromptFontSize(18);
+
+        var storeThree = new ApplicationSettingsStore(settingsPath);
+        var branches = storeThree.GetRecentBranches(repo, now);
+
+        Assert.Multiple(() => {
+            Assert.That(branches.Count, Is.EqualTo(1));
+            Assert.That(branches[0].BranchName, Is.EqualTo("feature/persist"));
+            Assert.That(branches[0].LastVisitedUtc, Is.EqualTo(now));
+        });
+    }
+
+    [Test]
+    public void Load_WhenRecentBranchesPropertyMissingOrNull_UsesEmptyDictionary() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var repo = workspace.GetPath("repo");
+        Directory.CreateDirectory(repo);
+        var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+        var store = new ApplicationSettingsStore(settingsPath);
+
+        store.RecordRecentBranch(repo, "feature/remove", now);
+
+        var json = JsonNode.Parse(File.ReadAllText(settingsPath))!.AsObject();
+        json.Remove(nameof(ApplicationSettingsSnapshot.RecentBranchesByWorkspace));
+        File.WriteAllText(settingsPath, json.ToJsonString(JsonFileStorage.PrettyPrint));
+
+        Assert.That(store.Load().RecentBranchesByWorkspace, Is.Empty);
+
+        json = JsonNode.Parse(File.ReadAllText(settingsPath))!.AsObject();
+        json[nameof(ApplicationSettingsSnapshot.RecentBranchesByWorkspace)] = null;
+        File.WriteAllText(settingsPath, json.ToJsonString(JsonFileStorage.PrettyPrint));
+
+        Assert.That(store.Load().RecentBranchesByWorkspace, Is.Empty);
+    }
+
+    [Test]
     public void PlanAgentRoutingPolicy_DefaultsToPlanExecutionAndPersistsAllModes() {
         using var workspace = new TestWorkspace();
         var store = new ApplicationSettingsStore(workspace.GetPath("settings", "settings.json"));

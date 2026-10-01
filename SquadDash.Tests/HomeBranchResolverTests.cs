@@ -142,6 +142,8 @@ internal sealed class HomeBranchResolverTests
         Assert.Multiple(() =>
         {
             Assert.That(actions.CheckoutArguments, Is.EqualTo("checkout --no-guess \"release\\\"stable\" --"));
+            Assert.That(HomeBranchActions.CheckoutBranchArguments("release\"stable"),
+                Is.EqualTo(actions.CheckoutArguments));
             Assert.That(actions.VerifyArguments, Is.EqualTo("show-ref --verify --quiet \"refs/heads/release\\\"stable\""));
         });
     }

@@ -19,10 +19,13 @@ internal sealed class HomeBranchActions
     public string QueuedMergePrompt => $"{VerifyPrompt} Merge current branch '{FeatureBranch}' into '{Branch}' with --ff-only and push to origin '{Branch}'.";
     public string QueuedSwitchPrompt => $"{VerifyPrompt} Switch git branch to '{Branch}'.";
     public string VerifyArguments => LocalBranchVerificationArguments(Branch);
-    public string CheckoutArguments => $"checkout --no-guess {Quote(Branch)} --";
+    public string CheckoutArguments => CheckoutBranchArguments(Branch);
     public string MergeArguments => $"merge --ff-only -- {Quote($"refs/heads/{FeatureBranch}")}";
     public string PushArguments => $"push origin {Quote($"refs/heads/{Branch}:refs/heads/{Branch}")}";
-    public string RestoreArguments => $"checkout --no-guess {Quote(FeatureBranch)} --";
+    public string RestoreArguments => CheckoutBranchArguments(FeatureBranch);
+
+    public static string CheckoutBranchArguments(string branch) =>
+        $"checkout --no-guess {Quote(branch)} --";
 
     public static string LocalBranchVerificationArguments(string branch) =>
         $"show-ref --verify --quiet {Quote($"refs/heads/{branch}")}";
