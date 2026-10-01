@@ -177,6 +177,38 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
     }
 
     [Test]
+    public void ValidatedPartialRecovery_ContinuesItsAssessedUncommittedWorkWithoutAnotherStop()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var validation = Method(
+            main,
+            "private async Task ValidateAndApplyPlanRecoveryAssessmentAsync(",
+            "private async Task AcceptAssessedPlanRecoveryAsync(");
+
+        Assert.That(validation, Does.Contain("case PlanRecoveryClassification.Partial:")
+            .And.Contain("allowUncommittedPreservedWork: true"));
+    }
+
+    [Test]
+    public void RecoveryAssessmentSnapshot_ExcludesHostOwnedStateFromEveryGitComparison()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var capture = Method(
+            main,
+            "private async Task<PlanRecoveryRepositorySnapshot> CapturePlanRecoveryRepositorySnapshotAsync(",
+            "private sealed record PendingRecoveryAnalysisContext(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(capture, Does.Contain("GetHostOwnedRecoveryPathsAsync(workspace)")
+                .And.Contain("BuildGitPathspec(hostOwnedPaths)"));
+            Assert.That(capture, Does.Contain("diff --binary --no-ext-diff HEAD {pathspec}")
+                .And.Contain("status --porcelain --untracked-files=all {pathspec}")
+                .And.Contain("ls-files --others --exclude-standard -z {pathspec}"));
+        });
+    }
+
+    [Test]
     public void BackgroundStatusEntry_PreservesThePendingCoordinatorDelegation()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

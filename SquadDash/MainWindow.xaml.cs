@@ -21420,8 +21420,6 @@ public partial class MainWindow : Window
         var snapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
         var head = snapshot.HeadCommit;
         await RunGitAsync(workspace, $"merge-base --is-ancestor \"{baseline}\" \"{head}\"");
-        var status = NormalizeGitSnapshot(await RunGitAsync(
-            workspace, "status --porcelain --untracked-files=all"));
         var assessmentId = Guid.NewGuid().ToString("N");
         var actualCommits = (await RunGitAsync(
                 workspace, $"rev-list --reverse \"{baseline}..{head}\""))
@@ -21433,7 +21431,7 @@ public partial class MainWindow : Window
             durable, taskId, assessmentId, evidence, advisoryOnly);
 
         _pendingPlanRecoveryAssessment = new PendingPlanRecoveryAssessment(
-            plan, taskId, assessmentId, baseline, head, status, snapshot.Fingerprint, commitReferences,
+            plan, taskId, assessmentId, baseline, head, snapshot.StatusSnapshot, snapshot.Fingerprint, commitReferences,
             AdvisoryOnly: advisoryOnly,
             RepositoryChangeRetries: repositoryChangeRetries);
         _broker.Publish(new PlanRecoveryAssessmentActivityEvent(durable.PlanId, taskId, IsActive: true));
@@ -21809,10 +21807,9 @@ public partial class MainWindow : Window
         var workspace = _currentWorkspace.FolderPath;
         var currentSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
         var currentHead = currentSnapshot.HeadCommit;
-        var currentStatus = NormalizeGitSnapshot(await RunGitAsync(
-            workspace, "status --porcelain --untracked-files=all"));
+        var currentStatus = currentSnapshot.StatusSnapshot;
         if (!string.Equals(currentHead, context.AssessedHead, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(currentStatus, context.StatusSnapshot, StringComparison.Ordinal) ||
+            !string.Equals(currentSnapshot.StatusSnapshot, context.StatusSnapshot, StringComparison.Ordinal) ||
             !string.Equals(
                 currentSnapshot.Fingerprint,
                 context.RepositoryFingerprint,
@@ -21982,7 +21979,10 @@ public partial class MainWindow : Window
                     ShowSystemTranscriptEntry(
                         $"AI found partial work for {context.TaskId}. SquadDash preserved the assessment and is resuming only the remaining work.");
                     await RetryDecomposeTaskAsync(
-                        context.Plan, context.TaskId, assessedContinuation);
+                        context.Plan,
+                        context.TaskId,
+                        assessedContinuation,
+                        allowUncommittedPreservedWork: true);
                     return;
                 }
                 case PlanRecoveryClassification.NotStarted:
@@ -22165,16 +22165,21 @@ public partial class MainWindow : Window
     private static string NormalizeGitSnapshot(string value) =>
         value.Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd();
 
-    private static async Task<PlanRecoveryRepositorySnapshot> CapturePlanRecoveryRepositorySnapshotAsync(
+    private async Task<PlanRecoveryRepositorySnapshot> CapturePlanRecoveryRepositorySnapshotAsync(
         string workspace)
     {
+        var hostOwnedPaths = await GetHostOwnedRecoveryPathsAsync(workspace);
+        var pathspec = PlanRecoveryAssessmentSnapshotPolicy.BuildGitPathspec(hostOwnedPaths);
         var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
         var trackedDiff = await RunGitAsync(
             workspace,
-            "diff --binary --no-ext-diff HEAD --");
+            $"diff --binary --no-ext-diff HEAD {pathspec}");
+        var status = NormalizeGitSnapshot(await RunGitAsync(
+            workspace,
+            $"status --porcelain --untracked-files=all {pathspec}"));
         var untrackedOutput = await RunGitAsync(
             workspace,
-            "ls-files --others --exclude-standard -z");
+            $"ls-files --others --exclude-standard -z {pathspec}");
         var workspaceRoot = Path.GetFullPath(workspace)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
             Path.DirectorySeparatorChar;
@@ -22204,7 +22209,8 @@ public partial class MainWindow : Window
 
         return new PlanRecoveryRepositorySnapshot(
             head,
-            PlanRecoveryAssessmentSnapshotPolicy.CreateFingerprint(head, trackedDiff, untracked));
+            PlanRecoveryAssessmentSnapshotPolicy.CreateFingerprint(head, trackedDiff, untracked),
+            status);
     }
 
     private sealed record PendingRecoveryAnalysisContext(PendingDecomposePlan Plan, string TaskId);
@@ -22291,12 +22297,18 @@ public partial class MainWindow : Window
         var diff      = string.Empty;
         try
         {
+            var hostOwnedPaths = await GetHostOwnedRecoveryPathsAsync(workspace);
+            var recoveryPathspec = PlanRecoveryAssessmentSnapshotPolicy.BuildGitPathspec(hostOwnedPaths);
             logOutput = await RunGitAsync(
                 workspace,
                 $"log --reverse --format=%H%x09%s \"{baselineCommit}..HEAD\"");
             diffStat  = await RunGitAsync(workspace, $"diff --stat {baselineCommit}..HEAD");
-            status    = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
-            diff      = await RunGitAsync(workspace, "diff --unified=3 HEAD");
+            status    = await RunGitAsync(
+                workspace,
+                $"status --porcelain --untracked-files=all {recoveryPathspec}");
+            diff      = await RunGitAsync(
+                workspace,
+                $"diff --unified=3 HEAD {recoveryPathspec}");
         }
         catch { /* git unavailable — leave blanks */ }
 

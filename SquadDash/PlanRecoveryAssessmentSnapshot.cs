@@ -5,7 +5,8 @@ namespace SquadDash;
 
 internal sealed record PlanRecoveryRepositorySnapshot(
     string HeadCommit,
-    string Fingerprint);
+    string Fingerprint,
+    string StatusSnapshot = "");
 
 /// <summary>
 /// Gives a recovery assessment a durable identity tied to repository content. Merely reopening
@@ -14,6 +15,23 @@ internal sealed record PlanRecoveryRepositorySnapshot(
 /// </summary>
 internal static class PlanRecoveryAssessmentSnapshotPolicy
 {
+    internal static string BuildGitPathspec(IEnumerable<string> hostOwnedPaths)
+    {
+        var exclusions = hostOwnedPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.Trim().Replace('\\', '/'))
+            .Select(path => path.StartsWith("./", StringComparison.Ordinal) ? path[2..] : path)
+            .Select(path => path.TrimStart('/'))
+            .Where(path => path.Length > 0)
+            .Select(path => path.EndsWith("/", StringComparison.Ordinal)
+                ? path + "**"
+                : path)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Select(path => $"\":(exclude){path.Replace("\"", "\\\"", StringComparison.Ordinal)}\"");
+        return "-- . " + string.Join(" ", exclusions);
+    }
+
     internal static string CreateFingerprint(
         string headCommit,
         string trackedDiff,

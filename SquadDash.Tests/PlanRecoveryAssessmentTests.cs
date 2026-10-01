@@ -76,6 +76,17 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void SnapshotPathspec_ExcludesHostOwnedStateButKeepsProjectFiles()
+    {
+        var pathspec = PlanRecoveryAssessmentSnapshotPolicy.BuildGitPathspec(
+            [".squad/", "custom-squad/tasks.md"]);
+
+        Assert.That(pathspec, Is.EqualTo(
+            "-- . \":(exclude).squad/**\" \":(exclude)custom-squad/tasks.md\""));
+        Assert.That(pathspec, Does.Not.Contain("src/"));
+    }
+
+    [Test]
     public void CompleteAssessment_WithPassedVerificationAndAttributedCommit_Parses()
     {
         var text = Prefix + """
