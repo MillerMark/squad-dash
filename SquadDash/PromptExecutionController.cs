@@ -224,6 +224,10 @@ internal sealed class PromptExecutionController {
     // ── IWorkspacePaths ───────────────────────────────────────────────────
     private readonly IWorkspacePaths _workspacePaths;
     private readonly Func<IReadOnlyList<FollowUpAttachment>> _getSubmittedAttachments;
+    private SessionWorkspace? _activeRecoveryWorkspace;
+    private InterruptedPromptDispatch? _activeRecoveryDispatch;
+    private IReadOnlyList<FollowUpAttachment> _activeRecoveryAttachments = [];
+    private bool _activePromptRestartCheckpointed;
     /// When set, returns the HOST_COMMANDS catalog instruction to inject into every prompt.
     /// MainWindow sets this after constructing the HostCommandRegistry.
     /// </summary>
@@ -2161,6 +2165,15 @@ internal sealed class PromptExecutionController {
             if (workspace is null)
                 return;
 
+            // Keep the exact recovery envelope available before the bridge call starts. A
+            // build-triggered restart may be allowed through after the inactivity watchdog
+            // declares the bridge dead, before the awaited bridge task can throw and enter the
+            // ordinary timeout-recovery catch block.
+            _activeRecoveryWorkspace = workspace;
+            _activeRecoveryDispatch = recoveryDispatch;
+            _activeRecoveryAttachments = submittedAttachments;
+            _activePromptRestartCheckpointed = false;
+
             SquadDashTrace.Write(
                 "UI",
                 $"ExecutePromptAsync start prompt={visiblePrompt} cwd={workspace.FolderPath}");
@@ -2341,6 +2354,10 @@ internal sealed class PromptExecutionController {
             // prompt or resume a saved plan immediately. Publish it only after this turn has
             // finished its settle work and released the coordinator serialization gate.
             _setIsPromptRunning(false);
+            _activeRecoveryWorkspace = null;
+            _activeRecoveryDispatch = null;
+            _activeRecoveryAttachments = [];
+            _activePromptRestartCheckpointed = false;
             _updateInteractiveControlState();
 
             if (_getRestartPending() && !_getIsClosing()) {
@@ -2350,6 +2367,51 @@ internal sealed class PromptExecutionController {
                 if (_promptBoxState.IsPromptTextBoxEnabled)
                     _promptBoxState.FocusPromptTextBox();
             }
+        }
+    }
+
+    /// <summary>
+    /// Durably records the currently running request before a deferred application restart is
+    /// allowed to terminate its bridge process. The store is workspace-scoped, so independent
+    /// SquadDash instances and workspaces cannot claim one another's recovery checkpoint.
+    /// </summary>
+    internal bool CheckpointRunningPromptForRestart(string reason)
+    {
+        if (!_getIsPromptRunning() ||
+            _activePromptRestartCheckpointed ||
+            _activeRecoveryWorkspace is null ||
+            _activeRecoveryDispatch is null)
+        {
+            return _activePromptRestartCheckpointed;
+        }
+
+        try
+        {
+            var inactivity = _lastPromptActivityAt is null
+                ? "an unknown period"
+                : $"{Math.Max(0, (DateTimeOffset.Now - _lastPromptActivityAt.Value).TotalSeconds):0} seconds";
+            var recovery = SaveInterruptedPromptRecovery(
+                _activeRecoveryWorkspace,
+                _activeRecoveryDispatch,
+                _activeRecoveryAttachments,
+                $"SquadDash checkpointed this running request before application restart '{reason}' " +
+                $"after {inactivity} without bridge activity.");
+            _activePromptRestartCheckpointed = true;
+            SquadDashTrace.Write(
+                "Recovery",
+                $"Checkpointed running prompt before restart id={recovery.RecoveryId} " +
+                $"workspace={_activeRecoveryWorkspace.FolderPath} reason={reason}.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // A restart is never allowed to discard the only resumable copy of active work.
+            // Returning false leaves the already-requested restart deferred so it can be retried.
+            SquadDashTrace.Write(
+                "Recovery",
+                $"Could not checkpoint running prompt before restart workspace={_activeRecoveryWorkspace.FolderPath} " +
+                $"reason={reason}: {ex}");
+            return false;
         }
     }
 

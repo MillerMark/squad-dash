@@ -11959,25 +11959,36 @@ public partial class MainWindow : Window
         }
 
         if (_currentWorkspace is null) return;
-        var correctionBaseline = (await RunGitAsync(
+        var existingCorrection = durable.InterruptionData?.RecoveryCorrection;
+        var currentHead = (await RunGitAsync(
             _currentWorkspace.FolderPath,
             "rev-parse HEAD")).Trim();
+        var correctionBaseline = existingCorrection?.BaselineCommit ?? currentHead;
         await RunGitAsync(
             _currentWorkspace.FolderPath,
             $"merge-base --is-ancestor \"{evidence.Commit}\" \"{correctionBaseline}\"");
-        var prepared = durable with
+        if (existingCorrection is not null)
         {
-            InterruptionData = durable.InterruptionData! with
+            await RunGitAsync(
+                _currentWorkspace.FolderPath,
+                $"merge-base --is-ancestor \"{correctionBaseline}\" \"{currentHead}\"");
+        }
+        else
+        {
+            var prepared = durable with
             {
-                RecoveryCorrection = new PlanRecoveryCorrectionContext(
-                    correctionBaseline,
-                    DateTimeOffset.UtcNow),
-            },
-        };
-        if (!TryPublishPlanProgress(prepared, out var saveError))
-            throw new InvalidOperationException(
-                saveError ?? "SquadDash could not preserve the correction baseline.");
-        durable = prepared;
+                InterruptionData = durable.InterruptionData! with
+                {
+                    RecoveryCorrection = new PlanRecoveryCorrectionContext(
+                        correctionBaseline,
+                        DateTimeOffset.UtcNow),
+                },
+            };
+            if (!TryPublishPlanProgress(prepared, out var saveError))
+                throw new InvalidOperationException(
+                    saveError ?? "SquadDash could not preserve the correction baseline.");
+            durable = prepared;
+        }
 
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
             task.DisplayStepLabel,
@@ -11988,7 +11999,9 @@ public partial class MainWindow : Window
             $"Task ID: {taskId}\n" +
             $"Recorded task commit: {evidence.Commit}\n\n" +
             $"Correction baseline: {correctionBaseline}\n\n" +
-            "The user concluded that this recorded task result needs bounded corrections. " +
+            (existingCorrection is null
+                ? "The user concluded that this recorded task result needs bounded corrections. "
+                : "A previously started correction was interrupted. Inspect and preserve all existing edits and commits since the correction baseline before doing more work. ") +
             "Implement only the requested correction on the current plan branch. Preserve the existing commit and accumulated work; " +
             "do not rerun the original task, continue downstream plan execution, revise the plan, or modify tasks.md. " +
             "Create one or more meaningful correction commits and run focused verification. Preserve useful commit history. End with PLAN_REVIEW_ACTIVITY_JSON " +
@@ -12015,7 +12028,9 @@ public partial class MainWindow : Window
                 RemovalWarning: "This context prevents completed work from being rerun and keeps the correction attached to the right step. Remove it anyway?"),
         };
         var queueItemId = QueueEditablePlanPrompt(
-            $"Continue working on {stepLabel} without repeating its completed work.\r\n\r\n" +
+            (existingCorrection is null
+                ? $"Continue working on {stepLabel} without repeating its completed work.\r\n\r\n"
+                : $"Continue the existing repair for {stepLabel} without repeating completed work.\r\n\r\n") +
             "What is incomplete or needs correction?\r\n\r\n" +
             "[Describe the bounded correction]\r\n",
             "[Describe the bounded correction]",
@@ -13405,21 +13420,30 @@ public partial class MainWindow : Window
               }
             : null;
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
-        PlanRecoveryPrimaryActionPresentation? ResolveInterruptedPrimaryAction(Plan current)
+        PlanRecoveryActionSetPresentation? ResolveInterruptedActionSet(Plan current)
         {
             var currentTaskId = current.InterruptionData?.InterruptedTaskId;
             return current.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
                    !string.IsNullOrWhiteSpace(currentTaskId)
-                ? PlanRecoveryActionPresentationBuilder.Build(
+                ? PlanRecoveryActionSetBuilder.Build(
                     current,
                     currentTaskId!,
                     ReadCachedRecoveryHeadCommit(),
-                    (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant))
+                    (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant),
+                    includeEndPlan: PlanRecoveryControlPolicy.HasActionableInterruption(current),
+                    correctionActivity: PlanTaskCorrectionActivityPolicy.Resolve(
+                        _pendingPlanTaskCorrectionContext,
+                        current.PlanId,
+                        currentTaskId!,
+                        _isPromptRunning,
+                        _pec.CurrentDispatchedItem?.Id,
+                        _pec.CurrentDispatchedItem?.SourceTag))
                 : null;
         }
-        var interruptedRecoveryAction = durablePlan is null
+        var interruptedRecoveryActionSet = durablePlan is null
             ? null
-            : ResolveInterruptedPrimaryAction(durablePlan);
+            : ResolveInterruptedActionSet(durablePlan);
+        var interruptedRecoveryAction = interruptedRecoveryActionSet?.Primary;
         var hasRecoveryAssessment = durablePlan?.InterruptionData?.RecoveryAssessment is not null &&
                                     !string.IsNullOrWhiteSpace(interruptedTaskId);
         var durableReviewAttention = durablePlan is null
@@ -13431,21 +13455,26 @@ public partial class MainWindow : Window
                 : durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted && !isSafelyResumable
                 ? interruptedRecoveryAction?.Kind switch
                 {
-                    PlanRecoveryPrimaryActionKind.AcceptStep or
-                    PlanRecoveryPrimaryActionKind.AcceptUnattributedStep or
-                    PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
-                    PlanRecoveryPrimaryActionKind.ApproveAmendment =>
+                    PlanRecoverySurfaceActionKind.AcceptStep =>
                         planToAccept => AcceptInterruptedStepAfterReviewAsync(planToAccept),
-                    PlanRecoveryPrimaryActionKind.ResumeVerification when !hasRecoveryAssessment =>
+                    PlanRecoverySurfaceActionKind.ResumeVerification when !hasRecoveryAssessment =>
                         AssessInterruptedPlanFromDurableAsync,
-                    PlanRecoveryPrimaryActionKind.RetryVerification or
-                    PlanRecoveryPrimaryActionKind.ContinueWorking when !hasRecoveryAssessment =>
+                    PlanRecoverySurfaceActionKind.ContinueWorking when !hasRecoveryAssessment =>
                         async current =>
                         {
                             var currentTaskId = current.InterruptionData?.InterruptedTaskId;
-                            return !string.IsNullOrWhiteSpace(currentTaskId) &&
-                                   await RetryDecomposeTaskAsync(
-                                       PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
+                            if (string.IsNullOrWhiteSpace(currentTaskId)) return false;
+                            if (string.Equals(
+                                    interruptedRecoveryAction.ProtocolAction,
+                                    "request-corrections",
+                                    StringComparison.Ordinal))
+                            {
+                                await QueuePlanRecoveryCorrectionAsync(
+                                    PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
+                                return true;
+                            }
+                            return await RetryDecomposeTaskAsync(
+                                PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
                         },
                     _ => null,
                 }
@@ -13457,30 +13486,19 @@ public partial class MainWindow : Window
             ? EndInterruptedPlan
             : null;
         Action<Plan>? onContinueInterruptedTask =
-            interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptStep
+            interruptedRecoveryActionSet?.Actions.FirstOrDefault(action =>
+                action.Kind == PlanRecoverySurfaceActionKind.ContinueWorking) is { } continueAction
                 ? current =>
                 {
                     var currentTaskId = current.InterruptionData?.InterruptedTaskId;
-                    if (!string.IsNullOrWhiteSpace(currentTaskId))
+                    if (string.IsNullOrWhiteSpace(currentTaskId)) return;
+                    if (string.Equals(continueAction.ProtocolAction, "request-corrections", StringComparison.Ordinal))
                         _ = QueuePlanRecoveryCorrectionAsync(
                             PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
+                    else
+                        _ = RetryDecomposeTaskAsync(
+                            PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
                 }
-                : interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp
-                    ? current =>
-                    {
-                        var currentTaskId = current.InterruptionData?.InterruptedTaskId;
-                        if (!string.IsNullOrWhiteSpace(currentTaskId))
-                            _ = RetryDecomposeTaskAsync(
-                                PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
-                    }
-                : interruptedRecoveryAction?.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep
-                    ? current =>
-                    {
-                        var currentTaskId = current.InterruptionData?.InterruptedTaskId;
-                        if (!string.IsNullOrWhiteSpace(currentTaskId))
-                            _ = RetryDecomposeTaskAsync(
-                                PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
-                    }
                 : hasRecoveryAssessment
             ? current =>
             {
@@ -13719,7 +13737,7 @@ public partial class MainWindow : Window
                 OpenPlanValidationDetails(current.PlanId, validationId),
             getSettings: () => _settingsSnapshot,
             getAssignableAgents: GetAssignablePlanAgentsForViewer,
-            resolveInterruptedPrimaryAction: ResolveInterruptedPrimaryAction,
+            resolveInterruptedActionSet: ResolveInterruptedActionSet,
             onOpenInterruptedChanges: current =>
                 _ = OpenInterruptedTaskReviewAsync(current.PlanId, current.Revision),
             squadFolderPath: _currentWorkspace?.SquadFolderPath,
@@ -20280,19 +20298,31 @@ public partial class MainWindow : Window
                 completedWorkReview));
         }
 
+        var recoveryHead = ReadCachedRecoveryHeadCommit();
+        var correctionActivity = PlanTaskCorrectionActivityPolicy.Resolve(
+            _pendingPlanTaskCorrectionContext,
+            plan.Group.GroupId,
+            taskId,
+            _isPromptRunning,
+            _pec.CurrentDispatchedItem?.Id,
+            _pec.CurrentDispatchedItem?.SourceTag);
+        var recoveryActionSet = durablePlan is null
+            ? null
+            : PlanRecoveryActionSetBuilder.Build(
+                durablePlan,
+                taskId,
+                recoveryHead,
+                (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant),
+                includeEndPlan: !planRunnerActive,
+                correctionActivity);
         var decisionPrompt = attentionCard.Category switch
         {
             PlanAttentionCategory.HumanVerificationRequired =>
                 "Verify this step is complete to continue the plan.",
             PlanAttentionCategory.HumanInputRequired =>
                 "Reply with the requested decision. SquadDash will preserve the plan until then.",
-            PlanAttentionCategory.AutomaticWorkExhausted when
-                durablePlan is not null &&
-                durablePlan.InterruptionData?.TaskCommitEvidence is not null &&
-                !PlanRecoveryPresentationBuilder.HasCurrentAcceptedReview(durablePlan, taskId) =>
-                "Recommended: Try Again. SquadDash will continue from the preserved work without redoing it.",
-            PlanAttentionCategory.AutomaticWorkExhausted =>
-                "Choose whether to try again or revise the remaining plan.",
+            PlanAttentionCategory.AutomaticWorkExhausted when recoveryActionSet is not null =>
+                recoveryActionSet.DecisionPrompt,
             _ => "Continue from the preserved work or copy the diagnostic report for investigation.",
         };
         var decisionParagraph = CreateTranscriptParagraph(bottomMargin: 10);
@@ -20337,7 +20367,6 @@ public partial class MainWindow : Window
         var presentation = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.Build(durablePlan, taskId, hasPreservedWork);
-        var recoveryHead = ReadCachedRecoveryHeadCommit();
         var primaryRecoveryAction = durablePlan is null
             ? null
             : PlanRecoveryActionPresentationBuilder.Build(
@@ -20345,6 +20374,57 @@ public partial class MainWindow : Window
                 taskId,
                 recoveryHead,
                 (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant));
+
+        void AddCanonicalRecoveryAction(PlanRecoverySurfaceActionPresentation action)
+        {
+            switch (action.Kind)
+            {
+                case PlanRecoverySurfaceActionKind.AcceptStep when durablePlan is not null:
+                    AddAsyncResultAction(
+                        action.Label,
+                        action.Hint,
+                        async () => await AcceptInterruptedStepAfterReviewAsync(
+                            _planStore?.Load(durablePlan.PlanId) ?? durablePlan));
+                    break;
+                case PlanRecoverySurfaceActionKind.ResumeVerification:
+                    AddAsyncAction(
+                        action.Label,
+                        action.Hint,
+                        async () => await AssessPlanRecoveryAsync(plan, taskId));
+                    break;
+                case PlanRecoverySurfaceActionKind.ContinueWorking:
+                    if (string.Equals(action.ProtocolAction, "request-corrections", StringComparison.Ordinal))
+                    {
+                        AddAsyncAction(
+                            action.Label,
+                            action.Hint,
+                            async () => await QueuePlanRecoveryCorrectionAsync(plan, taskId));
+                    }
+                    else
+                    {
+                        AddAsyncAction(
+                            action.Label,
+                            action.Hint,
+                            async () => await RetryDecomposeTaskAsync(plan, taskId));
+                    }
+                    break;
+                case PlanRecoverySurfaceActionKind.ReviseRemainingPlan:
+                    AddAction(
+                        action.Label,
+                        action.Hint,
+                        () => QueueDecomposeReplan(plan, taskId),
+                        removeAfterAction: false,
+                        tone: action.Tone);
+                    break;
+                case PlanRecoverySurfaceActionKind.EndPlan when durablePlan is not null:
+                    AddAction(
+                        action.Label,
+                        action.Hint,
+                        () => EndInterruptedPlan(_planStore?.Load(durablePlan.PlanId) ?? durablePlan),
+                        tone: action.Tone);
+                    break;
+            }
+        }
 
         if (isBranchLeaseRecovery && durablePlan is not null)
         {
@@ -20373,41 +20453,8 @@ public partial class MainWindow : Window
                     completedWorkReview.ComparisonHint,
                     () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
             }
-            if (durablePlan is not null && primaryRecoveryAction is not null)
-            {
-                switch (primaryRecoveryAction.Kind)
-                {
-                    case PlanRecoveryPrimaryActionKind.AcceptStep:
-                    case PlanRecoveryPrimaryActionKind.AcceptUnattributedStep:
-                    case PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp:
-                    case PlanRecoveryPrimaryActionKind.ApproveAmendment:
-                        AddAsyncResultAction(
-                            primaryRecoveryAction.Label,
-                            primaryRecoveryAction.Hint,
-                            async () => await AcceptInterruptedStepAfterReviewAsync(
-                                _planStore?.Load(durablePlan.PlanId) ?? durablePlan));
-                        break;
-                    case PlanRecoveryPrimaryActionKind.ResumeVerification:
-                        AddAsyncAction(
-                            primaryRecoveryAction.Label,
-                            primaryRecoveryAction.Hint,
-                            async () => await AssessPlanRecoveryAsync(plan, taskId));
-                        break;
-                    default:
-                        AddAsyncAction(
-                            primaryRecoveryAction.Label,
-                            primaryRecoveryAction.Hint,
-                            async () => await RetryDecomposeTaskAsync(plan, taskId));
-                        break;
-                }
-            }
-            if (primaryRecoveryAction?.Kind is not PlanRecoveryPrimaryActionKind.ContinueWorking)
-            {
-                AddAsyncAction(
-                    $"Continue Working on {stepLabel}",
-                    "Keep this step incomplete and continue from the preserved repository state without discarding existing commits.",
-                    async () => await RetryDecomposeTaskAsync(plan, taskId));
-            }
+            foreach (var action in recoveryActionSet?.Actions ?? [])
+                AddCanonicalRecoveryAction(action);
             AddUtilityAction(
                 "Copy Diagnostic Report",
                 "Copy the plan identity, recorded error, and technical details for a SquadDash issue report.",
@@ -20422,14 +20469,6 @@ public partial class MainWindow : Window
                 "Open Logs",
                 "Open the live SquadDash trace so the unexpected state can be investigated.",
                 ShowTraceWindow);
-            if (durablePlan is not null && !planRunnerActive)
-            {
-                AddAction(
-                    "End Plan",
-                    "Stop this incomplete plan without discarding its history or repository work.",
-                    () => EndInterruptedPlan(_planStore?.Load(durablePlan.PlanId) ?? durablePlan),
-                    tone: QuickReplyTone.Destructive);
-            }
             blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
             ScrollToEndIfAtBottom(CoordinatorThread);
             return;
@@ -20444,35 +20483,8 @@ public partial class MainWindow : Window
                     completedWorkReview.ComparisonHint,
                     () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
             }
-            if (durablePlan is not null &&
-                PlanRecoveryPresentationBuilder.HasCurrentAcceptedReview(durablePlan, taskId) &&
-                primaryRecoveryAction?.Kind is PlanRecoveryPrimaryActionKind.AcceptStep or
-                    PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
-                    PlanRecoveryPrimaryActionKind.ApproveAmendment)
-            {
-                AddAsyncResultAction(
-                    primaryRecoveryAction.Label,
-                    primaryRecoveryAction.Hint,
-                    async () => await AcceptInterruptedStepAfterReviewAsync(
-                        _planStore?.Load(durablePlan.PlanId) ?? durablePlan));
-            }
-            AddAsyncAction(
-                PlanTaskExecutionPolicy.IsVerificationOnly(durableTask) ? "Try Verification Again" : "Try Again",
-                "Start one new bounded attempt from the preserved repository state.",
-                async () => await RetryDecomposeTaskAsync(plan, taskId));
-            AddAction(
-                "✎ Revise Remaining Plan…",
-                "Create an editable replanning prompt with protected plan context attached.",
-                () => QueueDecomposeReplan(plan, taskId),
-                removeAfterAction: false);
-            if (durablePlan is not null && !planRunnerActive)
-            {
-                AddAction(
-                    "End Plan",
-                    "Stop this incomplete plan without discarding its history or repository work.",
-                    () => EndInterruptedPlan(_planStore?.Load(durablePlan.PlanId) ?? durablePlan),
-                    tone: QuickReplyTone.Destructive);
-            }
+            foreach (var action in recoveryActionSet?.Actions ?? [])
+                AddCanonicalRecoveryAction(action);
             blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
             ScrollToEndIfAtBottom(CoordinatorThread);
             return;
@@ -52137,6 +52149,17 @@ public partial class MainWindow : Window
 
         if (DeferPendingRestartIfBlocked(reason))
             return false;
+
+        if (_isPromptRunning && !_pec.CheckpointRunningPromptForRestart(reason))
+        {
+            SquadDashTrace.Write(
+                "Shutdown",
+                $"Restart remained deferred because the running prompt could not be checkpointed reason={reason}.");
+            HideRestartingOverlay();
+            SetInstallStatus("Restart is waiting for the active work to be saved safely.");
+            UpdateSessionState("Restart pending");
+            return false;
+        }
 
         SquadDashTrace.Write("Shutdown", $"Completing pending restart reason={reason} emergencySave={emergencySaveBeforeClose}.");
         ShowRestartingOverlay();

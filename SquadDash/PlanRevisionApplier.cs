@@ -127,6 +127,10 @@ internal static class PlanRevisionApplier
                 {
                     Status = PlanTaskStatus.Pending,
                     AttemptHistory = priorAttempts,
+                    DisplayStepLabel = existing.DisplayStepLabel,
+                    ExecutionOrigin = existing.ExecutionOrigin,
+                    ResumeInstructions = existing.ResumeInstructions,
+                    AutomaticContinuationCount = existing.AutomaticContinuationCount,
                 };
             }
             return task with
@@ -137,8 +141,13 @@ internal static class PlanRevisionApplier
                 ProvenanceChain = existing.ProvenanceChain,
                 Handoff = existing.Handoff,
                 VerificationHistory = existing.VerificationHistory,
+                DisplayStepLabel = existing.DisplayStepLabel,
+                ExecutionOrigin = existing.ExecutionOrigin,
+                ResumeInstructions = existing.ResumeInstructions,
+                AutomaticContinuationCount = existing.AutomaticContinuationCount,
             };
         }).ToArray();
+        mergedTasks = PlanStoreUpdater.AssignDisplayStepLabels(current, mergedTasks).ToArray();
 
         var mergedGates = MergeGates(current.ApprovalGates, projected.ApprovalGates, reopenedIds);
         var mergedValidations = MergeValidations(current.Validations ?? [], projected.Validations ?? [], reopenedIds);

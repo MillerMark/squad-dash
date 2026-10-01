@@ -1040,6 +1040,84 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void RecoveryActionSet_WithPreservedCommitAndNoCurrentReview_ResumesVerificationEverywhere()
+    {
+        const string commit = "ba178610112bf6d7cbc8237eabbaad21465bdfd3";
+        var task = new PlanTask(
+            "PLAN-AMD-001", "Stabilize tests", "Stabilize tests", [], "high",
+            PlanTaskStatus.Pending, DisplayStepLabel: "14a");
+        var evidence = new PlanTaskCommitEvidence(
+            task.TaskId, "attempt-1", "300baebabd377af8f47d10fa02c35512323b53ca",
+            commit, "Preserved work.",
+            new DecomposeStepVerification("passed", "dotnet build", "Build passed"));
+        var plan = TestPlan(evidence) with
+        {
+            Tasks = [task],
+            InterruptionData = TestPlan(evidence).InterruptionData! with
+            {
+                InterruptedTaskId = task.TaskId,
+                AttentionCategory = PlanAttentionCategory.AutomaticWorkExhausted,
+            },
+        };
+
+        var presentation = PlanRecoveryActionSetBuilder.Build(
+            plan, task.TaskId, currentHead: commit);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Primary?.Kind,
+                Is.EqualTo(PlanRecoverySurfaceActionKind.ResumeVerification));
+            Assert.That(presentation.Primary?.Label,
+                Is.EqualTo("Resume Verification for Step 14a"));
+            Assert.That(presentation.Actions.Select(action => action.Label),
+                Does.Not.Contain("Try Again"));
+            Assert.That(presentation.Actions.Single(action =>
+                    action.Kind == PlanRecoverySurfaceActionKind.EndPlan).Tone,
+                Is.EqualTo(QuickReplyTone.Destructive));
+        });
+    }
+
+    [Test]
+    public void RecoveryActionSet_WithDurableCorrection_ContinuesExistingRepair()
+    {
+        var task = new PlanTask(
+            "PLAN-001", "Repair camera state", "Repair camera state", [], "high",
+            PlanTaskStatus.Pending, DisplayStepLabel: "14a");
+        var plan = TestPlan(null) with
+        {
+            Tasks = [task],
+            InterruptionData = TestPlan(null).InterruptionData! with
+            {
+                RecoveryCorrection = new PlanRecoveryCorrectionContext(
+                    "ba178610112bf6d7cbc8237eabbaad21465bdfd3",
+                    DateTimeOffset.UtcNow),
+            },
+        };
+
+        var presentation = PlanRecoveryActionSetBuilder.Build(plan, task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Primary?.Kind,
+                Is.EqualTo(PlanRecoverySurfaceActionKind.ContinueWorking));
+            Assert.That(presentation.Primary?.Label, Is.EqualTo("Continue Existing Repair"));
+            Assert.That(presentation.Primary?.ProtocolAction, Is.EqualTo("request-corrections"));
+        });
+    }
+
+    [Test]
+    public void RecoveryActionSet_WithoutDurablePlan_UsesConservativeSharedActions()
+    {
+        var presentation = PlanRecoveryActionSetBuilder.BuildConservativeFallback("Step 14a");
+
+        Assert.That(presentation.Actions.Select(action => (action.Kind, action.Label)), Is.EqualTo(new[]
+        {
+            (PlanRecoverySurfaceActionKind.ContinueWorking, "Continue Working on Step 14a"),
+            (PlanRecoverySurfaceActionKind.ReviseRemainingPlan, "✎ Revise Remaining Plan…"),
+        }));
+    }
+
+    [Test]
     public void AttentionCard_CopyTextIncludesVisibleReasonAndDiagnostics()
     {
         var presentation = new PlanAttentionCardPresentation(

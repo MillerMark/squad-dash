@@ -153,6 +153,183 @@ internal sealed record PlanRecoveryPrimaryActionPresentation(
     string Hint,
     string ProtocolAction);
 
+internal enum PlanRecoverySurfaceActionKind
+{
+    AcceptStep,
+    ResumeVerification,
+    ContinueWorking,
+    ReviseRemainingPlan,
+    EndPlan,
+}
+
+internal sealed record PlanRecoverySurfaceActionPresentation(
+    PlanRecoverySurfaceActionKind Kind,
+    string Label,
+    string Hint,
+    string ProtocolAction,
+    QuickReplyTone Tone = QuickReplyTone.Default,
+    PlanRecoveryPrimaryActionKind? PrimaryKind = null);
+
+internal sealed record PlanRecoveryActionSetPresentation(
+    string DecisionPrompt,
+    IReadOnlyList<PlanRecoverySurfaceActionPresentation> Actions)
+{
+    internal PlanRecoverySurfaceActionPresentation? Primary => Actions.FirstOrDefault(action =>
+        action.Kind is PlanRecoverySurfaceActionKind.AcceptStep or
+            PlanRecoverySurfaceActionKind.ResumeVerification or
+            PlanRecoverySurfaceActionKind.ContinueWorking);
+}
+
+/// <summary>
+/// The canonical action list for every interrupted-plan surface. Transcript, Inbox, and Plan
+/// Viewer render these definitions; none of them independently decides whether to offer retry,
+/// acceptance, replanning, or destructive termination.
+/// </summary>
+internal static class PlanRecoveryActionSetBuilder
+{
+    internal static PlanRecoveryActionSetPresentation BuildConservativeFallback(string stepLabel)
+    {
+        // A legacy/developer-preview message has no durable interruption category, so it
+        // cannot safely offer completion, verification, or termination. It still obtains its
+        // controls from this same canonical builder rather than inventing surface-local labels.
+        return new PlanRecoveryActionSetPresentation(
+            "Continue from the preserved work or revise the remaining plan.",
+            [
+                new PlanRecoverySurfaceActionPresentation(
+                    PlanRecoverySurfaceActionKind.ContinueWorking,
+                    $"Continue Working on {stepLabel}",
+                    $"Continue {stepLabel} from the preserved work without redoing completed work.",
+                    "continue-working",
+                    PrimaryKind: PlanRecoveryPrimaryActionKind.ContinueWorking),
+                new PlanRecoverySurfaceActionPresentation(
+                    PlanRecoverySurfaceActionKind.ReviseRemainingPlan,
+                    "✎ Revise Remaining Plan…",
+                    "Replace the blocked task with smaller approved steps.",
+                    "replan-failed-task"),
+            ]);
+    }
+
+    internal static PlanRecoveryActionSetPresentation Build(
+        Plan plan,
+        string taskId,
+        string? currentHead = null,
+        Func<string, string, bool>? isAncestor = null,
+        bool includeEndPlan = true,
+        PlanTaskCorrectionActivityState correctionActivity = PlanTaskCorrectionActivityState.None)
+    {
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var index = plan.Tasks.ToList().FindIndex(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            task?.DisplayStepLabel ?? (index >= 0 ? (index + 1).ToString() : null),
+            task?.Title ?? task?.Description ?? taskId);
+        var actions = new List<PlanRecoverySurfaceActionPresentation>();
+
+        if (correctionActivity != PlanTaskCorrectionActivityState.None)
+        {
+            return new PlanRecoveryActionSetPresentation(
+                correctionActivity == PlanTaskCorrectionActivityState.Running
+                    ? $"SquadDash is continuing the preserved repair for {stepLabel}."
+                    : $"A correction for {stepLabel} is ready to run.",
+                actions);
+        }
+
+        var primary = PlanRecoveryActionPresentationBuilder.Build(
+            plan, taskId, currentHead, isAncestor);
+        var hasAcceptedReview = PlanRecoveryPresentationBuilder.HasCurrentAcceptedReview(plan, taskId);
+        var hasCurrentEvidence = plan.InterruptionData?.TaskCommitEvidence is { } evidence &&
+                                 string.Equals(evidence.TaskId, taskId, StringComparison.Ordinal);
+        var hasDurableCorrection = plan.InterruptionData?.RecoveryCorrection is not null;
+        var category = plan.InterruptionData?.AttentionCategory;
+
+        if (hasDurableCorrection)
+        {
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.ContinueWorking,
+                "Continue Existing Repair",
+                $"Resume the correction already preserved for {stepLabel}; inspect and retain its existing edits before doing any additional work.",
+                "request-corrections",
+                PrimaryKind: PlanRecoveryPrimaryActionKind.ContinueWorking));
+        }
+        else if (category == PlanAttentionCategory.AutomaticWorkExhausted &&
+                 hasCurrentEvidence && !hasAcceptedReview)
+        {
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.ResumeVerification,
+                $"Resume Verification for {stepLabel}",
+                $"Verify the preserved candidate for {stepLabel}. Completed implementation work will not be repeated.",
+                "resume-verification",
+                PrimaryKind: PlanRecoveryPrimaryActionKind.ResumeVerification));
+        }
+        else if (primary.Kind is PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp ||
+                 (hasAcceptedReview || category == PlanAttentionCategory.HumanVerificationRequired) &&
+                 primary.Kind is
+                     PlanRecoveryPrimaryActionKind.AcceptStep or
+                     PlanRecoveryPrimaryActionKind.AcceptUnattributedStep or
+                     PlanRecoveryPrimaryActionKind.ApproveAmendment)
+        {
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.AcceptStep,
+                primary.Label,
+                primary.Hint,
+                primary.ProtocolAction,
+                PrimaryKind: primary.Kind));
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.ContinueWorking,
+                primary.Kind == PlanRecoveryPrimaryActionKind.AcceptStep
+                    ? $"Continue Working on {stepLabel}…"
+                    : $"Continue Working on {stepLabel}",
+                $"Keep {stepLabel} incomplete and continue from its preserved repository state.",
+                primary.Kind == PlanRecoveryPrimaryActionKind.AcceptStep
+                    ? "request-corrections"
+                    : "continue-working",
+                PrimaryKind: PlanRecoveryPrimaryActionKind.ContinueWorking));
+        }
+        else if (primary.Kind is PlanRecoveryPrimaryActionKind.ResumeVerification or
+                     PlanRecoveryPrimaryActionKind.RetryVerification)
+        {
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.ResumeVerification,
+                primary.Label,
+                primary.Hint,
+                primary.ProtocolAction,
+                PrimaryKind: primary.Kind));
+        }
+        else
+        {
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.ContinueWorking,
+                $"Continue Working on {stepLabel}",
+                $"Start one bounded continuation from the preserved repository state for {stepLabel}.",
+                "continue-working",
+                PrimaryKind: PlanRecoveryPrimaryActionKind.ContinueWorking));
+        }
+
+        actions.Add(new PlanRecoverySurfaceActionPresentation(
+            PlanRecoverySurfaceActionKind.ReviseRemainingPlan,
+            "✎ Revise Remaining Plan…",
+            "Replace the blocked task with smaller, dependency-aware steps.",
+            "replan-failed-task"));
+        if (includeEndPlan && PlanRecoveryControlPolicy.HasActionableInterruption(plan))
+        {
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.EndPlan,
+                "End Plan",
+                "Stop this incomplete plan without discarding its history or repository work.",
+                "end-plan",
+                QuickReplyTone.Destructive));
+        }
+
+        var prompt = hasDurableCorrection
+            ? $"A preserved repair for {stepLabel} was interrupted. Continue that repair without repeating completed work."
+            : category == PlanAttentionCategory.AutomaticWorkExhausted && hasCurrentEvidence && !hasAcceptedReview
+                ? $"The preserved work for {stepLabel} still needs current verification."
+                : "Choose how to continue from the preserved plan state.";
+        return new PlanRecoveryActionSetPresentation(prompt, actions);
+    }
+}
+
 /// <summary>
 /// Distinguishes an ordinary amendment checkpoint, which the user can explicitly approve while
 /// accepting its reviewed commit, from a human-proof checkpoint whose observations must remain

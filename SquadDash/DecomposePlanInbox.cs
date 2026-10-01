@@ -234,38 +234,25 @@ internal static class DecomposePlanInbox
                     $"{stepLabel} Is Complete & Continue",
                     $"After reviewing repository changes, explicitly mark {stepLabel} complete and continue. Commit attribution remains marked as uncertain.",
                     "accept-step-complete");
+        var canonicalActions = durablePlan is null
+            ? PlanRecoveryActionSetBuilder.BuildConservativeFallback(stepLabel)
+            : PlanRecoveryActionSetBuilder.Build(
+                durablePlan,
+                taskId,
+                currentHead,
+                isAncestor,
+                includeEndPlan: false);
 
         var actions = new List<InboxAction>();
         if (hasCommitEvidence || completedWorkReview is not null ||
             primary.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
             actions.Add(BuildEvidenceLink());
-        if (attentionCard.Category == PlanAttentionCategory.UnexpectedState)
+        foreach (var action in canonicalActions.Actions)
         {
-            actions.Add(BuildAction(
-                $"Continue Working on {stepLabel}",
-                "continue-working",
-                "Continue from the preserved repository state without discarding completed work."));
+            if (action.Kind == PlanRecoverySurfaceActionKind.EndPlan)
+                continue;
+            actions.Add(BuildAction(action.Label, action.ProtocolAction, action.Hint));
         }
-        else
-        {
-            if (attentionCard.Category == PlanAttentionCategory.HumanVerificationRequired ||
-                primary.Kind is PlanRecoveryPrimaryActionKind.AcceptStep or
-                    PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
-                    PlanRecoveryPrimaryActionKind.ApproveAmendment)
-            {
-                actions.Add(BuildAction(primary.Label, primary.ProtocolAction, primary.Hint));
-            }
-            actions.Add(BuildAction(
-                attentionCard.Category == PlanAttentionCategory.AutomaticWorkExhausted
-                    ? "Try Again"
-                    : $"Continue Working on {stepLabel}",
-                "continue-working",
-                $"Start one new bounded attempt for {stepLabel} from the preserved repository state."));
-        }
-        actions.Add(BuildAction(
-            "✎ Revise Remaining Plan…",
-            "replan-failed-task",
-            "Replace the blocked task with smaller approved steps."));
 
         var reviewAnalysis = reviewCard is { AnalysisBullets.Count: > 0 }
             ? "\n\n**Automated review**\n" +

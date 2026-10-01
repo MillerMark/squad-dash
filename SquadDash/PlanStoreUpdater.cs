@@ -10,6 +10,9 @@ namespace SquadDash;
 /// </summary>
 internal static class PlanStoreUpdater
 {
+    private const string AutomaticPrerequisiteGenericAgentReason =
+        "This prerequisite was added by the coordinator during execution and has no preapproved roster assignment.";
+
     internal static Plan ApplyPause(Plan existing) => existing with { IsPaused = true };
 
     internal static Plan ApplyResume(Plan existing) => existing with { IsPaused = false };
@@ -394,7 +397,10 @@ internal static class PlanStoreUpdater
             return id;
         }
 
-        var originDisplayLabel = origin.DisplayStepLabel ?? (originIndex + 1).ToString();
+        var insertedLabels = AllocateAutomaticPrerequisiteLabels(
+            recorded.Tasks,
+            origin,
+            continuation.Tasks.Count);
         var inserted = continuation.Tasks.Select((definition, index) => new PlanTask(
             TaskId: NextId(),
             Title: definition.Title,
@@ -403,10 +409,10 @@ internal static class PlanStoreUpdater
             Priority: string.IsNullOrWhiteSpace(definition.Priority) ? "high" : definition.Priority,
             Status: PlanTaskStatus.Pending,
             AgentRoutingMode: "generic",
-            GenericAgentReason: "This prerequisite was added by the coordinator during execution and has no preapproved roster assignment.",
+            GenericAgentReason: AutomaticPrerequisiteGenericAgentReason,
             ExecutionMode: definition.ExecutionMode ?? PlanTaskExecutionMode.Implementation,
             VerificationLevel: definition.VerificationLevel,
-            DisplayStepLabel: $"{originDisplayLabel} Repair {index + 1}",
+            DisplayStepLabel: insertedLabels[index],
             ExecutionOrigin: new PlanTaskExecutionOrigin(
                 continuation.OriginTaskId,
                 definition.ReportedByAgent,
@@ -1463,7 +1469,7 @@ internal static class PlanStoreUpdater
             })
             .ToList();
         updatedTasks.Insert(insertionIndex, amendment);
-        updatedTasks = AssignMutableDisplayStepLabels(existing.Tasks, updatedTasks).ToList();
+        updatedTasks = AssignDisplayStepLabels(existing, updatedTasks).ToList();
         var updatedGate = gate with
         {
             AfterTaskIds = gate.AfterTaskIds.Append(amendmentId).Distinct(StringComparer.Ordinal).ToArray(),
@@ -1548,25 +1554,37 @@ internal static class PlanStoreUpdater
         };
 
     /// <summary>
-    /// Preserves labels that have entered execution history and freely renumbers the pending
-    /// portions around them. Alphabetic suffixes are used only when there are more pending entries
-    /// between two fixed numeric labels than the original numeric gap can hold.
+    /// Before execution starts, labels follow the current plan order. Once execution has started,
+    /// every existing label is durable history; newly inserted tasks receive lowercase suffixes
+    /// without renumbering any existing task.
     /// </summary>
-    private static IReadOnlyList<PlanTask> AssignMutableDisplayStepLabels(
-        IReadOnlyList<PlanTask> originalTasks,
+    internal static IReadOnlyList<PlanTask> AssignDisplayStepLabels(
+        Plan existing,
         IReadOnlyList<PlanTask> reorderedTasks)
     {
-        var originalById = originalTasks
+        if (existing.Timestamps.StartedAt is null)
+        {
+            return reorderedTasks.Select((task, index) => task with
+            {
+                DisplayStepLabel = (index + 1).ToString(),
+            }).ToArray();
+        }
+
+        var originalById = existing.Tasks
             .Select((task, index) => (task.TaskId, Label: task.DisplayStepLabel ?? (index + 1).ToString()))
             .ToDictionary(entry => entry.TaskId, entry => entry.Label, StringComparer.Ordinal);
         var labels = new string?[reorderedTasks.Count];
         for (var index = 0; index < reorderedTasks.Count; index++)
         {
             var task = reorderedTasks[index];
-            if (task.Status != PlanTaskStatus.Pending && originalById.TryGetValue(task.TaskId, out var fixedLabel))
+            if (originalById.TryGetValue(task.TaskId, out var fixedLabel))
                 labels[index] = fixedLabel;
         }
 
+        var usedLabels = labels
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .Select(label => label!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var segmentStart = 0;
         while (segmentStart < reorderedTasks.Count)
         {
@@ -1580,22 +1598,45 @@ internal static class PlanStoreUpdater
             while (segmentEnd + 1 < reorderedTasks.Count && labels[segmentEnd + 1] is null)
                 segmentEnd++;
 
-            var previousNumber = segmentStart > 0 &&
-                                 int.TryParse(labels[segmentStart - 1], out var parsedPrevious)
-                ? parsedPrevious
-                : 0;
+            var previousNumber = 0;
+            var previousSuffix = string.Empty;
             var nextNumber = 0;
-            var hasNextNumber = segmentEnd + 1 < reorderedTasks.Count &&
-                                int.TryParse(labels[segmentEnd + 1], out nextNumber);
-            var numericSlots = hasNextNumber
-                ? Math.Max(0, nextNumber - previousNumber - 1)
-                : int.MaxValue;
+            var nextSuffix = string.Empty;
+            var hasPrevious = segmentStart > 0 &&
+                              TryParseDisplayStepLabel(
+                                  labels[segmentStart - 1], out previousNumber, out previousSuffix);
+            var hasNext = segmentEnd + 1 < reorderedTasks.Count &&
+                          TryParseDisplayStepLabel(
+                              labels[segmentEnd + 1], out nextNumber, out nextSuffix);
+            var count = segmentEnd - segmentStart + 1;
 
-            for (var offset = 0; offset <= segmentEnd - segmentStart; offset++)
+            // Appending after the final plain numeric step has an unambiguous numeric sequence.
+            if (!hasNext && hasPrevious && previousSuffix.Length == 0)
             {
-                labels[segmentStart + offset] = offset < numericSlots
-                    ? (previousNumber + offset + 1).ToString()
-                    : $"{Math.Max(previousNumber, nextNumber - 1)}{ToAlphabeticSuffix(offset - numericSlots + 1)}";
+                for (var offset = 0; offset < count; offset++)
+                {
+                    var candidateNumber = previousNumber + offset + 1;
+                    var candidate = candidateNumber.ToString();
+                    while (!usedLabels.Add(candidate))
+                        candidate = (++candidateNumber).ToString();
+                    labels[segmentStart + offset] = candidate;
+                }
+                segmentStart = segmentEnd + 1;
+                continue;
+            }
+
+            var baseNumber = hasNext
+                ? (nextSuffix.Length == 0 ? Math.Max(0, nextNumber - 1) : nextNumber)
+                : hasPrevious
+                    ? previousNumber
+                    : 0;
+            var suffixNumber = HighestUsedAlphabeticSuffix(usedLabels, baseNumber);
+            for (var offset = 0; offset < count; offset++)
+            {
+                string candidate;
+                do candidate = $"{baseNumber}{ToAlphabeticSuffix(++suffixNumber)}";
+                while (!usedLabels.Add(candidate));
+                labels[segmentStart + offset] = candidate;
             }
             segmentStart = segmentEnd + 1;
         }
@@ -1612,10 +1653,90 @@ internal static class PlanStoreUpdater
         do
         {
             value--;
-            chars.Push((char)('A' + value % 26));
+            chars.Push((char)('a' + value % 26));
             value /= 26;
         } while (value > 0);
         return new string(chars.ToArray());
+    }
+
+    private static IReadOnlyList<string> AllocateAutomaticPrerequisiteLabels(
+        IReadOnlyList<PlanTask> tasks,
+        PlanTask origin,
+        int count)
+    {
+        var originIndex = tasks.ToList().FindIndex(task =>
+            string.Equals(task.TaskId, origin.TaskId, StringComparison.Ordinal));
+        var originLabel = origin.DisplayStepLabel ?? (originIndex + 1).ToString();
+        int baseNumber;
+        if (TryParseDisplayStepLabel(originLabel, out var originNumber, out var originSuffix))
+        {
+            baseNumber = originSuffix.Length == 0 ? Math.Max(0, originNumber - 1) : originNumber;
+        }
+        else if (originIndex > 0 &&
+                 TryParseDisplayStepLabel(tasks[originIndex - 1].DisplayStepLabel,
+                     out var previousNumber, out _))
+        {
+            baseNumber = previousNumber;
+        }
+        else
+        {
+            baseNumber = Math.Max(0, originIndex);
+        }
+
+        var usedLabels = tasks
+            .Select(task => task.DisplayStepLabel)
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .Select(label => label!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var suffixNumber = HighestUsedAlphabeticSuffix(usedLabels, baseNumber);
+        var result = new string[count];
+        for (var index = 0; index < count; index++)
+        {
+            string candidate;
+            do candidate = $"{baseNumber}{ToAlphabeticSuffix(++suffixNumber)}";
+            while (!usedLabels.Add(candidate));
+            result[index] = candidate;
+        }
+        return result;
+    }
+
+    private static int HighestUsedAlphabeticSuffix(IEnumerable<string> labels, int baseNumber)
+    {
+        var highest = 0;
+        foreach (var label in labels)
+        {
+            if (!TryParseDisplayStepLabel(label, out var number, out var suffix) ||
+                number != baseNumber || suffix.Length == 0)
+                continue;
+            highest = Math.Max(highest, AlphabeticSuffixToNumber(suffix));
+        }
+        return highest;
+    }
+
+    private static bool TryParseDisplayStepLabel(
+        string? label,
+        out int number,
+        out string suffix)
+    {
+        number = 0;
+        suffix = string.Empty;
+        if (string.IsNullOrWhiteSpace(label)) return false;
+
+        var value = label.Trim();
+        var digitCount = 0;
+        while (digitCount < value.Length && char.IsDigit(value[digitCount])) digitCount++;
+        if (digitCount == 0 || !int.TryParse(value[..digitCount], out number)) return false;
+
+        suffix = value[digitCount..].ToLowerInvariant();
+        return suffix.All(character => character is >= 'a' and <= 'z');
+    }
+
+    private static int AlphabeticSuffixToNumber(string suffix)
+    {
+        var value = 0;
+        foreach (var character in suffix.ToLowerInvariant())
+            value = checked(value * 26 + character - 'a' + 1);
+        return value;
     }
 
     internal static bool CanInsertTask(Plan plan, string targetTaskId, bool insertAfter)
@@ -1688,7 +1809,7 @@ internal static class PlanStoreUpdater
             return task;
         }).ToList();
         tasks.Insert(targetIndex + (insertAfter ? 1 : 0), insertion);
-        tasks = AssignMutableDisplayStepLabels(existing.Tasks, tasks).ToList();
+        tasks = AssignDisplayStepLabels(existing, tasks).ToList();
 
         IReadOnlyList<string> MoveBeforeBoundary(IReadOnlyList<string> ids) =>
             ids.Select(id => string.Equals(id, targetTaskId, StringComparison.Ordinal) ? insertionId : id)
@@ -1940,6 +2061,8 @@ internal static class PlanStoreUpdater
     /// </remarks>
     internal static Plan RepairInconsistentState(Plan plan, IReadOnlyList<TaskItem>? currentItems = null)
     {
+        plan = RepairMissingAutomaticPrerequisiteOrigins(plan);
+        plan = RepairLegacyAutomaticPrerequisiteLabels(plan);
         plan = RepairValidationHumanProofGateSchema(plan);
         plan = RepairLegacyAmendmentTopology(plan);
         plan = RepairLegacyAmendmentReviewFrontier(plan);
@@ -2012,6 +2135,173 @@ internal static class PlanStoreUpdater
         }
 
         return plan;
+    }
+
+    /// <summary>
+    /// Repairs the one legacy write shape that retained an automatic prerequisite task but omitted
+    /// its origin record. The relationship is reconstructed only when one origin task depends on
+    /// the orphan and a sibling from that same continuation still carries unambiguous provenance.
+    /// </summary>
+    private static Plan RepairMissingAutomaticPrerequisiteOrigins(Plan plan)
+    {
+        var tasks = plan.Tasks.ToArray();
+        var changed = false;
+        for (var index = 0; index < tasks.Length; index++)
+        {
+            var orphan = tasks[index];
+            if (orphan.ExecutionOrigin is not null ||
+                !string.Equals(orphan.GenericAgentReason,
+                    AutomaticPrerequisiteGenericAgentReason, StringComparison.Ordinal))
+                continue;
+
+            var originCandidates = tasks.Where(candidate =>
+                    candidate.DependsOn.Contains(orphan.TaskId, StringComparer.Ordinal) &&
+                    candidate.AttemptHistory?.Any(attempt =>
+                        string.Equals(attempt.Disposition, "automatic-continuation", StringComparison.Ordinal)) == true)
+                .ToArray();
+            if (originCandidates.Length != 1) continue;
+
+            var origin = originCandidates[0];
+            var siblingEvidence = origin.DependsOn
+                .Where(id => !string.Equals(id, orphan.TaskId, StringComparison.Ordinal))
+                .Select(id => tasks.FirstOrDefault(task => string.Equals(task.TaskId, id, StringComparison.Ordinal)))
+                .Where(task => task?.ExecutionOrigin is not null &&
+                               string.Equals(task.ExecutionOrigin.OriginTaskId,
+                                   origin.TaskId, StringComparison.Ordinal))
+                .Select(task => task!.ExecutionOrigin!)
+                .GroupBy(evidence => new
+                {
+                    evidence.ReportedByAgent,
+                    evidence.AddedAt,
+                    evidence.ExecutionAttemptId,
+                })
+                .ToArray();
+            if (siblingEvidence.Length != 1) continue;
+
+            var sibling = siblingEvidence[0].First();
+            var continuationNote = origin.AttemptHistory!
+                .Last(attempt => string.Equals(
+                    attempt.Disposition, "automatic-continuation", StringComparison.Ordinal)).Note;
+            var recoveredReason = string.IsNullOrWhiteSpace(continuationNote)
+                ? $"Recovered automatic prerequisite: {orphan.Title ?? orphan.TaskId}."
+                : $"{continuationNote.Trim()} Prerequisite: {orphan.Title ?? orphan.TaskId}.";
+            tasks[index] = orphan with
+            {
+                ExecutionOrigin = new PlanTaskExecutionOrigin(
+                    origin.TaskId,
+                    sibling.ReportedByAgent,
+                    recoveredReason,
+                    sibling.AddedAt,
+                    sibling.ExecutionAttemptId),
+            };
+            changed = true;
+        }
+
+        return changed ? plan with { Tasks = tasks } : plan;
+    }
+
+    /// <summary>
+    /// Migrates the short-lived "15 Repair 1" label format. That implementation also shifted the
+    /// origin and downstream numeric labels. The legacy marker supplies the original origin number,
+    /// so the migration can restore those labels without guessing.
+    /// </summary>
+    private static Plan RepairLegacyAutomaticPrerequisiteLabels(Plan plan)
+    {
+        var tasks = plan.Tasks.ToArray();
+        var changed = false;
+        foreach (var group in tasks
+                     .Where(task => task.ExecutionOrigin is not null)
+                     .GroupBy(task => task.ExecutionOrigin!.OriginTaskId, StringComparer.Ordinal))
+        {
+            var originIndex = Array.FindIndex(tasks, task =>
+                string.Equals(task.TaskId, group.Key, StringComparison.Ordinal));
+            if (originIndex < 0) continue;
+
+            var prerequisites = group
+                .Select(task => (Task: task, Index: Array.FindIndex(tasks, candidate =>
+                    string.Equals(candidate.TaskId, task.TaskId, StringComparison.Ordinal))))
+                .Where(entry => entry.Index >= 0 && entry.Index < originIndex)
+                .OrderBy(entry => entry.Index)
+                .ToArray();
+            if (prerequisites.Length == 0 ||
+                prerequisites[^1].Index != originIndex - 1 ||
+                prerequisites.Select((entry, offset) => entry.Index ==
+                    originIndex - prerequisites.Length + offset).Any(matches => !matches))
+                continue;
+
+            var legacyNumbers = prerequisites
+                .Select(entry => TryParseLegacyRepairLabel(entry.Task.DisplayStepLabel, out var number)
+                    ? number
+                    : (int?)null)
+                .Where(number => number.HasValue)
+                .Select(number => number!.Value)
+                .Distinct()
+                .ToArray();
+            if (legacyNumbers.Length != 1) continue;
+
+            var originalOriginNumber = legacyNumbers[0];
+            var origin = tasks[originIndex];
+            var shifted = int.TryParse(origin.DisplayStepLabel, out var currentOriginNumber) &&
+                          currentOriginNumber == originalOriginNumber + prerequisites.Length;
+            if (!shifted && !string.Equals(origin.DisplayStepLabel,
+                    originalOriginNumber.ToString(), StringComparison.Ordinal))
+                continue;
+
+            var baseNumber = Math.Max(0, originalOriginNumber - 1);
+            var excludedIds = prerequisites.Select(entry => entry.Task.TaskId)
+                .ToHashSet(StringComparer.Ordinal);
+            var usedLabels = tasks
+                .Where(task => !excludedIds.Contains(task.TaskId))
+                .Select(task => task.DisplayStepLabel)
+                .Where(label => !string.IsNullOrWhiteSpace(label))
+                .Select(label => label!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var suffixNumber = HighestUsedAlphabeticSuffix(usedLabels, baseNumber);
+            foreach (var prerequisite in prerequisites)
+            {
+                string label;
+                do label = $"{baseNumber}{ToAlphabeticSuffix(++suffixNumber)}";
+                while (!usedLabels.Add(label));
+                tasks[prerequisite.Index] = tasks[prerequisite.Index] with { DisplayStepLabel = label };
+            }
+
+            if (shifted)
+            {
+                for (var index = originIndex; index < tasks.Length; index++)
+                {
+                    if (int.TryParse(tasks[index].DisplayStepLabel, out var numericLabel) &&
+                        numericLabel >= currentOriginNumber)
+                    {
+                        tasks[index] = tasks[index] with
+                        {
+                            DisplayStepLabel = (numericLabel - prerequisites.Length).ToString(),
+                        };
+                    }
+                }
+            }
+            changed = true;
+        }
+
+        if (!changed) return plan;
+        var preliminary = plan with { Tasks = tasks };
+        var revision = PendingDecomposePlanStore.ComputeRevision(
+            PendingDecomposePlanAdapter.FromPlan(preliminary).Group);
+        return preliminary with
+        {
+            Revision = revision,
+            HostRevision = revision,
+            ApprovalGates = preliminary.ApprovalGates.Select(gate =>
+                gate with { PlanRevision = revision }).ToArray(),
+        };
+    }
+
+    private static bool TryParseLegacyRepairLabel(string? label, out int originNumber)
+    {
+        originNumber = 0;
+        if (string.IsNullOrWhiteSpace(label)) return false;
+        const string marker = " Repair ";
+        var markerIndex = label.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        return markerIndex > 0 && int.TryParse(label[..markerIndex], out originNumber);
     }
 
     private static bool IsValidationHumanProofGate(
@@ -2615,7 +2905,7 @@ internal static class PlanStoreUpdater
         }
 
         if (!changed) return plan;
-        tasks = AssignMutableDisplayStepLabels(plan.Tasks, tasks).ToList();
+        tasks = AssignDisplayStepLabels(plan, tasks).ToList();
         var preliminary = plan with { Tasks = tasks, ApprovalGates = gates };
         var revision = PendingDecomposePlanStore.ComputeRevision(
             PendingDecomposePlanAdapter.FromPlan(preliminary).Group);

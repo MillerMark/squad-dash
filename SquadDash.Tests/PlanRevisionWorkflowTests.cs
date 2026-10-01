@@ -112,6 +112,87 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void Apply_AfterExecutionStarts_PreservesExistingLabelsAndOrigins()
+    {
+        var original = MakePlan();
+        var addedAt = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        var origin = new PlanTaskExecutionOrigin(
+            original.Tasks[2].TaskId, "Talia Rune", "A prerequisite was required.",
+            addedAt, "attempt-1");
+        var automatic = new PlanTask(
+            "REVISION-20260806-AMD-001", "Prepare prerequisite", "Original prerequisite.",
+            [original.Tasks[1].TaskId], "high", PlanTaskStatus.Pending,
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "This prerequisite was added by the coordinator during execution and has no preapproved roster assignment.",
+            DisplayStepLabel: "2a",
+            ExecutionOrigin: origin,
+            ResumeInstructions: "Resume Step 3 afterward.",
+            AutomaticContinuationCount: 1);
+        var plan = original with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = [original.Tasks[0], original.Tasks[1], automatic,
+                original.Tasks[2] with { DependsOn = [automatic.TaskId] }],
+            Progress = new PlanProgress(0, 4),
+            Timestamps = original.Timestamps with { StartedAt = addedAt },
+        };
+        var proposal = PendingDecomposePlanAdapter.FromPlan(plan).Group with
+        {
+            Tasks = PendingDecomposePlanAdapter.FromPlan(plan).Group.Tasks.Select(task =>
+                task.Id == automatic.TaskId
+                    ? task with { Description = "Revised prerequisite." }
+                    : task).ToArray(),
+        };
+
+        var result = PlanRevisionApplier.Apply(plan, proposal, plan.Revision, addedAt.AddMinutes(5));
+        var revised = result.UpdatedPlan!.Tasks.Single(task => task.TaskId == automatic.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied), result.Error);
+            Assert.That(revised.Description, Is.EqualTo("Revised prerequisite."));
+            Assert.That(revised.DisplayStepLabel, Is.EqualTo("2a"));
+            Assert.That(revised.ExecutionOrigin, Is.EqualTo(origin));
+            Assert.That(revised.ResumeInstructions, Is.EqualTo("Resume Step 3 afterward."));
+            Assert.That(revised.AutomaticContinuationCount, Is.EqualTo(1));
+            Assert.That(result.UpdatedPlan.Tasks.Single(task => task.TaskId == original.Tasks[2].TaskId)
+                .DisplayStepLabel, Is.EqualTo("3"));
+        });
+    }
+
+    [Test]
+    public void Apply_AfterExecutionStarts_AssignsSuffixToNewTaskWithoutRenumberingExistingTasks()
+    {
+        var original = MakePlan();
+        var startedAt = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        var plan = original with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Timestamps = original.Timestamps with { StartedAt = startedAt },
+        };
+        var group = PendingDecomposePlanAdapter.FromPlan(plan).Group;
+        var inserted = new DecomposedSubTask(
+            "REVISION-20260806-004", "Prepare verification", [group.Tasks[1].Id],
+            "high", "Prepare verification");
+        var proposal = group with
+        {
+            Tasks = [group.Tasks[0], group.Tasks[1], inserted,
+                group.Tasks[2] with { DependsOn = [inserted.Id] }],
+        };
+
+        var result = PlanRevisionApplier.Apply(plan, proposal, plan.Revision, startedAt.AddMinutes(5));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied), result.Error);
+            Assert.That(result.UpdatedPlan!.Tasks.Select(task => task.DisplayStepLabel),
+                Is.EqualTo(new[] { "1", "2", "2a", "3" }));
+            Assert.That(result.UpdatedPlan.Tasks.Single(task => task.TaskId == original.Tasks[2].TaskId)
+                .DisplayStepLabel, Is.EqualTo("3"));
+        });
+    }
+
+    [Test]
     public void Apply_DuringExecution_PreservesCompletedAndActiveTasksButRevisesDownstreamTask()
     {
         var original = MakePlan();

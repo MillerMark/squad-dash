@@ -354,6 +354,29 @@ internal sealed class InterruptedPromptRecoveryTests {
     }
 
     [Test]
+    public void Store_IsIsolatedPerWorkspaceStateDirectory()
+    {
+        var firstDirectory = Path.Combine(_tempDirectory, "workspace-a");
+        var secondDirectory = Path.Combine(_tempDirectory, "workspace-b");
+        var firstStore = new InterruptedPromptRecoveryStore(firstDirectory);
+        var secondStore = new InterruptedPromptRecoveryStore(secondDirectory);
+        var first = CreateState(prompt: "Repair workspace A");
+        var second = CreateState(prompt: "Repair workspace B");
+
+        firstStore.Save(first);
+        secondStore.Save(second);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstStore.Load()?.RecoveryId, Is.EqualTo(first.RecoveryId));
+            Assert.That(firstStore.Load()?.Prompt, Is.EqualTo("Repair workspace A"));
+            Assert.That(secondStore.Load()?.RecoveryId, Is.EqualTo(second.RecoveryId));
+            Assert.That(secondStore.Load()?.Prompt, Is.EqualTo("Repair workspace B"));
+            Assert.That(firstStore.PathForDiagnostics, Is.Not.EqualTo(secondStore.PathForDiagnostics));
+        });
+    }
+
+    [Test]
     public void Detector_RecoversLegacyTimedOutTurnAndInfersDirectAgent() {
         var startedAt = new DateTimeOffset(2026, 9, 9, 19, 31, 23, TimeSpan.FromHours(-4));
         var completedAt = startedAt.AddMinutes(10).AddSeconds(19);

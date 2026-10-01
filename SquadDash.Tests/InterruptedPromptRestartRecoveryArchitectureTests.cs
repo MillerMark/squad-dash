@@ -68,6 +68,41 @@ internal sealed class InterruptedPromptRestartRecoveryArchitectureTests
         });
     }
 
+    [Test]
+    public void DeadPromptRestart_DurablyCheckpointsBeforeClosingBridge()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var controller = File.ReadAllText(FindRepoFile("SquadDash", "PromptExecutionController.cs"));
+        var restart = Slice(
+            main,
+            "private bool TryCompletePendingRestart(",
+            "private void UpdateRestartStatusPanelVisibility");
+        var checkpoint = Slice(
+            controller,
+            "internal bool CheckpointRunningPromptForRestart(",
+            "private InterruptedPromptRecoveryState SaveInterruptedPromptRecovery(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restart, Does.Contain("_pec.CheckpointRunningPromptForRestart(reason)"));
+            Assert.That(
+                restart.IndexOf("CheckpointRunningPromptForRestart", StringComparison.Ordinal),
+                Is.LessThan(restart.IndexOf("Close();", StringComparison.Ordinal)));
+            Assert.That(checkpoint, Does.Contain("SaveInterruptedPromptRecovery("));
+            Assert.That(checkpoint, Does.Contain("_activeRecoveryWorkspace"));
+            Assert.That(checkpoint, Does.Contain("_activePromptRestartCheckpointed = true"));
+        });
+    }
+
+    private static string Slice(string source, string startMarker, string endMarker)
+    {
+        var start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        var end = source.IndexOf(endMarker, start, StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0));
+        Assert.That(end, Is.GreaterThan(start));
+        return source[start..end];
+    }
+
     private static string FindRepoFile(params string[] pathParts)
     {
         var current = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);

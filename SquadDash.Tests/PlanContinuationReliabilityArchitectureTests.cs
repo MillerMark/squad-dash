@@ -49,19 +49,25 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
     }
 
     [Test]
-    public void TranscriptAndViewer_ResolveTheSameRecoveryPrimaryAction()
+    public void TranscriptInboxAndViewer_ResolveTheSameRecoveryActionSet()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var inbox = File.ReadAllText(FindRepoFile("SquadDash", "DecomposePlanInbox.cs"));
+        var presentation = File.ReadAllText(FindRepoFile("SquadDash", "PlanRecoveryPresentation.cs"));
 
         Assert.Multiple(() =>
         {
-            Assert.That(main, Does.Contain("PlanRecoveryActionPresentationBuilder.Build(")
-                .And.Contain("primaryRecoveryAction.Label")
-                .And.Contain("\"End Plan\""));
-            Assert.That(viewer, Does.Contain("_resolveInterruptedPrimaryAction?.Invoke(durablePlan)")
-                .And.Contain("currentInterruptedPrimaryAction?.Label")
-                .And.Contain("\"End Plan\""));
+            Assert.That(main, Does.Contain("PlanRecoveryActionSetBuilder.Build(")
+                .And.Contain("recoveryActionSet?.Actions"));
+            Assert.That(viewer, Does.Contain("_resolveInterruptedActionSet?.Invoke(durablePlan)")
+                .And.Contain("currentInterruptedSurfaceAction.Label")
+                .And.Contain("currentEndAction.Tone"));
+            Assert.That(inbox, Does.Contain("PlanRecoveryActionSetBuilder.Build(")
+                .And.Contain("PlanRecoveryActionSetBuilder.BuildConservativeFallback(")
+                .And.Contain("canonicalActions.Actions"));
+            Assert.That(presentation, Does.Contain("\"End Plan\"")
+                .And.Contain("QuickReplyTone.Destructive"));
         });
     }
 
@@ -165,7 +171,7 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
         {
             Assert.That(recoveryCard, Does.Contain("bool developerPreview = false"));
             Assert.That(recoveryCard, Does.Contain("if (!developerPreview &&"));
-            Assert.That(recoveryCard, Does.Contain("if (durablePlan is not null && !planRunnerActive)"));
+            Assert.That(recoveryCard, Does.Contain("includeEndPlan: !planRunnerActive"));
             Assert.That(main, Does.Contain("developerPreview: true"));
         });
     }

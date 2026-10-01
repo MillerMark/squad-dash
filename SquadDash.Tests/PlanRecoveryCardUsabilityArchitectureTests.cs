@@ -9,6 +9,7 @@ internal sealed class PlanRecoveryCardUsabilityArchitectureTests
     public void RecoveryCard_KeepsCurrentEvidenceReadableLinkedAndSeparateFromHistory()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var presentation = File.ReadAllText(FindRepoFile("SquadDash", "PlanRecoveryPresentation.cs"));
 
         Assert.Multiple(() =>
         {
@@ -18,8 +19,8 @@ internal sealed class PlanRecoveryCardUsabilityArchitectureTests
                 "AddRecoveryCommitLinkedText(bulletParagraph.Inlines, bullet.Text)"));
             Assert.That(source, Does.Contain("Header = $\"Previous review ({previousHeaderCommit})\""));
             Assert.That(source, Does.Contain("IsExpanded = false"));
-            Assert.That(source, Does.Contain(
-                "PlanRecoveryPresentationBuilder.HasCurrentAcceptedReview(durablePlan, taskId)"));
+            Assert.That(presentation, Does.Contain(
+                "PlanRecoveryPresentationBuilder.HasCurrentAcceptedReview(plan, taskId)"));
             Assert.That(source, Does.Contain("Changed files ({review.ChangedFiles.Count})"));
         });
     }

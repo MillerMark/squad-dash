@@ -41,7 +41,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<Plan, Task<bool>>? _onAdoptVerifiedCommitRange;
     private readonly string? _interruptedPrimaryActionLabel;
     private readonly string? _interruptedPrimaryActionHint;
-    private readonly Func<Plan, PlanRecoveryPrimaryActionPresentation?>? _resolveInterruptedPrimaryAction;
+    private readonly Func<Plan, PlanRecoveryActionSetPresentation?>? _resolveInterruptedActionSet;
     private readonly Action<Plan>? _onEndPlan;
     private readonly Action<Plan, string>? _onApproveGate;
     private readonly Action<Plan, string>? _onUnapproveGate;
@@ -265,7 +265,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan, string>? onReviewValidation = null,
         Func<ApplicationSettingsSnapshot>? getSettings = null,
         Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
-        Func<Plan, PlanRecoveryPrimaryActionPresentation?>? resolveInterruptedPrimaryAction = null,
+        Func<Plan, PlanRecoveryActionSetPresentation?>? resolveInterruptedActionSet = null,
         Action<Plan>? onOpenInterruptedChanges = null,
         double lineThicknessMultiplier = 1.0,
         string? squadFolderPath = null,
@@ -294,7 +294,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onAdoptVerifiedCommitRange = onAdoptVerifiedCommitRange;
         _interruptedPrimaryActionLabel = interruptedPrimaryActionLabel;
         _interruptedPrimaryActionHint = interruptedPrimaryActionHint;
-        _resolveInterruptedPrimaryAction = resolveInterruptedPrimaryAction;
+        _resolveInterruptedActionSet = resolveInterruptedActionSet;
         _onEndPlan          = onEndPlan;
         _onApproveGate      = onApproveGate;
         _onUnapproveGate    = onUnapproveGate;
@@ -805,9 +805,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var planRunnerActive   = durablePlan is not null &&
                                  (_isPlanRunnerActive?.Invoke(durablePlan) ?? true);
         var onAdoptVerifiedCommitRange = _onAdoptVerifiedCommitRange;
-        var currentInterruptedPrimaryAction = durablePlan is null
+        var currentInterruptedActionSet = durablePlan is null
             ? null
-            : _resolveInterruptedPrimaryAction?.Invoke(durablePlan);
+            : _resolveInterruptedActionSet?.Invoke(durablePlan);
+        var currentInterruptedSurfaceAction = currentInterruptedActionSet?.Primary;
+        var currentInterruptedPrimaryAction = currentInterruptedSurfaceAction?.PrimaryKind is { } primaryKind
+            ? new PlanRecoveryPrimaryActionPresentation(
+                primaryKind,
+                currentInterruptedSurfaceAction.Label,
+                currentInterruptedSurfaceAction.Hint,
+                currentInterruptedSurfaceAction.ProtocolAction)
+            : null;
+        var currentContinueAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
+            action.Kind == PlanRecoverySurfaceActionKind.ContinueWorking);
+        var currentReviseAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
+            action.Kind == PlanRecoverySurfaceActionKind.ReviseRemainingPlan);
+        var currentEndAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
+            action.Kind == PlanRecoverySurfaceActionKind.EndPlan);
         var onEndPlan          = _onEndPlan;
         var onContinueInterruptedTask = _onContinueInterruptedTask;
         var onReplanRemainingWork = _onReplanRemainingWork;
@@ -1368,22 +1382,25 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 assessmentPanel.Children.Add(acceptButton);
             }
-            if (onContinueInterruptedTask is not null && interruptedTask is not null)
+            if (onContinueInterruptedTask is not null && interruptedTask is not null &&
+                currentContinueAction is not null)
             {
                 var continueButton = TranscriptQuickReplyFactory.CreateButton(
-                    $"Continue Working on {stepLabel}", quickReplyFontSize,
+                    currentContinueAction.Label, quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        $"Keep {stepLabel} incomplete and continue from the existing repository state."));
+                        currentContinueAction.Hint),
+                    tone: currentContinueAction.Tone);
                 continueButton.Focusable = false;
                 continueButton.Click += (_, _) => { onContinueInterruptedTask(durablePlan); Close(); };
                 assessmentPanel.Children.Add(continueButton);
             }
-            if (onReplanRemainingWork is not null)
+            if (onReplanRemainingWork is not null && currentReviseAction is not null)
             {
                 var replanButton = TranscriptQuickReplyFactory.CreateButton(
-                    "✎ Revise Remaining Plan…", quickReplyFontSize,
+                    currentReviseAction.Label, quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Replace this blocked step with smaller, dependency-aware steps."));
+                        currentReviseAction.Hint),
+                    tone: currentReviseAction.Tone);
                 replanButton.Focusable = false;
                 replanButton.Click += (_, _) => { onReplanRemainingWork(durablePlan); Close(); };
                 assessmentPanel.Children.Add(replanButton);
@@ -1515,16 +1532,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 interruptedPanel.Children.Add(adoptButton);
             }
-            if (onContinueInterruptedTask is not null && !safeResume && interruptedActionTask is not null)
+            if (onContinueInterruptedTask is not null && !safeResume && interruptedActionTask is not null &&
+                currentContinueAction is not null)
             {
                 var capturedPlan = durablePlan;
                 var continueButton = TranscriptQuickReplyFactory.CreateButton(
-                    $"✎ Continue Working on {PlanRecoveryPresentationBuilder.FormatStepLabel(
-                        interruptedActionTask.DisplayStepLabel,
-                        interruptedActionTask.Title ?? interruptedActionTask.Description)}…",
+                    currentContinueAction.Label,
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Open an editable correction prompt without rerunning the completed step from scratch."));
+                        currentContinueAction.Hint),
+                    tone: currentContinueAction.Tone);
                 continueButton.Focusable = false;
                 continueButton.Click += (_, _) =>
                 {
@@ -1532,6 +1549,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     Close();
                 };
                 interruptedPanel.Children.Add(continueButton);
+            }
+            if (onReplanRemainingWork is not null && !safeResume && currentReviseAction is not null)
+            {
+                var capturedPlan = durablePlan;
+                var reviseButton = TranscriptQuickReplyFactory.CreateButton(
+                    currentReviseAction.Label,
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(currentReviseAction.Hint),
+                    tone: currentReviseAction.Tone);
+                reviseButton.Focusable = false;
+                reviseButton.Click += (_, _) =>
+                {
+                    onReplanRemainingWork(capturedPlan);
+                    Close();
+                };
+                interruptedPanel.Children.Add(reviseButton);
             }
             if (onResumePlan is not null && safeResume && !durablePlan.IsPaused)
             {
@@ -1557,15 +1590,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 interruptedPanel.Children.Add(resumeButton);
             }
-            if (onEndPlan is not null &&
+            if (onEndPlan is not null && currentEndAction is not null &&
                 PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan))
             {
                 var capturedPlan   = durablePlan;
                 var capturedAction = onEndPlan;
                 var endButton      = TranscriptQuickReplyFactory.CreateButton(
-                    "End Plan",
+                    currentEndAction.Label,
                     quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip("Set this plan to Stopped. History is preserved but the plan cannot be resumed."));
+                    toolTip: ToolTipHelper.MakeThemedToolTip(currentEndAction.Hint),
+                    tone: currentEndAction.Tone);
                 endButton.Focusable = false;
                 endButton.Click += (_, _) =>
                 {

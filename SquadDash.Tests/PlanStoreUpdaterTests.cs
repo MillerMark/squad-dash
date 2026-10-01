@@ -984,7 +984,7 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(original.Commit, Is.EqualTo("abc1234"));
             Assert.That(original.AttemptHistory, Is.Null);
             Assert.That(amendment.Status, Is.EqualTo(PlanTaskStatus.Pending));
-            Assert.That(amendment.DisplayStepLabel, Is.EqualTo("3"));
+            Assert.That(amendment.DisplayStepLabel, Is.EqualTo("2a"));
             Assert.That(amendment.DependsOn, Is.EqualTo(new[] { "GROUP-001-001" }));
             Assert.That(amendment.Description, Does.Contain("Run cleanup on every exit path."));
             Assert.That(updated.Tasks.Select(task => task.TaskId), Is.EqualTo(new[]
@@ -995,7 +995,7 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-003").DependsOn,
                 Is.EqualTo(new[] { amendment.TaskId }));
             Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-003").DisplayStepLabel,
-                Is.EqualTo("4"));
+                Is.EqualTo("3"));
             Assert.That(updated.ApprovalGates[0].AfterTaskIds, Does.Contain(amendment.TaskId));
             Assert.That(updated.ApprovalGates[0].PresentationAnchor,
                 Is.EqualTo($"task-after:{amendment.TaskId}"));
@@ -1217,10 +1217,12 @@ internal sealed class PlanStoreUpdaterTests
             new PendingDecomposePlan(revision, group), DateTimeOffset.UtcNow);
         plan = plan with
         {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
             Tasks = plan.Tasks.Select(task => task.TaskId is "LABEL-001-001" or "LABEL-001-003"
                 ? task with { Status = PlanTaskStatus.Complete }
                 : task).ToArray(),
             ApprovalGates = [plan.ApprovalGates[0] with { Status = PlanGateStatus.AwaitingApproval }],
+            Timestamps = plan.Timestamps with { StartedAt = DateTimeOffset.UtcNow },
         };
 
         var updated = PlanStoreUpdater.ApplyGateAmendmentRequested(
@@ -1229,9 +1231,9 @@ internal sealed class PlanStoreUpdaterTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(amendment.DisplayStepLabel, Is.EqualTo("2"));
+            Assert.That(amendment.DisplayStepLabel, Is.EqualTo("1a"));
             Assert.That(updated.Tasks.Single(task => task.TaskId == "LABEL-001-002").DisplayStepLabel,
-                Is.EqualTo("2A"));
+                Is.EqualTo("2"));
             Assert.That(updated.Tasks.Single(task => task.TaskId == "LABEL-001-003").DisplayStepLabel,
                 Is.EqualTo("3"));
         });
@@ -1305,6 +1307,7 @@ internal sealed class PlanStoreUpdaterTests
                 plan.ApprovalGates[0] with { PresentationAnchor = "task-after:INSERT-001-002" },
             ],
             Progress = new PlanProgress(0, 3, "INSERT-001-001"),
+            Timestamps = plan.Timestamps with { StartedAt = DateTimeOffset.UtcNow },
         };
 
         var updated = PlanStoreUpdater.ApplyTaskInserted(
@@ -1319,6 +1322,9 @@ internal sealed class PlanStoreUpdaterTests
                 Is.EqualTo(new[] { inserted.TaskId }));
             Assert.That(updated.Tasks.Single(task => task.TaskId == "INSERT-001-001").DisplayStepLabel,
                 Is.EqualTo("1"));
+            Assert.That(inserted.DisplayStepLabel, Is.EqualTo("2a"));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "INSERT-001-003").DisplayStepLabel,
+                Is.EqualTo("3"));
             Assert.That(updated.Progress.ExecutingTaskId, Is.EqualTo("INSERT-001-001"));
             Assert.That(updated.ApprovalGates[0].AfterTaskIds, Does.Contain(inserted.TaskId));
             Assert.That(updated.ApprovalGates[0].PresentationAnchor,
@@ -1346,6 +1352,9 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-003").DependsOn,
                 Is.EqualTo(new[] { inserted.TaskId }));
             Assert.That(updated.ApprovalGates[0].BeforeTaskIds, Is.EqualTo(new[] { inserted.TaskId }));
+            Assert.That(inserted.DisplayStepLabel, Is.EqualTo("3"));
+            Assert.That(updated.Tasks.Single(task => task.TaskId == "GROUP-001-003").DisplayStepLabel,
+                Is.EqualTo("4"));
         });
     }
 
@@ -1867,12 +1876,185 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(origin.Status, Is.EqualTo(PlanTaskStatus.Pending));
             Assert.That(origin.AutomaticContinuationCount, Is.EqualTo(1));
             Assert.That(origin.DisplayStepLabel, Is.EqualTo(plan.Tasks[1].DisplayStepLabel));
-            Assert.That(repair.DisplayStepLabel, Does.Contain("Repair 1"));
+            Assert.That(repair.DisplayStepLabel, Is.EqualTo("1a"));
             Assert.That(repair.ExecutionMode, Is.EqualTo(PlanTaskExecutionMode.Implementation));
             Assert.That(repair.ExecutionOrigin!.OriginTaskId, Is.EqualTo(origin.TaskId));
             Assert.That(repair.ExecutionOrigin.ReportedByAgent, Is.EqualTo("Talia Rune"));
             Assert.That(repair.ExecutionOrigin.ExecutionAttemptId, Is.EqualTo("attempt-15"));
             Assert.That(updated.Revision, Is.Not.EqualTo(plan.Revision));
+        });
+    }
+
+    [Test]
+    public void ApplyAutomaticPrerequisiteTasks_RepeatedInsertionContinuesLowercaseSuffixes()
+    {
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null, MakeGroup(2), "rev1",
+            [MakeItem("GROUP-001-001", isChecked: true), MakeItem("GROUP-001-002")],
+            "GROUP-001-002");
+        plan = plan with
+        {
+            Tasks = [
+                plan.Tasks[0] with { DisplayStepLabel = "14" },
+                plan.Tasks[1] with { DisplayStepLabel = "15" },
+            ],
+        };
+
+        static DecomposeStepContinuation Continuation(params string[] titles) => new(
+            DecomposeStepContinuationAction.InsertPrerequisiteTasks,
+            "GROUP-001-002",
+            "Additional prerequisites are required.",
+            "Resume after the prerequisites complete.",
+            titles.Select(title => new DecomposeContinuationTask(
+                title, $"Complete {title}.", $"{title} is required.", "Talia Rune")).ToArray());
+        static DecomposeStepResult Result(
+            Plan current, string attemptId, DecomposeStepContinuation continuation) => new(
+            "GROUP-001", "GROUP-001-002", current.Revision, "partial", null,
+            continuation.Summary, continuation.Tasks!.Select(task => task.Title).ToArray(),
+            new DecomposeStepVerification("failed", null, "Prerequisites remain."),
+            ExecutionAttemptId: attemptId,
+            Continuation: continuation);
+
+        var firstContinuation = Continuation("First prerequisite", "Second prerequisite");
+        var first = PlanStoreUpdater.ApplyAutomaticPrerequisiteTasks(
+            plan, Result(plan, "attempt-1", firstContinuation), firstContinuation,
+            new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero));
+        var secondContinuation = Continuation("Third prerequisite", "Fourth prerequisite");
+        var second = PlanStoreUpdater.ApplyAutomaticPrerequisiteTasks(
+            first, Result(first, "attempt-2", secondContinuation), secondContinuation,
+            new DateTimeOffset(2026, 10, 1, 13, 0, 0, TimeSpan.Zero));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(second.Tasks.Select(task => task.DisplayStepLabel),
+                Is.EqualTo(new[] { "14", "14a", "14b", "14c", "14d", "15" }));
+            Assert.That(second.Tasks.Single(task => task.TaskId == "GROUP-001-001").DisplayStepLabel,
+                Is.EqualTo("14"));
+            Assert.That(second.Tasks.Single(task => task.TaskId == "GROUP-001-002").DisplayStepLabel,
+                Is.EqualTo("15"));
+            Assert.That(second.Tasks.Where(task => task.TaskId.Contains("-AMD-", StringComparison.Ordinal))
+                    .All(task => task.ExecutionOrigin?.OriginTaskId == "GROUP-001-002"),
+                Is.True);
+        });
+    }
+
+    [Test]
+    public void ApplyAutomaticPrerequisiteTasks_AfterZUsesAa()
+    {
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null, MakeGroup(2), "rev1",
+            [MakeItem("GROUP-001-001", isChecked: true), MakeItem("GROUP-001-002")],
+            "GROUP-001-002");
+        plan = plan with
+        {
+            Tasks = [
+                plan.Tasks[0] with { DisplayStepLabel = "14" },
+                plan.Tasks[1] with { DisplayStepLabel = "15" },
+            ],
+        };
+        var existingPrerequisite = new PlanTask(
+            "GROUP-001-AMD-999", "Existing prerequisite", "Already inserted.",
+            ["GROUP-001-001"], "high", PlanTaskStatus.Complete,
+            DisplayStepLabel: "14z");
+        plan = plan with
+        {
+            Tasks = [plan.Tasks[0], existingPrerequisite,
+                plan.Tasks[1] with { DependsOn = [existingPrerequisite.TaskId] }],
+            Progress = new PlanProgress(2, 3, "GROUP-001-002"),
+        };
+        var continuation = new DecomposeStepContinuation(
+            DecomposeStepContinuationAction.InsertPrerequisiteTasks,
+            "GROUP-001-002", "One more prerequisite is required.", "Resume afterward.",
+            [new DecomposeContinuationTask(
+                "Next prerequisite", "Complete it.", "It is required.", "Talia Rune")]);
+        var result = new DecomposeStepResult(
+            "GROUP-001", "GROUP-001-002", plan.Revision, "partial", null,
+            continuation.Summary, ["Complete the prerequisite"],
+            new DecomposeStepVerification("failed", null, "A prerequisite remains."),
+            ExecutionAttemptId: "attempt-aa", Continuation: continuation);
+
+        var updated = PlanStoreUpdater.ApplyAutomaticPrerequisiteTasks(
+            plan, result, continuation, DateTimeOffset.UtcNow);
+
+        Assert.That(updated.Tasks.Single(task => task.ExecutionOrigin?.ExecutionAttemptId == "attempt-aa")
+            .DisplayStepLabel, Is.EqualTo("14aa"));
+    }
+
+    [Test]
+    public void ApplyAutomaticPrerequisiteTasks_BeforeStepOneUsesZeroSuffixes()
+    {
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null, MakeGroup(1), "rev1", [MakeItem("GROUP-001-001")], "GROUP-001-001");
+        var continuation = new DecomposeStepContinuation(
+            DecomposeStepContinuationAction.InsertPrerequisiteTasks,
+            "GROUP-001-001", "Two prerequisites are required.", "Resume afterward.",
+            [
+                new DecomposeContinuationTask("First", "First.", "Required.", "Talia Rune"),
+                new DecomposeContinuationTask("Second", "Second.", "Required.", "Talia Rune"),
+            ]);
+        var result = new DecomposeStepResult(
+            "GROUP-001", "GROUP-001-001", plan.Revision, "partial", null,
+            continuation.Summary, ["Complete both"],
+            new DecomposeStepVerification("failed", null, "Prerequisites remain."),
+            ExecutionAttemptId: "attempt-zero", Continuation: continuation);
+
+        var updated = PlanStoreUpdater.ApplyAutomaticPrerequisiteTasks(
+            plan, result, continuation, DateTimeOffset.UtcNow);
+
+        Assert.That(updated.Tasks.Select(task => task.DisplayStepLabel),
+            Is.EqualTo(new[] { "0a", "0b", "1" }));
+    }
+
+    [Test]
+    public void RepairInconsistentState_RestoresLegacyAutomaticPrerequisiteOriginsAndLabels()
+    {
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null, MakeGroup(3), "rev1",
+            [MakeItem("GROUP-001-001", isChecked: true), MakeItem("GROUP-001-002"), MakeItem("GROUP-001-003")],
+            "GROUP-001-002");
+        var addedAt = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero);
+        var first = new PlanTask(
+            "GROUP-001-AMD-001", "First prerequisite", "First.", ["GROUP-001-001"],
+            "high", PlanTaskStatus.Pending,
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "This prerequisite was added by the coordinator during execution and has no preapproved roster assignment.",
+            DisplayStepLabel: "2 Repair 1",
+            ExecutionOrigin: new PlanTaskExecutionOrigin(
+                "GROUP-001-002", "Talia Rune", "First is required.", addedAt, "attempt-legacy"));
+        var second = new PlanTask(
+            "GROUP-001-AMD-002", "Second prerequisite", "Second.", ["GROUP-001-001"],
+            "high", PlanTaskStatus.Pending,
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "This prerequisite was added by the coordinator during execution and has no preapproved roster assignment.",
+            DisplayStepLabel: "3");
+        var origin = plan.Tasks[1] with
+        {
+            DependsOn = [first.TaskId, second.TaskId],
+            DisplayStepLabel = "4",
+            AttemptHistory = [new PlanTaskAttempt(
+                "partial", null, null, "Two prerequisites remain.",
+                "automatic-continuation", "Both prerequisites are required.")],
+        };
+        plan = plan with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            Tasks = [plan.Tasks[0], first, second, origin, plan.Tasks[2] with { DisplayStepLabel = "5" }],
+            Progress = new PlanProgress(1, 5),
+        };
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+        var repairedSecond = repaired.Tasks.Single(task => task.TaskId == second.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.Tasks.Select(task => task.DisplayStepLabel),
+                Is.EqualTo(new[] { "1", "1a", "1b", "2", "3" }));
+            Assert.That(repairedSecond.ExecutionOrigin, Is.Not.Null);
+            Assert.That(repairedSecond.ExecutionOrigin!.OriginTaskId, Is.EqualTo(origin.TaskId));
+            Assert.That(repairedSecond.ExecutionOrigin.ReportedByAgent, Is.EqualTo("Talia Rune"));
+            Assert.That(repairedSecond.ExecutionOrigin.ExecutionAttemptId, Is.EqualTo("attempt-legacy"));
+            Assert.That(repairedSecond.ExecutionOrigin.Reason, Does.Contain("Second prerequisite"));
+            Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(repaired), Is.True);
         });
     }
 }

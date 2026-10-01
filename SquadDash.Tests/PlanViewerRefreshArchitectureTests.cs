@@ -104,11 +104,11 @@ internal sealed class PlanViewerRefreshArchitectureTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(viewer, Does.Contain("_resolveInterruptedPrimaryAction?.Invoke(durablePlan)")
-                .And.Contain("currentInterruptedPrimaryAction?.Label")
-                .And.Contain("currentInterruptedPrimaryAction?.Hint"),
+            Assert.That(viewer, Does.Contain("_resolveInterruptedActionSet?.Invoke(durablePlan)")
+                .And.Contain("currentInterruptedSurfaceAction.Label")
+                .And.Contain("currentInterruptedSurfaceAction.Hint"),
                 "A rebuilt open viewer must not retain the recovery label from an earlier task.");
-            Assert.That(main, Does.Contain("resolveInterruptedPrimaryAction: ResolveInterruptedPrimaryAction")
+            Assert.That(main, Does.Contain("resolveInterruptedActionSet: ResolveInterruptedActionSet")
                 .And.Contain("var currentTaskId = current.InterruptionData?.InterruptedTaskId;"),
                 "Recovery labels and actions must resolve the task from each current durable-plan snapshot.");
         });
