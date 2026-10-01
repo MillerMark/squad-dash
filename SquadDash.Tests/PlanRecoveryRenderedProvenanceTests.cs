@@ -42,25 +42,23 @@ internal sealed class PlanRecoveryRenderedProvenanceTests
     }
 
     [Test]
-    public void RefreshedEvidence_WithoutMatchingReportRendersFirstWarningBeforeHistoricalNarrativeAndNewFooter()
+    public void RefreshedEvidence_WithoutMatchingReportSeparatesHistoricalNarrativeFromCurrentEvidence()
     {
         var plan = MakePlan([Report(OldCommit, OldCriticism)]);
-        var warning = $"Review below reflects commit {OldCommit}; current evidence is commit {NewCommit}. " +
-                      "These conclusions have not been reverified for the current evidence.";
+        var warning = $"A previous review reflects commit {OldCommit}; current evidence is commit {NewCommit}. " +
+                      "The earlier conclusions are kept separate because they do not verify the current commit.";
 
         var rendered = RenderSharedContent(plan);
-        var firstBullet = rendered.Analysis.ListItems.FirstListItem!;
-        var firstText = ReadText(firstBullet).TrimStart('•', '\t');
         var sharedNotice = PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(plan, TaskId);
 
         Assert.Multiple(() =>
         {
-            Assert.That(firstText, Is.EqualTo(warning));
-            Assert.That(rendered.Presentation.AnalysisBullets[0].Severity,
-                Is.EqualTo(PlanHumanReviewAnalysisSeverity.Warning));
-            Assert.That(rendered.Text, Does.Contain(OldCriticism));
-            Assert.That(rendered.Text.IndexOf(warning, StringComparison.Ordinal),
-                Is.LessThan(rendered.Text.IndexOf(OldCriticism, StringComparison.Ordinal)));
+            Assert.That(rendered.Presentation.AnalysisBullets, Is.Empty);
+            Assert.That(rendered.Presentation.PreviousReview, Is.Not.Null);
+            Assert.That(rendered.Presentation.PreviousReview!.AnalysisBullets.Select(item => item.Text),
+                Does.Contain(OldCriticism));
+            Assert.That(rendered.Text, Does.Not.Contain(OldCriticism),
+                "Historical conclusions must not appear in the current review narrative.");
             Assert.That(rendered.Text, Does.Contain("Commits: f8f3dd8"));
             Assert.That(rendered.Text, Does.Contain("Tests: 98/98 tests passed."));
             Assert.That(sharedNotice, Is.EqualTo(warning),
@@ -80,17 +78,15 @@ internal sealed class PlanRecoveryRenderedProvenanceTests
         var plan = MakePlan([Report(evaluatedCommit, OldCriticism)]);
 
         var rendered = RenderSharedContent(plan);
-        var first = ReadText(rendered.Analysis.ListItems.FirstListItem!);
+        var notice = PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(plan, TaskId);
 
         Assert.Multiple(() =>
         {
-            Assert.That(first, Does.Contain("unknown").IgnoreCase);
-            Assert.That(first, Does.Contain($"current evidence is commit {NewCommit}"));
-            Assert.That(first, Does.Contain("not been reverified"));
-            Assert.That(rendered.Text, Does.Contain(OldCriticism));
+            Assert.That(notice, Does.Contain("unknown").IgnoreCase);
+            Assert.That(notice, Does.Contain($"current evidence is commit {NewCommit}"));
+            Assert.That(rendered.Presentation.PreviousReview, Is.Not.Null);
+            Assert.That(rendered.Text, Does.Not.Contain(OldCriticism));
             Assert.That(rendered.Text, Does.Contain("Commits: f8f3dd8"));
-            Assert.That(rendered.Presentation.AnalysisBullets[0].Severity,
-                Is.EqualTo(PlanHumanReviewAnalysisSeverity.Warning));
         });
     }
 
@@ -197,11 +193,11 @@ internal sealed class PlanRecoveryRenderedProvenanceTests
         Assert.Multiple(() =>
         {
             Assert.That(text, Does.Contain("Human Verification Is Required"));
-            Assert.That(text, Does.Contain("Automated review"));
             Assert.That(text, Does.Contain("Commits: f8f3dd8"));
             Assert.That(text, Does.Contain("Tests passed: 98"));
             if (hasMatchingReport)
             {
+                Assert.That(text, Does.Contain("Automated review"));
                 Assert.That(text, Does.Contain(NewConclusion));
                 Assert.That(text, Does.Not.Contain(OldCriticism),
                     "The old interruption reason must not reintroduce obsolete conclusions.");
@@ -209,11 +205,10 @@ internal sealed class PlanRecoveryRenderedProvenanceTests
             }
             else
             {
+                Assert.That(text, Does.Contain("Previous review"));
                 var warning = PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(plan, TaskId)!;
                 Assert.That(text, Does.Contain(warning));
-                Assert.That(text, Does.Contain(OldCriticism));
-                Assert.That(text.IndexOf(warning, StringComparison.Ordinal),
-                    Is.LessThan(text.IndexOf(OldCriticism, StringComparison.Ordinal)));
+                Assert.That(text, Does.Not.Contain(OldCriticism));
             }
         });
     }

@@ -978,6 +978,68 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void HumanizePlanText_ReplacesInternalTaskIdAndPrefixesRepairStepLabel()
+    {
+        var task = new PlanTask(
+            "PLAN-AMD-001",
+            "Stabilize tests",
+            "Stabilize tests",
+            [],
+            "high",
+            PlanTaskStatus.Pending,
+            DisplayStepLabel: "15 Repair 1");
+        var plan = TestPlan(null) with { Tasks = [task] };
+
+        var result = PlanRecoveryPresentationBuilder.HumanizePlanText(
+            plan,
+            "Task PLAN-AMD-001 failed. 15 Repair 1 needs verification.");
+
+        Assert.That(result, Is.EqualTo(
+            "Step 15 Repair 1 failed. Step 15 Repair 1 needs verification."));
+    }
+
+    [Test]
+    public void AttentionCard_WithPreservedCommitAndNoCurrentReview_UsesPlainVerificationMessage()
+    {
+        const string commit = "ba178610112bf6d7cbc8237eabbaad21465bdfd3";
+        var task = new PlanTask(
+            "PLAN-AMD-001",
+            "Stabilize tests",
+            "Stabilize tests",
+            [],
+            "high",
+            PlanTaskStatus.Pending,
+            DisplayStepLabel: "15 Repair 1");
+        var evidence = new PlanTaskCommitEvidence(
+            task.TaskId,
+            "attempt-1",
+            "300baebabd377af8f47d10fa02c35512323b53ca",
+            commit,
+            "Preserved work.",
+            new DecomposeStepVerification("passed", "dotnet build", "Build passed"));
+        var plan = TestPlan(evidence) with
+        {
+            Tasks = [task],
+            InterruptionData = TestPlan(evidence).InterruptionData! with
+            {
+                AttentionCategory = PlanAttentionCategory.AutomaticWorkExhausted,
+                AttentionSummary = $"Task {task.TaskId} did not complete.",
+            }
+        };
+
+        var presentation = PlanAttentionCardPresentationBuilder.Build(
+            plan, task.TaskId, humanReview: null, hasHumanChecklist: false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Title, Is.EqualTo("Step Needs Verification"));
+            Assert.That(presentation.RecordedReason, Does.Contain(commit));
+            Assert.That(presentation.RecordedReason, Does.Not.Contain(task.TaskId));
+            Assert.That(presentation.RecordedReason, Does.Contain("No independent review is recorded"));
+        });
+    }
+
+    [Test]
     public void AttentionCard_CopyTextIncludesVisibleReasonAndDiagnostics()
     {
         var presentation = new PlanAttentionCardPresentation(

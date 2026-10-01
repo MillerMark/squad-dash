@@ -396,3 +396,35 @@ internal static class PlanExecutionEvidenceRecorder
             string.Equals(assignment.PrimaryToolCallId, toolCallId, StringComparison.Ordinal) ||
             (assignment.ChildToolCallIds?.Contains(toolCallId, StringComparer.Ordinal) ?? false));
 }
+
+/// <summary>
+/// Distinguishes a delegation tool that failed before creating a worker from a worker
+/// that actually started and later failed. Plan execution may replace only the former.
+/// </summary>
+internal static class PlanAgentLaunchFailurePolicy
+{
+    private static readonly HashSet<string> DelegationTools = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "task",
+        "delegate_temporary_agent",
+        "delegate_roster_agent"
+    };
+
+    internal static bool ShouldDiscardLaunch(
+        bool? toolSucceeded,
+        string? toolName,
+        bool agentThreadObserved,
+        string? failureDetail)
+    {
+        if (toolSucceeded != false || agentThreadObserved)
+            return false;
+
+        if (DelegationTools.Contains(toolName ?? string.Empty))
+            return true;
+
+        // Preserve compatibility with older bridge events that omitted the tool name.
+        return failureDetail?.Contains(
+            "Denied by preToolUse hook",
+            StringComparison.OrdinalIgnoreCase) == true;
+    }
+}

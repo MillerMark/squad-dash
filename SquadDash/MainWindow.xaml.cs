@@ -20021,9 +20021,10 @@ public partial class MainWindow : Window
             : "What happened: ");
         reasonLabel.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
         reasonParagraph.Inlines.Add(reasonLabel);
-        var reasonRun = new Run(CommitReferenceText.Shorten(attentionCard.RecordedReason));
-        reasonRun.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-        reasonParagraph.Inlines.Add(reasonRun);
+        var reasonText = new Span();
+        reasonText.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+        AddRecoveryCommitLinkedText(reasonText.Inlines, attentionCard.RecordedReason);
+        reasonParagraph.Inlines.Add(reasonText);
         blocks.Add(reasonParagraph);
         copyParts.Add(string.Empty);
         copyParts.Add((attentionCard.Category is PlanAttentionCategory.HumanVerificationRequired or
@@ -20195,7 +20196,7 @@ public partial class MainWindow : Window
                 margin: new Thickness(0)));
         }
 
-        if (humanReview is not null)
+        if (humanReview is { AnalysisBullets.Count: > 0 })
         {
             var analysisLabel = CreateTranscriptParagraph(bottomMargin: 2);
             var analysisLabelRun = new Run("Automated Review Status:");
@@ -20212,18 +20213,60 @@ public partial class MainWindow : Window
             foreach (var bullet in humanReview.AnalysisBullets)
             {
                 var bulletParagraph = CreateTranscriptParagraph(bottomMargin: 2);
-                bulletParagraph.SetResourceReference(
-                    TextElement.ForegroundProperty,
-                    bullet.Severity == PlanHumanReviewAnalysisSeverity.Error
-                        ? "ToolFailureIcon"
-                        : bullet.Severity == PlanHumanReviewAnalysisSeverity.Warning
-                            ? "ImportantText"
-                            : "BodyText");
-                MarkdownFlowDocumentBuilder.AddInboxInlineText(bulletParagraph.Inlines, bullet.Text);
+                // Keep every conclusion readable. Severity must not reduce text contrast.
+                bulletParagraph.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
+                AddRecoveryCommitLinkedText(bulletParagraph.Inlines, bullet.Text);
                 analysisList.ListItems.Add(new ListItem(bulletParagraph));
                 copyParts.Add("• " + bullet.Text);
             }
             blocks.Add(analysisList);
+        }
+
+        if (humanReview?.PreviousReview is { } previousReview)
+        {
+            var previousStack = new StackPanel { Margin = new Thickness(8, 4, 4, 4) };
+            var previousExplanation = new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 5),
+            };
+            previousExplanation.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            AddRecoveryCommitLinkedText(
+                previousExplanation.Inlines,
+                $"This review applies to commit {previousReview.EvaluatedCommit}, not current commit {previousReview.CurrentCommit}.");
+            previousStack.Children.Add(previousExplanation);
+            foreach (var bullet in previousReview.AnalysisBullets)
+            {
+                var item = new TextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(8, 1, 0, 2),
+                };
+                item.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                item.Inlines.Add(new Run("• "));
+                AddRecoveryCommitLinkedText(item.Inlines, bullet.Text);
+                previousStack.Children.Add(item);
+            }
+
+            var previousHeaderCommit = string.IsNullOrWhiteSpace(previousReview.EvaluatedCommit)
+                ? "unknown commit"
+                : previousReview.EvaluatedCommit.Length > 7
+                ? previousReview.EvaluatedCommit[..7]
+                : previousReview.EvaluatedCommit;
+            var previousExpander = new Expander
+            {
+                Header = $"Previous review ({previousHeaderCommit})",
+                Content = previousStack,
+                IsExpanded = false,
+                Margin = new Thickness(0, 0, 0, 6),
+            };
+            previousExpander.SetResourceReference(Expander.ForegroundProperty, "SubtleText");
+            if (TryFindResource("TranscriptExpanderStyle") is Style previousExpanderStyle)
+                previousExpander.Style = previousExpanderStyle;
+            blocks.Add(TranscriptCardLayout.CreateContainer(
+                previousExpander,
+                margin: new Thickness(0)));
+            copyParts.Add($"Previous review ({previousHeaderCommit}) is available separately.");
         }
 
         if (completedWorkReview is not null)
@@ -20243,8 +20286,13 @@ public partial class MainWindow : Window
                 "Verify this step is complete to continue the plan.",
             PlanAttentionCategory.HumanInputRequired =>
                 "Reply with the requested decision. SquadDash will preserve the plan until then.",
+            PlanAttentionCategory.AutomaticWorkExhausted when
+                durablePlan is not null &&
+                durablePlan.InterruptionData?.TaskCommitEvidence is not null &&
+                !PlanRecoveryPresentationBuilder.HasCurrentAcceptedReview(durablePlan, taskId) =>
+                "Recommended: Try Again. SquadDash will continue from the preserved work without redoing it.",
             PlanAttentionCategory.AutomaticWorkExhausted =>
-                "Choose whether to try again, revise the remaining plan, accept preserved work when available, or stop.",
+                "Choose whether to try again or revise the remaining plan.",
             _ => "Continue from the preserved work or copy the diagnostic report for investigation.",
         };
         var decisionParagraph = CreateTranscriptParagraph(bottomMargin: 10);
@@ -20397,6 +20445,7 @@ public partial class MainWindow : Window
                     () => _ = OpenInterruptedTaskReviewAsync(durablePlan.PlanId, durablePlan.Revision));
             }
             if (durablePlan is not null &&
+                PlanRecoveryPresentationBuilder.HasCurrentAcceptedReview(durablePlan, taskId) &&
                 primaryRecoveryAction?.Kind is PlanRecoveryPrimaryActionKind.AcceptStep or
                     PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
                     PlanRecoveryPrimaryActionKind.ApproveAmendment)
@@ -21020,51 +21069,39 @@ public partial class MainWindow : Window
 
         if (review.ChangedFiles.Count > 0)
         {
-            var filesHeader = CreateTranscriptParagraph(bottomMargin: 2);
-            filesHeader.Margin = new Thickness(0, 9, 0, 2);
-            var filesRun = new Run($"Changed files ({review.ChangedFiles.Count})");
-            filesRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-            filesHeader.Inlines.Add(filesRun);
-            blocks.Add(filesHeader);
+            var filesParagraph = CreateTranscriptParagraph(bottomMargin: 3);
+            filesParagraph.Margin = new Thickness(0, 7, 0, 3);
+            var filesLink = new Hyperlink(new Run($"Changed files ({review.ChangedFiles.Count})"))
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip("Open the changed files in the commit review"),
+            };
+            filesLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            filesLink.Click += (_, _) => _ = OpenInterruptedTaskReviewAsync(planId, planRevision);
+            filesParagraph.Inlines.Add(filesLink);
+            blocks.Add(filesParagraph);
+        }
+    }
 
-            var maxFiles = Math.Min(review.ChangedFiles.Count, 8);
-            for (var i = 0; i < maxFiles; i++)
+    private void AddRecoveryCommitLinkedText(InlineCollection inlines, string text)
+    {
+        foreach (var segment in CommitReferenceText.Parse(text))
+        {
+            if (segment.FullSha is null)
             {
-                var fullPath = review.ChangedFiles[i];
-                var displayName = CompletedWorkReviewPresentationBuilder.GetChangedFileDisplayName(fullPath);
-                var fileParagraph = CreateTranscriptParagraph(bottomMargin: 1);
-                fileParagraph.Margin = new Thickness(24, 0, 0, 1);
-                var bulletRun = new Run("• ");
-                bulletRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-                fileParagraph.Inlines.Add(bulletRun);
-                var fileLink = new Hyperlink(new Run(displayName))
-                {
-                    Cursor = Cursors.Hand,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        $"Open {fullPath} in the commit viewer"),
-                };
-                fileLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-                fileLink.Click += (_, _) => _ = OpenInterruptedTaskReviewAsync(
-                    planId,
-                    planRevision,
-                    fullPath);
-                fileParagraph.Inlines.Add(fileLink);
-                blocks.Add(fileParagraph);
+                MarkdownFlowDocumentBuilder.AddInboxInlineText(inlines, segment.Text);
+                continue;
             }
-            if (review.ChangedFiles.Count > maxFiles)
+
+            var commitLink = new Hyperlink(new Run(segment.Text))
             {
-                var moreParagraph = CreateTranscriptParagraph(bottomMargin: 2);
-                moreParagraph.Margin = new Thickness(24, 0, 0, 2);
-                var moreLink = new Hyperlink(new Run($"… and {review.ChangedFiles.Count - maxFiles} more"))
-                {
-                    Cursor = Cursors.Hand,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip("Open all changed files in the commit review"),
-                };
-                moreLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-                moreLink.Click += (_, _) => _ = OpenInterruptedTaskReviewAsync(planId, planRevision);
-                moreParagraph.Inlines.Add(moreLink);
-                blocks.Add(moreParagraph);
-            }
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip("Open this commit in SquadDash"),
+            };
+            commitLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            var fullSha = segment.FullSha;
+            commitLink.Click += async (_, _) => await OpenCommitWithRemoteCheckAsync(fullSha);
+            inlines.Add(commitLink);
         }
     }
 
@@ -46962,15 +46999,21 @@ public partial class MainWindow : Window
             execution with { PlanExecutionAttempt = updated });
     }
 
-    private void DiscardPreToolRejectedPlanAgentLaunch(SquadSdkEvent evt)
+    private void DiscardUnstartedPlanAgentLaunch(SquadSdkEvent evt)
     {
         if (evt.Success != false || string.IsNullOrWhiteSpace(evt.ToolCallId))
             return;
-        var rejection = string.Join(
+        var failureDetail = string.Join(
             "\n",
             new[] { evt.OutputText, evt.Reason, evt.Message, evt.Description }
                 .Where(value => !string.IsNullOrWhiteSpace(value)));
-        if (!rejection.Contains("Denied by preToolUse hook", StringComparison.OrdinalIgnoreCase))
+        var agentThreadObserved =
+            _agentThreadRegistry.ThreadsByToolCallId.ContainsKey(evt.ToolCallId);
+        if (!PlanAgentLaunchFailurePolicy.ShouldDiscardLaunch(
+                evt.Success,
+                evt.ToolName,
+                agentThreadObserved,
+                failureDetail))
             return;
 
         var execution = _conversationManager.ConversationState.ActiveLoopExecution;
@@ -47022,7 +47065,7 @@ public partial class MainWindow : Window
             return;
 
         if (evt.Success == false)
-            DiscardPreToolRejectedPlanAgentLaunch(evt);
+            DiscardUnstartedPlanAgentLaunch(evt);
         else
             CapturePlanAwareBackgroundAgentLaunch(thread, evt);
 

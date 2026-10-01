@@ -98,6 +98,22 @@ internal sealed class CompletedWorkReviewPresentationTests
     }
 
     [Test]
+    public void Build_WithBuildOnlyVerification_DoesNotClaimTestsOrGeneralVerificationPassed()
+    {
+        var evidence = MakeEvidence() with
+        {
+            Verification = new DecomposeStepVerification(
+                "passed",
+                "dotnet build EqSim.sln -c Release",
+                "Build passed and prose also claims tests passed")
+        };
+
+        var review = CompletedWorkReviewPresentationBuilder.Build(MakePlan(evidence), TaskId)!;
+
+        Assert.That(review.TestSummary, Is.EqualTo("Build passed"));
+    }
+
+    [Test]
     public void Build_WithNoVerification_TestSummaryIsNull()
     {
         var evidence = MakeEvidence() with { Verification = null };

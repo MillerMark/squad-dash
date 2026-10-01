@@ -135,6 +135,90 @@ internal sealed class PlanAgentRoutingLiveProbeTests
         });
     }
 
+    [Test]
+    public void GenericAttempt_DelegationToolFailsBeforeWorkerStarts_ReleasesPrimarySlot()
+    {
+        var attempt = PlanExecutionAttemptState.CreateGeneric(
+            PlanId, TaskId, Revision, _workspacePath);
+        var failedLaunch = new BackgroundAgentLaunchInfo(
+            ToolCallId: "tool-delegate-failed-before-start",
+            TaskName: "camera-repair",
+            Mode: "sync",
+            DisplayName: "Temporary Agent",
+            AccentKey: null,
+            RoleText: null,
+            Description: "Continue the camera repair",
+            AgentType: "general-purpose",
+            Prompt: null,
+            AssignedTaskId: null,
+            AssignedPlanRevision: null,
+            AssignedAgentHandle: null,
+            IsVerifiedRosterAssignment: false,
+            StartedAt: DateTimeOffset.UtcNow);
+        attempt = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt, failedLaunch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+
+        var shouldDiscard = PlanAgentLaunchFailurePolicy.ShouldDiscardLaunch(
+            toolSucceeded: false,
+            toolName: "delegate_temporary_agent",
+            agentThreadObserved: false,
+            failureDetail: "Tool execution failed\nCode: failure");
+        if (shouldDiscard)
+            attempt = attempt.DiscardRejectedLaunch(failedLaunch.ToolCallId);
+
+        var replacement = failedLaunch with { ToolCallId = "tool-delegate-replacement" };
+        attempt = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt, replacement, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(shouldDiscard, Is.True);
+            Assert.That(attempt.GenericPrimaryToolCallId, Is.EqualTo(replacement.ToolCallId));
+            Assert.That(attempt.UnexpectedPrimaryToolCallIds, Is.Null.Or.Empty);
+        });
+    }
+
+    [Test]
+    public void GenericAttempt_WorkerStartsThenDelegationFails_PreservesPrimaryFailure()
+    {
+        var attempt = PlanExecutionAttemptState.CreateGeneric(
+            PlanId, TaskId, Revision, _workspacePath);
+        var startedLaunch = new BackgroundAgentLaunchInfo(
+            ToolCallId: "tool-delegate-started",
+            TaskName: "camera-repair",
+            Mode: "sync",
+            DisplayName: "Temporary Agent",
+            AccentKey: null,
+            RoleText: null,
+            Description: "Continue the camera repair",
+            AgentType: "general-purpose",
+            Prompt: null,
+            AssignedTaskId: null,
+            AssignedPlanRevision: null,
+            AssignedAgentHandle: null,
+            IsVerifiedRosterAssignment: false,
+            StartedAt: DateTimeOffset.UtcNow);
+        attempt = PlanExecutionEvidenceRecorder.RecordLaunch(
+            attempt, startedLaunch, launchedByCoordinator: true, ownerPrimaryToolCallId: null);
+        attempt = attempt.RecordPrimaryCompletion(
+            startedLaunch.ToolCallId, DateTimeOffset.UtcNow, succeeded: false);
+
+        var shouldDiscard = PlanAgentLaunchFailurePolicy.ShouldDiscardLaunch(
+            toolSucceeded: false,
+            toolName: "delegate_temporary_agent",
+            agentThreadObserved: true,
+            failureDetail: "Worker failed");
+        if (shouldDiscard)
+            attempt = attempt.DiscardRejectedLaunch(startedLaunch.ToolCallId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(shouldDiscard, Is.False);
+            Assert.That(attempt.GenericPrimaryToolCallId, Is.EqualTo(startedLaunch.ToolCallId));
+            Assert.That(attempt.GenericSucceeded, Is.False);
+        });
+    }
+
     // ------------------------------------------------------------------
     // Test 2: fail-closed — second generic primary tool call ID
     // ------------------------------------------------------------------

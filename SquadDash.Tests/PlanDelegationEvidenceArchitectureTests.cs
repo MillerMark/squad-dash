@@ -7,7 +7,7 @@ namespace SquadDash.Tests;
 internal sealed class PlanDelegationEvidenceArchitectureTests
 {
     [Test]
-    public void RejectedPreToolDelegationDoesNotConsumePrimaryWorkerIdentity()
+    public void FailedDelegationWithoutAnAgentThreadDoesNotConsumePrimaryWorkerIdentity()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var startMethodStart = source.IndexOf(
@@ -31,9 +31,10 @@ internal sealed class PlanDelegationEvidenceArchitectureTests
             Assert.That(startMethod,
                 Does.Contain("CapturePlanAwareBackgroundAgentLaunch(thread, evt);"));
             Assert.That(completeMethod, Does.Contain("if (evt.Success == false)")
-                .And.Contain("DiscardPreToolRejectedPlanAgentLaunch(evt);")
+                .And.Contain("DiscardUnstartedPlanAgentLaunch(evt);")
                 .And.Contain("CapturePlanAwareBackgroundAgentLaunch(thread, evt);"));
-            Assert.That(source, Does.Contain("Denied by preToolUse hook")
+            Assert.That(source, Does.Contain("ThreadsByToolCallId.ContainsKey(evt.ToolCallId)")
+                .And.Contain("PlanAgentLaunchFailurePolicy.ShouldDiscardLaunch(")
                 .And.Contain("attempt.DiscardRejectedLaunch(evt.ToolCallId)"));
         });
     }

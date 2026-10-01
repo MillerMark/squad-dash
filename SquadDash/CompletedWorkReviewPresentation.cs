@@ -190,7 +190,12 @@ internal static class CompletedWorkReviewPresentationBuilder
         }
 
         return string.Equals(verification.Status, "passed", StringComparison.OrdinalIgnoreCase)
-            ? "Verification passed"
+            ? verification.Command?.Contains("build", StringComparison.OrdinalIgnoreCase) == true &&
+              verification.Command?.Contains("test", StringComparison.OrdinalIgnoreCase) != true
+                ? "Build passed"
+                : verification.Command?.Contains("test", StringComparison.OrdinalIgnoreCase) == true
+                    ? "Tests reported passed"
+                    : "Verification passed"
             : string.IsNullOrWhiteSpace(verification.Status)
                 ? null
                 : $"Verification status: {verification.Status.Trim()}";

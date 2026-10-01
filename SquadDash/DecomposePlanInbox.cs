@@ -165,8 +165,10 @@ internal static class DecomposePlanInbox
             string.Equals(task.Id, taskId, StringComparison.Ordinal));
         var taskTitle = plan.Group.Tasks.FirstOrDefault(task =>
             string.Equals(task.Id, taskId, StringComparison.Ordinal))?.Title ?? taskId;
+        var durableTask = durablePlan?.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
-            taskIndex >= 0 ? (taskIndex + 1).ToString() : null,
+            durableTask?.DisplayStepLabel ?? (taskIndex >= 0 ? (taskIndex + 1).ToString() : null),
             taskTitle);
         var reviewCard = durablePlan is null
             ? null
@@ -269,6 +271,11 @@ internal static class DecomposePlanInbox
             ? "\n\n**Automated review**\n" +
               string.Join("\n", reviewCard.AnalysisBullets.Select(bullet => "- " + bullet.Text))
             : string.Empty;
+        var previousReviewNotice = reviewCard?.PreviousReview is not null
+            ? "\n\n**Previous review**\n" +
+              CommitReferenceText.Shorten(
+                  PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(durablePlan!, taskId))
+            : string.Empty;
         var body = $"**{attentionCard.Title}**\n\n" +
                    $"Plan: **{plan.Group.GroupTitle}**  \n" +
                    $"{stepLabel}: **{taskTitle}**\n\n" +
@@ -277,7 +284,8 @@ internal static class DecomposePlanInbox
                        PlanAttentionCategory.HumanInputRequired
                        ? "Human check: "
                        : "What happened: ") +
-                   attentionCard.RecordedReason + reviewAnalysis + "\n";
+                   CommitReferenceText.Shorten(attentionCard.RecordedReason) +
+                   reviewAnalysis + previousReviewNotice + "\n";
 
         if (hasCommitEvidence)
         {
