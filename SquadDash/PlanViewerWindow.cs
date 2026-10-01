@@ -116,6 +116,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private WrapPanel? _inspectorToolbarPanel;
     private Func<string?>? _inspectorEditorSaveAction;
     private TextBlock? _inspectorEditorStatus;
+    private string? _lastStagedMutationError;
     private TextBox? _inspectorPrimaryEditor;
     private FrameworkElement? _header;
     private FrameworkElement? _readingHint;
@@ -137,7 +138,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private string? _reviewStatusMessage;
     private TextBlock? _actionStatusText;
     private string? _actionStatusMessage;
-    private DecomposedTaskGroup? _deferredDefinitionEdit;
     private (Dictionary<string, Point> OldPositions, IReadOnlyList<string> AffectedTaskIds)? _pendingAnimation;
     private int _buildSeq;
     private readonly PlanGraphEdgeRenderingContract _graphEdgeRenderingContract;
@@ -155,7 +155,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private sealed record ContractExampleEditorRow(
         Border Card,
         TextBlock Heading,
-        TextBox ExampleId,
+        string ExampleId,
         TextBox Title,
         TextBox Input,
         TextBox ExpectedBehavior,
@@ -757,13 +757,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _isInspectorEditing = false;
         RebuildPreservingScroll(updatedDefinition, displayedPlan, autoScrollForPlanProgress);
         Title = $"Plan — {displayedPlan.DisplayName}";
-        if (_deferredDefinitionEdit is not null &&
-            displayedPlan.LifecycleStatus != PlanLifecycleStatus.Executing)
-        {
-            var deferred = _deferredDefinitionEdit;
-            _deferredDefinitionEdit = null;
-            Dispatcher.BeginInvoke(() => ApplyStagedMutation(deferred));
-        }
     }
 
     internal void NotifyFontSizeChanged()
@@ -4849,26 +4842,32 @@ internal sealed class PlanViewerWindow : ChromedWindow
         string? selectId = null,
         bool beginEditingSelection = false,
         bool preserveReview = false,
-        string? failurePrefix = null)
+        string? failurePrefix = null,
+        bool showFailureDialog = true)
     {
-        if (_saveDefinitionEdit is null || _plan is null) return false;
+        _lastStagedMutationError = null;
+        if (_saveDefinitionEdit is null || _plan is null)
+        {
+            _lastStagedMutationError = "The plan is no longer available for editing.";
+            return false;
+        }
         if (!StagedPlanEditor.TryValidate(candidate, out var normalized, out var error) || normalized is null)
         {
-            UIErrorHelper.ShowError(
-                "Edit Plan",
-                (failurePrefix ?? string.Empty) + (error ?? "The edit would make the plan invalid."),
-                this);
+            _lastStagedMutationError =
+                (failurePrefix ?? string.Empty) + (error ?? "The edit would make the plan invalid.");
+            if (showFailureDialog)
+                UIErrorHelper.ShowError("Edit Plan", _lastStagedMutationError, this);
             return false;
         }
         if (_durablePlan is not null &&
             _durablePlan.LifecycleStatus != PlanLifecycleStatus.Staged &&
             !StagedPlanEditor.TryValidateUnlockedChanges(_durablePlan, normalized, out error))
         {
-            UIErrorHelper.ShowError(
-                "Edit Plan",
+            _lastStagedMutationError =
                 (failurePrefix ?? string.Empty) + (error ??
-                    "The edit would change work that has already started."),
-                this);
+                    "The edit would change work that has already started.");
+            if (showFailureDialog)
+                UIErrorHelper.ShowError("Edit Plan", _lastStagedMutationError, this);
             return false;
         }
         try
@@ -4915,19 +4914,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             Title = $"Plan — {_durablePlan?.DisplayName ?? saved.Group.GroupTitle}";
             return true;
         }
-        catch (PlanEditPauseRequiredException exception)
-        {
-            _deferredDefinitionEdit = normalized;
-            MessageBox.Show(this, exception.Message, "Plan edit queued",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-            return false;
-        }
         catch (Exception exception)
         {
-            UIErrorHelper.ShowError(
-                "Edit Plan",
-                (failurePrefix ?? string.Empty) + exception.Message,
-                this);
+            _lastStagedMutationError = (failurePrefix ?? string.Empty) + exception.Message;
+            if (showFailureDialog)
+                UIErrorHelper.ShowError("Edit Plan", _lastStagedMutationError, this);
             return false;
         }
     }
@@ -7168,6 +7159,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var title = AddEditorField(panel, "Plan title", _plan.Group.GroupTitle, 34);
         _inspectorPrimaryEditor = title;
         var branch = AddEditorField(panel, "Branch", _plan.Group.Branch, 34);
+        if (_durablePlan is not null && StagedPlanEditor.IsPlanBranchLocked(_durablePlan))
+        {
+            branch.IsReadOnly = true;
+            branch.ToolTip = ToolTipHelper.MakeThemedToolTip(
+                "The branch is fixed after plan execution starts.");
+        }
         var summary = AddEditorField(panel, "Summary", _plan.Group.Summary, 140);
         var delivery = AddEditorField(panel, "Delivery", _plan.Group.Delivery, 70);
         AddEditorActions(panel, status, () =>
@@ -7175,9 +7172,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(branch.Text) ||
                 string.IsNullOrWhiteSpace(summary.Text))
                 return "Plan title, branch, and summary are required.";
-            ApplyStagedMutation(StagedPlanEditor.UpdatePlan(
-                _plan.Group, title.Text, branch.Text, summary.Text, delivery.Text));
-            return null;
+            return ApplyStagedMutation(StagedPlanEditor.UpdatePlan(
+                    _plan.Group, title.Text, branch.Text, summary.Text, delivery.Text),
+                    showFailureDialog: false)
+                ? null
+                : _lastStagedMutationError;
         });
         _detailDocument.Blocks.Add(new BlockUIContainer(panel));
         return true;
@@ -7193,43 +7192,37 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _inspectorPrimaryEditor = title;
         var description = AddEditorField(panel, "Description (Markdown supported)", task.Description, 170);
         var contractExamples = CreateContractExampleEditor(panel, task.ContractExamples);
-        var priority = AddEditorField(panel, "Priority", task.Priority, 34);
-        var dependencies = AddEditorField(
-            panel, "Dependencies (IDs separated by commas or lines)",
-            string.Join(Environment.NewLine, task.DependsOn), 70);
-        var routingMode = AddEditorField(panel, "Agent routing mode", task.AgentRoutingMode, 34);
-        var assignments = AddEditorField(
-            panel,
-            "Primary agent (handle | role | allow generic children)",
-            string.Join(Environment.NewLine, (task.AgentAssignments ?? []).Select(value =>
-                $"{value.AgentHandle} | {value.Role} | {value.AllowGenericChildren}")),
-            80);
-        var genericReason = AddEditorField(panel, "Generic-agent reason", task.GenericAgentReason, 55);
-        var executionMode = AddEditorField(panel, "Execution mode", task.ExecutionMode, 34);
-        var parallel = new CheckBox
+        CheckBox? parallel = null;
+        // Parallel eligibility remains part of the durable plan contract. Re-enable this
+        // editor control when the native plan scheduler supports concurrent task execution.
+        if (PlanVisualizerFeatures.ParallelTaskExecutionEditingEnabled)
         {
-            Content = "Parallel eligible (indeterminate means unspecified)",
-            IsThreeState = true,
-            IsChecked = task.ParallelEligible,
-            Margin = new Thickness(0, 8, 0, 0),
-        };
-        parallel.SetResourceReference(CheckBox.ForegroundProperty, "BodyText");
-        panel.Children.Add(parallel);
+            parallel = new CheckBox
+            {
+                Content = "Parallel eligible (indeterminate means unspecified)",
+                IsThreeState = true,
+                IsChecked = task.ParallelEligible,
+                Margin = new Thickness(0, 8, 0, 0),
+            };
+            parallel.SetResourceReference(CheckBox.ForegroundProperty, "BodyText");
+            panel.Children.Add(parallel);
+        }
         AddEditorActions(panel, status, () =>
         {
             if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(description.Text))
                 return "Title and description are required.";
-            if (!TryParseAgentAssignments(assignments.Text, out var parsedAssignments, out var assignmentError))
-                return assignmentError;
-            var ids = ParseEditorList(dependencies.Text);
             var updated = StagedPlanEditor.UpdateTask(
-                _plan!.Group, taskId, title.Text, description.Text, priority.Text, ids,
+                _plan!.Group, taskId, title.Text, description.Text, task.Priority, task.DependsOn,
                 BuildContractExamples(contractExamples));
-            updated = StagedPlanEditor.UpdateTaskAdvanced(
-                updated, taskId, parsedAssignments, routingMode.Text, parallel.IsChecked,
-                genericReason.Text, executionMode.Text);
-            ApplyStagedMutation(updated);
-            return null;
+            if (parallel is not null)
+            {
+                updated = StagedPlanEditor.UpdateTaskAdvanced(
+                    updated, taskId, task.AgentAssignments, task.AgentRoutingMode, parallel.IsChecked,
+                    task.GenericAgentReason, task.ExecutionMode);
+            }
+            return ApplyStagedMutation(updated, showFailureDialog: false)
+                ? null
+                : _lastStagedMutationError;
         });
         _detailDocument.Blocks.Add(new BlockUIContainer(panel));
         return true;
@@ -7315,11 +7308,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         cardHeader.Children.Add(cardHeading);
         content.Children.Add(cardHeader);
 
-        var exampleId = AddEditorField(
-            content,
-            "Example ID",
-            example?.ExampleId ?? NextContractExampleId(rows),
-            34);
+        var exampleId = example?.ExampleId ?? NextContractExampleId(rows);
         var title = AddEditorField(content, "Title", example?.Title, 34);
         var input = AddEditorField(content, "Exact input / setup", example?.Input, 90);
         var expectedBehavior = AddEditorField(
@@ -7358,7 +7347,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private static string NextContractExampleId(IReadOnlyList<ContractExampleEditorRow> rows)
     {
-        var existing = rows.Select(row => row.ExampleId.Text.Trim()).ToHashSet(StringComparer.Ordinal);
+        var existing = rows.Select(row => row.ExampleId).ToHashSet(StringComparer.Ordinal);
         for (var number = 1;; number++)
         {
             var candidate = $"example-{number}";
@@ -7375,7 +7364,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private static IReadOnlyList<DecomposedTaskContractExample> BuildContractExamples(
         IReadOnlyList<ContractExampleEditorRow> rows) =>
         rows.Select(row => new DecomposedTaskContractExample(
-            row.ExampleId.Text.Trim(),
+            row.ExampleId,
             row.Title.Text.Trim(),
             row.Input.Text,
             row.ExpectedBehavior.Text,
@@ -7419,8 +7408,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             // When an audit is present, its completion frontier must continue to match the
             // current leaf set after structural edits.
             updatedGroup = DependencyEditRecomputer.ReconcileAuditBoundary(updatedGroup);
-            ApplyStagedMutation(updatedGroup);
-            return null;
+            return ApplyStagedMutation(updatedGroup, showFailureDialog: false)
+                ? null
+                : _lastStagedMutationError;
         });
         _detailDocument.Blocks.Add(new BlockUIContainer(panel));
         return true;
@@ -7455,10 +7445,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (string.IsNullOrWhiteSpace(message.Text)) return "Message is required.";
             if (!TryParseProofRequirements(proofs.Text, out var parsedProofs, out var proofError))
                 return proofError;
-            ApplyStagedMutation(StagedPlanEditor.UpdateGate(
-                _plan!.Group, gateId, message.Text, question.Text,
-                ParseEditorList(after.Text), ParseEditorList(before.Text), parsedProofs));
-            return null;
+            return ApplyStagedMutation(StagedPlanEditor.UpdateGate(
+                    _plan!.Group, gateId, message.Text, question.Text,
+                    ParseEditorList(after.Text), ParseEditorList(before.Text), parsedProofs),
+                    showFailureDialog: false)
+                ? null
+                : _lastStagedMutationError;
         });
         _detailDocument.Blocks.Add(new BlockUIContainer(panel));
         return true;
@@ -7543,37 +7535,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n')
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .ToArray();
-
-    private static bool TryParseAgentAssignments(
-        string value,
-        out IReadOnlyList<DecomposedAgentAssignment> assignments,
-        out string? error)
-    {
-        var result = new List<DecomposedAgentAssignment>();
-        foreach (var line in ParseEditorLines(value))
-        {
-            var parts = line.Split('|', StringSplitOptions.TrimEntries);
-            if (parts.Length is < 2 or > 3 || string.IsNullOrWhiteSpace(parts[0]) ||
-                string.IsNullOrWhiteSpace(parts[1]) ||
-                (parts.Length == 3 && !bool.TryParse(parts[2], out _)))
-            {
-                assignments = [];
-                error = "Each assignment must be: handle | role | true-or-false.";
-                return false;
-            }
-            result.Add(new DecomposedAgentAssignment(
-                parts[0], parts[1], parts.Length < 3 || bool.Parse(parts[2])));
-        }
-        if (result.Count > 1)
-        {
-            assignments = [];
-            error = "Enter exactly one primary agent. Split required work into dependent tasks.";
-            return false;
-        }
-        assignments = result;
-        error = null;
-        return true;
-    }
 
     private static bool TryParseProofRequirements(
         string value,

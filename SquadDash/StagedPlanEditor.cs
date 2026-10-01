@@ -9,8 +9,6 @@ internal sealed record PlanDefinitionEditResult(
     PendingDecomposePlan DisplayedPlan,
     Plan DurablePlan);
 
-internal sealed class PlanEditPauseRequiredException(string message) : InvalidOperationException(message);
-
 internal static class StagedPlanEditor
 {
     internal static bool TryValidateUnlockedChanges(
@@ -20,6 +18,13 @@ internal static class StagedPlanEditor
     {
         error = null;
         var currentGroup = PendingDecomposePlanAdapter.FromPlan(current).Group;
+        if (IsPlanBranchLocked(current) &&
+            !string.Equals(currentGroup.Branch, candidate.Branch, StringComparison.Ordinal))
+        {
+            error = "The plan branch is fixed after execution starts. " +
+                    "Change branches through plan recovery instead of editing the plan definition.";
+            return false;
+        }
         var currentTasks = currentGroup.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
         var candidateTasks = candidate.Tasks.ToDictionary(task => task.Id, StringComparer.Ordinal);
         var lockedTaskIds = current.Tasks
@@ -73,6 +78,11 @@ internal static class StagedPlanEditor
         }
         return true;
     }
+
+    internal static bool IsPlanBranchLocked(Plan plan) =>
+        plan.Timestamps.StartedAt is not null ||
+        plan.Progress.ExecutingTaskId is not null ||
+        plan.Tasks.Any(task => task.Status != PlanTaskStatus.Pending);
 
     internal static DecomposedTaskGroup UpdatePlan(
         DecomposedTaskGroup group,

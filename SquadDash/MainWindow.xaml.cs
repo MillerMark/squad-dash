@@ -13561,22 +13561,6 @@ public partial class MainWindow : Window
                           if (PlanLifecycleStatus.IsTerminal(current.LifecycleStatus))
                               throw new InvalidOperationException(
                                   "Completed, stopped, or archived plans cannot be edited.");
-                          if (current.LifecycleStatus == PlanLifecycleStatus.Executing)
-                          {
-                              if (string.Equals(_activeDecomposeGroupId, current.PlanId, StringComparison.Ordinal) &&
-                                  IsLoopRunning)
-                              {
-                                  if (!RequestPlanPauseAfterCurrentStep(current))
-                                      throw new InvalidOperationException(
-                                          "SquadDash could not save the pause request. The plan edit was not queued.");
-                                  throw new PlanEditPauseRequiredException(
-                                      "The change is waiting to be saved. SquadDash will pause after the current " +
-                                      "task is accepted, then apply the edit before later work starts.");
-                              }
-                              throw new InvalidOperationException(
-                                  "This plan is still marked as executing but has no active runner. " +
-                                  "Reopen it after SquadDash repairs the interrupted state.");
-                          }
                           if (!StagedPlanEditor.TryValidateUnlockedChanges(current, editedGroup, out var lockError))
                               throw new InvalidOperationException(lockError ??
                                   "The edit would change work that has already started.");
@@ -13605,6 +13589,14 @@ public partial class MainWindow : Window
                           if (!TryPublishPlanProgress(applied.UpdatedPlan, out var publishError))
                               throw new InvalidOperationException(
                                   publishError ?? "The edited plan could not be saved.");
+                          TrackAcceptedPlanRevisionForActiveExecution(current, applied.UpdatedPlan);
+                          var activeExecutionPlanId = _conversationManager.ConversationState
+                              .ActiveLoopExecution?.DecomposeGroupId;
+                          var runnerPlanId = _activeDecomposeGroupId ?? activeExecutionPlanId;
+                          if (string.Equals(runnerPlanId, current.PlanId, StringComparison.Ordinal))
+                          {
+                              _CodeHealthGroupRunner?.RefreshTaskDefinitions(applied.EffectiveGroup!);
+                          }
                           return new PlanDefinitionEditResult(
                               PendingDecomposePlanAdapter.FromPlan(applied.UpdatedPlan),
                               applied.UpdatedPlan);

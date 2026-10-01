@@ -469,6 +469,50 @@ internal sealed class StagedPlanEditorTests
     }
 
     [Test]
+    public void UnlockedChangeValidation_LocksBranchAfterExecutionStartsButAllowsPlanTextEdits()
+    {
+        var original = MakeGroup();
+        var current = MakeDurablePlan() with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            Timestamps = MakeDurablePlan().Timestamps with
+            {
+                StartedAt = new DateTimeOffset(2026, 10, 1, 12, 0, 0, TimeSpan.Zero),
+            },
+        };
+        var branchEdit = StagedPlanEditor.UpdatePlan(
+            original, original.GroupTitle, "feature/different-branch", original.Summary, original.Delivery);
+        var textEdit = StagedPlanEditor.UpdatePlan(
+            original, "Clearer plan title", original.Branch, "Clearer plan summary", original.Delivery);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(StagedPlanEditor.IsPlanBranchLocked(current), Is.True);
+            Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+                current, branchEdit, out var branchError), Is.False);
+            Assert.That(branchError, Does.Contain("branch is fixed after execution starts"));
+            Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+                current, textEdit, out var textError), Is.True, textError);
+        });
+    }
+
+    [Test]
+    public void UnlockedChangeValidation_AllowsBranchEditBeforeExecutionStarts()
+    {
+        var original = MakeGroup();
+        var current = MakeDurablePlan();
+        var candidate = StagedPlanEditor.UpdatePlan(
+            original, original.GroupTitle, "feature/different-branch", original.Summary, original.Delivery);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(StagedPlanEditor.IsPlanBranchLocked(current), Is.False);
+            Assert.That(StagedPlanEditor.TryValidateUnlockedChanges(
+                current, candidate, out var error), Is.True, error);
+        });
+    }
+
+    [Test]
     public void UnlockedChangeValidation_RejectsDeletingCompletedTask()
     {
         var current = MakeDurablePlan() with

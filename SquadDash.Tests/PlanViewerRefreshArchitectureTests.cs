@@ -207,10 +207,9 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 "New definitions must place keyboard focus in the first editable field after rebuilding.");
             Assert.That(viewer, Does.Contain("CreateAssignToSubmenu")
                 .And.Contain("CreateThemedMenuItem(\"Assign primary agent\"")
-                .And.Contain("Primary agent (handle | role | allow generic children)")
-                .And.Contain("Enter exactly one primary agent")
                 .And.Not.Contain("ToggleTaskAgent")
-                .And.Not.Contain("preserving other assignees"),
+                .And.Not.Contain("preserving other assignees")
+                .And.Not.Contain("Primary agent (handle | role | allow generic children)"),
                 "Editable task menus must expose one primary-agent selection from the active workspace roster.");
             Assert.That(viewer, Does.Contain("task.AgentAssignments!.Take(1)"));
             Assert.That(thumbnail, Does.Contain("task.AgentAssignments.Take(1)"),
@@ -379,7 +378,7 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
-    public void DurableEditing_FreezesExecutedWorkAndDefersSavesAcrossTheActiveTaskBoundary()
+    public void DurableEditing_FreezesExecutedWorkAndPromotesActiveEditsAcrossTheTaskBoundary()
     {
         var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
@@ -388,18 +387,55 @@ internal sealed class PlanViewerRefreshArchitectureTests
         {
             Assert.That(main, Does.Contain("Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit")
                 .And.Contain("PlanRevisionApplier.Apply(")
-                .And.Contain("RequestPlanPauseAfterCurrentStep(current)")
-                .And.Contain("PlanEditPauseRequiredException"),
-                "Plans-panel viewers must receive a durable edit path that pauses active execution before saving.");
+                .And.Contain("TrackAcceptedPlanRevisionForActiveExecution(current, applied.UpdatedPlan)")
+                .And.Contain("var runnerPlanId = _activeDecomposeGroupId ?? activeExecutionPlanId")
+                .And.Contain("string.Equals(runnerPlanId, current.PlanId, StringComparison.Ordinal)")
+                .And.Not.Contain("PlanEditPauseRequiredException"),
+                "Plans-panel viewers must durably save active-plan edits and promote their revision at the task boundary.");
             Assert.That(viewer, Does.Contain("IsTaskDefinitionEditable")
                 .And.Contain("IsValidationDefinitionEditable")
                 .And.Contain("IsGateDefinitionEditable")
                 .And.Contain("TryValidateUnlockedChanges")
-                .And.Contain("_deferredDefinitionEdit"),
-                "The inspector, context menus, persistence boundary, and deferred Save must share lifecycle locks.");
+                .And.Not.Contain("_deferredDefinitionEdit")
+                .And.Contain("showFailureDialog: false")
+                .And.Contain("_lastStagedMutationError"),
+                "The inspector, context menus, and persistence boundary must share lifecycle locks without volatile queued edits.");
             Assert.That(viewer, Does.Contain("Undo/redo is blocked at the execution boundary")
                 .And.Contain("_editHistory?.ReplaceCurrent(updatedDefinition.Group)"),
                 "Live execution updates must advance the history lock boundary for an already-open viewer.");
+            Assert.That(viewer, Does.Contain("StagedPlanEditor.IsPlanBranchLocked(_durablePlan)")
+                .And.Contain("branch.IsReadOnly = true"),
+                "The branch must become visibly immutable after execution starts.");
+        });
+    }
+
+    [Test]
+    public void TaskEditor_ShowsReadableContractFieldsAndHidesInternalExecutionMetadata()
+    {
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var editorStart = viewer.IndexOf("private bool PopulateTaskEditor", StringComparison.Ordinal);
+        var editorEnd = viewer.IndexOf("private List<ContractExampleEditorRow>", editorStart, StringComparison.Ordinal);
+        Assert.That(editorStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(editorEnd, Is.GreaterThan(editorStart));
+        var editor = viewer[editorStart..editorEnd];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor, Does.Contain("Title")
+                .And.Contain("Description (Markdown supported)")
+                .And.Contain("CreateContractExampleEditor"));
+            Assert.That(editor, Does.Not.Contain("Dependencies (IDs separated by commas or lines)")
+                .And.Not.Contain("Priority\"")
+                .And.Not.Contain("Agent routing mode")
+                .And.Not.Contain("Primary agent (handle")
+                .And.Not.Contain("Generic-agent reason")
+                .And.Not.Contain("Execution mode"));
+            Assert.That(viewer, Does.Not.Contain("\"Example ID\"")
+                .And.Contain("example?.ExampleId ?? NextContractExampleId(rows)"),
+                "Contract examples remain fully visible while their protocol IDs are generated automatically.");
+            Assert.That(editor, Does.Contain("PlanVisualizerFeatures.ParallelTaskExecutionEditingEnabled")
+                .And.Contain("task.Priority, task.DependsOn"),
+                "Hidden metadata must be preserved, while parallel editing remains easy to re-enable with scheduler support.");
         });
     }
 
