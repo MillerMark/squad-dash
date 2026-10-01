@@ -189,8 +189,38 @@ List the concrete unfinished work in `remainingWork`; never claim complete. Use 
 when the step made no safe progress. A partial result may include a commit, but if it does its
 verification status must be `passed`.
 
+Every `partial` or `failed` result must include a `continuation` object. Only the coordinator emits
+this object after collecting any nested worker findings. A nested or temporary worker reports to its
+parent and never edits the plan directly. Set `originTaskId` to the exact current task ID so the host
+can apply the request safely even when multiple tasks may eventually execute concurrently.
+
+Use one of these actions:
+
+- `retry-current-task`: include concise `instructions` describing the smallest useful retry focus.
+  These instructions supplement the full approved task contract and never narrow its acceptance
+  requirements. Omit `tasks`.
+- `insert-prerequisite-tasks`: include one to four implementation `tasks`, each with `title`, `description`, `reason`,
+  and `reportedByAgent`; optional fields are `priority`, `executionMode` (implementation only), and `verificationLevel`.
+  The host creates IDs and dependencies, runs these prerequisites, and then resumes `originTaskId`.
+  Optional `instructions` may focus the resumed origin task.
+- `human-required`: use only when an actual human decision or approval is required. Omit `tasks`.
+
+Every continuation also requires a concise, user-facing `summary` that states what remains and what
+will happen next. Do not include generic deployment claims unless deployment is actually part of the
+task. Example focused retry:
+
+```json
+"continuation": {
+  "action": "retry-current-task",
+  "originTaskId": "GROUP-YYYYMMDD-NNN",
+  "summary": "Two readiness checks were intermittent. The coordinator will rerun those checks before continuing.",
+  "instructions": "Rerun the two failed readiness tests, investigate only if they fail again, then validate the full task contract."
+}
+```
+
 **On failure:** write a concise narrative and emit a failed-result variant with `status: "failed"`,
 no `completionKind`, `evaluatedCommit`, or `noOpEvidence`, no commit unless one was safely created,
 concrete `remainingWork`, and truthful verification evidence. Preserve a host-supplied
 `executionAttemptId`.
-SquadDash will block the plan, persist the result, stop the loop, and offer recovery actions.
+SquadDash validates and persists the requested continuation. It stops only when the coordinator asks
+for a human decision, persistence fails, or the durable automatic-continuation limit is actually reached.

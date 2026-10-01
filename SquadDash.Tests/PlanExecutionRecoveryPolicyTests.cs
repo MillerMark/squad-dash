@@ -5,6 +5,17 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class PlanExecutionRecoveryPolicyTests
 {
+    [Test]
+    public void AutomaticContinuation_IsAvailableUntilPersistedLimitIsReached()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanExecutionRecoveryPolicy.HasAutomaticContinuationAvailable(0), Is.True);
+            Assert.That(PlanExecutionRecoveryPolicy.HasAutomaticContinuationAvailable(2), Is.True);
+            Assert.That(PlanExecutionRecoveryPolicy.HasAutomaticContinuationAvailable(3), Is.False);
+        });
+    }
+
     private static readonly DecomposedAgentAssignment Assignment =
         new("vesper-knox", "Test verification", false);
 

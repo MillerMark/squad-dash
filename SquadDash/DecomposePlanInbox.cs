@@ -273,7 +273,8 @@ internal static class DecomposePlanInbox
                    $"Plan: **{plan.Group.GroupTitle}**  \n" +
                    $"{stepLabel}: **{taskTitle}**\n\n" +
                    attentionCard.Explanation + "\n\n" +
-                   (attentionCard.Category == PlanAttentionCategory.HumanVerificationRequired
+                   (attentionCard.Category is PlanAttentionCategory.HumanVerificationRequired or
+                       PlanAttentionCategory.HumanInputRequired
                        ? "Human check: "
                        : "What happened: ") +
                    attentionCard.RecordedReason + reviewAnalysis + "\n";

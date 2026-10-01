@@ -1796,4 +1796,83 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(updated.Progress.ExecutingTaskId, Is.EqualTo("GROUP-001-002"));
         });
     }
+
+    [Test]
+    public void ApplyAutomaticTaskRetry_PreservesContractAndStoresFocusedInstructions()
+    {
+        var group = MakeGroup(1);
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, "rev1", [MakeItem("GROUP-001-001")], "GROUP-001-001");
+        var continuation = new DecomposeStepContinuation(
+            DecomposeStepContinuationAction.RetryCurrentTask,
+            "GROUP-001-001",
+            "Retry two checks.",
+            "Rerun only the two intermittent checks, then validate the full task.");
+        var result = new DecomposeStepResult(
+            "GROUP-001", "GROUP-001-001", plan.Revision, "partial", null,
+            "Two checks were intermittent.", ["Rerun two checks"],
+            new DecomposeStepVerification("failed", "dotnet test", "Two checks failed."),
+            Continuation: continuation);
+
+        var updated = PlanStoreUpdater.ApplyAutomaticTaskRetry(
+            plan, result, continuation.Instructions!);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.Tasks[0].Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(updated.Tasks[0].Description, Is.EqualTo(plan.Tasks[0].Description));
+            Assert.That(updated.Tasks[0].ResumeInstructions, Does.Contain("two intermittent checks"));
+            Assert.That(updated.Tasks[0].AutomaticContinuationCount, Is.EqualTo(1));
+            Assert.That(updated.Tasks[0].CompletionSummary, Is.Null);
+            Assert.That(updated.Tasks[0].AttemptHistory!.Single().Disposition,
+                Is.EqualTo("automatic-continuation"));
+            Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Executing));
+        });
+    }
+
+    [Test]
+    public void ApplyAutomaticPrerequisiteTasks_InsertsProvenancedDependencyBeforeOrigin()
+    {
+        var group = MakeGroup(2);
+        var plan = PlanStoreUpdater.ApplyExecutionStarted(
+            null, group, "rev1", [MakeItem("GROUP-001-001", isChecked: true), MakeItem("GROUP-001-002")],
+            "GROUP-001-002");
+        var continuation = new DecomposeStepContinuation(
+            DecomposeStepContinuationAction.InsertPrerequisiteTasks,
+            "GROUP-001-002",
+            "A rollback route must be verified.",
+            "Rerun readiness checks after the rollback route is ready.",
+            [new DecomposeContinuationTask(
+                "Create and verify rollback route",
+                "Implement a repeatable rollback route and verify it.",
+                "Deployment approval requires a proven rollback route.",
+                "Talia Rune")]);
+        var result = new DecomposeStepResult(
+            "GROUP-001", "GROUP-001-002", plan.Revision, "failed", null,
+            "Rollback is not yet proven.", ["Create and verify rollback route"],
+            new DecomposeStepVerification("failed", null, "Rollback route missing."),
+            ExecutionAttemptId: "attempt-15",
+            Continuation: continuation);
+
+        var updated = PlanStoreUpdater.ApplyAutomaticPrerequisiteTasks(
+            plan, result, continuation, new DateTimeOffset(2026, 9, 30, 12, 0, 0, TimeSpan.Zero));
+        var repair = updated.Tasks.Single(task => task.TaskId.Contains("-AMD-", StringComparison.Ordinal));
+        var origin = updated.Tasks.Single(task => task.TaskId == "GROUP-001-002");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.Tasks.ToList().IndexOf(repair), Is.LessThan(updated.Tasks.ToList().IndexOf(origin)));
+            Assert.That(repair.DependsOn, Is.EqualTo(new[] { "GROUP-001-001" }));
+            Assert.That(origin.DependsOn, Is.EqualTo(new[] { repair.TaskId }));
+            Assert.That(origin.Status, Is.EqualTo(PlanTaskStatus.Pending));
+            Assert.That(origin.AutomaticContinuationCount, Is.EqualTo(1));
+            Assert.That(origin.DisplayStepLabel, Is.EqualTo(plan.Tasks[1].DisplayStepLabel));
+            Assert.That(repair.DisplayStepLabel, Does.Contain("Repair 1"));
+            Assert.That(repair.ExecutionMode, Is.EqualTo(PlanTaskExecutionMode.Implementation));
+            Assert.That(repair.ExecutionOrigin!.OriginTaskId, Is.EqualTo(origin.TaskId));
+            Assert.That(repair.ExecutionOrigin.ReportedByAgent, Is.EqualTo("Talia Rune"));
+            Assert.That(repair.ExecutionOrigin.ExecutionAttemptId, Is.EqualTo("attempt-15"));
+            Assert.That(updated.Revision, Is.Not.EqualTo(plan.Revision));
+        });
+    }
 }

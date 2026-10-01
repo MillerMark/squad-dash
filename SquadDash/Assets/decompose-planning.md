@@ -813,6 +813,21 @@ invent downstream ownership that is absent from the approved task contracts.
 with one independently readable item per completed outcome. Each item may contain multiple sentences.
 Do not return Markdown bullets or combine separate outcomes into one prose paragraph.
 
+Every `partial` or `failed` result requires a `continuation` object authored by the coordinator. Nested
+workers report findings through their existing parent responses; they never mutate the plan or emit
+host continuation commands. The coordinator must set `originTaskId` to the exact current `taskId` and
+choose exactly one action:
+
+- `retry-current-task`: provide focused `instructions`; omit `tasks`. The approved task contract remains
+  authoritative, so focus may reduce repeated work but never reduce final acceptance coverage.
+- `insert-prerequisite-tasks`: provide one to four implementation task definitions with `title`, `description`, `reason`,
+  and `reportedByAgent`. Optional fields are `priority`, `executionMode` (implementation only), and `verificationLevel`. The
+  host assigns IDs, makes them prerequisites of the origin, and resumes the origin afterward.
+- `human-required`: reserve for a real human decision or approval and omit `tasks`.
+
+All three actions require a concise user-facing `summary`. `insert-prerequisite-tasks` may also include
+focused `instructions` for the origin task when it resumes. A complete result must omit `continuation`.
+
 ## PLAN_GATE_APPROVAL_JSON schema
 
 When SquadDash pauses an executing plan at a human approval gate, the AI must

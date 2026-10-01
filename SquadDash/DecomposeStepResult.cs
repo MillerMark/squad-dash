@@ -33,6 +33,42 @@ internal sealed record DecomposeStepProofEvidence(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         IReadOnlyList<string>? Artifacts = null);
 
+internal static class DecomposeStepContinuationAction
+{
+    internal const string RetryCurrentTask = "retry-current-task";
+    internal const string InsertPrerequisiteTasks = "insert-prerequisite-tasks";
+    internal const string HumanRequired = "human-required";
+
+    internal static bool IsValid(string? value) => value is
+        RetryCurrentTask or InsertPrerequisiteTasks or HumanRequired;
+}
+
+internal sealed record DecomposeContinuationTask(
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("description")] string Description,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("reportedByAgent")] string ReportedByAgent,
+    [property: JsonPropertyName("priority")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? Priority = null,
+    [property: JsonPropertyName("executionMode")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? ExecutionMode = null,
+    [property: JsonPropertyName("verificationLevel")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? VerificationLevel = null);
+
+internal sealed record DecomposeStepContinuation(
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("originTaskId")] string OriginTaskId,
+    [property: JsonPropertyName("summary")] string Summary,
+    [property: JsonPropertyName("instructions")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? Instructions = null,
+    [property: JsonPropertyName("tasks")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        IReadOnlyList<DecomposeContinuationTask>? Tasks = null);
+
 internal sealed record DecomposeStepResult(
     [property: JsonPropertyName("groupId")] string GroupId,
     [property: JsonPropertyName("taskId")] string TaskId,
@@ -69,7 +105,10 @@ internal sealed record DecomposeStepResult(
         string? EvaluatedCommit = null,
     [property: JsonPropertyName("noOpEvidence")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null)
+        IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null,
+    [property: JsonPropertyName("continuation")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        DecomposeStepContinuation? Continuation = null)
 {
     [JsonIgnore]
     internal bool IsVerifiedNoOp =>
@@ -104,6 +143,10 @@ internal enum DecomposeStepResultViolationCode
     DeferredWorkInvalid,
     IdentityMismatch,
     InvalidTestCounts,
+    ContinuationMissing,
+    ContinuationInvalid,
+    ContinuationOriginMismatch,
+    ContinuationNotAllowed,
 }
 
 internal sealed record DecomposeStepResultViolation(
@@ -203,6 +246,30 @@ internal static class DecomposeStepResultParser
                 authoritativeExecutionAttemptId,
                 "executionAttemptId",
                 canonicalizations),
+            Continuation = result.Continuation is null
+                ? null
+                : result.Continuation with
+                {
+                    Action = result.Continuation.Action?.Trim().ToLowerInvariant() ?? string.Empty,
+                    OriginTaskId = result.Continuation.OriginTaskId?.Trim() ?? string.Empty,
+                    Summary = result.Continuation.Summary?.Trim() ?? string.Empty,
+                    Instructions = string.IsNullOrWhiteSpace(result.Continuation.Instructions)
+                        ? null
+                        : result.Continuation.Instructions.Trim(),
+                    Tasks = (result.Continuation.Tasks ?? [])
+                        .Where(task => task is not null)
+                        .Select(task => task with
+                        {
+                            Title = task.Title?.Trim() ?? string.Empty,
+                            Description = task.Description?.Trim() ?? string.Empty,
+                            Reason = task.Reason?.Trim() ?? string.Empty,
+                            ReportedByAgent = task.ReportedByAgent?.Trim() ?? string.Empty,
+                            Priority = string.IsNullOrWhiteSpace(task.Priority) ? null : task.Priority.Trim().ToLowerInvariant(),
+                            ExecutionMode = string.IsNullOrWhiteSpace(task.ExecutionMode) ? null : task.ExecutionMode.Trim().ToLowerInvariant(),
+                            VerificationLevel = string.IsNullOrWhiteSpace(task.VerificationLevel) ? null : task.VerificationLevel.Trim().ToLowerInvariant(),
+                        })
+                        .ToArray(),
+                },
         };
 
         if (result.Status == "complete" && string.IsNullOrWhiteSpace(result.CompletionKind))
@@ -338,6 +405,17 @@ internal static class DecomposeStepResultParser
                 "add concrete remaining work"));
         }
 
+        if (result.Status == "failed" && (result.RemainingWork is null || result.RemainingWork.Count == 0))
+        {
+            violations.Add(new(
+                DecomposeStepResultViolationCode.PartialRemainingWorkMissing,
+                "A failed result must describe the work that remains.",
+                "/remainingWork",
+                "add concrete remaining work"));
+        }
+
+        ValidateContinuation(result, violations);
+
         if (result.Status == "partial" && !string.IsNullOrWhiteSpace(result.Commit) &&
             result.Verification?.Status != "passed")
         {
@@ -385,6 +463,91 @@ internal static class DecomposeStepResultParser
         }
 
         return new DecomposeStepResultParseOutcome(result, violations, canonicalizations);
+    }
+
+    private static void ValidateContinuation(
+        DecomposeStepResult result,
+        ICollection<DecomposeStepResultViolation> violations)
+    {
+        if (result.Status == "complete")
+        {
+            if (result.Continuation is not null)
+            {
+                violations.Add(new(
+                    DecomposeStepResultViolationCode.ContinuationNotAllowed,
+                    "A complete result must not request continuation work.",
+                    "/continuation",
+                    "remove"));
+            }
+            return;
+        }
+
+        if (result.Status is not ("partial" or "failed"))
+            return;
+
+        var continuation = result.Continuation;
+        if (continuation is null)
+        {
+            violations.Add(new(
+                DecomposeStepResultViolationCode.ContinuationMissing,
+                "A partial or failed result requires an explicit continuation action.",
+                "/continuation",
+                "add retry-current-task, insert-prerequisite-tasks, or human-required"));
+            return;
+        }
+
+        if (!DecomposeStepContinuationAction.IsValid(continuation.Action) ||
+            string.IsNullOrWhiteSpace(continuation.Summary))
+        {
+            violations.Add(new(
+                DecomposeStepResultViolationCode.ContinuationInvalid,
+                "Continuation requires a supported action and a concise user-facing summary.",
+                "/continuation",
+                "replace the invalid continuation fields"));
+        }
+        if (!string.Equals(continuation.OriginTaskId, result.TaskId, StringComparison.Ordinal))
+        {
+            violations.Add(new(
+                DecomposeStepResultViolationCode.ContinuationOriginMismatch,
+                "continuation.originTaskId must identify the task that returned this result.",
+                "/continuation/originTaskId",
+                "copy the exact taskId"));
+        }
+
+        var tasks = continuation.Tasks ?? [];
+        if (continuation.Action == DecomposeStepContinuationAction.RetryCurrentTask &&
+            (string.IsNullOrWhiteSpace(continuation.Instructions) || tasks.Count > 0))
+        {
+            violations.Add(new(
+                DecomposeStepResultViolationCode.ContinuationInvalid,
+                "retry-current-task requires focused instructions and must not include new tasks.",
+                "/continuation",
+                "add focused instructions and remove tasks"));
+        }
+        if (continuation.Action == DecomposeStepContinuationAction.InsertPrerequisiteTasks &&
+            (tasks.Count is < 1 or > 4 || tasks.Any(task =>
+                string.IsNullOrWhiteSpace(task.Title) ||
+                string.IsNullOrWhiteSpace(task.Description) ||
+                string.IsNullOrWhiteSpace(task.Reason) ||
+                string.IsNullOrWhiteSpace(task.ReportedByAgent) ||
+                (task.Priority is not null && task.Priority is not ("critical" or "high" or "mid" or "low")) ||
+                (task.ExecutionMode is not null && task.ExecutionMode != PlanTaskExecutionMode.Implementation) ||
+                !PlanTaskVerificationLevel.IsValid(task.VerificationLevel))))
+        {
+            violations.Add(new(
+                DecomposeStepResultViolationCode.ContinuationInvalid,
+                "insert-prerequisite-tasks requires one to four valid implementation task definitions.",
+                "/continuation/tasks",
+                "add one to four tasks with title, description, reason, reportedByAgent, and valid optional fields"));
+        }
+        if (continuation.Action == DecomposeStepContinuationAction.HumanRequired && tasks.Count > 0)
+        {
+            violations.Add(new(
+                DecomposeStepResultViolationCode.ContinuationInvalid,
+                "human-required must not insert plan tasks.",
+                "/continuation/tasks",
+                "remove"));
+        }
     }
 
     private static string CanonicalizeMissingHostField(

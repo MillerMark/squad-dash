@@ -243,6 +243,58 @@ internal sealed class DecomposeStepResultParserTests
     }
 
     [Test]
+    public void PartialResult_WithoutContinuation_IsRejected()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {"groupId":"PLAN-20260725","taskId":"PLAN-20260725-001","revision":"abc123",
+             "status":"partial","commit":null,"summary":"Started",
+             "remainingWork":["Rerun the readiness checks"],"verification":null}
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("explicit continuation action"));
+    }
+
+    [Test]
+    public void PartialResult_WithFocusedRetryContinuation_Parses()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {"groupId":"PLAN-20260725","taskId":"PLAN-20260725-001","revision":"abc123",
+             "status":"partial","commit":null,"summary":"Two checks were intermittent.",
+             "remainingWork":["Rerun two readiness checks"],"verification":{"status":"failed"},
+             "continuation":{"action":"retry-current-task","originTaskId":"PLAN-20260725-001",
+               "summary":"The coordinator will rerun the two readiness checks.",
+               "instructions":"Rerun the two failed checks, then validate the full task."}}
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out var result, out var error), Is.True, error);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result!.Continuation!.Action, Is.EqualTo(DecomposeStepContinuationAction.RetryCurrentTask));
+            Assert.That(result.Continuation.OriginTaskId, Is.EqualTo(result.TaskId));
+            Assert.That(result.Continuation.Instructions, Does.Contain("full task"));
+        });
+    }
+
+    [Test]
+    public void Continuation_WithDifferentOriginTask_IsRejected()
+    {
+        var text = """
+            DECOMPOSE_STEP_RESULT_JSON:
+            {"groupId":"PLAN-20260725","taskId":"PLAN-20260725-001","revision":"abc123",
+             "status":"failed","commit":null,"summary":"Blocked.","remainingWork":["Add rollback"],
+             "verification":{"status":"failed"},
+             "continuation":{"action":"human-required","originTaskId":"PLAN-20260725-002",
+               "summary":"A human decision is required."}}
+            """;
+
+        Assert.That(DecomposeStepResultParser.TryParse(text, out _, out var error), Is.False);
+        Assert.That(error, Does.Contain("must identify the task"));
+    }
+
+    [Test]
     public void IdentityValidation_ReportsEveryMismatchIncludingAuthoritativeRevision()
     {
         var result = new DecomposeStepResult(

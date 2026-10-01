@@ -918,6 +918,7 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [TestCase(PlanAttentionCategory.AutomaticWorkExhausted, "Automatic Work Is Exhausted", false)]
+    [TestCase(PlanAttentionCategory.HumanInputRequired, "Human Input Is Required", false)]
     [TestCase(PlanAttentionCategory.UnexpectedState, "Unexpected State Encountered", true)]
     public void AttentionCard_UsesPersistedCategoryWithoutParsingReason(
         string category,

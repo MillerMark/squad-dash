@@ -271,6 +271,15 @@ internal sealed record PlanTaskVerificationReport(
     [property: JsonPropertyName("evaluatedCommit")] string EvaluatedCommit,
     [property: JsonPropertyName("completedAt")] DateTimeOffset CompletedAt);
 
+internal sealed record PlanTaskExecutionOrigin(
+    [property: JsonPropertyName("originTaskId")] string OriginTaskId,
+    [property: JsonPropertyName("reportedByAgent")] string ReportedByAgent,
+    [property: JsonPropertyName("reason")] string Reason,
+    [property: JsonPropertyName("addedAt")] DateTimeOffset AddedAt,
+    [property: JsonPropertyName("executionAttemptId")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? ExecutionAttemptId = null);
+
 /// <summary>Immutable task entry inside a Plan.</summary>
 internal sealed record PlanTask(
     [property: JsonPropertyName("taskId")]      string TaskId,
@@ -365,7 +374,16 @@ internal sealed record PlanTask(
                                                 IReadOnlyList<PlanTaskNoOpEvidence>? NoOpEvidence = null,
     [property: JsonPropertyName("contractExamples")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                IReadOnlyList<PlanTaskContractExample>? ContractExamples = null);
+                                                IReadOnlyList<PlanTaskContractExample>? ContractExamples = null,
+    [property: JsonPropertyName("executionOrigin")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                PlanTaskExecutionOrigin? ExecutionOrigin = null,
+    [property: JsonPropertyName("resumeInstructions")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? ResumeInstructions = null,
+    [property: JsonPropertyName("automaticContinuationCount")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+                                                int AutomaticContinuationCount = 0);
 
 /// <summary>
 /// A first-class human approval gate — a dependency barrier between task groups.
@@ -546,11 +564,12 @@ internal sealed record PlanInterruptionData(
 internal static class PlanAttentionCategory
 {
     internal const string HumanVerificationRequired = "human-verification-required";
+    internal const string HumanInputRequired = "human-input-required";
     internal const string AutomaticWorkExhausted = "automatic-work-exhausted";
     internal const string UnexpectedState = "unexpected-state";
 
     internal static bool IsValid(string? value) => value is
-        HumanVerificationRequired or AutomaticWorkExhausted or UnexpectedState;
+        HumanVerificationRequired or HumanInputRequired or AutomaticWorkExhausted or UnexpectedState;
 }
 
 internal sealed record PlanWorkCompletePendingAcceptance(

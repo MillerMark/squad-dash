@@ -72,6 +72,12 @@ internal static class PlanAttentionCardPresentationBuilder
                 "SquadDash recorded a human-verification state without a concrete question or checklist, so it stopped instead of requesting an unsupported approval.",
                 recordedReason,
                 ShowDiagnosticsActions: true),
+            PlanAttentionCategory.HumanInputRequired => new PlanAttentionCardPresentation(
+                category,
+                "Human Input Is Required",
+                "Plan execution reached a decision that only you can make. Existing work and plan state are preserved.",
+                recordedReason,
+                ShowDiagnosticsActions: false),
             _ => new PlanAttentionCardPresentation(
                 PlanAttentionCategory.UnexpectedState,
                 "Unexpected State Encountered",

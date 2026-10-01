@@ -14333,6 +14333,7 @@ public partial class MainWindow : Window
         }
 
         string? planExecutionContext = null;
+        string? automaticContinuationContext = null;
         if (durablePlan is not null)
         {
             var durableTask = durablePlan.Tasks.FirstOrDefault(task =>
@@ -14348,6 +14349,15 @@ public partial class MainWindow : Window
                     "the projection is an inspectable plan-only reference and tasks.md is not an execution source. " +
                     "Inspect the current implementation and tests before changing anything. Treat requirements already satisfied by earlier or concurrent work as complete, avoid duplicating equivalent work, and report either the terminal changed commit or a `verified-no-op` result with requirement-scoped repository evidence from the current inspected snapshot; SquadDash records the full commit range without attributing concurrent commits to this step. " +
                     "Capability discovery must be non-mutating: never run a mutating subcommand followed by `--help` in the active workspace. Inspect top-level help, installed source, or official documentation, or use an isolated disposable copy. Specifically, never run `squad upgrade --help`; Squad CLI 0.10 executes the upgrade instead of showing subcommand help.";
+                if (!string.IsNullOrWhiteSpace(durableTask.ResumeInstructions))
+                {
+                    automaticContinuationContext =
+                        "## Focused automatic continuation (host-owned)\n\n" +
+                        "The approved task contract above remains authoritative. Preserve completed work and focus this attempt on:\n" +
+                        durableTask.ResumeInstructions +
+                        "\n\nValidate the whole task before returning the normal result envelope. " +
+                        "Do not omit contract requirements merely because this retry is focused.";
+                }
             }
         }
 
@@ -14370,7 +14380,7 @@ public partial class MainWindow : Window
 
         var contexts = new[]
             { planExecutionContext, continuationContext, assessedRecoveryContext, verificationReworkContext,
-              verificationOnlyContext, routingContext, proofContext }
+              automaticContinuationContext, verificationOnlyContext, routingContext, proofContext }
             .Where(value => !string.IsNullOrWhiteSpace(value));
         var taskContext = string.Join("\n\n", contexts);
         if (durablePlan is not null)
@@ -15163,40 +15173,135 @@ public partial class MainWindow : Window
         if (result.Status is "partial" or "failed")
         {
             var canonical = _planStore?.Load(groupId);
-            if (canonical is not null)
+            if (canonical is null)
             {
-                var recorded = PlanStoreUpdater.ApplyStepAccepted(
-                    canonical,
-                    nextExecutingTaskId: null,
-                    result);
-                if (!TryPublishPlanProgress(recorded, out var resultSaveError))
+                StopAndOfferDecomposeRecovery(
+                    groupId, taskId, revision,
+                    "The non-complete result could not be applied because the durable plan is unavailable.",
+                    taskCommitEvidence);
+                return;
+            }
+
+            var continuation = result.Continuation!; // Required and validated by the result parser.
+            var originTask = canonical.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, continuation.OriginTaskId, StringComparison.Ordinal));
+            if (originTask is null)
+            {
+                StopAndOfferDecomposeRecovery(
+                    groupId, taskId, revision,
+                    $"The requested continuation origin '{continuation.OriginTaskId}' is not in the durable plan.",
+                    taskCommitEvidence);
+                return;
+            }
+
+            if (continuation.Action == DecomposeStepContinuationAction.HumanRequired)
+            {
+                var recorded = PlanStoreUpdater.ApplyStepAccepted(canonical, nextExecutingTaskId: null, result);
+                if (!TryPublishPlanProgress(recorded, out var humanResultSaveError))
                 {
                     StopAndOfferDecomposeRecovery(
-                        groupId,
-                        taskId,
-                        revision,
-                        resultSaveError ?? "The result could not be saved.",
+                        groupId, taskId, revision,
+                        humanResultSaveError ?? "The result could not be saved.",
                         taskCommitEvidence);
                     return;
                 }
-                RefreshPlanProjectionBestEffort(recorded, "step-blocked");
+                RefreshPlanProjectionBestEffort(recorded, "human-input-required");
+                StopAndOfferDecomposeRecovery(
+                    groupId, taskId, revision,
+                    continuation.Summary,
+                    taskCommitEvidence,
+                    attentionCategory: PlanAttentionCategory.HumanInputRequired);
+                return;
             }
+
+            if (!PlanExecutionRecoveryPolicy.HasAutomaticContinuationAvailable(
+                    originTask.AutomaticContinuationCount))
+            {
+                var recorded = PlanStoreUpdater.ApplyStepAccepted(canonical, nextExecutingTaskId: null, result);
+                if (!TryPublishPlanProgress(recorded, out var exhaustedSaveError))
+                {
+                    StopAndOfferDecomposeRecovery(
+                        groupId, taskId, revision,
+                        exhaustedSaveError ?? "The final continuation result could not be saved.",
+                        taskCommitEvidence);
+                    return;
+                }
+                StopAndOfferDecomposeRecovery(
+                    groupId, taskId, revision,
+                    $"{continuation.Summary} SquadDash stopped after " +
+                    $"{originTask.AutomaticContinuationCount} automatic continuation attempts.",
+                    taskCommitEvidence,
+                    attentionCategory: PlanAttentionCategory.AutomaticWorkExhausted);
+                return;
+            }
+
+            var updated = continuation.Action switch
+            {
+                DecomposeStepContinuationAction.RetryCurrentTask =>
+                    PlanStoreUpdater.ApplyAutomaticTaskRetry(
+                        canonical, result, continuation.Instructions!),
+                DecomposeStepContinuationAction.InsertPrerequisiteTasks =>
+                    PlanStoreUpdater.ApplyAutomaticPrerequisiteTasks(
+                        canonical, result, continuation, DateTimeOffset.UtcNow),
+                _ => canonical,
+            };
+            if (ReferenceEquals(updated, canonical))
+            {
+                StopAndOfferDecomposeRecovery(
+                    groupId, taskId, revision,
+                    "The coordinator requested an unsupported automatic continuation.",
+                    taskCommitEvidence);
+                return;
+            }
+            if (!TryPublishPlanProgress(updated, out var continuationSaveError))
+            {
+                StopAndOfferDecomposeRecovery(
+                    groupId, taskId, revision,
+                    continuationSaveError ?? "The automatic continuation could not be saved.",
+                    taskCommitEvidence);
+                return;
+            }
+
+            RefreshPlanProjectionBestEffort(updated, "automatic-continuation");
+            var effectiveGroup = PendingDecomposePlanAdapter.FromPlan(updated).Group;
+            _CodeHealthGroupRunner.RefreshTaskDefinitions(effectiveGroup);
+            var nextState = _CodeHealthGroupRunner.TrackFirstEligibleStep(
+                updated,
+                UnionBlockedTaskIds(updated));
+            if (nextState != DecomposeGroupExecutionState.Eligible)
+            {
+                StopAndOfferDecomposeRecovery(
+                    groupId, taskId, updated.Revision,
+                    $"The continuation was saved, but no prerequisite-eligible task is available ({nextState}).",
+                    taskCommitEvidence);
+                return;
+            }
+
+            var history = (activeExecution.PreviousPlanExecutionAttempts ?? []).ToList();
+            if (executionAttempt is not null)
+                history.Add(executionAttempt with { Status = result.Status });
             _conversationManager.UpdateActiveLoopExecutionState(
                 activeExecution with
                 {
-                    PlanExecutionAttempt = executionAttempt is null
-                        ? null
-                        : executionAttempt with { Status = "blocked" },
+                    DecomposeRevision = updated.Revision,
+                    PendingDecomposeRevision = null,
+                    PlanExecutionAttempt = null,
+                    PreviousPlanExecutionAttempts = history.TakeLast(20).ToArray(),
+                    RecoveryTaskId = null,
+                    RecoveryAttemptId = null,
+                    RepairRequestCount = 0,
+                    FreshAttemptCount = 0,
+                    TaskBaselineCommit = null,
                     PendingRepairResult = null,
+                    AssessedRecoveryContinuation = null,
                 });
             LoadTasksPanel();
-            StopAndOfferDecomposeRecovery(
+            RefreshOpenPlanViewersAfterAutomaticContinuation(updated);
+            ScheduleDecomposeSystemEntry(
+                continuation.Summary + "\n\nPlan execution is continuing automatically.",
                 groupId,
-                taskId,
-                revision,
-                result.Summary,
-                taskCommitEvidence,
-                attentionCategory: PlanAttentionCategory.AutomaticWorkExhausted);
+                updated.Revision,
+                taskId);
             return;
         }
 
@@ -19918,7 +20023,8 @@ public partial class MainWindow : Window
         copyParts.Add(attentionCard.Explanation);
 
         var reasonParagraph = CreateTranscriptParagraph(bottomMargin: 11);
-        var reasonLabel = new Run(attentionCard.Category == PlanAttentionCategory.HumanVerificationRequired
+        var reasonLabel = new Run(attentionCard.Category is PlanAttentionCategory.HumanVerificationRequired or
+                PlanAttentionCategory.HumanInputRequired
             ? "Human check: "
             : "What happened: ");
         reasonLabel.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
@@ -19928,7 +20034,8 @@ public partial class MainWindow : Window
         reasonParagraph.Inlines.Add(reasonRun);
         blocks.Add(reasonParagraph);
         copyParts.Add(string.Empty);
-        copyParts.Add((attentionCard.Category == PlanAttentionCategory.HumanVerificationRequired
+        copyParts.Add((attentionCard.Category is PlanAttentionCategory.HumanVerificationRequired or
+                PlanAttentionCategory.HumanInputRequired
             ? "Human check: "
             : "What happened: ") + CommitReferenceText.Shorten(attentionCard.RecordedReason));
 
@@ -20142,6 +20249,8 @@ public partial class MainWindow : Window
         {
             PlanAttentionCategory.HumanVerificationRequired =>
                 "Verify this step is complete to continue the plan.",
+            PlanAttentionCategory.HumanInputRequired =>
+                "Reply with the requested decision. SquadDash will preserve the plan until then.",
             PlanAttentionCategory.AutomaticWorkExhausted =>
                 "Choose whether to try again, revise the remaining plan, accept preserved work when available, or stop.",
             _ => "Continue from the preserved work or copy the diagnostic report for investigation.",
@@ -58371,6 +58480,12 @@ public partial class MainWindow : Window
     }
 
     private void RefreshOpenPlanViewersAfterPauseTransition(Plan plan)
+        => RefreshOpenPlanViewers(plan, "pause state");
+
+    private void RefreshOpenPlanViewersAfterAutomaticContinuation(Plan plan)
+        => RefreshOpenPlanViewers(plan, "automatic continuation");
+
+    private void RefreshOpenPlanViewers(Plan plan, string reason)
     {
         foreach (var entry in _openPlanViewerWindows
                      .Where(entry => string.Equals(entry.GroupId, plan.PlanId, StringComparison.Ordinal))
@@ -58384,7 +58499,7 @@ public partial class MainWindow : Window
             {
                 SquadDashTrace.Write(
                     "PlanViewer",
-                    $"Could not refresh pause state for plan={plan.PlanId}: {ex.Message}");
+                    $"Could not refresh {reason} for plan={plan.PlanId}: {ex.Message}");
             }
         }
     }

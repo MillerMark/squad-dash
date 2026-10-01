@@ -28,6 +28,13 @@ internal static class PlanExecutionRecoveryPolicy
     internal const int MaxEnvelopeRepairRequestsPerAttempt = 3;
     internal const int MaxRepairRequestsPerAttempt = MaxEnvelopeRepairRequestsPerAttempt;
     internal const int MaxFreshAttemptsPerTask = 1;
+    // Counts semantic continuation decisions returned by the coordinator. Unlike envelope repair,
+    // this counter advances only after a valid non-complete result has been durably accepted.
+    internal const int MaxAutomaticContinuationsPerTask = 3;
+
+    internal static bool HasAutomaticContinuationAvailable(int completedContinuationCount) =>
+        completedContinuationCount >= 0 &&
+        completedContinuationCount < MaxAutomaticContinuationsPerTask;
 
     internal static PlanExecutionRecoveryAction Resolve(
         PlanExecutionAttemptState? attempt,

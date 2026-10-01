@@ -301,7 +301,9 @@ internal static class PlanStoreUpdater
                 Commit = acceptedResult.IsVerifiedNoOp
                     ? null
                     : string.IsNullOrWhiteSpace(acceptedResult.Commit) ? task.Commit : acceptedResult.Commit,
-                Commits = acceptedResult.IsVerifiedNoOp ? [] : acceptedResult.Commits ?? task.Commits,
+                Commits = acceptedResult.IsVerifiedNoOp
+                    ? []
+                    : MergePlanEvidenceCommits(task.Commits, acceptedResult.Commits),
                 ExecutionAnomalies = MergeExecutionAnomalies(task.ExecutionAnomalies, acceptedResult.ExecutionAnomalies),
                 CompletedAt = acceptedResult.Status == "complete" ? task.CompletedAt ?? now : task.CompletedAt,
                 CompletionSummary = acceptedResult.Summary,
@@ -314,6 +316,7 @@ internal static class PlanStoreUpdater
                     evidence.ProofType,
                     evidence.Summary,
                     evidence.Artifacts)).ToArray(),
+                ResumeInstructions = acceptedResult.Status == "complete" ? null : task.ResumeInstructions,
             };
         }).ToArray();
         var plan = existing with
@@ -326,6 +329,139 @@ internal static class PlanStoreUpdater
         plan = InvalidateCoveredValidations(plan, changedIds);
         return ApplyReadyValidations(plan);
     }
+
+    /// <summary>
+    /// Records a truthful non-complete result and schedules a bounded, focused retry of the same
+    /// approved task. The focused instructions supplement the original contract; they do not
+    /// replace it.
+    /// </summary>
+    internal static Plan ApplyAutomaticTaskRetry(
+        Plan existing,
+        DecomposeStepResult result,
+        string instructions)
+    {
+        var recorded = ApplyStepAccepted(existing, nextExecutingTaskId: null, result);
+        var tasks = recorded.Tasks.Select(task =>
+            string.Equals(task.TaskId, result.TaskId, StringComparison.Ordinal)
+                ? task with
+                {
+                    Status = PlanTaskStatus.Pending,
+                    CompletedAt = null,
+                    CompletionSummary = null,
+                    CompletionSummaryItems = null,
+                    AttemptHistory = AppendAutomaticContinuationAttempt(task, result),
+                    ResumeInstructions = instructions.Trim(),
+                    AutomaticContinuationCount = task.AutomaticContinuationCount + 1,
+                }
+                : task).ToArray();
+        return recorded with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = tasks,
+            Progress = BuildProgress(tasks, executingTaskId: null),
+            InterruptionData = null,
+        };
+    }
+
+    /// <summary>
+    /// Records a non-complete result, inserts host-identified generic repair work immediately
+    /// before its origin task, and makes the origin depend on every inserted repair. The origin
+    /// task remains the approved contract and resumes after those prerequisites complete.
+    /// </summary>
+    internal static Plan ApplyAutomaticPrerequisiteTasks(
+        Plan existing,
+        DecomposeStepResult result,
+        DecomposeStepContinuation continuation,
+        DateTimeOffset addedAt)
+    {
+        if (continuation.Tasks is not { Count: > 0 })
+            return existing;
+
+        var recorded = ApplyStepAccepted(existing, nextExecutingTaskId: null, result);
+        var originIndex = recorded.Tasks.ToList().FindIndex(task =>
+            string.Equals(task.TaskId, continuation.OriginTaskId, StringComparison.Ordinal));
+        if (originIndex < 0)
+            return existing;
+
+        var origin = recorded.Tasks[originIndex];
+        var usedIds = recorded.Tasks.Select(task => task.TaskId).ToHashSet(StringComparer.Ordinal);
+        var nextNumber = 1;
+        string NextId()
+        {
+            string id;
+            do id = $"{existing.PlanId}-AMD-{nextNumber++:000}";
+            while (!usedIds.Add(id));
+            return id;
+        }
+
+        var originDisplayLabel = origin.DisplayStepLabel ?? (originIndex + 1).ToString();
+        var inserted = continuation.Tasks.Select((definition, index) => new PlanTask(
+            TaskId: NextId(),
+            Title: definition.Title,
+            Description: definition.Description,
+            DependsOn: origin.DependsOn.ToArray(),
+            Priority: string.IsNullOrWhiteSpace(definition.Priority) ? "high" : definition.Priority,
+            Status: PlanTaskStatus.Pending,
+            AgentRoutingMode: "generic",
+            GenericAgentReason: "This prerequisite was added by the coordinator during execution and has no preapproved roster assignment.",
+            ExecutionMode: definition.ExecutionMode ?? PlanTaskExecutionMode.Implementation,
+            VerificationLevel: definition.VerificationLevel,
+            DisplayStepLabel: $"{originDisplayLabel} Repair {index + 1}",
+            ExecutionOrigin: new PlanTaskExecutionOrigin(
+                continuation.OriginTaskId,
+                definition.ReportedByAgent,
+                definition.Reason,
+                addedAt,
+                result.ExecutionAttemptId))).ToArray();
+        var insertedIds = inserted.Select(task => task.TaskId).ToArray();
+
+        var tasks = recorded.Tasks.Select(task =>
+            string.Equals(task.TaskId, continuation.OriginTaskId, StringComparison.Ordinal)
+                ? task with
+                {
+                    Status = PlanTaskStatus.Pending,
+                    CompletedAt = null,
+                    CompletionSummary = null,
+                    CompletionSummaryItems = null,
+                    AttemptHistory = AppendAutomaticContinuationAttempt(task, result),
+                    DependsOn = insertedIds,
+                    ResumeInstructions = continuation.Instructions,
+                    AutomaticContinuationCount = task.AutomaticContinuationCount + 1,
+                }
+                : task).ToList();
+        tasks.InsertRange(originIndex, inserted);
+
+        var preliminary = recorded with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks = tasks,
+            Progress = BuildProgress(tasks, executingTaskId: null),
+            InterruptionData = null,
+            Timestamps = recorded.Timestamps with { LastRunAt = addedAt },
+        };
+        var revision = PendingDecomposePlanStore.ComputeRevision(
+            PendingDecomposePlanAdapter.FromPlan(preliminary).Group);
+        return preliminary with
+        {
+            Revision = revision,
+            HostRevision = revision,
+            ApprovalGates = preliminary.ApprovalGates
+                .Select(gate => gate with { PlanRevision = revision })
+                .ToArray(),
+        };
+    }
+
+    private static IReadOnlyList<PlanTaskAttempt> AppendAutomaticContinuationAttempt(
+        PlanTask task,
+        DecomposeStepResult result) =>
+        (task.AttemptHistory ?? []).Append(new PlanTaskAttempt(
+            result.Status,
+            result.Commit,
+            CompletedAt: null,
+            result.Summary,
+            "automatic-continuation",
+            result.Continuation?.Summary,
+            result.CompletedWork)).ToArray();
 
     /// <summary>
     /// Accepts task work discovered during interrupted-plan assessment and returns the plan to
@@ -2613,7 +2749,9 @@ internal static class PlanStoreUpdater
                 Commit = result.IsVerifiedNoOp
                     ? null
                     : string.IsNullOrWhiteSpace(result.Commit) ? task.Commit : result.Commit,
-                Commits = result.IsVerifiedNoOp ? [] : result.Commits ?? task.Commits,
+                Commits = result.IsVerifiedNoOp
+                    ? []
+                    : MergePlanEvidenceCommits(task.Commits, result.Commits),
                 ExecutionAnomalies = MergeExecutionAnomalies(task.ExecutionAnomalies, result.ExecutionAnomalies),
                 CompletedAt = result.Status == "complete"
                     ? task.CompletedAt ?? completedAt
@@ -2630,6 +2768,18 @@ internal static class PlanStoreUpdater
                     evidence.Artifacts)).ToArray(),
             };
         }).ToList();
+    }
+
+    private static IReadOnlyList<PlanEvidenceCommit>? MergePlanEvidenceCommits(
+        IReadOnlyList<PlanEvidenceCommit>? existing,
+        IReadOnlyList<PlanEvidenceCommit>? additional)
+    {
+        if (additional is not { Count: > 0 }) return existing;
+        if (existing is not { Count: > 0 }) return additional;
+        return existing.Concat(additional)
+            .GroupBy(item => item.Commit, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())
+            .ToArray();
     }
 
     /// <summary>

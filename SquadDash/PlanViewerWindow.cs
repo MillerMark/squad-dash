@@ -7624,6 +7624,33 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.Margin = new Thickness(0, 0, 0, 8);
         _detailDocument.Blocks.Add(statusPara);
 
+        if (task.ExecutionOrigin is { } origin)
+        {
+            AddSectionHeader("Task Origin");
+            var originTask = plan?.Tasks.FirstOrDefault(candidate =>
+                string.Equals(candidate.TaskId, origin.OriginTaskId, StringComparison.Ordinal));
+            var originLabel = originTask is null
+                ? origin.OriginTaskId
+                : $"Step {originTask.DisplayStepLabel ?? origin.OriginTaskId}: {originTask.Title ?? originTask.TaskId}";
+            var values = new (string Label, string Value)[]
+            {
+                ("Discovered during", originLabel),
+                ("Reported by", origin.ReportedByAgent),
+                ("Reason", origin.Reason),
+                ("Added", origin.AddedAt.ToLocalTime().ToString("g")),
+            };
+            foreach (var value in values)
+            {
+                var paragraph = new Paragraph();
+                paragraph.Inlines.Add(new Run(value.Label + ": ") { FontWeight = FontWeights.SemiBold });
+                paragraph.Inlines.Add(new Run(value.Value));
+                paragraph.SetResourceReference(TextElement.ForegroundProperty, "LabelText");
+                paragraph.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+                paragraph.Margin = new Thickness(0, 0, 0, 3);
+                _detailDocument.Blocks.Add(paragraph);
+            }
+        }
+
         // 3. The task contract comes before its later execution evidence. Pending work remains
         // editable and is therefore simply "Task Description"; once work has begun, the wording
         // makes clear that this is the original contract rather than the worker's result.
