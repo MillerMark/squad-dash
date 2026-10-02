@@ -11744,22 +11744,7 @@ public partial class MainWindow : Window
             (durablePlan.LifecycleStatus is PlanLifecycleStatus.Approved or
                  PlanLifecycleStatus.WaitingForCleanWorktree ||
              PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan)))
-        {
-            if (!TrySetPlanPauseState(durablePlan, pause: false, out var resumable, out var resumeError))
-            {
-                ReportPlanActionIssue(
-                    durablePlan.PlanId,
-                    "Plan still paused",
-                    resumeError ?? "SquadDash could not save the request to resume this plan.");
-                return true;
-            }
-            ClearPlanActionIssue(durablePlan.PlanId);
-            PrepareForHostRecoveryAction();
-            ScheduleDecomposeSystemEntry(
-                $"Resume accepted for {resumable.Title}. SquadDash is checking its branch and worktree before continuing.");
-            await StartOrResumeDurablePlanAsync(resumable);
-            return true;
-        }
+            return await ResumeSafelyResumablePlanAsync(durablePlan);
 
         var recoveryTaskId = durablePlan.InterruptionData?.InterruptedTaskId
             ?? durablePlan.Tasks.FirstOrDefault(task =>
@@ -11800,6 +11785,36 @@ public partial class MainWindow : Window
         if (decision.Action is "continue-working" or "retry-as-written")
             return await RetryDecomposeTaskAsync(plan, recoveryTaskId);
         return false;
+    }
+
+    private async Task<bool> ResumeSafelyResumablePlanAsync(Plan displayedPlan)
+    {
+        var durablePlan = _planStore?.Load(displayedPlan.PlanId) ?? displayedPlan;
+        if (durablePlan.LifecycleStatus is not PlanLifecycleStatus.Approved and
+                not PlanLifecycleStatus.WaitingForCleanWorktree &&
+            !PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan))
+        {
+            ReportPlanActionIssue(
+                durablePlan.PlanId,
+                "Plan changed",
+                "This plan is no longer at the saved continuation point. Reopen it to see the current action.");
+            return false;
+        }
+        if (!TrySetPlanPauseState(durablePlan, pause: false, out var resumable, out var resumeError))
+        {
+            ReportPlanActionIssue(
+                durablePlan.PlanId,
+                "Plan still paused",
+                resumeError ?? "SquadDash could not save the request to resume this plan.");
+            return false;
+        }
+
+        ClearPlanActionIssue(durablePlan.PlanId);
+        PrepareForHostRecoveryAction();
+        ScheduleDecomposeSystemEntry(
+            $"Resume accepted for {resumable.Title}. SquadDash is checking its branch and worktree before continuing.");
+        await StartOrResumeDurablePlanAsync(resumable);
+        return true;
     }
 
     private void QueueDecomposeReplan(
@@ -20450,6 +20465,8 @@ public partial class MainWindow : Window
                 correctionActivity);
         var decisionPrompt = attentionCard.Category switch
         {
+            PlanAttentionCategory.ReadyToResume => recoveryActionSet?.DecisionPrompt ??
+                "The previous step is complete. Resume the plan to start the next step.",
             PlanAttentionCategory.HumanVerificationRequired =>
                 "Verify this step is complete to continue the plan.",
             PlanAttentionCategory.HumanInputRequired =>
@@ -20468,8 +20485,9 @@ public partial class MainWindow : Window
         copyParts.Add(string.Empty);
         copyParts.Add(decisionPrompt);
 
-        var recoveryTechnicalDetails = completedWorkReview?.TechnicalDetails ??
-            durablePlan?.InterruptionData?.Reason;
+        var recoveryTechnicalDetails = attentionCard.Category == PlanAttentionCategory.ReadyToResume
+            ? null
+            : completedWorkReview?.TechnicalDetails ?? durablePlan?.InterruptionData?.Reason;
         var diagnosticsReport = attentionCard.ShowDiagnosticsActions
             ? PlanAttentionCardPresentationBuilder.BuildCopyText(
                 attentionCard,
@@ -20551,6 +20569,12 @@ public partial class MainWindow : Window
                         async () => await AcceptInterruptedStepAfterReviewAsync(
                             _planStore?.Load(durablePlan.PlanId) ?? durablePlan));
                     break;
+                case PlanRecoverySurfaceActionKind.ResumePlan when durablePlan is not null:
+                    AddAsyncAction(
+                        action.Label,
+                        action.Hint,
+                        async () => await ResumeSafelyResumablePlanAsync(durablePlan));
+                    break;
                 case PlanRecoverySurfaceActionKind.ResumeVerification:
                     AddAsyncAction(
                         action.Label,
@@ -20604,6 +20628,18 @@ public partial class MainWindow : Window
                     : $"Compare the current branch with the plan branch '{durablePlan.Branch}', then choose whether to " +
                       "bring current work into the plan or switch while preserving it separately.",
                 async () => await RestorePlanBranchAndResumeAsync(durablePlan));
+            blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
+            ScrollToEndIfAtBottom(CoordinatorThread);
+            return;
+        }
+
+        // An accepted-work continuation is already a fully resolved checkpoint. It must win
+        // over any stale assessment or attention metadata left by an older build so accepting a
+        // completed step cannot send the user back through the same recovery loop.
+        if (durablePlan is not null && PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan))
+        {
+            foreach (var action in recoveryActionSet?.Actions ?? [])
+                AddCanonicalRecoveryAction(action);
             blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
             ScrollToEndIfAtBottom(CoordinatorThread);
             return;
@@ -20759,23 +20795,6 @@ public partial class MainWindow : Window
                 async () => await RetryDecomposeTaskAsync(plan, taskId));
             AddAction("✎ Revise Remaining Plan…", "Create an editable replanning prompt with protected plan context attached.",
                 () => QueueDecomposeReplan(plan, taskId));
-            blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
-            ScrollToEndIfAtBottom(CoordinatorThread);
-            return;
-        }
-
-        if (durablePlan is not null && PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan))
-        {
-            var isReworkPause = PlanRecoveryResumePolicy.IsReworkPreflightPause(durablePlan);
-            var isAmendmentPause = PlanRecoveryResumePolicy.IsAmendmentPreflightPause(durablePlan);
-            AddAsyncAction(
-                isAmendmentPause ? "Resume Amendment" : isReworkPause ? "Resume Rework" : "Resume Plan",
-                isAmendmentPause
-                    ? "Resume the added amendment after committing or stashing blocking changes; completed tasks remain accepted."
-                    : isReworkPause
-                        ? "Resume the already-reopened task after committing or stashing any blocking workspace changes. The change request will not be submitted again."
-                        : "Resume with the next runnable plan step. Previously accepted work will not be repeated.",
-                async () => await StartOrResumeDurablePlanAsync(durablePlan));
             blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
             ScrollToEndIfAtBottom(CoordinatorThread);
             return;
@@ -21299,7 +21318,7 @@ public partial class MainWindow : Window
             var durable = _planStore?.Load(plan.PlanId) ?? plan;
             if (PlanRecoveryResumePolicy.IsSafelyResumable(durable))
             {
-                await StartOrResumeDurablePlanAsync(durable);
+                await ResumeSafelyResumablePlanAsync(durable);
                 return;
             }
 
@@ -23062,19 +23081,13 @@ public partial class MainWindow : Window
             {
                 var nextTaskId = updated.Tasks.FirstOrDefault(task =>
                     task.Status is not PlanTaskStatus.Complete and not PlanTaskStatus.Superseded)?.TaskId;
-                var interruptionData = (updated.InterruptionData ?? new PlanInterruptionData(
-                    "Preserved work was accepted by the human reviewer.",
-                    PlanRecoveryState.PendingRecovery,
-                    0)) with
-                {
-                    Reason = PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason(
-                        $"Preserved work for {taskId} was adopted as {rangeLabel}."),
-                    InterruptedTaskId = nextTaskId,
-                    LastCompletedTaskId = taskId,
-                    LastCommit = terminalCommit,
-                    AffectedPaths = changedPaths,
-                    PartialWorkEvidence = $"Human-accepted commit range {rangeLabel}"
-                };
+                var interruptionData = PlanRecoveryAcceptancePolicy.CreateAcceptedWorkContinuation(
+                    updated.InterruptionData,
+                    taskId,
+                    nextTaskId,
+                    terminalCommit,
+                    changedPaths,
+                    rangeLabel);
                 updated = updated with
                 {
                     LifecycleStatus = PlanLifecycleStatus.Interrupted,

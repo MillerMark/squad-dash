@@ -177,6 +177,64 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void NamedProtocolFences_AreExtractedButNeverRenderedInTranscript()
+    {
+        const string text = """
+            Step 14a is complete.
+
+            ```DECOMPOSE_STEP_RESULT_JSON
+            {
+              "groupId": "PLAN-20260725",
+              "taskId": "PLAN-20260725-001",
+              "status": "complete"
+            }
+            ```
+
+            ```APPROVAL_GROUP_JSON
+            {
+              "groupId": "PLAN-20260725",
+              "approved": true
+            }
+            ```
+            """;
+
+        var blocks = TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(text);
+        var sanitized = TranscriptTextUtilities.SanitizeResponseText(text);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sanitized, Is.EqualTo("Step 14a is complete."));
+            Assert.That(
+                TranscriptTextUtilities.SanitizeResponseText(sanitized),
+                Is.EqualTo("Step 14a is complete."),
+                "Hydrating an already-saved transcript must not reveal protocol JSON.");
+            Assert.That(blocks, Has.Count.EqualTo(1));
+            Assert.That(blocks[0].Marker, Is.EqualTo("DECOMPOSE_STEP_RESULT_JSON"));
+            Assert.That(blocks[0].Json, Does.Contain("PLAN-20260725-001"));
+        });
+    }
+
+    [Test]
+    public void SimilarNamedFence_IsNotMistakenForProtocolPayload()
+    {
+        const string text = """
+            Example:
+
+            ```DECOMPOSE_STEP_RESULT_JSON_EXAMPLE
+            { "groupId": "not-a-result" }
+            ```
+            """;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                TranscriptTextUtilities.SanitizeResponseText(text).ReplaceLineEndings("\n"),
+                Is.EqualTo(text.ReplaceLineEndings("\n")));
+            Assert.That(TranscriptTextUtilities.ExtractInspectableProtocolJsonBlocks(text), Is.Empty);
+        });
+    }
+
+    [Test]
     public void SanitizeResponseText_InlineDecomposeStepResult_StripsAcceptedHostPayload()
     {
         const string text = """

@@ -303,10 +303,15 @@ internal static class TranscriptTextUtilities
 
     private static string StripApprovalGroupBlock(string text)
     {
+        const string sentinel = "APPROVAL_GROUP_JSON:";
+        var namedFenceIndex = FindProtocolNamedFenceSentinelIndex(text, sentinel);
+        if (namedFenceIndex >= 0)
+            return StripJsonBlockAt(text, sentinel, namedFenceIndex);
+
         // Strip any top-level APPROVAL_GROUP_JSON block.
         // The AgentThreadRegistry parses these from the raw response before sanitization, so
         // stripping here only affects display; parsing is unaffected.
-        var sentinelIdx = FindTopLevelSentinelIndex(text, "APPROVAL_GROUP_JSON:");
+        var sentinelIdx = FindTopLevelSentinelIndex(text, sentinel);
         if (sentinelIdx >= 0)
         {
             // Approval metadata is not necessarily the final machine-readable footer. Preserve
@@ -395,7 +400,10 @@ internal static class TranscriptTextUtilities
             // Hidden envelopes are never user-facing content. Accept the same fenced variation as
             // the protocol parser so a successfully consumed payload cannot leak after streaming
             // or transcript hydration merely because the model wrapped it in Markdown.
-            text = StripJsonBlockAt(text, marker, text.LastIndexOf(marker, StringComparison.Ordinal));
+            var markerIndex = text.LastIndexOf(marker, StringComparison.Ordinal);
+            if (markerIndex < 0)
+                markerIndex = FindProtocolNamedFenceSentinelIndex(text, marker);
+            text = StripJsonBlockAt(text, marker, markerIndex);
         }
         return text;
     }
@@ -466,10 +474,45 @@ internal static class TranscriptTextUtilities
         if (markerIndex >= 0)
             return markerIndex;
 
+        markerIndex = FindProtocolNamedFenceSentinelIndex(text, sentinel);
+        if (markerIndex >= 0)
+            return markerIndex;
+
         // Protocol parsing accepts a marker anywhere outside code. Use the same boundary for
         // transcript sanitation and the inspectable JSON pill so accepted payloads never leak
         // merely because a model prefaced the marker with prose on the same line.
         return FindInlineSentinelOutsideCode(text, sentinel);
+    }
+
+    private static int FindProtocolNamedFenceSentinelIndex(string text, string sentinel)
+    {
+        var label = sentinel.Trim().TrimEnd(':');
+        var openingFence = "```" + label;
+        var offset = 0;
+
+        while (offset < text.Length)
+        {
+            var lineEnd = text.IndexOf('\n', offset);
+            if (lineEnd < 0)
+                lineEnd = text.Length;
+
+            var lineLength = lineEnd - offset;
+            if (lineLength > 0 && text[offset + lineLength - 1] == '\r')
+                lineLength--;
+
+            var line = text.Substring(offset, lineLength);
+            var leadingWhitespace = line.Length - line.TrimStart().Length;
+            var trimmed = line[leadingWhitespace..];
+            if (trimmed.StartsWith(openingFence, StringComparison.Ordinal) &&
+                string.IsNullOrWhiteSpace(trimmed[openingFence.Length..]))
+            {
+                return offset + leadingWhitespace + 3;
+            }
+
+            offset = lineEnd == text.Length ? text.Length : lineEnd + 1;
+        }
+
+        return -1;
     }
 
     private static int FindInlineSentinelOutsideCode(string text, string sentinel)

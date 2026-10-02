@@ -53,7 +53,11 @@ internal sealed class ApprovalAmendmentContinuationArchitectureTests
         Assert.That(source, Does.Contain("!planRunnerActive && onResumePlan is not null"));
         Assert.That(source, Does.Contain("planRunnerActive && onPausePlan is not null"));
         Assert.That(source, Does.Not.Contain("amendmentPending ? \"Resume Amendment\" : \"Resume\""));
-        Assert.That(source, Does.Contain("safeResume ? \"Resume Plan\" : \"Resume Plan Anyway…\""));
+        Assert.That(source, Does.Contain("currentResumePlanAction.Label")
+            .And.Contain("currentResumePlanAction.Hint")
+            .And.Contain("currentResumePlanAction.Tone")
+            .And.Not.Contain("Resume Plan Anyway…"),
+            "Safe recovery labels and styling must come from the shared action set.");
     }
 
     [Test]

@@ -188,6 +188,7 @@ internal static class DecomposePlanInbox
                 taskId,
                 reviewCard,
                 (reviewAttention?.Checklist.Count ?? 0) > 0);
+        var isReadyToResume = attentionCard.Category == PlanAttentionCategory.ReadyToResume;
         InboxAction BuildEvidenceLink() => new()
         {
             Label = completedWorkReview?.ComparisonLabel ??
@@ -244,8 +245,9 @@ internal static class DecomposePlanInbox
                 includeEndPlan: false);
 
         var actions = new List<InboxAction>();
-        if (hasCommitEvidence || completedWorkReview is not null ||
-            primary.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep)
+        if (!isReadyToResume &&
+            (hasCommitEvidence || completedWorkReview is not null ||
+             primary.Kind == PlanRecoveryPrimaryActionKind.AcceptUnattributedStep))
             actions.Add(BuildEvidenceLink());
         foreach (var action in canonicalActions.Actions)
         {
@@ -254,7 +256,7 @@ internal static class DecomposePlanInbox
             actions.Add(BuildAction(action.Label, action.ProtocolAction, action.Hint));
         }
 
-        var reviewAnalysis = reviewCard is { AnalysisBullets.Count: > 0 }
+        var reviewAnalysis = !isReadyToResume && reviewCard is { AnalysisBullets.Count: > 0 }
             ? "\n\n**Automated review**\n" +
               string.Join("\n", reviewCard.AnalysisBullets.Select(bullet => "- " + bullet.Text))
             : string.Empty;
@@ -274,7 +276,9 @@ internal static class DecomposePlanInbox
                    CommitReferenceText.Shorten(attentionCard.RecordedReason) +
                    reviewAnalysis + previousReviewNotice + "\n";
 
-        if (hasCommitEvidence)
+        if (isReadyToResume)
+            body += "\nThe completed step remains accepted. Resuming starts only the next pending step.\n";
+        else if (hasCommitEvidence)
         {
             var shortCommit = taskCommitEvidence!.Commit.Length > 7
                 ? taskCommitEvidence.Commit[..7]

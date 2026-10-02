@@ -325,6 +325,51 @@ internal sealed class CompletedWorkReviewPresentationTests
         });
     }
 
+    [Test]
+    public void BuildRecoveryMessage_AcceptedContinuation_OffersOnlyResumeWithoutOldEvidenceNoise()
+    {
+        var completed = new PlanTask(
+            TaskId, "Blocked task", "Work", [], "high", PlanTaskStatus.Complete,
+            Commit: "abc1234", DisplayStepLabel: "14a");
+        var next = new PlanTask(
+            "PLAN-RECOVERY-002", "Next task", "Next work", [TaskId], "high",
+            PlanTaskStatus.Pending, DisplayStepLabel: "14b");
+        var durable = MakePlan(MakeEvidence()) with
+        {
+            Tasks = [completed, next],
+            Progress = new PlanProgress(1, 2),
+            IsPaused = true,
+            InterruptionData = MakePlan(MakeEvidence()).InterruptionData! with
+            {
+                Reason = PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason(
+                    "Preserved work was adopted as abc1234."),
+                InterruptedTaskId = next.TaskId,
+                LastCompletedTaskId = completed.TaskId,
+                AttentionCategory = PlanAttentionCategory.AutomaticWorkExhausted,
+                AttentionSummary = "Old failure summary.",
+            },
+        };
+        var pending = PendingDecomposePlanAdapter.FromPlan(durable);
+
+        var message = DecomposePlanInbox.BuildRecoveryMessage(
+            pending,
+            next.TaskId,
+            durable.InterruptionData!.Reason,
+            DateTimeOffset.UtcNow,
+            durable.InterruptionData.TaskCommitEvidence,
+            durable);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Subject, Does.StartWith("Step Complete — Ready to Resume"));
+            Assert.That(message.Body, Does.Contain("Step 14a is complete. Step 14b has not started."));
+            Assert.That(message.Body, Does.Contain("Resuming starts only the next pending step."));
+            Assert.That(message.Body, Does.Not.Contain("Old failure summary"));
+            Assert.That(message.Body, Does.Not.Contain("Exact task attribution"));
+            Assert.That(message.Actions.Select(action => action.Label), Is.EqualTo(new[] { "Resume Plan" }));
+        });
+    }
+
     // --- Stale-action tests ---
 
     [Test]

@@ -166,9 +166,11 @@ internal sealed class PlanResumeBranchPolicyTests
         {
             Assert.That(method.IndexOf("PlanLifecycleStatus.WaitingForCleanWorktree", StringComparison.Ordinal),
                 Is.GreaterThanOrEqualTo(0));
-            Assert.That(method.IndexOf("await StartOrResumeDurablePlanAsync(resumable)", StringComparison.Ordinal),
+            Assert.That(method.IndexOf("return await ResumeSafelyResumablePlanAsync(durablePlan)", StringComparison.Ordinal),
                 Is.LessThan(method.IndexOf("var recoveryTaskId", StringComparison.Ordinal)),
                 "A preflight-paused plan has no failed task; its validated recovery JSON must enter the normal host resume path first.");
+            Assert.That(method, Does.Contain("await StartOrResumeDurablePlanAsync(resumable)"),
+                "The shared safe-resume path must persist the resume transition before starting the host runner.");
         });
     }
 

@@ -567,9 +567,11 @@ internal static class PlanAttentionCategory
     internal const string HumanInputRequired = "human-input-required";
     internal const string AutomaticWorkExhausted = "automatic-work-exhausted";
     internal const string UnexpectedState = "unexpected-state";
+    internal const string ReadyToResume = "ready-to-resume";
 
     internal static bool IsValid(string? value) => value is
-        HumanVerificationRequired or HumanInputRequired or AutomaticWorkExhausted or UnexpectedState;
+        HumanVerificationRequired or HumanInputRequired or AutomaticWorkExhausted or UnexpectedState or
+            ReadyToResume;
 }
 
 internal sealed record PlanWorkCompletePendingAcceptance(

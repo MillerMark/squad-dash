@@ -816,6 +816,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 currentInterruptedSurfaceAction.Hint,
                 currentInterruptedSurfaceAction.ProtocolAction)
             : null;
+        var currentResumePlanAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
+            action.Kind == PlanRecoverySurfaceActionKind.ResumePlan);
         var currentContinueAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
             action.Kind == PlanRecoverySurfaceActionKind.ContinueWorking);
         var currentReviseAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
@@ -1591,22 +1593,16 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 interruptedPanel.Children.Add(reviseButton);
             }
-            if (onResumePlan is not null && safeResume && !durablePlan.IsPaused)
+            if (onResumePlan is not null && safeResume && currentResumePlanAction is not null)
             {
                 var capturedPlan   = durablePlan;
                 var capturedAction = onResumePlan;
                 var resumeButton   = TranscriptQuickReplyFactory.CreateButton(
-                    safeResume ? "Resume Plan" : "Resume Plan Anyway…",
+                    currentResumePlanAction.Label,
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        safeResume
-                            ? PlanRecoveryResumePolicy.IsAmendmentPreflightPause(capturedPlan)
-                                ? "Resume the added amendment; completed steps remain accepted."
-                                : PlanRecoveryResumePolicy.IsReworkPreflightPause(capturedPlan)
-                                    ? "Resume the already-prepared rework. The change request will not be submitted again."
-                                    : "Resume with the next runnable plan step."
-                            : "Resume without assessing repository evidence. This may repeat work from the interrupted step."),
-                    tone: safeResume ? QuickReplyTone.Default : QuickReplyTone.Warning);
+                        currentResumePlanAction.Hint),
+                    tone: currentResumePlanAction.Tone);
                 resumeButton.Focusable = false;
                 resumeButton.Click += (_, _) =>
                 {

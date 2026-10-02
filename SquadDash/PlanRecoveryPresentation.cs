@@ -45,6 +45,32 @@ internal static class PlanAttentionCardPresentationBuilder
         PlanHumanReviewCardPresentation? humanReview,
         bool hasHumanChecklist)
     {
+        if (PlanRecoveryResumePolicy.IsAcceptedWorkContinuation(plan))
+        {
+            var completedTask = plan.Tasks.FirstOrDefault(task => string.Equals(
+                task.TaskId,
+                plan.InterruptionData?.LastCompletedTaskId,
+                StringComparison.Ordinal));
+            var nextTask = plan.Tasks.FirstOrDefault(task => string.Equals(
+                task.TaskId,
+                plan.InterruptionData?.InterruptedTaskId,
+                StringComparison.Ordinal));
+            var completedStep = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                completedTask?.DisplayStepLabel,
+                completedTask?.Title ?? "Previous Step");
+            var nextStep = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                nextTask?.DisplayStepLabel,
+                nextTask?.Title ?? "Next Step");
+            return new PlanAttentionCardPresentation(
+                PlanAttentionCategory.ReadyToResume,
+                "Step Complete — Ready to Resume",
+                $"{completedStep} is complete. {nextStep} has not started.",
+                plan.IsPaused
+                    ? $"The plan remains paused. Resume it to start {nextStep}."
+                    : $"Resume the plan to start {nextStep}.",
+                ShowDiagnosticsActions: false);
+        }
+
         var hasHumanQuestion = !string.IsNullOrWhiteSpace(humanReview?.Question);
         if (humanReview is not null && (hasHumanChecklist || hasHumanQuestion))
         {
@@ -156,6 +182,7 @@ internal sealed record PlanRecoveryPrimaryActionPresentation(
 internal enum PlanRecoverySurfaceActionKind
 {
     AcceptStep,
+    ResumePlan,
     ResumeVerification,
     ContinueWorking,
     ReviseRemainingPlan,
@@ -176,6 +203,7 @@ internal sealed record PlanRecoveryActionSetPresentation(
 {
     internal PlanRecoverySurfaceActionPresentation? Primary => Actions.FirstOrDefault(action =>
         action.Kind is PlanRecoverySurfaceActionKind.AcceptStep or
+            PlanRecoverySurfaceActionKind.ResumePlan or
             PlanRecoverySurfaceActionKind.ResumeVerification or
             PlanRecoverySurfaceActionKind.ContinueWorking);
 }
@@ -225,6 +253,27 @@ internal static class PlanRecoveryActionSetBuilder
             task?.DisplayStepLabel ?? (index >= 0 ? (index + 1).ToString() : null),
             task?.Title ?? task?.Description ?? taskId);
         var actions = new List<PlanRecoverySurfaceActionPresentation>();
+
+        if (PlanRecoveryResumePolicy.IsSafelyResumable(plan))
+        {
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.ResumePlan,
+                "Resume Plan",
+                $"Resume with {stepLabel}. Previously accepted work will not be repeated.",
+                "continue-working"));
+            if (includeEndPlan && PlanRecoveryControlPolicy.HasActionableInterruption(plan))
+            {
+                actions.Add(new PlanRecoverySurfaceActionPresentation(
+                    PlanRecoverySurfaceActionKind.EndPlan,
+                    "End Plan",
+                    "Stop this incomplete plan without discarding its history or repository work.",
+                    "end-plan",
+                    QuickReplyTone.Destructive));
+            }
+            return new PlanRecoveryActionSetPresentation(
+                $"The previous step is complete. Resume to start {stepLabel}.",
+                actions);
+        }
 
         if (correctionActivity != PlanTaskCorrectionActivityState.None)
         {
@@ -526,6 +575,23 @@ internal static class PlanRecoveryAcceptancePolicy
     internal static bool RequiresCleanWorktreeBeforeAcceptance(Plan plan) => !plan.IsPaused;
 
     internal static bool ShouldAdvanceAfterAcceptance(Plan plan) => !plan.IsPaused;
+
+    internal static PlanInterruptionData CreateAcceptedWorkContinuation(
+        PlanInterruptionData? previous,
+        string completedTaskId,
+        string? nextTaskId,
+        string terminalCommit,
+        IReadOnlyList<string> changedPaths,
+        string rangeLabel) => new(
+            PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason(
+                $"Preserved work for {completedTaskId} was adopted as {rangeLabel}."),
+            PlanRecoveryState.PendingRecovery,
+            previous?.LoopIteration ?? 0,
+            InterruptedTaskId: nextTaskId,
+            LastCompletedTaskId: completedTaskId,
+            LastCommit: terminalCommit,
+            AffectedPaths: changedPaths,
+            PartialWorkEvidence: $"Human-accepted commit range {rangeLabel}");
 }
 
 /// <summary>

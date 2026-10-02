@@ -1080,6 +1080,99 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
+    public void AcceptedWorkContinuation_IgnoresStaleFailurePresentationAndOffersOneResume()
+    {
+        var completed = new PlanTask(
+            "PLAN-AMD-001", "Stabilize tests", "Stabilize tests", [], "high",
+            PlanTaskStatus.Complete, Commit: "dfcac58", DisplayStepLabel: "14a");
+        var next = new PlanTask(
+            "PLAN-AMD-002", "Establish rollback", "Establish rollback", [completed.TaskId], "high",
+            PlanTaskStatus.Pending, DisplayStepLabel: "14b");
+        var staleEvidence = new PlanTaskCommitEvidence(
+            completed.TaskId, "attempt-1", "300baeb", "dfcac58", "Old evidence.");
+        var plan = TestPlan(staleEvidence) with
+        {
+            Tasks = [completed, next],
+            Progress = new PlanProgress(1, 2),
+            IsPaused = true,
+            InterruptionData = TestPlan(staleEvidence).InterruptionData! with
+            {
+                Reason = PlanRecoveryResumePolicy.BuildAcceptedWorkContinuationReason(
+                    "Preserved work for PLAN-AMD-001 was adopted as dfcac58."),
+                InterruptedTaskId = next.TaskId,
+                LastCompletedTaskId = completed.TaskId,
+                AttentionCategory = PlanAttentionCategory.AutomaticWorkExhausted,
+                AttentionSummary = "The old result envelope failed.",
+            },
+        };
+
+        var card = PlanAttentionCardPresentationBuilder.Build(
+            plan, next.TaskId, humanReview: null, hasHumanChecklist: false);
+        var actions = PlanRecoveryActionSetBuilder.Build(plan, next.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.Category, Is.EqualTo(PlanAttentionCategory.ReadyToResume));
+            Assert.That(card.Title, Is.EqualTo("Step Complete — Ready to Resume"));
+            Assert.That(card.Explanation, Is.EqualTo("Step 14a is complete. Step 14b has not started."));
+            Assert.That(card.RecordedReason, Does.Contain("Resume it to start Step 14b"));
+            Assert.That(card.RecordedReason, Does.Not.Contain("exhausted").IgnoreCase);
+            Assert.That(actions.Primary?.Kind, Is.EqualTo(PlanRecoverySurfaceActionKind.ResumePlan));
+            Assert.That(actions.Actions.Select(action => action.Kind), Is.EqualTo(new[]
+            {
+                PlanRecoverySurfaceActionKind.ResumePlan,
+                PlanRecoverySurfaceActionKind.EndPlan,
+            }));
+            Assert.That(actions.Actions[0].Label, Is.EqualTo("Resume Plan"));
+        });
+    }
+
+    [Test]
+    public void AcceptedWorkContinuationCheckpoint_DropsAllPriorFailureState()
+    {
+        var staleEvidence = new PlanTaskCommitEvidence(
+            "PLAN-AMD-001", "attempt-1", "300baeb", "dfcac58", "Old evidence.");
+        var previous = new PlanInterruptionData(
+            "Old failure",
+            PlanRecoveryState.PendingRecovery,
+            7,
+            InterruptedTaskId: "PLAN-AMD-001",
+            TaskCommitEvidence: staleEvidence,
+            RecoveryAssessment: new PlanRecoveryDecisionEvidence(
+                "Old assessment", [], DateTimeOffset.UtcNow),
+            RecoveryCorrection: new PlanRecoveryCorrectionContext("300baeb", DateTimeOffset.UtcNow),
+            LastCorrectionError: "Old correction error",
+            WorkCompletePendingAcceptance: new PlanWorkCompletePendingAcceptance(
+                "PLAN-AMD-001", "{}", ["Old validation problem"], DateTimeOffset.UtcNow),
+            AttentionCategory: PlanAttentionCategory.AutomaticWorkExhausted,
+            AttentionSummary: "Old failure summary");
+
+        var checkpoint = PlanRecoveryAcceptancePolicy.CreateAcceptedWorkContinuation(
+            previous,
+            "PLAN-AMD-001",
+            "PLAN-AMD-002",
+            "dfcac58",
+            ["Viewport.razor"],
+            "dfcac58");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(checkpoint.LoopIteration, Is.EqualTo(7));
+            Assert.That(checkpoint.LastCompletedTaskId, Is.EqualTo("PLAN-AMD-001"));
+            Assert.That(checkpoint.InterruptedTaskId, Is.EqualTo("PLAN-AMD-002"));
+            Assert.That(checkpoint.LastCommit, Is.EqualTo("dfcac58"));
+            Assert.That(checkpoint.AffectedPaths, Is.EqualTo(new[] { "Viewport.razor" }));
+            Assert.That(checkpoint.TaskCommitEvidence, Is.Null);
+            Assert.That(checkpoint.RecoveryAssessment, Is.Null);
+            Assert.That(checkpoint.RecoveryCorrection, Is.Null);
+            Assert.That(checkpoint.LastCorrectionError, Is.Null);
+            Assert.That(checkpoint.WorkCompletePendingAcceptance, Is.Null);
+            Assert.That(checkpoint.AttentionCategory, Is.Null);
+            Assert.That(checkpoint.AttentionSummary, Is.Null);
+        });
+    }
+
+    [Test]
     public void RecoveryActionSet_WithoutRecordedEvidence_StillOffersExplicitAcceptance()
     {
         var task = new PlanTask(
