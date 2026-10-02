@@ -138,6 +138,25 @@ internal sealed class PlanExecutionResumeEnvelopeTests
     }
 
     [Test]
+    public void ManualResume_RejectsPersistedRecoveryFromAnOlderDurableRevision()
+    {
+        var continuation = new PlanRecoveryContinuationState(
+            "PLAN-1",
+            "revision-1",
+            "PLAN-1-001",
+            new PlanRecoveryRepositorySnapshot("abc1234", "fingerprint-1", " M src/App.cs"),
+            ["src/App.cs"]);
+
+        var resolved = PlanRecoveryContinuationState.Normalize(
+            continuation,
+            "PLAN-1",
+            activeRevision: "revision-2");
+
+        Assert.That(resolved, Is.Null,
+            "a manual resume must not let recovery from an older plan revision bypass preflight");
+    }
+
+    [Test]
     public void VerificationRecovery_ReclaimsPendingCandidateAndActiveTask()
     {
         var pending = new PendingTaskVerification(

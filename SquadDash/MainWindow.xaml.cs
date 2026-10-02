@@ -9518,21 +9518,33 @@ public partial class MainWindow : Window
                 $"promptRunning={_isPromptRunning} loopRunning={IsLoopRunning} queueDrain={_queueDrainActive}.");
             return false;
         }
+        // Resolve the durable contract before deciding whether any persisted state may bypass
+        // mutation preflight. Prior execution state is evidence about an earlier revision; it
+        // cannot authorize recovery for a plan that has since been edited.
+        var durablePlan = _planStore?.Load(groupId);
+        var durableRevisionAtStart = durablePlan?.Revision;
         var priorExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var requestedContinuationRevision = group?.HostRevision ?? expectedRevision;
         var hasRequestedRecoveryContinuation =
             !string.IsNullOrWhiteSpace(continuationTaskId) &&
             continuationPaths is { Count: > 0 } &&
-            continuationSnapshot is not null;
+            continuationSnapshot is not null &&
+            !string.IsNullOrWhiteSpace(durableRevisionAtStart) &&
+            string.Equals(
+                requestedContinuationRevision,
+                durableRevisionAtStart,
+                StringComparison.Ordinal);
         var persistedRecoveryContinuation = PlanRecoveryContinuationState.Normalize(
             priorExecution?.RecoveryContinuation,
             groupId,
-            expectedRevision ?? priorExecution?.DecomposeRevision);
+            durableRevisionAtStart);
         var isConfirmedContinuation = hasRequestedRecoveryContinuation ||
                                       persistedRecoveryContinuation is not null;
-        var replayPendingResult = PlanRepairReplayPolicy.ShouldReplayBeforeMutationPreflight(
-            priorExecution,
-            groupId,
-            expectedRevision);
+        var replayPendingResult = !string.IsNullOrWhiteSpace(durableRevisionAtStart) &&
+                                  PlanRepairReplayPolicy.ShouldReplayBeforeMutationPreflight(
+                                      priorExecution,
+                                      groupId,
+                                      durableRevisionAtStart);
         if (!isConfirmedContinuation && !replayPendingResult)
             await EnsurePlanWorktreeReadyAsync(_currentWorkspace.FolderPath, groupId);
         else if (replayPendingResult)
@@ -9574,7 +9586,6 @@ public partial class MainWindow : Window
             new DecomposedTasksWriter(),
             tasksPath);
 
-        var durablePlan = _planStore?.Load(groupId);
         if (durablePlan is not null)
             durablePlan = RepairPlanSchemaBeforeExecution(durablePlan);
         if (durablePlan is null && group is not null)

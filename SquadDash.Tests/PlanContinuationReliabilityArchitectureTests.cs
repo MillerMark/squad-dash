@@ -227,6 +227,9 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
         {
             Assert.That(start, Does.Contain("persistedRecoveryContinuation")
                 .And.Contain("requestedRecoveryContinuation")
+                .And.Contain("durableRevisionAtStart")
+                .And.Contain("PlanRecoveryContinuationState.Normalize(")
+                .And.Not.Contain("expectedRevision ?? priorExecution?.DecomposeRevision")
                 .And.Contain("effectiveRecoveryContinuation = requestedRecoveryContinuation ?? persistedRecoveryContinuation")
                 .And.Contain("PlanExecutionResumeEnvelope.Create("));
             Assert.That(prepare, Does.Contain("execution.RecoveryContinuation")
