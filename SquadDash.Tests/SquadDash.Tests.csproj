@@ -14,6 +14,7 @@
     <Compile Include="..\SquadDash\HomeBranchRepositoryReader.cs" Link="Source\HomeBranchRepositoryReader.cs" />
     <Compile Include="..\SquadDash\HomeBranchActions.cs" Link="Source\HomeBranchActions.cs" />
     <Compile Include="..\SquadDash\GitUpstreamCounts.cs" Link="Source\GitUpstreamCounts.cs" />
+    <Compile Include="..\SquadDash\BranchPullDialog.cs" Link="Source\BranchPullDialog.cs" />
     <Compile Include="..\SquadDash\GuidedTours\NativeDragContinuationPolicy.cs" Link="Source\NativeDragContinuationPolicy.cs" />
     <Compile Include="..\SquadDash\GuidedTourCoordinator.cs" Link="Source\GuidedTourCoordinator.cs" />
     <Compile Include="..\SquadDash\GuidedTours\GuidedTourCommandRegistry.cs" Link="Source\GuidedTourCommandRegistry.cs" />

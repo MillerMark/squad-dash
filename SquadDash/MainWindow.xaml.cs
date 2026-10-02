@@ -57874,13 +57874,33 @@ public partial class MainWindow : Window
                 pullItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 pullItem.Click += async (_, _) =>
                 {
+                    var pullArguments = "pull --ff-only";
+                    var recoveryHint = "";
                     try
                     {
+                        if (counts.Ahead > 0)
+                        {
+                            var dialog = new BranchPullDialog(branch, counts, this);
+                            if (dialog.ShowDialog() != true) return;
+
+                            // Explicitly override pull.rebase and avoid launching a merge-message editor.
+                            pullArguments = dialog.UseRebase ? "pull --rebase" : "pull --no-ff --no-rebase --no-edit";
+                            var operation = dialog.UseRebase ? "rebase" : "merge";
+                            recoveryHint = $"\n\nRun git status in '{workspaceFolder}' to see what needs attention. "
+                                + $"If a {operation} is in progress, you can cancel it with git {operation} --abort. "
+                                + "If Git refused because of uncommitted changes, commit or stash them yourself before retrying. "
+                                + "SquadDash has not attempted to resolve conflicts or discard your work.";
+                        }
+
                         if (_isPromptRunning || IsNativeLoopRunning)
                         {
                             var prompt = $"In workspace '{workspaceFolder}', verify that the current branch is still '{branch}' and has an upstream. "
-                                + "If either has changed, stop and report it. Otherwise run git pull --ff-only. "
-                                + "If it fails, report the git error and stop. Do not merge, rebase, reset, stash, or discard changes.";
+                                + $"If either has changed, stop and report it. Otherwise run git {pullArguments}. "
+                                + (counts.Ahead > 0
+                                    ? "This is the user's chosen pull strategy. Do not switch strategies, force-push, reset, stash, discard changes, "
+                                        + "or automatically resolve or abort conflicts. If it fails, report the full git output and stop. "
+                                        + "Include this recovery guidance: " + recoveryHint.Trim()
+                                    : "If it fails, report the git error and stop. Do not merge, rebase, reset, stash, or discard changes.");
                             BranchNameText.Inlines.Add(new Run(" \u2014 queued, waiting for active turn to finish"));
                             _promptQueue.EnqueueAtFront(prompt, _promptQueueCoordinator.NextSequenceNumber(), sourceTag: "branch-indicator");
                             _promptQueue.RenumberSequentially();
@@ -57893,13 +57913,13 @@ public partial class MainWindow : Window
                         if (_currentWorkspace?.FolderPath != workspaceFolder || currentBranch != branch)
                             throw new InvalidOperationException("The workspace or branch changed. Reopen the branch menu before pulling.");
 
-                        await RunGitAsync(workspaceFolder, "pull --ff-only");
+                        await RunGitAsync(workspaceFolder, pullArguments);
                         UpdateBranchIndicator();
                     }
                     catch (Exception ex)
                     {
                         SquadDashTrace.Write("Branch", $"Pull of '{branch}' failed: {ex}");
-                        UIErrorHelper.ShowError("Pull Failed", $"Could not pull branch '{branch}':\n\n{ex.Message}");
+                        UIErrorHelper.ShowError("Pull Failed", $"Could not pull branch '{branch}':\n\n{ex.Message}{recoveryHint}");
                         UpdateBranchIndicator();
                     }
                 };
@@ -58219,7 +58239,8 @@ public partial class MainWindow : Window
         await proc.WaitForExitAsync();
         if (proc.ExitCode != 0)
             throw new InvalidOperationException(
-                string.IsNullOrWhiteSpace(stderr) ? stdout.Trim() : stderr.Trim());
+                string.Join(Environment.NewLine, new[] { stdout.Trim(), stderr.Trim() }
+                    .Where(output => !string.IsNullOrEmpty(output))));
         return stdout.Trim();
     }
 
