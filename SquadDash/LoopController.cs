@@ -327,8 +327,11 @@ internal sealed class LoopController {
             if (_cts?.IsCancellationRequested != true) {
                 IsRunning = false;
                 LastTerminalException = ex;
+                var message = ex is PlanRecoverySourceChangedException
+                    ? $"Plan recovery paused: {ex.Message}"
+                    : $"Loop stopped after an unexpected error: {ex.Message}";
                 ReportTerminalError(
-                    $"Loop crashed unexpectedly: {ex.Message}",
+                    message,
                     ref terminalErrorReported);
             }
             SquadDashTrace.Write("Loop", $"RunLoopAsync unhandled: {ex}");

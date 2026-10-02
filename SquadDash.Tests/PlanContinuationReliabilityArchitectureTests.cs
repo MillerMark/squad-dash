@@ -198,9 +198,71 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
             "private async Task ApplyDecomposeDecisionSafelyAsync(");
         Assert.That(retry, Does.Contain("PlanRecoveryAssessmentSnapshotPolicy.Matches(")
             .And.Contain("requiredPreservedSnapshot")
+            .And.Contain("confirmedSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace)")
+            .And.Contain("confirmedSnapshot.StatusSnapshot")
+            .And.Contain("preservedPaths.Count > 0 ? confirmedSnapshot : null")
             .And.Contain("left the plan stopped")
             .And.Contain("TryPublishPlanRecoveryProgress(")
             .And.Contain("revalidatedBranch"));
+    }
+
+    [Test]
+    public void PreservedWorkDispatch_UsesOneDurableSnapshotAcrossRestartAndDispatch()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var prepare = Method(
+            main,
+            "private async Task<string?> PrepareExecutingPlanIterationAsync()",
+            "private string? AppendPlanExecutionJournal(");
+        var finalize = Method(
+            main,
+            "private async Task FinalizeExecutingPlanIterationAsync()",
+            "private async Task FinalizeTaskVerificationTurnAsync(");
+        var start = Method(
+            main,
+            "private async Task<bool> StartDecomposeLoopAsync(",
+            "private void TryStartDecomposeGroupFromResponse");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(start, Does.Contain("persistedRecoveryContinuation")
+                .And.Contain("requestedRecoveryContinuation")
+                .And.Contain("effectiveRecoveryContinuation = requestedRecoveryContinuation ?? persistedRecoveryContinuation")
+                .And.Contain("PlanExecutionResumeEnvelope.Create("));
+            Assert.That(prepare, Does.Contain("execution.RecoveryContinuation")
+                .And.Contain("CapturePlanRecoveryRepositorySnapshotAsync(")
+                .And.Contain("PlanRecoveryContinuationPolicy.Evaluate(")
+                .And.Not.Contain("RecoveryContinuation = null"));
+            Assert.That(prepare, Does.Not.Contain("MatchesConfirmedPaths("),
+                "dispatch must not reinterpret a canonical snapshot as a separate path-only check");
+            Assert.That(finalize, Does.Contain("ShouldClearAfterPromptCompletion(")
+                .And.Contain("RecoveryContinuation = null"));
+        });
+    }
+
+    [Test]
+    public void RecoveryTranscript_UsesPlanAndStepLabelsInsteadOfInternalIds()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var assessment = Method(
+            main,
+            "private async Task ValidateAndApplyPlanRecoveryAssessmentAsync(",
+            "private async Task AcceptAssessedPlanRecoveryAsync(");
+        var loopError = Method(
+            main,
+            "private void OnNativeLoopError(string msg)",
+            "private void PausePlanForCleanWorktree(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(assessment, Does.Contain("assessedStepLabel")
+                .And.Contain("has partial work")
+                .And.Not.Contain("AI found partial work for {context.TaskId}"));
+            Assert.That(loopError, Does.Contain("planDisplayName")
+                .And.Contain("stepDisplayName")
+                .And.Contain("recoverySourcePause ? \"plan_paused\" : \"plan_error\"")
+                .And.Not.Contain("stopped at {blockedTaskId}"));
+        });
     }
 
     [Test]

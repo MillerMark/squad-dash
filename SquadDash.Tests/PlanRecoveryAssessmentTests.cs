@@ -106,6 +106,88 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void ContinuationTransition_AcceptsTheExactAssessedState()
+    {
+        var snapshot = Snapshot("head-1", "fingerprint-1", " M src/App.cs");
+        var continuation = Continuation(snapshot);
+
+        Assert.That(
+            PlanRecoveryContinuationPolicy.Evaluate(
+                continuation, "PLAN-1", "revision-1", "PLAN-1-001", snapshot),
+            Is.EqualTo(PlanRecoveryContinuationDisposition.Ready));
+    }
+
+    [TestCase("head-2", "fingerprint-1", " M src/App.cs")]
+    [TestCase("head-1", "fingerprint-2", " M src/App.cs")]
+    [TestCase("head-1", "fingerprint-2", " M src/App.cs\n M src/Other.cs")]
+    [TestCase("head-1", "fingerprint-2", " M src/Other.cs")]
+    public void ContinuationTransition_PausesForAnySourceSnapshotChange(
+        string head,
+        string fingerprint,
+        string status)
+    {
+        var continuation = Continuation(
+            Snapshot("head-1", "fingerprint-1", " M src/App.cs"));
+
+        Assert.That(
+            PlanRecoveryContinuationPolicy.Evaluate(
+                continuation,
+                "PLAN-1",
+                "revision-1",
+                "PLAN-1-001",
+                Snapshot(head, fingerprint, status)),
+            Is.EqualTo(PlanRecoveryContinuationDisposition.SourceChanged));
+    }
+
+    [TestCase("PLAN-2", "revision-1", "PLAN-1-001")]
+    [TestCase("PLAN-1", "revision-2", "PLAN-1-001")]
+    [TestCase("PLAN-1", "revision-1", "PLAN-1-002")]
+    public void ContinuationTransition_RejectsAnotherPlanRevisionOrTask(
+        string planId,
+        string revision,
+        string taskId)
+    {
+        var snapshot = Snapshot("head-1", "fingerprint-1", " M src/App.cs");
+
+        Assert.That(
+            PlanRecoveryContinuationPolicy.Evaluate(
+                Continuation(snapshot), planId, revision, taskId, snapshot),
+            Is.EqualTo(PlanRecoveryContinuationDisposition.WrongScope));
+    }
+
+    [Test]
+    public void ContinuationTransition_ClearsOnlyAfterPromptCompletesForTheSameTask()
+    {
+        var continuation = Continuation(
+            Snapshot("head-1", "fingerprint-1", " M src/App.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryContinuationPolicy.ShouldClearAfterPromptCompletion(
+                continuation, "PLAN-1", "PLAN-1-001", promptCompleted: true), Is.True);
+            Assert.That(PlanRecoveryContinuationPolicy.ShouldClearAfterPromptCompletion(
+                continuation, "PLAN-1", "PLAN-1-001", promptCompleted: false), Is.False);
+            Assert.That(PlanRecoveryContinuationPolicy.ShouldClearAfterPromptCompletion(
+                continuation, "PLAN-1", "PLAN-1-002", promptCompleted: true), Is.False);
+            Assert.That(PlanRecoveryContinuationPolicy.ShouldClearAfterPromptCompletion(
+                null, "PLAN-1", "PLAN-1-001", promptCompleted: true), Is.False);
+        });
+    }
+
+    private static PlanRecoveryRepositorySnapshot Snapshot(
+        string head,
+        string fingerprint,
+        string status) => new(head, fingerprint, status);
+
+    private static PlanRecoveryContinuationState Continuation(
+        PlanRecoveryRepositorySnapshot snapshot) => new(
+        "PLAN-1",
+        "revision-1",
+        "PLAN-1-001",
+        snapshot,
+        ["src/App.cs"]);
+
+    [Test]
     public void SnapshotPathspec_ExcludesHostOwnedStateButKeepsProjectFiles()
     {
         var hostOwnedPaths = DecomposeWorktreePolicy.GetHostOwnedRuntimePaths(".squad");

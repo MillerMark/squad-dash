@@ -360,8 +360,34 @@ internal sealed class LoopControllerTests {
         Assert.Multiple(() =>
         {
             Assert.That(error, Does.Contain("protocol failure"));
+            Assert.That(error, Does.StartWith("Loop stopped after an unexpected error:"));
             Assert.That(stoppedCalled, Is.False);
             Assert.That(controller.IsRunning, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task RecoverySourceChange_IsReportedAsOrderlyPauseNotCrash()
+    {
+        var errorTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var controller = new LoopController(
+            executePromptAsync: (_, __) => throw new PlanRecoverySourceChangedException("source changed"),
+            abortPrompt: () => { },
+            onIterationStarted: _ => { },
+            onStopped: () => { },
+            onError: message => errorTcs.TrySetResult(message),
+            onIterationCompleted: _ => { },
+            onWaiting: _ => { });
+
+        _ = controller.StartAsync(MakeConfig(), continuousContext: true);
+        var error = await errorTcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error, Is.EqualTo("Plan recovery paused: source changed"));
+            Assert.That(error, Does.Not.Contain("crash").IgnoreCase);
+            Assert.That(controller.LastTerminalException,
+                Is.TypeOf<PlanRecoverySourceChangedException>());
         });
     }
 

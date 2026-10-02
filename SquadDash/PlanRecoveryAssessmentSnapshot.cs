@@ -9,6 +9,56 @@ internal sealed record PlanRecoveryRepositorySnapshot(
     string StatusSnapshot = "");
 
 /// <summary>
+/// Signals an intentional safety pause when task-owned source changed after a recovery
+/// snapshot was accepted. This is not an application or loop crash.
+/// </summary>
+internal sealed class PlanRecoverySourceChangedException(string message)
+    : InvalidOperationException(message);
+
+internal enum PlanRecoveryContinuationDisposition
+{
+    Ready,
+    WrongScope,
+    SourceChanged,
+}
+
+/// <summary>
+/// Pure transition policy for the assessment-to-dispatch recovery lease. Keeping this logic
+/// outside WPF makes every state transition independently testable.
+/// </summary>
+internal static class PlanRecoveryContinuationPolicy
+{
+    internal static PlanRecoveryContinuationDisposition Evaluate(
+        PlanRecoveryContinuationState continuation,
+        string planId,
+        string revision,
+        string taskId,
+        PlanRecoveryRepositorySnapshot currentSnapshot)
+    {
+        if (!string.Equals(continuation.PlanId, planId, StringComparison.Ordinal) ||
+            !string.Equals(continuation.Revision, revision, StringComparison.Ordinal) ||
+            !string.Equals(continuation.TaskId, taskId, StringComparison.Ordinal))
+            return PlanRecoveryContinuationDisposition.WrongScope;
+
+        return PlanRecoveryAssessmentSnapshotPolicy.Matches(
+            continuation.RepositorySnapshot,
+            currentSnapshot)
+            ? PlanRecoveryContinuationDisposition.Ready
+            : PlanRecoveryContinuationDisposition.SourceChanged;
+    }
+
+    internal static bool ShouldClearAfterPromptCompletion(
+        PlanRecoveryContinuationState? continuation,
+        string planId,
+        string taskId,
+        bool promptCompleted) =>
+        continuation is not null &&
+        promptCompleted &&
+        string.Equals(continuation.PlanId, planId, StringComparison.Ordinal) &&
+        string.Equals(continuation.TaskId, taskId, StringComparison.Ordinal);
+}
+
+/// <summary>
 /// Gives a recovery assessment a durable identity tied to repository content. Merely reopening
 /// or restoring a recovery card never invalidates an assessment; a different commit, tracked
 /// diff, or untracked-file content does.

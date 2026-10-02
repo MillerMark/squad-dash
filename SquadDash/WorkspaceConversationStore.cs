@@ -1006,6 +1006,55 @@ internal sealed record AssessedRecoveryContinuationState(
     string Summary,
     IReadOnlyList<string> RemainingWork);
 
+/// <summary>
+/// Durable, workspace-scoped lease for dispatching preserved uncommitted work. The exact
+/// repository snapshot that was accepted for recovery is retained until its focused task
+/// context is journaled, so application restarts cannot silently discard or reinterpret it.
+/// </summary>
+internal sealed record PlanRecoveryContinuationState(
+    string PlanId,
+    string Revision,
+    string TaskId,
+    PlanRecoveryRepositorySnapshot RepositorySnapshot,
+    IReadOnlyList<string> PreservedPaths)
+{
+    internal static PlanRecoveryContinuationState? Normalize(
+        PlanRecoveryContinuationState? state,
+        string? activePlanId,
+        string? activeRevision)
+    {
+        if (state is null ||
+            !string.Equals(state.PlanId, activePlanId, StringComparison.Ordinal) ||
+            !string.Equals(state.Revision, activeRevision, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(state.TaskId) ||
+            string.IsNullOrWhiteSpace(state.RepositorySnapshot?.HeadCommit) ||
+            string.IsNullOrWhiteSpace(state.RepositorySnapshot.Fingerprint))
+            return null;
+
+        var paths = (state.PreservedPaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.Trim().Replace('\\', '/'))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (paths.Length == 0)
+            return null;
+
+        return state with
+        {
+            PlanId = state.PlanId.Trim(),
+            Revision = state.Revision.Trim(),
+            TaskId = state.TaskId.Trim(),
+            RepositorySnapshot = state.RepositorySnapshot with
+            {
+                HeadCommit = state.RepositorySnapshot.HeadCommit.Trim(),
+                Fingerprint = state.RepositorySnapshot.Fingerprint.Trim(),
+            },
+            PreservedPaths = paths,
+        };
+    }
+}
+
 internal sealed record ActiveLoopExecutionState(
     string LoopPath,
     string FilterText,
@@ -1031,6 +1080,7 @@ internal sealed record ActiveLoopExecutionState(
     [property: JsonPropertyName("scrutinyReworkInstructions")] string? VerificationReworkInstructions = null,
     [property: JsonPropertyName("scrutinyEnvelopeRepairCount")] int VerificationEnvelopeRepairCount = 0,
     AssessedRecoveryContinuationState? AssessedRecoveryContinuation = null,
+    PlanRecoveryContinuationState? RecoveryContinuation = null,
     string? PendingDecomposeRevision = null,
     PlanBranchLease? BranchLease = null,
     string? PendingInboxLinkRepairError = null,
@@ -1143,6 +1193,10 @@ internal sealed record ActiveLoopExecutionState(
                     RemainingWork = remainingWork,
                 };
         }
+        var recoveryContinuation = PlanRecoveryContinuationState.Normalize(
+            state.RecoveryContinuation,
+            groupId,
+            revision);
 
         return new ActiveLoopExecutionState(
             loopPath,
@@ -1171,6 +1225,7 @@ internal sealed record ActiveLoopExecutionState(
                 : state.VerificationReworkInstructions.Trim(),
             Math.Max(0, state.VerificationEnvelopeRepairCount),
             assessedRecovery,
+            recoveryContinuation,
             pendingRevision,
             branchLease,
             string.IsNullOrWhiteSpace(state.PendingInboxLinkRepairError)

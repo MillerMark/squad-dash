@@ -425,8 +425,6 @@ public partial class MainWindow : Window
     private string?                    _capturedTaskVerificationResultError;
     private string?                    _capturedTaskVerificationRawResponse;
     private string?                 _decomposeIterationBaselineCommit;
-    private string?                 _decomposeContinuationTaskId;
-    private IReadOnlyList<string>   _decomposeContinuationPaths = [];
     private bool                    _loopResumeSuppressed;
     private bool                    _pausePlanAfterCurrentStepRequested;
     private bool                    _planAbortRequestedByUser;
@@ -7579,16 +7577,21 @@ public partial class MainWindow : Window
         else if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Persisted &&
                  interruptionResult.Plan is { } newlyInterruptedPlan)
         {
+            var interruptedTask = newlyInterruptedPlan.Tasks.FirstOrDefault(task =>
+                string.Equals(task.TaskId, interruptedTaskId, StringComparison.Ordinal));
+            var interruptedStepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                interruptedTask?.DisplayStepLabel,
+                interruptedTask?.Title ?? "the current step");
             ScheduleDecomposeSystemEntry(
                 pausedAfterStep
                     ? $"Plan {newlyInterruptedPlan.Title} paused safely after the completed step. It can be resumed from the Plans panel."
                     : providerWaitReason is not null
-                        ? $"Plan {newlyInterruptedPlan.PlanId} is preserved at {interruptedTaskId ?? "the current task"} after provider recovery was exhausted. Resume it after provider access is available."
+                        ? $"Plan ‘{newlyInterruptedPlan.DisplayName}’ is preserved at {interruptedStepLabel} after provider recovery was exhausted. Resume it after provider access is available."
                     : abortedByUser
-                        ? $"Plan work was aborted at {interruptedTaskId ?? "the current task"}. Assess the preserved work before continuing."
+                        ? $"Plan work was aborted at {interruptedStepLabel}. Assess the preserved work before continuing."
                     : _restartPending
-                        ? $"Plan {newlyInterruptedPlan.PlanId} was interrupted by an application restart before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed."
-                        : $"Plan {newlyInterruptedPlan.PlanId} stopped before {interruptedTaskId ?? "the current task"} was accepted. The plan is preserved and can be resumed.",
+                        ? $"Plan ‘{newlyInterruptedPlan.DisplayName}’ was interrupted by an application restart before {interruptedStepLabel} was accepted. The plan is preserved and can be resumed."
+                        : $"Plan ‘{newlyInterruptedPlan.DisplayName}’ stopped before {interruptedStepLabel} was accepted. The plan is preserved and can be resumed.",
                 newlyInterruptedPlan.PlanId,
                 newlyInterruptedPlan.Revision,
                 interruptedTaskId);
@@ -7603,8 +7606,11 @@ public partial class MainWindow : Window
         }
         else if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Failed)
         {
+            var stoppedPlanDisplayName = stoppedPlanId is null
+                ? "the current plan"
+                : _planStore?.Load(stoppedPlanId)?.DisplayName ?? "the current plan";
             var persistenceMessage =
-                $"Plan {stoppedPlanId} stopped, but SquadDash could not save its interrupted state. " +
+                $"Plan ‘{stoppedPlanDisplayName}’ stopped, but SquadDash could not save its interrupted state. " +
                 "The execution ownership was retained for recovery. " +
                 (interruptionResult.Error ?? "Unknown persistence failure.");
             AppendLoopOutputLine($"⚠ {persistenceMessage}", LoopLifecycleBrush);
@@ -7652,6 +7658,7 @@ public partial class MainWindow : Window
         }
         DiscardObsoletePlanQueueItems("native-loop-error");
         var branchLeasePause = _planBranchLeasePausePending;
+        var recoverySourcePause = _loopController.LastTerminalException is PlanRecoverySourceChangedException;
         var failedRound = _loopRoundExecutionIdentity;
         var failureIdentity = LoopRoundExecutionIdentity.ResolveFailure(
             failedRound,
@@ -7664,7 +7671,8 @@ public partial class MainWindow : Window
         var blockedRevision = failureIdentity.Revision;
         var failedIteration = _loopCurrentIteration;
         var providerWaitReason = _planProviderWaitInterruptionReason;
-        if (!_planAbortRequestedByUser && providerWaitReason is null && !branchLeasePause && blockedTaskId is not null && string.Equals(
+        if (!_planAbortRequestedByUser && providerWaitReason is null && !branchLeasePause &&
+            !recoverySourcePause && blockedTaskId is not null && string.Equals(
                 _CodeHealthGroupRunner?.CurrentStepId,
                 blockedTaskId,
                 StringComparison.Ordinal))
@@ -7680,6 +7688,14 @@ public partial class MainWindow : Window
                 interruptionReason,
                 failedIteration,
                 preferDurableTaskId: false);
+        var interruptedPlanForDisplay = interruptionResult.Plan ??
+                                        (blockedGroupId is null ? null : _planStore?.Load(blockedGroupId));
+        var interruptedTaskForDisplay = interruptedPlanForDisplay?.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, blockedTaskId, StringComparison.Ordinal));
+        var planDisplayName = interruptedPlanForDisplay?.DisplayName ?? "the current plan";
+        var stepDisplayName = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            interruptedTaskForDisplay?.DisplayStepLabel,
+            interruptedTaskForDisplay?.Title ?? failureIdentity.TaskTitle ?? "the current step");
         SetNativePlanRunnerActive(false, blockedGroupId);
         ApplyPendingBridgeSettingsRestartIfIdle("native-loop-error");
         _loopCurrentIteration = 0;
@@ -7732,8 +7748,10 @@ public partial class MainWindow : Window
                 ? "⏹ Plan work aborted; recovery evidence was preserved."
                 : branchLeasePause
                     ? "⏸ Plan paused before dispatch; the canonical branch needs attention."
+                : recoverySourcePause
+                    ? "⏸ Plan paused before dispatch because the preserved source changed."
                 : $"❌ Loop error: {msg}",
-            providerWaitReason is not null || _planAbortRequestedByUser || branchLeasePause
+            providerWaitReason is not null || _planAbortRequestedByUser || branchLeasePause || recoverySourcePause
                 ? LoopLifecycleBrush
                 : ThemeBrush("SystemErrorText"));
         AppendLine(
@@ -7743,10 +7761,14 @@ public partial class MainWindow : Window
                 ? "⏹ Plan work aborted; recovery is available."
                 : branchLeasePause
                     ? "⏸ Plan paused before dispatch. No task was started or failed."
+                : recoverySourcePause
+                    ? "⏸ Plan recovery paused before dispatch. No task was started or failed."
                 : $"❌ Loop error: {msg}",
-            _planAbortRequestedByUser || branchLeasePause ? null : ThemeBrush("SystemErrorText"));
+            _planAbortRequestedByUser || branchLeasePause || recoverySourcePause
+                ? null
+                : ThemeBrush("SystemErrorText"));
         _planExecutionLog?.Append(new PlanExecutionLogEntry(
-            Kind: "plan_error",
+            Kind: recoverySourcePause ? "plan_paused" : "plan_error",
             Timestamp: DateTimeOffset.UtcNow.ToString("O"),
             PlanId: blockedGroupId,
             Revision: blockedRevision,
@@ -7754,19 +7776,22 @@ public partial class MainWindow : Window
             TaskId: blockedTaskId,
             TaskTitle: failureIdentity.TaskTitle,
             Message: msg,
-            Outcome: "error"));
+            Outcome: recoverySourcePause ? "paused" : "error"));
         SyncLoopPanel();
         if (interruptionResult.Outcome == PlanInterruptionPersistenceOutcome.Persisted &&
             blockedGroupId is not null && blockedTaskId is not null && blockedRevision is not null)
         {
             ScheduleDecomposeSystemEntry(
                 providerWaitReason is not null
-                    ? $"Plan {blockedGroupId} is preserved at {blockedTaskId}. Resume it after provider access is available."
+                    ? $"Plan ‘{planDisplayName}’ is preserved at {stepDisplayName}. Resume it after provider access is available."
                     : _planAbortRequestedByUser
-                    ? $"Plan work was aborted at {blockedTaskId}. Assess the preserved work before continuing."
+                    ? $"Plan work was aborted at {stepDisplayName}. Assess the preserved work before continuing."
                     : branchLeasePause
-                        ? $"Plan {blockedGroupId} paused before {blockedTaskId} started. {msg}"
-                    : $"Plan {blockedGroupId} stopped at {blockedTaskId}: {msg}",
+                        ? $"Plan ‘{planDisplayName}’ paused before {stepDisplayName} started. {msg}"
+                    : recoverySourcePause
+                        ? $"Plan ‘{planDisplayName}’ paused before {stepDisplayName} started because the preserved source changed. " +
+                          "SquadDash kept the newer files for review."
+                    : $"Plan ‘{planDisplayName}’ stopped at {stepDisplayName}: {msg}",
                 blockedGroupId,
                 blockedRevision,
                 blockedTaskId);
@@ -9359,8 +9384,6 @@ public partial class MainWindow : Window
         _CodeHealthGroupRunner?.ClearCurrentStep();
         _CodeHealthGroupRunner = null;
         _activeDecomposeGroupId = null;
-        _decomposeContinuationTaskId = null;
-        _decomposeContinuationPaths = [];
         _lastPlanTranscriptPhaseKey = null;
     }
 
@@ -9483,7 +9506,8 @@ public partial class MainWindow : Window
         string? expectedRevision = null,
         string? continuationTaskId = null,
         IReadOnlyList<string>? continuationPaths = null,
-        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
+        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null,
+        PlanRecoveryRepositorySnapshot? continuationSnapshot = null)
     {
         if (_currentWorkspace is null) return false;
         if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
@@ -9494,9 +9518,17 @@ public partial class MainWindow : Window
                 $"promptRunning={_isPromptRunning} loopRunning={IsLoopRunning} queueDrain={_queueDrainActive}.");
             return false;
         }
-        var isConfirmedContinuation = !string.IsNullOrWhiteSpace(continuationTaskId) &&
-                                      continuationPaths is { Count: > 0 };
         var priorExecution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var hasRequestedRecoveryContinuation =
+            !string.IsNullOrWhiteSpace(continuationTaskId) &&
+            continuationPaths is { Count: > 0 } &&
+            continuationSnapshot is not null;
+        var persistedRecoveryContinuation = PlanRecoveryContinuationState.Normalize(
+            priorExecution?.RecoveryContinuation,
+            groupId,
+            expectedRevision ?? priorExecution?.DecomposeRevision);
+        var isConfirmedContinuation = hasRequestedRecoveryContinuation ||
+                                      persistedRecoveryContinuation is not null;
         var replayPendingResult = PlanRepairReplayPolicy.ShouldReplayBeforeMutationPreflight(
             priorExecution,
             groupId,
@@ -9596,7 +9628,7 @@ public partial class MainWindow : Window
                 "Loop",
                 $"Refused stale Executing Plan resume group={groupId} persistedRevision={expectedRevision} currentRevision={revision}.");
             AppendLoopOutputLine(
-                $"⏹ Plan {groupId} was not resumed because its revision changed.",
+                $"⏹ Plan ‘{durablePlan.DisplayName}’ was not resumed because its revision changed.",
                 LoopLifecycleBrush);
             return false;
         }
@@ -9617,8 +9649,6 @@ public partial class MainWindow : Window
                 ? $"Resumed from completed iteration {resumeFromIteration}."
                 : null,
             Outcome: null));
-        _decomposeContinuationTaskId = isConfirmedContinuation ? continuationTaskId : null;
-        _decomposeContinuationPaths = isConfirmedContinuation ? [.. continuationPaths!] : [];
         var branchHead = (await RunGitAsync(
             _currentWorkspace.FolderPath,
             "rev-parse HEAD")).Trim();
@@ -9639,18 +9669,31 @@ public partial class MainWindow : Window
                 DateTimeOffset.UtcNow);
         if (replayPendingResult)
             _decomposeIterationBaselineCommit = priorExecution?.TaskBaselineCommit ?? branchLease.BaselineCommit;
-        _conversationManager.UpdateActiveLoopExecutionState(
-            PlanExecutionResumeEnvelope.Create(
+        var requestedRecoveryContinuation = hasRequestedRecoveryContinuation
+            ? new PlanRecoveryContinuationState(
+                groupId,
+                revision,
+                continuationTaskId!,
+                continuationSnapshot!,
+                continuationPaths!)
+            : null;
+        // A restart/manual start may reclaim a durable recovery transaction without rebuilding
+        // it from UI state. Never skip mutation preflight because of the persisted lease and then
+        // discard that same lease when the new execution envelope is saved.
+        var effectiveRecoveryContinuation = requestedRecoveryContinuation ?? persistedRecoveryContinuation;
+        var resumeEnvelope = PlanExecutionResumeEnvelope.Create(
                 loopPath,
                 groupId,
                 revision,
                 resumeFromIteration,
                 priorExecution,
                 reclaimPersistedExecution: !string.IsNullOrWhiteSpace(expectedRevision),
-                assessedRecoveryContinuation) with
+                assessedRecoveryContinuation,
+                effectiveRecoveryContinuation) with
             {
                 BranchLease = branchLease,
-            });
+            };
+        _conversationManager.UpdateActiveLoopExecutionState(resumeEnvelope);
 
         // A reconstructed verification envelope has no in-memory runner identity from the
         // implementation round. Re-track the same pending task before the verifier starts so
@@ -12218,7 +12261,7 @@ public partial class MainWindow : Window
                 $"Plan {currentGroup.GroupId} requires branch '{currentGroup.Branch}', but '{activeBranch}' is active.");
 
         var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
-        string status;
+        PlanRecoveryRepositorySnapshot confirmedSnapshot;
         if (requiredPreservedSnapshot is not null)
         {
             var currentSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
@@ -12230,15 +12273,18 @@ public partial class MainWindow : Window
                     "The repository changed after recovery was assessed. SquadDash left the plan stopped so new work is not accepted without review.");
             }
 
-            status = currentSnapshot.StatusSnapshot;
+            confirmedSnapshot = currentSnapshot;
         }
         else
         {
-            status = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
+            confirmedSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
         }
 
         var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
-        DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var preservedPaths);
+        DecomposeWorktreePolicy.HasOnlyAllowedChanges(
+            confirmedSnapshot.StatusSnapshot,
+            allowed,
+            out var preservedPaths);
         if (PlanRecoveryCommitReadiness.RequiresCommit(
                 preservedPaths.Count,
                 allowUncommittedPreservedWork))
@@ -12302,7 +12348,8 @@ public partial class MainWindow : Window
             currentGroup with { HostRevision = currentRevision },
             preservedPaths.Count > 0 ? taskId : null,
             preservedPaths,
-            assessedRecoveryContinuation);
+            assessedRecoveryContinuation,
+            preservedPaths.Count > 0 ? confirmedSnapshot : null);
         var durableTask = _planStore?.Load(plan.Group.GroupId)?.Tasks.FirstOrDefault(task =>
             string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
@@ -14151,31 +14198,49 @@ public partial class MainWindow : Window
             throw new PlanBranchLeaseViolationException(dispatchBranch.Message);
         }
 
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution
+            ?? throw new InvalidOperationException("The active plan execution was not persisted.");
         string? continuationContext = null;
-        if (_decomposeContinuationTaskId is not null)
+        var recoveryContinuation = PlanRecoveryContinuationState.Normalize(
+            execution.RecoveryContinuation,
+            _activeDecomposeGroupId,
+            _CodeHealthGroupRunner.CurrentRevision);
+        if (recoveryContinuation is not null)
         {
             if (!string.Equals(
-                    _decomposeContinuationTaskId,
+                    recoveryContinuation.TaskId,
                     _CodeHealthGroupRunner.CurrentStepId,
                     StringComparison.Ordinal))
                 throw new InvalidOperationException(
-                    $"Preserved work belongs to task {_decomposeContinuationTaskId}, but the next eligible task is " +
+                    $"Preserved work belongs to task {recoveryContinuation.TaskId}, but the next eligible task is " +
                     $"{_CodeHealthGroupRunner.CurrentStepId}.");
 
-            var status = await RunGitAsync(
-                _currentWorkspace.FolderPath,
-                "status --porcelain --untracked-files=all");
-            var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(_currentWorkspace.FolderPath);
-            var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
-            DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var currentPaths);
-            if (!DecomposeWorktreePolicy.MatchesConfirmedPaths(currentPaths, _decomposeContinuationPaths))
-                throw new InvalidOperationException(
-                    "The preserved worktree changed after recovery was confirmed. Reopen the recovery action and review the files again.");
+            var currentSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(
+                _currentWorkspace.FolderPath);
+            var continuationDisposition = PlanRecoveryContinuationPolicy.Evaluate(
+                recoveryContinuation,
+                _activeDecomposeGroupId!,
+                _CodeHealthGroupRunner.CurrentRevision!,
+                _CodeHealthGroupRunner.CurrentStepId!,
+                currentSnapshot);
+            if (continuationDisposition != PlanRecoveryContinuationDisposition.Ready)
+            {
+                SquadDashTrace.Write(
+                    "PlanRecovery",
+                    $"Preserved snapshot mismatch plan={recoveryContinuation.PlanId} " +
+                    $"task={recoveryContinuation.TaskId} " +
+                    $"expectedHead={recoveryContinuation.RepositorySnapshot.HeadCommit} " +
+                    $"actualHead={currentSnapshot.HeadCommit} " +
+                    $"expectedFingerprint={recoveryContinuation.RepositorySnapshot.Fingerprint} " +
+                    $"actualFingerprint={currentSnapshot.Fingerprint} " +
+                    $"expectedStatus={JsonSerializer.Serialize(recoveryContinuation.RepositorySnapshot.StatusSnapshot)} " +
+                    $"actualStatus={JsonSerializer.Serialize(currentSnapshot.StatusSnapshot)}.");
+                throw new PlanRecoverySourceChangedException(
+                    "The source files changed after recovery was confirmed. SquadDash preserved the newer files and paused before assigning more work.");
+            }
 
-            var taskId = _decomposeContinuationTaskId;
-            var paths = _decomposeContinuationPaths;
-            _decomposeContinuationTaskId = null;
-            _decomposeContinuationPaths = [];
+            var taskId = recoveryContinuation.TaskId;
+            var paths = recoveryContinuation.PreservedPaths;
             continuationContext =
                 $"RECOVERY CONTEXT (host-owned): Continue task {taskId} from the existing uncommitted work in these paths:\n" +
                 string.Join("\n", paths.Select(path => $"- {path}")) +
@@ -14202,8 +14267,6 @@ public partial class MainWindow : Window
                     $"Could not publish executing task {currentTaskId}: {startProjectionError}");
         }
 
-        var execution = _conversationManager.ConversationState.ActiveLoopExecution
-            ?? throw new InvalidOperationException("The active plan execution was not persisted.");
         var observedHead = (await RunGitAsync(
             _currentWorkspace.FolderPath,
             "rev-parse HEAD")).Trim();
@@ -14528,6 +14591,20 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 "Loop",
                 $"Finalizing captured terminal result before honoring stop plan={groupId} task={taskId}.");
+        }
+
+        if (activeExecution is not null &&
+            PlanRecoveryContinuationPolicy.ShouldClearAfterPromptCompletion(
+                activeExecution.RecoveryContinuation,
+                groupId,
+                taskId,
+                promptCompleted: true))
+        {
+            // Preparing and journaling a prompt is not a completed handoff: the app may restart
+            // before the coordinator actually returns. Keep the recovery lease through that
+            // interval, and release it only now that prompt execution has returned to the host.
+            activeExecution = activeExecution with { RecoveryContinuation = null };
+            _conversationManager.UpdateActiveLoopExecutionState(activeExecution);
         }
 
         // Candidate task work is verified before it can become accepted plan progress.
@@ -16468,7 +16545,13 @@ public partial class MainWindow : Window
     {
         SuppressLoopResume("plan-blocked");
         _loopController.RequestStop();
-        AppendLoopOutputLine($"⏹ Plan blocked at {taskId}: {reason}", LoopLifecycleBrush);
+        var blockedPlan = _planStore?.Load(groupId);
+        var blockedTask = blockedPlan?.Tasks.FirstOrDefault(task =>
+            string.Equals(task.TaskId, taskId, StringComparison.Ordinal));
+        var blockedStepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+            blockedTask?.DisplayStepLabel,
+            blockedTask?.Title ?? "the current step");
+        AppendLoopOutputLine($"⏹ Plan blocked at {blockedStepLabel}: {reason}", LoopLifecycleBrush);
         // Persist the final recovery state and its task-scoped commit evidence before rendering
         // transcript or Inbox actions. The UI must describe the durable state it will operate on.
         TryPublishPlanBlocked(groupId, taskId);
@@ -20401,8 +20484,13 @@ public partial class MainWindow : Window
                 margin: new Thickness(0)));
             copyParts.Add("Technical details:" + Environment.NewLine + recoveryTechnicalDetails);
         }
-        var hasPreservedWork = string.Equals(_decomposeContinuationTaskId, taskId, StringComparison.Ordinal) &&
-                               _decomposeContinuationPaths.Count > 0;
+        var hasPreservedWork = string.Equals(
+                                   _conversationManager.ConversationState.ActiveLoopExecution?
+                                       .RecoveryContinuation?.TaskId,
+                                   taskId,
+                                   StringComparison.Ordinal) &&
+                               _conversationManager.ConversationState.ActiveLoopExecution?
+                                   .RecoveryContinuation?.PreservedPaths.Count > 0;
         var presentation = durablePlan is null
             ? null
             : PlanRecoveryPresentationBuilder.Build(durablePlan, taskId, hasPreservedWork);
@@ -22016,8 +22104,13 @@ public partial class MainWindow : Window
                 {
                     var assessedContinuation = new AssessedRecoveryContinuationState(
                         planId, context.TaskId, response.Summary, response.RemainingWork!);
+                    var assessedTask = durable.Tasks.FirstOrDefault(task =>
+                        string.Equals(task.TaskId, context.TaskId, StringComparison.Ordinal));
+                    var assessedStepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                        assessedTask?.DisplayStepLabel,
+                        assessedTask?.Title ?? "the current step");
                     ShowSystemTranscriptEntry(
-                        $"AI found partial work for {context.TaskId}. SquadDash preserved the assessment and is resuming only the remaining work.");
+                        $"{assessedStepLabel} has partial work. SquadDash preserved it and is continuing only the remaining work.");
                     await RetryDecomposeTaskAsync(
                         context.Plan,
                         context.TaskId,
@@ -22027,13 +22120,20 @@ public partial class MainWindow : Window
                     return;
                 }
                 case PlanRecoveryClassification.NotStarted:
+                {
+                    var notStartedTask = durable.Tasks.FirstOrDefault(task =>
+                        string.Equals(task.TaskId, context.TaskId, StringComparison.Ordinal));
+                    var notStartedStepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
+                        notStartedTask?.DisplayStepLabel,
+                        notStartedTask?.Title ?? "the current step");
                     ShowSystemTranscriptEntry(
-                        $"AI found no work for {context.TaskId}. SquadDash is starting the task normally.");
+                        $"SquadDash found no completed work for {notStartedStepLabel} and is starting it normally.");
                     await RetryDecomposeTaskAsync(
                         context.Plan,
                         context.TaskId,
                         requiredPreservedSnapshot: currentSnapshot);
                     return;
+                }
             }
         }
 
@@ -61983,7 +62083,8 @@ public partial class MainWindow : Window
         DecomposedTaskGroup group,
         string? continuationTaskId = null,
         IReadOnlyList<string>? continuationPaths = null,
-        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
+        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null,
+        PlanRecoveryRepositorySnapshot? continuationSnapshot = null)
     {
         if (_currentWorkspace is null) return;
         // The durable plan is the execution contract. A group supplied by the tasks panel is
@@ -62003,7 +62104,8 @@ public partial class MainWindow : Window
         var workspace = _currentWorkspace.FolderPath;
         var targetBranch = group.Branch.Trim();
         var isConfirmedContinuation = !string.IsNullOrWhiteSpace(continuationTaskId) &&
-                                      continuationPaths is { Count: > 0 };
+                                      continuationPaths is { Count: > 0 } &&
+                                      continuationSnapshot is not null;
         if (isConfirmedContinuation)
         {
             var activeBranch = ReadGitBranch(workspace);
@@ -62021,7 +62123,8 @@ public partial class MainWindow : Window
                 group,
                 continuationTaskId: continuationTaskId,
                 continuationPaths: continuationPaths,
-                assessedRecoveryContinuation: assessedRecoveryContinuation))
+                assessedRecoveryContinuation: assessedRecoveryContinuation,
+                continuationSnapshot: continuationSnapshot))
             throw new InvalidOperationException("SquadDash could not start the decomposition loop.");
     }
 

@@ -12,7 +12,8 @@ internal static class PlanExecutionResumeEnvelope
         int resumeFromIteration,
         ActiveLoopExecutionState? prior,
         bool reclaimPersistedExecution,
-        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null)
+        AssessedRecoveryContinuationState? assessedRecoveryContinuation = null,
+        PlanRecoveryContinuationState? recoveryContinuation = null)
     {
         var canReclaim = reclaimPersistedExecution &&
             prior is not null &&
@@ -31,6 +32,7 @@ internal static class PlanExecutionResumeEnvelope
                     Math.Max(0, resumeFromIteration)),
                 AssessedRecoveryContinuation = assessedRecoveryContinuation ??
                                                 prior.AssessedRecoveryContinuation,
+                RecoveryContinuation = recoveryContinuation ?? prior.RecoveryContinuation,
             };
         }
 
@@ -53,6 +55,7 @@ internal static class PlanExecutionResumeEnvelope
             revision,
             PreviousPlanExecutionAttempts: history,
             LastCompletedIteration: Math.Max(0, resumeFromIteration),
-            AssessedRecoveryContinuation: assessedRecoveryContinuation);
+            AssessedRecoveryContinuation: assessedRecoveryContinuation,
+            RecoveryContinuation: recoveryContinuation);
     }
 }

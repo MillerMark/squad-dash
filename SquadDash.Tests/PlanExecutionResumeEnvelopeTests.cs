@@ -87,6 +87,57 @@ internal sealed class PlanExecutionResumeEnvelopeTests
     }
 
     [Test]
+    public void PreservedWorkRecovery_RoundTripsAndSurvivesRestartReclaim()
+    {
+        var snapshot = new PlanRecoveryRepositorySnapshot(
+            "abc1234",
+            "fingerprint-1",
+            " M src/App.cs");
+        var continuation = new PlanRecoveryContinuationState(
+            "PLAN-1",
+            "revision-1",
+            "PLAN-1-001",
+            snapshot,
+            ["src/App.cs"]);
+
+        var started = PlanExecutionResumeEnvelope.Create(
+            "loop.md", "PLAN-1", "revision-1", 0, null, false,
+            recoveryContinuation: continuation);
+        var json = System.Text.Json.JsonSerializer.Serialize(started);
+        var reloaded = ActiveLoopExecutionState.Normalize(
+            System.Text.Json.JsonSerializer.Deserialize<ActiveLoopExecutionState>(json));
+        var resumed = PlanExecutionResumeEnvelope.Create(
+            "loop.md", "PLAN-1", "revision-1", 0, reloaded, true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resumed.RecoveryContinuation?.TaskId, Is.EqualTo("PLAN-1-001"));
+            Assert.That(resumed.RecoveryContinuation?.RepositorySnapshot, Is.EqualTo(snapshot));
+            Assert.That(resumed.RecoveryContinuation?.PreservedPaths,
+                Is.EqualTo(new[] { "src/App.cs" }));
+        });
+    }
+
+    [Test]
+    public void PreservedWorkRecovery_IsNotReusedForAnotherPlanRevision()
+    {
+        var continuation = new PlanRecoveryContinuationState(
+            "PLAN-1",
+            "revision-1",
+            "PLAN-1-001",
+            new PlanRecoveryRepositorySnapshot("abc1234", "fingerprint-1", " M src/App.cs"),
+            ["src/App.cs"]);
+        var prior = new ActiveLoopExecutionState(
+            "loop.md", "PLAN-1", "PLAN-1", "revision-1",
+            RecoveryContinuation: continuation);
+
+        var normalizedForNewRevision = ActiveLoopExecutionState.Normalize(
+            prior with { DecomposeRevision = "revision-2" });
+
+        Assert.That(normalizedForNewRevision?.RecoveryContinuation, Is.Null);
+    }
+
+    [Test]
     public void VerificationRecovery_ReclaimsPendingCandidateAndActiveTask()
     {
         var pending = new PendingTaskVerification(
