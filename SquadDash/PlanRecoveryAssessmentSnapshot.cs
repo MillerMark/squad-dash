@@ -63,4 +63,11 @@ internal static class PlanRecoveryAssessmentSnapshotPolicy
             assessment.RepositoryFingerprint,
             snapshot.Fingerprint,
             StringComparison.OrdinalIgnoreCase);
+
+    internal static bool Matches(
+        PlanRecoveryRepositorySnapshot expected,
+        PlanRecoveryRepositorySnapshot actual) =>
+        string.Equals(expected.HeadCommit, actual.HeadCommit, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(expected.Fingerprint, actual.Fingerprint, StringComparison.OrdinalIgnoreCase) &&
+        string.Equals(expected.StatusSnapshot, actual.StatusSnapshot, StringComparison.Ordinal);
 }

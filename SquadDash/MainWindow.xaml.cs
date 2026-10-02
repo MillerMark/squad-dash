@@ -12185,7 +12185,8 @@ public partial class MainWindow : Window
         PendingDecomposePlan plan,
         string taskId,
         AssessedRecoveryContinuationState? assessedRecoveryContinuation = null,
-        bool allowUncommittedPreservedWork = false)
+        bool allowUncommittedPreservedWork = false,
+        PlanRecoveryRepositorySnapshot? requiredPreservedSnapshot = null)
     {
         if (_currentWorkspace is null) return false;
         if (IsPlanRecoveryActionBusy(plan.Group.GroupId))
@@ -12196,6 +12197,15 @@ public partial class MainWindow : Window
         var currentRevision = durablePlan.Revision;
         if (!string.Equals(currentRevision, plan.Revision, StringComparison.Ordinal))
             throw new InvalidOperationException("The plan changed after these recovery controls were created.");
+        if (durablePlan.LifecycleStatus is not (PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked) ||
+            !string.Equals(
+                durablePlan.InterruptionData?.InterruptedTaskId,
+                taskId,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The plan has already moved beyond this recovery point. SquadDash left its current state unchanged.");
+        }
         var currentGroup = PendingDecomposePlanAdapter.FromPlan(durablePlan).Group with
         {
             HostRevision = currentRevision,
@@ -12207,8 +12217,26 @@ public partial class MainWindow : Window
             throw new InvalidOperationException(
                 $"Plan {currentGroup.GroupId} requires branch '{currentGroup.Branch}', but '{activeBranch}' is active.");
 
-        var status = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
         var tasksRelativePath = await GetTasksRepositoryRelativePathAsync(workspace);
+        string status;
+        if (requiredPreservedSnapshot is not null)
+        {
+            var currentSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
+            if (!PlanRecoveryAssessmentSnapshotPolicy.Matches(
+                    requiredPreservedSnapshot,
+                    currentSnapshot))
+            {
+                throw new InvalidOperationException(
+                    "The repository changed after recovery was assessed. SquadDash left the plan stopped so new work is not accepted without review.");
+            }
+
+            status = currentSnapshot.StatusSnapshot;
+        }
+        else
+        {
+            status = await RunGitAsync(workspace, "status --porcelain --untracked-files=all");
+        }
+
         var allowed = tasksRelativePath is null ? Array.Empty<string>() : new[] { tasksRelativePath };
         DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, allowed, out var preservedPaths);
         if (PlanRecoveryCommitReadiness.RequiresCommit(
@@ -12231,7 +12259,8 @@ public partial class MainWindow : Window
                     plan,
                     taskId,
                     assessedRecoveryContinuation,
-                    allowUncommittedPreservedWork: true),
+                    allowUncommittedPreservedWork: true,
+                    requiredPreservedSnapshot: requiredPreservedSnapshot),
                 contentFactory: exception => PlanPreflightRecoveryContent.FromPreservedWork(exception, taskId),
                 retryLabel: "Resume With Uncommitted Files…",
                 retryToolTip: "Resume this task immediately from the listed uncommitted files so the task agent can finish and commit them. SquadDash will not wait for you to commit first.",
@@ -12247,6 +12276,11 @@ public partial class MainWindow : Window
             return false;
         }
 
+        var revalidatedBranch = ReadGitBranch(workspace);
+        if (!string.Equals(revalidatedBranch, currentGroup.Branch, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Plan {currentGroup.GroupId} requires branch '{currentGroup.Branch}', but '{revalidatedBranch}' is active.");
+
         // Canonical recovery is committed before its Markdown view is refreshed.
         var recoveredPlan = PlanStoreUpdater.ApplyRecoveryWithProvenance(
             durablePlan,
@@ -12254,9 +12288,14 @@ public partial class MainWindow : Window
             durablePlan.Tasks.FirstOrDefault(task =>
                 string.Equals(task.TaskId, taskId, StringComparison.Ordinal))?.Commit,
             "continue-working");
-        if (!TryPublishPlanProgress(recoveredPlan, out var recoverySaveError))
+        if (!TryPublishPlanRecoveryProgress(
+                durablePlan,
+                recoveredPlan,
+                out var persistedRecovery,
+                out var recoverySaveError))
             throw new InvalidOperationException(
                 recoverySaveError ?? "The durable recovery state could not be saved.");
+        recoveredPlan = persistedRecovery!;
         RefreshPlanProjectionBestEffort(recoveredPlan, "continue-working");
         LoadTasksPanel();
         await StartBackloggedDecomposeGroupAsync(
@@ -21969,7 +22008,8 @@ public partial class MainWindow : Window
                         durable,
                         context,
                         response,
-                        response.IsVerifiedNoOp ? context.AssessedHead : attributed[^1]);
+                        response.IsVerifiedNoOp ? context.AssessedHead : attributed[^1],
+                        requiredRepositorySnapshot: currentSnapshot);
                     return;
                 }
                 case PlanRecoveryClassification.Partial:
@@ -21982,13 +22022,17 @@ public partial class MainWindow : Window
                         context.Plan,
                         context.TaskId,
                         assessedContinuation,
-                        allowUncommittedPreservedWork: true);
+                        allowUncommittedPreservedWork: true,
+                        requiredPreservedSnapshot: currentSnapshot);
                     return;
                 }
                 case PlanRecoveryClassification.NotStarted:
                     ShowSystemTranscriptEntry(
                         $"AI found no work for {context.TaskId}. SquadDash is starting the task normally.");
-                    await RetryDecomposeTaskAsync(context.Plan, context.TaskId);
+                    await RetryDecomposeTaskAsync(
+                        context.Plan,
+                        context.TaskId,
+                        requiredPreservedSnapshot: currentSnapshot);
                     return;
             }
         }
@@ -22048,9 +22092,28 @@ public partial class MainWindow : Window
         PendingPlanRecoveryAssessment context,
         PlanRecoveryAssessmentResponse response,
         string terminalCommit,
-        string summaryPrefix = "AI-assessed recovery: ")
+        string summaryPrefix = "AI-assessed recovery: ",
+        PlanRecoveryRepositorySnapshot? requiredRepositorySnapshot = null)
     {
         if (_currentWorkspace is null || _planStore is null) return;
+        var workspace = _currentWorkspace.FolderPath;
+        if (requiredRepositorySnapshot is not null)
+        {
+            var currentSnapshot = await CapturePlanRecoveryRepositorySnapshotAsync(workspace);
+            if (!PlanRecoveryAssessmentSnapshotPolicy.Matches(
+                    requiredRepositorySnapshot,
+                    currentSnapshot))
+            {
+                throw new InvalidOperationException(
+                    "The repository changed after recovery was assessed. SquadDash left the plan stopped so new work is not accepted without review.");
+            }
+        }
+
+        var activeBranch = ReadGitBranch(workspace);
+        if (!string.Equals(activeBranch, durable.Branch, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                $"Plan {durable.PlanId} requires branch '{durable.Branch}', but '{activeBranch}' is active.");
+
         var shortCommit = terminalCommit[..Math.Min(7, terminalCommit.Length)];
         var summary = summaryPrefix + response.Summary;
         var currentGroup = PendingDecomposePlanAdapter.FromPlan(durable).Group with
@@ -22086,8 +22149,13 @@ public partial class MainWindow : Window
                 LifecycleStatus = PlanLifecycleStatus.Executing,
                 InterruptionData = null,
             };
-            if (!TryPublishPlanProgress(updated, out var saveError))
+            if (!TryPublishPlanRecoveryProgress(
+                    durable,
+                    updated,
+                    out var persistedUpdate,
+                    out var saveError))
                 throw new IOException(saveError ?? "The durable plan could not be saved.");
+            updated = persistedUpdate!;
             RefreshPlanProjectionBestEffort(updated, "assessed-recovery-accepted");
 
             LoadTasksPanel();
@@ -22168,7 +22236,7 @@ public partial class MainWindow : Window
     private async Task<PlanRecoveryRepositorySnapshot> CapturePlanRecoveryRepositorySnapshotAsync(
         string workspace)
     {
-        var hostOwnedPaths = await GetHostOwnedRecoveryPathsAsync(workspace);
+        var hostOwnedPaths = await GetHostOwnedAssessmentPathsAsync(workspace);
         var pathspec = PlanRecoveryAssessmentSnapshotPolicy.BuildGitPathspec(hostOwnedPaths);
         var head = (await RunGitAsync(workspace, "rev-parse HEAD")).Trim();
         var trackedDiff = await RunGitAsync(
@@ -22297,7 +22365,7 @@ public partial class MainWindow : Window
         var diff      = string.Empty;
         try
         {
-            var hostOwnedPaths = await GetHostOwnedRecoveryPathsAsync(workspace);
+            var hostOwnedPaths = await GetHostOwnedAssessmentPathsAsync(workspace);
             var recoveryPathspec = PlanRecoveryAssessmentSnapshotPolicy.BuildGitPathspec(hostOwnedPaths);
             logOutput = await RunGitAsync(
                 workspace,
@@ -58933,15 +59001,65 @@ public partial class MainWindow : Window
 
     private bool TryPublishPlanProgress(Plan plan, out string? error)
     {
+        if (_planStore is null)
+        {
+            error = "The plan store is unavailable.";
+            return false;
+        }
+        return TryPublishPlanProgressCore(
+            plan,
+            persisted => _planStore.Save(persisted),
+            out error);
+    }
+
+    private bool TryPublishPlanRecoveryProgress(
+        Plan expected,
+        Plan plan,
+        out Plan? persistedPlan,
+        out string? error)
+    {
+        persistedPlan = null;
         error = null;
         if (_planStore is null)
         {
             error = "The plan store is unavailable.";
             return false;
         }
+
+        try
+        {
+            persistedPlan = _planStore.SaveRecoveryTransition(expected, plan);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            SquadDashTrace.Write(TraceCategory.General, $"PublishPlanRecoveryProgress: {error}");
+            return false;
+        }
+
+        try
+        {
+            _broker.Publish(new PlanProgressEvent(persistedPlan.PlanId, persistedPlan));
+        }
+        catch (Exception ex)
+        {
+            // Persistence succeeded. UI refresh can recover from PlanStore and must not cause
+            // the transition to be repeated.
+            SquadDashTrace.Write(TraceCategory.General, $"PublishPlanRecoveryProgress event: {ex.Message}");
+        }
+        ReconcileDecomposeRecoveryInboxMessages(persistedPlan.PlanId);
+        return true;
+    }
+
+    private bool TryPublishPlanProgressCore(
+        Plan plan,
+        Action<Plan> persist,
+        out string? error)
+    {
+        error = null;
         var published = PlanProgressPublisher.TryPublish(
             plan,
-            persisted => _planStore.Save(persisted),
+            persist,
             persisted => _broker.Publish(new PlanProgressEvent(persisted.PlanId, persisted)),
             out error,
             out var notificationError);
@@ -62180,6 +62298,25 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(tasksRelativePath))
             paths.Add(tasksRelativePath);
         return paths;
+    }
+
+    private async Task<IReadOnlyCollection<string>> GetHostOwnedAssessmentPathsAsync(string workspace)
+    {
+        var squadRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".squad" };
+        if (_currentWorkspace is not null)
+        {
+            var repositoryRoot = await RunGitAsync(workspace, "rev-parse --show-toplevel");
+            var squadRelativePath = DecomposeWorktreePolicy.GetRepositoryRelativePath(
+                repositoryRoot,
+                _currentWorkspace.SquadFolderPath);
+            if (!string.IsNullOrWhiteSpace(squadRelativePath))
+                squadRoots.Add(squadRelativePath.TrimEnd('/', '\\'));
+        }
+
+        return squadRoots
+            .SelectMany(DecomposeWorktreePolicy.GetHostOwnedRuntimePaths)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private async void CodeHealthDoTheseButton_Click(object sender, RoutedEventArgs e)

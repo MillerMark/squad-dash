@@ -181,6 +181,60 @@ internal sealed class PlanStoreTests
     }
 
     [Test]
+    public void SaveRecoveryTransition_SavesWhenDurablePlanStillMatchesExpectedState()
+    {
+        var expected = MakePlan("PROJ-20260101");
+        _store.Save(expected);
+        var updated = expected with { LifecycleStatus = PlanLifecycleStatus.Executing };
+
+        _store.SaveRecoveryTransition(expected, updated);
+
+        Assert.That(_store.Load(expected.PlanId)!.LifecycleStatus,
+            Is.EqualTo(PlanLifecycleStatus.Executing));
+    }
+
+    [Test]
+    public void SaveRecoveryTransition_PreservesConcurrentDisplayNameWithoutStopping()
+    {
+        var expected = MakePlan("PROJ-20260101");
+        _store.Save(expected);
+        var concurrent = expected with { DisplayTitle = "Renamed while recovery was checking" };
+        _store.Save(concurrent);
+        var recovery = expected with { LifecycleStatus = PlanLifecycleStatus.Executing };
+
+        var saved = _store.SaveRecoveryTransition(expected, recovery);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(saved.DisplayTitle, Is.EqualTo(concurrent.DisplayTitle));
+            Assert.That(_store.Load(expected.PlanId)!.DisplayTitle,
+                Is.EqualTo(concurrent.DisplayTitle));
+            Assert.That(_store.Load(expected.PlanId)!.LifecycleStatus,
+                Is.EqualTo(PlanLifecycleStatus.Executing));
+        });
+    }
+
+    [Test]
+    public void SaveRecoveryTransition_RejectsConcurrentExecutionChangeWithoutOverwritingIt()
+    {
+        var expected = MakePlan("PROJ-20260101");
+        _store.Save(expected);
+        var concurrent = expected with { LifecycleStatus = PlanLifecycleStatus.AwaitingApproval };
+        _store.Save(concurrent);
+        var recovery = expected with { LifecycleStatus = PlanLifecycleStatus.Executing };
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            _store.SaveRecoveryTransition(expected, recovery));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(error!.Message, Does.Contain("left the newer plan unchanged"));
+            Assert.That(_store.Load(expected.PlanId)!.LifecycleStatus,
+                Is.EqualTo(PlanLifecycleStatus.AwaitingApproval));
+        });
+    }
+
+    [Test]
     public void RenameDisplayTitle_ReloadsLatestPlanAndPreservesApprovedRevisionAndProgress()
     {
         var original = MakePlan("PROJ-20260101");

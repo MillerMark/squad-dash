@@ -186,7 +186,21 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
             "private async Task AcceptAssessedPlanRecoveryAsync(");
 
         Assert.That(validation, Does.Contain("case PlanRecoveryClassification.Partial:")
-            .And.Contain("allowUncommittedPreservedWork: true"));
+            .And.Contain("allowUncommittedPreservedWork: true")
+            .And.Contain("requiredPreservedSnapshot: currentSnapshot")
+            .And.Contain("requiredRepositorySnapshot: currentSnapshot")
+            .And.Contain("case PlanRecoveryClassification.NotStarted:")
+            .And.Contain("requiredPreservedSnapshot: currentSnapshot"));
+
+        var retry = Method(
+            main,
+            "private async Task<bool> RetryDecomposeTaskAsync(",
+            "private async Task ApplyDecomposeDecisionSafelyAsync(");
+        Assert.That(retry, Does.Contain("PlanRecoveryAssessmentSnapshotPolicy.Matches(")
+            .And.Contain("requiredPreservedSnapshot")
+            .And.Contain("left the plan stopped")
+            .And.Contain("TryPublishPlanRecoveryProgress(")
+            .And.Contain("revalidatedBranch"));
     }
 
     [Test]
@@ -200,7 +214,7 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(capture, Does.Contain("GetHostOwnedRecoveryPathsAsync(workspace)")
+            Assert.That(capture, Does.Contain("GetHostOwnedAssessmentPathsAsync(workspace)")
                 .And.Contain("BuildGitPathspec(hostOwnedPaths)"));
             Assert.That(capture, Does.Contain("diff --binary --no-ext-diff HEAD {pathspec}")
                 .And.Contain("status --porcelain --untracked-files=all {pathspec}")

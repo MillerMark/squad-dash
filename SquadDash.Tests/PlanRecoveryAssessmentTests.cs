@@ -76,14 +76,50 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void SnapshotMatch_RequiresTheExactAssessedRepositoryState()
+    {
+        var expected = new PlanRecoveryRepositorySnapshot("head-1", "fingerprint-1", " M src/App.cs");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PlanRecoveryAssessmentSnapshotPolicy.Matches(
+                    expected,
+                    new PlanRecoveryRepositorySnapshot("HEAD-1", "FINGERPRINT-1", " M src/App.cs")),
+                Is.True);
+            Assert.That(
+                PlanRecoveryAssessmentSnapshotPolicy.Matches(
+                    expected,
+                    expected with { HeadCommit = "head-2" }),
+                Is.False);
+            Assert.That(
+                PlanRecoveryAssessmentSnapshotPolicy.Matches(
+                    expected,
+                    expected with { Fingerprint = "fingerprint-2" }),
+                Is.False);
+            Assert.That(
+                PlanRecoveryAssessmentSnapshotPolicy.Matches(
+                    expected,
+                    expected with { StatusSnapshot = " M src/Other.cs" }),
+                Is.False);
+        });
+    }
+
+    [Test]
     public void SnapshotPathspec_ExcludesHostOwnedStateButKeepsProjectFiles()
     {
-        var pathspec = PlanRecoveryAssessmentSnapshotPolicy.BuildGitPathspec(
-            [".squad/", "custom-squad/tasks.md"]);
+        var hostOwnedPaths = DecomposeWorktreePolicy.GetHostOwnedRuntimePaths(".squad");
+        var pathspec = PlanRecoveryAssessmentSnapshotPolicy.BuildGitPathspec(hostOwnedPaths);
 
-        Assert.That(pathspec, Is.EqualTo(
-            "-- . \":(exclude).squad/**\" \":(exclude)custom-squad/tasks.md\""));
-        Assert.That(pathspec, Does.Not.Contain("src/"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(pathspec, Does.Contain("\":(exclude).squad/diagnostics/**\""));
+            Assert.That(pathspec, Does.Contain("\":(exclude).squad/tasks.md\""));
+            Assert.That(pathspec, Does.Not.Contain("\":(exclude).squad/**\""));
+            Assert.That(pathspec, Does.Not.Contain(".squad/team.md"));
+            Assert.That(pathspec, Does.Not.Contain(".squad/decisions.md"));
+            Assert.That(pathspec, Does.Not.Contain("src/"));
+        });
     }
 
     [Test]

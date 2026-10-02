@@ -4,6 +4,28 @@ namespace SquadDash;
 
 internal static class DecomposeWorktreePolicy
 {
+    private static readonly string[] HostOwnedRuntimeDirectories =
+    [
+        "diagnostics/",
+        "logs/",
+        "plans/",
+        "tmp/",
+        "archive/agent-artifacts/",
+        "instructions/",
+    ];
+
+    private static readonly string[] HostOwnedRuntimeFiles =
+    [
+        "loop-executing-plan.md",
+        "tasks.md",
+        "code-health-state.json",
+        "code-health-state.json.backup",
+        "code-health-state.json.tmp",
+        "codehealth-stub-state.json",
+        "codehealth-stub-state.json.backup",
+        "codehealth-stub-state.json.tmp",
+    ];
+
     internal static string? GetRepositoryRelativePath(
         string? repositoryRootOutput,
         string absolutePath)
@@ -88,17 +110,29 @@ internal static class DecomposeWorktreePolicy
     internal static bool IsHostOwnedRuntimePath(string path)
     {
         var normalized = Normalize(path);
-        return normalized.StartsWith("squad/diagnostics/", StringComparison.OrdinalIgnoreCase) ||
-               normalized.StartsWith("squad/logs/", StringComparison.OrdinalIgnoreCase) ||
-               normalized.StartsWith("squad/plans/", StringComparison.OrdinalIgnoreCase) ||
-               normalized.StartsWith("squad/tmp/", StringComparison.OrdinalIgnoreCase) ||
-               normalized.StartsWith("squad/archive/agent-artifacts/", StringComparison.OrdinalIgnoreCase) ||
-               normalized.StartsWith("squad/instructions/", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Equals("squad/loop-executing-plan.md", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Equals("squad/tasks.md", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Equals("squad/code-health-state.json", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Equals("squad/code-health-state.json.backup", StringComparison.OrdinalIgnoreCase) ||
-               normalized.Equals("squad/codehealth-stub-state.json", StringComparison.OrdinalIgnoreCase);
+        const string squadPrefix = "squad/";
+        if (!normalized.StartsWith(squadPrefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var relativePath = normalized[squadPrefix.Length..];
+        return HostOwnedRuntimeDirectories.Any(directory =>
+                   relativePath.StartsWith(directory, StringComparison.OrdinalIgnoreCase)) ||
+               HostOwnedRuntimeFiles.Any(file =>
+                   relativePath.Equals(file, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Returns only the generated runtime paths beneath a repository-relative Squad folder.
+    /// User-authored Squad files, such as team.md and decisions.md, are deliberately absent.
+    /// </summary>
+    internal static IReadOnlyList<string> GetHostOwnedRuntimePaths(string squadRootRelativePath)
+    {
+        var root = squadRootRelativePath.Replace('\\', '/').Trim().TrimEnd('/');
+        if (root.Length == 0) return [];
+
+        return HostOwnedRuntimeDirectories.Select(directory => $"{root}/{directory}")
+            .Concat(HostOwnedRuntimeFiles.Select(file => $"{root}/{file}"))
+            .ToArray();
     }
 
     private static string Normalize(string path) => path.Replace('\\', '/').TrimStart('.', '/');

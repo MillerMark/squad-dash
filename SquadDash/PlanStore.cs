@@ -54,6 +54,35 @@ internal sealed class PlanStore
     }
 
     /// <summary>
+    /// Atomically applies a recovery transition when the durable execution state still matches
+    /// <paramref name="expected"/>. A presentation-only rename is preserved and does not interrupt
+    /// execution; structural or lifecycle changes reject the stale transition.
+    /// </summary>
+    internal Plan SaveRecoveryTransition(Plan expected, Plan plan)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(plan);
+        if (!string.Equals(expected.PlanId, plan.PlanId, StringComparison.Ordinal))
+            throw new InvalidOperationException("The expected and updated plans do not have the same identity.");
+
+        lock (_sync)
+        {
+            var current = LoadInternal(expected.PlanId)
+                ?? throw new InvalidOperationException(
+                    $"Plan '{expected.PlanId}' no longer exists or could not be loaded.");
+            var comparableCurrent = current with { DisplayTitle = expected.DisplayTitle };
+            if (!PlansAreEquivalent(comparableCurrent, expected))
+                throw new InvalidOperationException(
+                    "The durable plan changed before recovery could be saved. SquadDash left the newer plan unchanged.");
+
+            var merged = plan with { DisplayTitle = current.DisplayTitle };
+            EnsureDirectory();
+            JsonFileStorage.AtomicWrite(GetPlanPath(merged.PlanId), merged, WriteOptions);
+            return merged;
+        }
+    }
+
+    /// <summary>
     /// Renames only the plan's user-facing alias. The latest durable plan is loaded and updated
     /// while holding the workspace store lock, so a stale panel row cannot overwrite execution
     /// progress, approval state, validation state, or interruption evidence.
@@ -213,6 +242,12 @@ internal sealed class PlanStore
     }
 
     private void EnsureDirectory() => Directory.CreateDirectory(_plansFolder);
+
+    private static bool PlansAreEquivalent(Plan first, Plan second) =>
+        string.Equals(
+            JsonSerializer.Serialize(first, WriteOptions),
+            JsonSerializer.Serialize(second, WriteOptions),
+            StringComparison.Ordinal);
 
     private string GetPlanPath(string planId) =>
         Path.Combine(_plansFolder, planId + ".json");

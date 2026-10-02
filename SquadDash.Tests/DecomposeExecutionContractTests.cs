@@ -548,6 +548,8 @@ internal sealed class DecomposeRevisionTests
             ?? .squad/archive/agent-artifacts/2026-09-28/result.json
              M .squad/instructions/decompose-planning.md
              M .squad/loop-executing-plan.md
+             M .squad/codehealth-stub-state.json.backup
+            ?? .squad/code-health-state.json.tmp
             """;
 
         Assert.That(
@@ -566,6 +568,23 @@ internal sealed class DecomposeRevisionTests
             DecomposeWorktreePolicy.HasOnlyAllowedChanges(status, [], out var disallowed),
             Is.False);
         Assert.That(disallowed, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void HostOwnedRuntimePaths_ExcludeOnlyGeneratedFilesForAnySquadRoot()
+    {
+        var paths = DecomposeWorktreePolicy.GetHostOwnedRuntimePaths("config/custom-squad/");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(paths, Does.Contain("config/custom-squad/diagnostics/"));
+            Assert.That(paths, Does.Contain("config/custom-squad/tasks.md"));
+            Assert.That(paths, Does.Contain("config/custom-squad/codehealth-stub-state.json.backup"));
+            Assert.That(paths, Does.Contain("config/custom-squad/codehealth-stub-state.json.tmp"));
+            Assert.That(paths, Does.Not.Contain("config/custom-squad/"));
+            Assert.That(paths, Does.Not.Contain("config/custom-squad/team.md"));
+            Assert.That(paths, Does.Not.Contain("config/custom-squad/decisions.md"));
+        });
     }
 
     [Test]
