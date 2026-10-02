@@ -3336,6 +3336,12 @@
                                      Margin="0,2,6,0"
                                      VerticalAlignment="Center"
                                      Fill="{DynamicResource ScrollBarThumbBrush}" />
+                            <Border x:Name="BranchBehindIconHost"
+                                    Width="14" Height="14"
+                                    Margin="0,0,6,0"
+                                    VerticalAlignment="Center"
+                                    IsHitTestVisible="False"
+                                    Visibility="Collapsed" />
                             <TextBlock x:Name="BranchNameText"
                                        FontSize="{DynamicResource FontSizeSmall}"
                                        VerticalAlignment="Center"
