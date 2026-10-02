@@ -22,11 +22,12 @@ internal sealed class DecomposeRecoveryInboxReconcilerTests
             Assert.That(result.IsActionable, Is.True);
             Assert.That(result.ShouldArchive, Is.False);
             Assert.That(result.Message.Priority, Is.EqualTo("critical"));
-            Assert.That(result.Message.Actions, Has.Count.EqualTo(3));
+            Assert.That(result.Message.Actions, Has.Count.EqualTo(4));
             Assert.That(result.Message.Actions.Select(action => action.Label),
                 Is.EqualTo(new[]
                 {
                     "View workspace changes for Step 1",
+                    "Step 1 Is Complete & Continue",
                     "Continue Working on Step 1",
                     "✎ Revise Remaining Plan…",
                 }));

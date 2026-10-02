@@ -62,7 +62,8 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
                 .And.Contain("recoveryActionSet?.Actions"));
             Assert.That(viewer, Does.Contain("_resolveInterruptedActionSet?.Invoke(durablePlan)")
                 .And.Contain("currentInterruptedSurfaceAction.Label")
-                .And.Contain("currentEndAction.Tone"));
+                .And.Contain("currentEndAction.Tone")
+                .And.Contain("PlanRecoveryLifecycleControlPolicy.ShouldShowOrdinaryControls"));
             Assert.That(inbox, Does.Contain("PlanRecoveryActionSetBuilder.Build(")
                 .And.Contain("PlanRecoveryActionSetBuilder.BuildConservativeFallback(")
                 .And.Contain("canonicalActions.Actions"));

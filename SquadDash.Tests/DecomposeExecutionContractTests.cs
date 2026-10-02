@@ -63,6 +63,51 @@ internal sealed class DecomposeStepResultParserTests
     }
 
     [Test]
+    public void CompleteResult_WithProtocolNamedFenceAndLegacyVerification_IsCanonicalized()
+    {
+        var text = """
+            Verification finished successfully.
+
+            ```DECOMPOSE_STEP_RESULT_JSON
+            {
+              "groupId":"PLAN-20260725",
+              "taskId":"PLAN-20260725-001",
+              "revision":"abc123",
+              "status":"complete",
+              "completionKind":"changed",
+              "commit":"dfcac58",
+              "summary":"The existing fix passed eight consecutive full-suite runs.",
+              "remainingWork":[],
+              "verification":{
+                "passed":true,
+                "command":"dotnet test EqSim.sln -c Release",
+                "notes":"1304 tests passed in each run.",
+                "tests":{"total":1304,"passed":1304,"failed":0,"skipped":0}
+              },
+              "executionAttemptId":"attempt-14a"
+            }
+            ```
+
+            APPROVAL_GROUP_JSON:
+            {"decision":"none"}
+            """;
+
+        var outcome = DecomposeStepResultParser.ParseDetailed(text);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome.IsValid, Is.True, outcome.Error);
+            Assert.That(outcome.Candidate!.Verification!.Status, Is.EqualTo("passed"));
+            Assert.That(outcome.Candidate.Verification.Summary,
+                Is.EqualTo("1304 tests passed in each run."));
+            Assert.That(outcome.Candidate.CompletedWork,
+                Is.EqualTo(new[] { "The existing fix passed eight consecutive full-suite runs." }));
+            Assert.That(outcome.Canonicalizations,
+                Does.Contain("normalized legacy verification passed/notes fields"));
+        });
+    }
+
+    [Test]
     public void CompleteResult_FollowedByRequiredInboxDelivery_ParsesBothProtocols()
     {
         var text = """

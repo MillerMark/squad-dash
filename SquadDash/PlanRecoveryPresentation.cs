@@ -252,21 +252,10 @@ internal static class PlanRecoveryActionSetBuilder
                 "request-corrections",
                 PrimaryKind: PlanRecoveryPrimaryActionKind.ContinueWorking));
         }
-        else if (category == PlanAttentionCategory.AutomaticWorkExhausted &&
-                 hasCurrentEvidence && !hasAcceptedReview)
-        {
-            actions.Add(new PlanRecoverySurfaceActionPresentation(
-                PlanRecoverySurfaceActionKind.ResumeVerification,
-                $"Resume Verification for {stepLabel}",
-                $"Verify the preserved candidate for {stepLabel}. Completed implementation work will not be repeated.",
-                "resume-verification",
-                PrimaryKind: PlanRecoveryPrimaryActionKind.ResumeVerification));
-        }
-        else if (primary.Kind is PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp ||
-                 (hasAcceptedReview || category == PlanAttentionCategory.HumanVerificationRequired) &&
-                 primary.Kind is
+        else if (primary.Kind is
                      PlanRecoveryPrimaryActionKind.AcceptStep or
                      PlanRecoveryPrimaryActionKind.AcceptUnattributedStep or
+                     PlanRecoveryPrimaryActionKind.AcceptRejectedNoOp or
                      PlanRecoveryPrimaryActionKind.ApproveAmendment)
         {
             actions.Add(new PlanRecoverySurfaceActionPresentation(
@@ -328,6 +317,21 @@ internal static class PlanRecoveryActionSetBuilder
                 : "Choose how to continue from the preserved plan state.";
         return new PlanRecoveryActionSetPresentation(prompt, actions);
     }
+}
+
+internal static class PlanRecoveryLifecycleControlPolicy
+{
+    /// <summary>
+    /// A recovery action set owns the user's next decision. Showing the ordinary pause/resume
+    /// toolbar beside it creates two controls that mutate different lifecycle layers.
+    /// </summary>
+    internal static bool ShouldShowOrdinaryControls(
+        Plan? plan,
+        PlanRecoveryActionSetPresentation? recoveryActions) =>
+        plan is null ||
+        !PlanRecoveryControlPolicy.HasActionableInterruption(plan) ||
+        recoveryActions is null ||
+        recoveryActions.Actions.Count == 0;
 }
 
 /// <summary>

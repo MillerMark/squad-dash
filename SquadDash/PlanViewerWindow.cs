@@ -822,6 +822,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             action.Kind == PlanRecoverySurfaceActionKind.ReviseRemainingPlan);
         var currentEndAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
             action.Kind == PlanRecoverySurfaceActionKind.EndPlan);
+        var showOrdinaryLifecycleControls = PlanRecoveryLifecycleControlPolicy.ShouldShowOrdinaryControls(
+            durablePlan,
+            currentInterruptedActionSet);
         var primaryOwnsContinuation = onAdoptVerifiedCommitRange is not null &&
                                       currentInterruptedSurfaceAction?.Kind ==
                                           PlanRecoverySurfaceActionKind.ContinueWorking;
@@ -876,7 +879,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             durablePlan,
             planRunnerActive);
 
-        if (durablePlan is not null && !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus))
+        if (durablePlan is not null &&
+            !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus) &&
+            showOrdinaryLifecycleControls)
         {
             if (durablePlan.IsPaused)
             {

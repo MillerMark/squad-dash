@@ -401,6 +401,9 @@ internal static class PlanStoreUpdater
             recorded.Tasks,
             origin,
             continuation.Tasks.Count);
+        var inheritedAssignments = origin.AgentAssignments is { Count: > 0 }
+            ? origin.AgentAssignments.ToArray()
+            : null;
         var inserted = continuation.Tasks.Select((definition, index) => new PlanTask(
             TaskId: NextId(),
             Title: definition.Title,
@@ -408,8 +411,13 @@ internal static class PlanStoreUpdater
             DependsOn: origin.DependsOn.ToArray(),
             Priority: string.IsNullOrWhiteSpace(definition.Priority) ? "high" : definition.Priority,
             Status: PlanTaskStatus.Pending,
-            AgentRoutingMode: "generic",
-            GenericAgentReason: AutomaticPrerequisiteGenericAgentReason,
+            AgentAssignments: inheritedAssignments,
+            AgentRoutingMode: inheritedAssignments is { Length: > 0 }
+                ? "assigned"
+                : "generic",
+            GenericAgentReason: inheritedAssignments is { Length: > 0 }
+                ? null
+                : AutomaticPrerequisiteGenericAgentReason,
             ExecutionMode: definition.ExecutionMode ?? PlanTaskExecutionMode.Implementation,
             VerificationLevel: definition.VerificationLevel,
             DisplayStepLabel: insertedLabels[index],
@@ -2063,6 +2071,7 @@ internal static class PlanStoreUpdater
     {
         plan = RepairMissingAutomaticPrerequisiteOrigins(plan);
         plan = RepairLegacyAutomaticPrerequisiteLabels(plan);
+        plan = RepairLegacyAutomaticPrerequisiteAssignments(plan);
         plan = RepairValidationHumanProofGateSchema(plan);
         plan = RepairLegacyAmendmentTopology(plan);
         plan = RepairLegacyAmendmentReviewFrontier(plan);
@@ -2281,6 +2290,48 @@ internal static class PlanStoreUpdater
             }
             changed = true;
         }
+
+        if (!changed) return plan;
+        var preliminary = plan with { Tasks = tasks };
+        var revision = PendingDecomposePlanStore.ComputeRevision(
+            PendingDecomposePlanAdapter.FromPlan(preliminary).Group);
+        return preliminary with
+        {
+            Revision = revision,
+            HostRevision = revision,
+            ApprovalGates = preliminary.ApprovalGates.Select(gate =>
+                gate with { PlanRevision = revision }).ToArray(),
+        };
+    }
+
+    /// <summary>
+    /// Backfills automatic prerequisites created before assignment inheritance was supported.
+    /// Provenance supplies the exact blocked origin task, so this migration does not infer an
+    /// owner from names, task text, or workspace-specific agents.
+    /// </summary>
+    private static Plan RepairLegacyAutomaticPrerequisiteAssignments(Plan plan)
+    {
+        var byId = plan.Tasks.ToDictionary(task => task.TaskId, StringComparer.Ordinal);
+        var changed = false;
+        var tasks = plan.Tasks.Select(task =>
+        {
+            if (task.ExecutionOrigin is not { } executionOrigin ||
+                task.AgentAssignments is { Count: > 0 } ||
+                !string.Equals(task.AgentRoutingMode, "generic", StringComparison.Ordinal) ||
+                !string.Equals(task.GenericAgentReason,
+                    AutomaticPrerequisiteGenericAgentReason, StringComparison.Ordinal) ||
+                !byId.TryGetValue(executionOrigin.OriginTaskId, out var origin) ||
+                origin.AgentAssignments is not { Count: > 0 })
+                return task;
+
+            changed = true;
+            return task with
+            {
+                AgentAssignments = origin.AgentAssignments.ToArray(),
+                AgentRoutingMode = "assigned",
+                GenericAgentReason = null,
+            };
+        }).ToArray();
 
         if (!changed) return plan;
         var preliminary = plan with { Tasks = tasks };

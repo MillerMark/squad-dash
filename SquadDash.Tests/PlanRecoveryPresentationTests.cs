@@ -1040,7 +1040,7 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
-    public void RecoveryActionSet_WithPreservedCommitAndNoCurrentReview_ResumesVerificationEverywhere()
+    public void RecoveryActionSet_WithPreservedCommitAndNoCurrentReview_OffersAcceptanceEverywhere()
     {
         const string commit = "ba178610112bf6d7cbc8237eabbaad21465bdfd3";
         var task = new PlanTask(
@@ -1066,16 +1066,54 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(presentation.Primary?.Kind,
-                Is.EqualTo(PlanRecoverySurfaceActionKind.ResumeVerification));
+                Is.EqualTo(PlanRecoverySurfaceActionKind.AcceptStep));
             Assert.That(presentation.Primary?.Label,
-                Is.EqualTo("Resume Verification for Step 14a"));
+                Is.EqualTo("Step 14a Is Complete & Continue"));
             Assert.That(presentation.Actions.Select(action => action.Label),
-                Does.Not.Contain("Try Again"));
+                Does.Not.Contain("Resume Verification for Step 14a"));
             Assert.That(presentation.Actions.Single(action =>
                     action.Kind == PlanRecoverySurfaceActionKind.EndPlan).Tone,
                 Is.EqualTo(QuickReplyTone.Destructive));
             Assert.That(presentation.Actions.Last().Kind,
                 Is.EqualTo(PlanRecoverySurfaceActionKind.EndPlan));
+        });
+    }
+
+    [Test]
+    public void RecoveryActionSet_WithoutRecordedEvidence_StillOffersExplicitAcceptance()
+    {
+        var task = new PlanTask(
+            "PLAN-001", "Stabilize tests", "Stabilize tests", [], "high",
+            PlanTaskStatus.Executing, DisplayStepLabel: "14a");
+        var plan = TestPlan(null) with { Tasks = [task] };
+
+        var presentation = PlanRecoveryActionSetBuilder.Build(plan, task.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.Primary?.Kind,
+                Is.EqualTo(PlanRecoverySurfaceActionKind.AcceptStep));
+            Assert.That(presentation.Primary?.PrimaryKind,
+                Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptUnattributedStep));
+            Assert.That(presentation.Primary?.Label,
+                Is.EqualTo("Step 14a Is Complete & Continue"));
+        });
+    }
+
+    [Test]
+    public void LifecycleToolbar_IsHiddenWhileCanonicalRecoveryActionsOwnTheDecision()
+    {
+        var plan = TestPlan(null);
+        var actions = PlanRecoveryActionSetBuilder.Build(plan, "PLAN-001");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRecoveryLifecycleControlPolicy.ShouldShowOrdinaryControls(plan, actions),
+                Is.False);
+            Assert.That(PlanRecoveryLifecycleControlPolicy.ShouldShowOrdinaryControls(
+                    plan with { LifecycleStatus = PlanLifecycleStatus.Executing, InterruptionData = null },
+                    actions),
+                Is.True);
         });
     }
 

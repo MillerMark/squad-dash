@@ -197,6 +197,10 @@ internal static class DecomposeStepResultParser
         }
         var result = extraction.Payload;
         var canonicalizations = new List<string>();
+        var verification = CanonicalizeVerification(
+            result.Verification,
+            extraction.JsonText,
+            canonicalizations);
 
         result = result with
         {
@@ -213,11 +217,11 @@ internal static class DecomposeStepResultParser
                 .Where(item => !string.IsNullOrWhiteSpace(item))
                 .Select(item => item.Trim())
                 .ToArray(),
-            Verification = result.Verification is null
+            Verification = verification is null
                 ? null
-                : result.Verification with
+                : verification with
                 {
-                    Status = result.Verification.Status?.Trim().ToLowerInvariant() ?? string.Empty,
+                    Status = verification.Status?.Trim().ToLowerInvariant() ?? string.Empty,
                 },
             DeferredWork = (result.DeferredWork ?? [])
                 .Where(item => item is not null)
@@ -463,6 +467,38 @@ internal static class DecomposeStepResultParser
         }
 
         return new DecomposeStepResultParseOutcome(result, violations, canonicalizations);
+    }
+
+    private static DecomposeStepVerification? CanonicalizeVerification(
+        DecomposeStepVerification? verification,
+        string jsonText,
+        ICollection<string> canonicalizations)
+    {
+        if (verification is null || !string.IsNullOrWhiteSpace(verification.Status))
+            return verification;
+
+        try
+        {
+            using var document = JsonDocument.Parse(jsonText);
+            if (!document.RootElement.TryGetProperty("verification", out var verificationJson) ||
+                verificationJson.ValueKind != JsonValueKind.Object ||
+                !verificationJson.TryGetProperty("passed", out var passedJson) ||
+                passedJson.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                return verification;
+
+            var status = passedJson.GetBoolean() ? "passed" : "failed";
+            var summary = verification.Summary;
+            if (string.IsNullOrWhiteSpace(summary) &&
+                verificationJson.TryGetProperty("notes", out var notesJson) &&
+                notesJson.ValueKind == JsonValueKind.String)
+                summary = notesJson.GetString();
+            canonicalizations.Add("normalized legacy verification passed/notes fields");
+            return verification with { Status = status, Summary = summary };
+        }
+        catch (JsonException)
+        {
+            return verification;
+        }
     }
 
     private static void ValidateContinuation(

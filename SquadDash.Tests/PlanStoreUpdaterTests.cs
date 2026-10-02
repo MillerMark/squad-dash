@@ -1846,6 +1846,11 @@ internal sealed class PlanStoreUpdaterTests
         var plan = PlanStoreUpdater.ApplyExecutionStarted(
             null, group, "rev1", [MakeItem("GROUP-001-001", isChecked: true), MakeItem("GROUP-001-002")],
             "GROUP-001-002");
+        var inheritedAssignment = new PlanAgentAssignment("talia-rune", "primary");
+        plan = plan with
+        {
+            Tasks = [plan.Tasks[0], plan.Tasks[1] with { AgentAssignments = [inheritedAssignment] }],
+        };
         var continuation = new DecomposeStepContinuation(
             DecomposeStepContinuationAction.InsertPrerequisiteTasks,
             "GROUP-001-002",
@@ -1881,6 +1886,9 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(repair.ExecutionOrigin!.OriginTaskId, Is.EqualTo(origin.TaskId));
             Assert.That(repair.ExecutionOrigin.ReportedByAgent, Is.EqualTo("Talia Rune"));
             Assert.That(repair.ExecutionOrigin.ExecutionAttemptId, Is.EqualTo("attempt-15"));
+            Assert.That(repair.AgentAssignments, Is.EqualTo(new[] { inheritedAssignment }));
+            Assert.That(repair.AgentRoutingMode, Is.EqualTo("assigned"));
+            Assert.That(repair.GenericAgentReason, Is.Null);
             Assert.That(updated.Revision, Is.Not.EqualTo(plan.Revision));
         });
     }
@@ -2031,6 +2039,7 @@ internal sealed class PlanStoreUpdaterTests
         {
             DependsOn = [first.TaskId, second.TaskId],
             DisplayStepLabel = "4",
+            AgentAssignments = [new PlanAgentAssignment("talia-rune", "primary")],
             AttemptHistory = [new PlanTaskAttempt(
                 "partial", null, null, "Two prerequisites remain.",
                 "automatic-continuation", "Both prerequisites are required.")],
@@ -2043,6 +2052,7 @@ internal sealed class PlanStoreUpdaterTests
         };
 
         var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+        var repairedFirst = repaired.Tasks.Single(task => task.TaskId == first.TaskId);
         var repairedSecond = repaired.Tasks.Single(task => task.TaskId == second.TaskId);
 
         Assert.Multiple(() =>
@@ -2054,6 +2064,14 @@ internal sealed class PlanStoreUpdaterTests
             Assert.That(repairedSecond.ExecutionOrigin.ReportedByAgent, Is.EqualTo("Talia Rune"));
             Assert.That(repairedSecond.ExecutionOrigin.ExecutionAttemptId, Is.EqualTo("attempt-legacy"));
             Assert.That(repairedSecond.ExecutionOrigin.Reason, Does.Contain("Second prerequisite"));
+            Assert.That(repairedFirst.AgentAssignments?.Single().AgentHandle,
+                Is.EqualTo("talia-rune"));
+            Assert.That(repairedSecond.AgentAssignments?.Single().AgentHandle,
+                Is.EqualTo("talia-rune"));
+            Assert.That(repairedFirst.AgentRoutingMode, Is.EqualTo("assigned"));
+            Assert.That(repairedSecond.AgentRoutingMode, Is.EqualTo("assigned"));
+            Assert.That(repairedFirst.GenericAgentReason, Is.Null);
+            Assert.That(repairedSecond.GenericAgentReason, Is.Null);
             Assert.That(PendingDecomposePlanAdapter.RevisionIsValid(repaired), Is.True);
         });
     }

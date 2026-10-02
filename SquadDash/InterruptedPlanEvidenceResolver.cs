@@ -23,33 +23,43 @@ internal static class InterruptedPlanEvidenceResolver
             var segments = turns[turnIndex].GetResponseSegments();
             for (var segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
             {
+                var segment = segments[segmentIndex];
                 var blocks = segments[segmentIndex].ProtocolJsonBlocks;
-                if (blocks is null) continue;
-                for (var blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
+                for (var blockIndex = 0; blockIndex < (blocks?.Count ?? 0); blockIndex++)
                 {
-                    var block = blocks[blockIndex];
+                    var block = blocks![blockIndex];
                     if (!string.Equals(
                             block.Marker.TrimEnd(':'),
                             DecomposeStepResultParser.Marker.TrimEnd(':'),
                             StringComparison.Ordinal))
                         continue;
-                    if (!DecomposeStepResultParser.TryParse(
+                    if (DecomposeStepResultParser.TryParse(
                             DecomposeStepResultParser.Marker + "\n" + block.Json,
                             out var result,
-                            out _) ||
-                        result is null)
-                        continue;
-                    if (string.Equals(result.GroupId, planId, StringComparison.Ordinal) &&
-                        string.Equals(result.Revision, revision, StringComparison.Ordinal) &&
-                        string.Equals(result.TaskId, taskId, StringComparison.Ordinal) &&
-                        string.Equals(result.Status, "complete", StringComparison.Ordinal) &&
-                        !string.IsNullOrWhiteSpace(result.Commit) &&
-                        seenCommits.Add(result.Commit))
-                        results.Add(result);
+                            out _))
+                        TryAdd(result);
                 }
+
+                // Older transcript capture did not recognize a protocol marker used as a
+                // Markdown fence label, so ProtocolJsonBlocks is empty. Reparse the exact stored
+                // response text through the same strict protocol parser during restart recovery.
+                if (DecomposeStepResultParser.TryParse(segment.Text, out var recovered, out _))
+                    TryAdd(recovered);
             }
         }
 
         return results;
+
+        void TryAdd(DecomposeStepResult? result)
+        {
+            if (result is not null &&
+                string.Equals(result.GroupId, planId, StringComparison.Ordinal) &&
+                string.Equals(result.Revision, revision, StringComparison.Ordinal) &&
+                string.Equals(result.TaskId, taskId, StringComparison.Ordinal) &&
+                string.Equals(result.Status, "complete", StringComparison.Ordinal) &&
+                !string.IsNullOrWhiteSpace(result.Commit) &&
+                seenCommits.Add(result.Commit))
+                results.Add(result);
+        }
     }
 }

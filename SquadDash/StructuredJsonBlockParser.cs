@@ -76,7 +76,69 @@ internal static class StructuredJsonBlockParser
         string marker,
         out StructuredJsonBlockExtraction<T>? extraction) =>
         TryExtractObject<T>(text, marker, out extraction) ||
+        TryExtractLabeledFenceObject<T>(text, marker, out extraction) ||
         TryExtractSingleObject<T>(text, out extraction);
+
+    /// <summary>
+    /// Accepts the common Markdown variation where the protocol marker is used as the code-fence
+    /// label instead of being written as a separate line. The label must match exactly (apart from
+    /// the marker's trailing colon), so this does not search arbitrary prose or guess at JSON intent.
+    /// </summary>
+    internal static bool TryExtractLabeledFenceObject<T>(
+        string? text,
+        string marker,
+        out StructuredJsonBlockExtraction<T>? extraction)
+    {
+        extraction = null;
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(marker))
+            return false;
+
+        var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+        var label = marker.Trim().TrimEnd(':');
+        var openingFence = "```" + label;
+        var fenceIndex = normalized.LastIndexOf(openingFence, StringComparison.Ordinal);
+        if (fenceIndex < 0)
+            return false;
+
+        var labelEnd = fenceIndex + openingFence.Length;
+        if (labelEnd >= normalized.Length || normalized[labelEnd] != '\n')
+            return false;
+        var braceStart = normalized.IndexOf('{', labelEnd + 1);
+        if (braceStart < 0 || !TryFindJsonObjectEnd(normalized, braceStart, out var braceEnd))
+            return false;
+
+        var closingFenceStart = braceEnd + 1;
+        while (closingFenceStart < normalized.Length &&
+               char.IsWhiteSpace(normalized[closingFenceStart]))
+            closingFenceStart++;
+        if (!normalized.AsSpan(closingFenceStart).StartsWith("```", StringComparison.Ordinal))
+            return false;
+
+        var jsonText = normalized[braceStart..(braceEnd + 1)];
+        try
+        {
+            var payload = JsonSerializer.Deserialize<T>(jsonText, ParseOptions);
+            if (payload is null)
+                return false;
+
+            var before = normalized[..fenceIndex].TrimEnd();
+            var after = normalized[(closingFenceStart + 3)..].Trim();
+            extraction = new StructuredJsonBlockExtraction<T>(
+                payload,
+                jsonText,
+                CombineVisibleText(before, after),
+                before,
+                after,
+                fenceIndex,
+                braceStart,
+                braceEnd);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// Accepts a response whose entire meaningful content is one JSON object, optionally wrapped
