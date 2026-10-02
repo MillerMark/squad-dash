@@ -822,6 +822,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
             action.Kind == PlanRecoverySurfaceActionKind.ReviseRemainingPlan);
         var currentEndAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
             action.Kind == PlanRecoverySurfaceActionKind.EndPlan);
+        var primaryOwnsContinuation = onAdoptVerifiedCommitRange is not null &&
+                                      currentInterruptedSurfaceAction?.Kind ==
+                                          PlanRecoverySurfaceActionKind.ContinueWorking;
         var onEndPlan          = _onEndPlan;
         var onContinueInterruptedTask = _onContinueInterruptedTask;
         var onReplanRemainingWork = _onReplanRemainingWork;
@@ -1382,7 +1385,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 assessmentPanel.Children.Add(acceptButton);
             }
-            if (onContinueInterruptedTask is not null && interruptedTask is not null &&
+            if (!primaryOwnsContinuation && onContinueInterruptedTask is not null && interruptedTask is not null &&
                 currentContinueAction is not null)
             {
                 var continueButton = TranscriptQuickReplyFactory.CreateButton(
@@ -1404,6 +1407,22 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 replanButton.Focusable = false;
                 replanButton.Click += (_, _) => { onReplanRemainingWork(durablePlan); Close(); };
                 assessmentPanel.Children.Add(replanButton);
+            }
+            if (onEndPlan is not null && currentEndAction is not null &&
+                PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan))
+            {
+                var endButton = TranscriptQuickReplyFactory.CreateButton(
+                    currentEndAction.Label,
+                    quickReplyFontSize,
+                    toolTip: ToolTipHelper.MakeThemedToolTip(currentEndAction.Hint),
+                    tone: currentEndAction.Tone);
+                endButton.Focusable = false;
+                endButton.Click += (_, _) =>
+                {
+                    onEndPlan(durablePlan);
+                    Close();
+                };
+                assessmentPanel.Children.Add(endButton);
             }
             header.Children.Add(assessmentPanel);
         }
@@ -1532,7 +1551,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 };
                 interruptedPanel.Children.Add(adoptButton);
             }
-            if (onContinueInterruptedTask is not null && !safeResume && interruptedActionTask is not null &&
+            if (!primaryOwnsContinuation &&
+                onContinueInterruptedTask is not null && !safeResume && interruptedActionTask is not null &&
                 currentContinueAction is not null)
             {
                 var capturedPlan = durablePlan;

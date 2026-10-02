@@ -13556,6 +13556,23 @@ public partial class MainWindow : Window
                         planToAccept => AcceptInterruptedStepAfterReviewAsync(planToAccept),
                     PlanRecoverySurfaceActionKind.ResumeVerification when !hasRecoveryAssessment =>
                         AssessInterruptedPlanFromDurableAsync,
+                    PlanRecoverySurfaceActionKind.ContinueWorking when !hasRecoveryAssessment =>
+                        async current =>
+                        {
+                            var currentTaskId = current.InterruptionData?.InterruptedTaskId;
+                            if (string.IsNullOrWhiteSpace(currentTaskId)) return false;
+                            if (string.Equals(
+                                    interruptedRecoveryAction.ProtocolAction,
+                                    "request-corrections",
+                                    StringComparison.Ordinal))
+                            {
+                                await QueuePlanRecoveryCorrectionAsync(
+                                    PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
+                                return true;
+                            }
+                            return await RetryDecomposeTaskAsync(
+                                PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
+                        },
                     _ => null,
                 }
                 : null;

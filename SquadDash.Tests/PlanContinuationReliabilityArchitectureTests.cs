@@ -72,9 +72,10 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
     }
 
     [Test]
-    public void ContinueWorking_IsWiredThroughOnePlanViewerCallback()
+    public void ContinueWorking_UsesAwaitedPrimaryCallbackWithoutRenderingASecondButton()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
         var primaryCallback = Method(
             main,
             "Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =",
@@ -87,12 +88,38 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
         Assert.Multiple(() =>
         {
             Assert.That(primaryCallback,
-                Does.Not.Contain("PlanRecoverySurfaceActionKind.ContinueWorking"),
-                "the assessment/acceptance callback must not render a second continuation action");
+                Does.Contain("PlanRecoverySurfaceActionKind.ContinueWorking")
+                    .And.Contain("return await RetryDecomposeTaskAsync("),
+                "the primary continuation must retain its awaited result and failure handling");
             Assert.That(continuationCallback,
                 Does.Contain("PlanRecoverySurfaceActionKind.ContinueWorking")
                     .And.Contain("RetryDecomposeTaskAsync("),
-                "the dedicated continuation callback owns Continue Working");
+                "secondary Continue Working remains available when completion is the primary choice");
+            Assert.That(viewer,
+                Does.Contain("var primaryOwnsContinuation = onAdoptVerifiedCommitRange is not null")
+                    .And.Contain("if (!primaryOwnsContinuation && onContinueInterruptedTask is not null"),
+                "the viewer must suppress only a duplicate rendering, not the awaited callback");
+        });
+    }
+
+    [Test]
+    public void AssessedRecovery_RendersCanonicalEndPlanLast()
+    {
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var assessedRecovery = Method(
+            viewer,
+            "durablePlan.InterruptionData?.RecoveryAssessment is not null &&",
+            "durablePlan.InterruptionData?.RecoveryAssessment is null &&");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(assessedRecovery,
+                Does.Contain("currentEndAction")
+                    .And.Contain("tone: currentEndAction.Tone")
+                    .And.Contain("PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan)"));
+            Assert.That(assessedRecovery.LastIndexOf("currentEndAction", StringComparison.Ordinal),
+                Is.GreaterThan(assessedRecovery.LastIndexOf("currentReviseAction", StringComparison.Ordinal)),
+                "End Plan must be rendered after the non-destructive assessed-recovery actions");
         });
     }
 
