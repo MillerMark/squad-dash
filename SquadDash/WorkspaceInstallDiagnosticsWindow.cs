@@ -9,12 +9,16 @@ internal sealed class WorkspaceInstallDiagnosticsWindow : ChromedWindow {
     private readonly string _diagnosticsText;
 
     public WorkspaceInstallDiagnosticsWindow(string diagnosticsText)
+        : this("Squad Install Diagnostics", diagnosticsText) {
+    }
+
+    public WorkspaceInstallDiagnosticsWindow(string title, string diagnosticsText)
         : base(captionHeight: CloseButtonHeight) {
         _diagnosticsText = string.IsNullOrWhiteSpace(diagnosticsText)
             ? "(no diagnostics available)"
             : diagnosticsText.TrimEnd();
 
-        Title = "Squad Install Diagnostics";
+        Title = string.IsNullOrWhiteSpace(title) ? "Diagnostics" : title.Trim();
         Width = 720;
         Height = 520;
         MinWidth = 520;

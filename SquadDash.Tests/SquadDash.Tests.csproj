@@ -157,6 +157,7 @@
     <Compile Include="..\SquadDash\TranscriptScrollController.cs" Link="Source\TranscriptScrollController.cs" />
     <Compile Include="..\SquadDash\ChromedWindow.cs" Link="Source\ChromedWindow.cs" />
     <Compile Include="..\SquadDash\TextDisplayWindow.cs" Link="Source\TextDisplayWindow.cs" />
+    <Compile Include="..\SquadDash\WorkspaceInstallDiagnosticsWindow.cs" Link="Source\WorkspaceInstallDiagnosticsWindow.cs" />
     <Compile Include="..\SquadDash\ConfirmPreservedWorkDialog.cs" Link="Source\ConfirmPreservedWorkDialog.cs" />
     <Compile Include="..\SquadDash\PlanResumeBranchDialog.cs" Link="Source\PlanResumeBranchDialog.cs" />
     <Compile Include="..\SquadDash\WindowOpenGlow.cs" Link="Source\WindowOpenGlow.cs" />

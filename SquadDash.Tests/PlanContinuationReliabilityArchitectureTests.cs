@@ -72,6 +72,58 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
     }
 
     [Test]
+    public void ContinueWorking_IsWiredThroughOnePlanViewerCallback()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var primaryCallback = Method(
+            main,
+            "Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =",
+            "var interruptedPrimaryActionLabel =");
+        var continuationCallback = Method(
+            main,
+            "Action<Plan>? onContinueInterruptedTask =",
+            "Action<Plan>? onReplanRemainingWork =");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(primaryCallback,
+                Does.Not.Contain("PlanRecoverySurfaceActionKind.ContinueWorking"),
+                "the assessment/acceptance callback must not render a second continuation action");
+            Assert.That(continuationCallback,
+                Does.Contain("PlanRecoverySurfaceActionKind.ContinueWorking")
+                    .And.Contain("RetryDecomposeTaskAsync("),
+                "the dedicated continuation callback owns Continue Working");
+        });
+    }
+
+    [Test]
+    public void UnexpectedStateCard_UsesOneDiagnosticsLinkAndCanonicalRecoveryButtons()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var diagnosticsWindow = File.ReadAllText(
+            FindRepoFile("SquadDash", "WorkspaceInstallDiagnosticsWindow.cs"));
+        var recoveryCard = Method(
+            main,
+            "private void AppendDecomposeRecoveryActions(",
+            "private async Task ShowRecoveryReassessmentWhenStaleAsync(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(recoveryCard,
+                Does.Contain("new Hyperlink(new Run(\"Diagnostics\"))")
+                    .And.Contain("ShowDiagnosticsReportWindow(\"Plan Recovery Diagnostics\"")
+                    .And.Contain("foreach (var action in recoveryActionSet?.Actions ?? [])")
+                    .And.Not.Contain("\"Copy Diagnostic Report\"")
+                    .And.Not.Contain("\"Open Logs\""));
+            Assert.That(diagnosticsWindow,
+                Does.Contain("new CopyButton")
+                    .And.Contain("ThemedButtonStyle")
+                    .And.Contain("FontSizeSmall")
+                    .And.Contain("CardSurface"));
+        });
+    }
+
+    [Test]
     public void PauseRequest_UsesSafeControlsAndCannotBecomeARecoveryCard()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

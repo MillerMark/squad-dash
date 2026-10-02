@@ -13556,23 +13556,6 @@ public partial class MainWindow : Window
                         planToAccept => AcceptInterruptedStepAfterReviewAsync(planToAccept),
                     PlanRecoverySurfaceActionKind.ResumeVerification when !hasRecoveryAssessment =>
                         AssessInterruptedPlanFromDurableAsync,
-                    PlanRecoverySurfaceActionKind.ContinueWorking when !hasRecoveryAssessment =>
-                        async current =>
-                        {
-                            var currentTaskId = current.InterruptionData?.InterruptedTaskId;
-                            if (string.IsNullOrWhiteSpace(currentTaskId)) return false;
-                            if (string.Equals(
-                                    interruptedRecoveryAction.ProtocolAction,
-                                    "request-corrections",
-                                    StringComparison.Ordinal))
-                            {
-                                await QueuePlanRecoveryCorrectionAsync(
-                                    PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
-                                return true;
-                            }
-                            return await RetryDecomposeTaskAsync(
-                                PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
-                        },
                     _ => null,
                 }
                 : null;
@@ -20454,9 +20437,10 @@ public partial class MainWindow : Window
                 "Verify this step is complete to continue the plan.",
             PlanAttentionCategory.HumanInputRequired =>
                 "Reply with the requested decision. SquadDash will preserve the plan until then.",
-            PlanAttentionCategory.AutomaticWorkExhausted when recoveryActionSet is not null =>
+            PlanAttentionCategory.AutomaticWorkExhausted or PlanAttentionCategory.UnexpectedState
+                when recoveryActionSet is not null =>
                 recoveryActionSet.DecisionPrompt,
-            _ => "Continue from the preserved work or copy the diagnostic report for investigation.",
+            _ => "Choose how to continue from the preserved plan state.",
         };
         var decisionParagraph = CreateTranscriptParagraph(bottomMargin: 10);
         decisionParagraph.Margin = new Thickness(0, 9, 0, 10);
@@ -20469,7 +20453,16 @@ public partial class MainWindow : Window
 
         var recoveryTechnicalDetails = completedWorkReview?.TechnicalDetails ??
             durablePlan?.InterruptionData?.Reason;
-        if (!string.IsNullOrWhiteSpace(recoveryTechnicalDetails))
+        var diagnosticsReport = attentionCard.ShowDiagnosticsActions
+            ? PlanAttentionCardPresentationBuilder.BuildCopyText(
+                attentionCard,
+                plan.Group.GroupTitle,
+                stepLabel,
+                taskTitle,
+                recoveryTechnicalDetails)
+            : null;
+        if (!string.IsNullOrWhiteSpace(recoveryTechnicalDetails) &&
+            !attentionCard.ShowDiagnosticsActions)
         {
             var technicalText = new TextBlock
             {
@@ -20494,6 +20487,23 @@ public partial class MainWindow : Window
                 technicalDetails,
                 margin: new Thickness(0)));
             copyParts.Add("Technical details:" + Environment.NewLine + recoveryTechnicalDetails);
+        }
+        else if (!string.IsNullOrWhiteSpace(diagnosticsReport))
+        {
+            var diagnosticsParagraph = CreateTranscriptParagraph(bottomMargin: 6);
+            var diagnosticsLink = new Hyperlink(new Run("Diagnostics"))
+            {
+                Cursor = Cursors.Hand,
+                ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    "Open the complete diagnostic report in a separate window."),
+            };
+            diagnosticsLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+            diagnosticsLink.Click += (_, _) =>
+                ShowDiagnosticsReportWindow("Plan Recovery Diagnostics", diagnosticsReport);
+            diagnosticsParagraph.Inlines.Add(diagnosticsLink);
+            blocks.Add(diagnosticsParagraph);
+            if (!string.IsNullOrWhiteSpace(recoveryTechnicalDetails))
+                copyParts.Add("Technical details:" + Environment.NewLine + recoveryTechnicalDetails);
         }
         var hasPreservedWork = string.Equals(
                                    _conversationManager.ConversationState.ActiveLoopExecution?
@@ -20593,20 +20603,6 @@ public partial class MainWindow : Window
             }
             foreach (var action in recoveryActionSet?.Actions ?? [])
                 AddCanonicalRecoveryAction(action);
-            AddUtilityAction(
-                "Copy Diagnostic Report",
-                "Copy the plan identity, recorded error, and technical details for a SquadDash issue report.",
-                () => SetClipboardTextWithRetry(
-                    PlanAttentionCardPresentationBuilder.BuildCopyText(
-                        attentionCard,
-                        plan.Group.GroupTitle,
-                        stepLabel,
-                        taskTitle,
-                        recoveryTechnicalDetails)));
-            AddUtilityAction(
-                "Open Logs",
-                "Open the live SquadDash trace so the unexpected state can be investigated.",
-                ShowTraceWindow);
             blocks.Add(TranscriptQuickReplyFactory.CreateContainer(panel, recoveryTag));
             ScrollToEndIfAtBottom(CoordinatorThread);
             return;
@@ -21039,17 +21035,6 @@ public partial class MainWindow : Window
                 PrepareForHostRecoveryAction();
                 action();
             };
-            panel.Children.Add(button);
-            return button;
-        }
-
-        Button AddUtilityAction(string label, string hint, Action action)
-        {
-            var button = TranscriptQuickReplyFactory.CreateButton(
-                label,
-                _transcriptFontSize,
-                toolTip: ToolTipHelper.MakeThemedToolTip(hint));
-            button.Click += (_, _) => action();
             panel.Children.Add(button);
             return button;
         }
@@ -54923,6 +54908,15 @@ public partial class MainWindow : Window
                 _openTextWindows.Remove(windowKey);
         };
 
+        WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
+        window.Show();
+    }
+
+    private void ShowDiagnosticsReportWindow(string title, string content)
+    {
+        var window = new WorkspaceInstallDiagnosticsWindow(title, content);
+        if (CanShowOwnedWindow())
+            window.Owner = this;
         WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(window, this);
         window.Show();
     }

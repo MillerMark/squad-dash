@@ -1074,6 +1074,8 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(presentation.Actions.Single(action =>
                     action.Kind == PlanRecoverySurfaceActionKind.EndPlan).Tone,
                 Is.EqualTo(QuickReplyTone.Destructive));
+            Assert.That(presentation.Actions.Last().Kind,
+                Is.EqualTo(PlanRecoverySurfaceActionKind.EndPlan));
         });
     }
 
