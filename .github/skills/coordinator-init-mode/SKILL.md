@@ -25,7 +25,7 @@ No team exists yet. **Propose one — but DO NOT create any files until the user
    - Scribe is always "Scribe" — exempt from casting.
    - Ralph is always "Ralph" — exempt from casting.
    - Rai is always "Rai" — exempt from casting.
-   - Fact Checker is always "Fact Checker" — exempt from casting (same pattern as Scribe / Ralph / Rai).
+   - Fact Checker is always "Verity Cross" — exempt from casting. Use the stable handle/folder `fact-checker`, not `verity-cross`. "Fact Checker" is the role and a legacy name for this same agent, never a second roster entry.
 4. Propose the team with their cast names. Example (names will vary per cast):
 
 ```
@@ -36,7 +36,7 @@ No team exists yet. **Propose one — but DO NOT create any files until the user
 📋  Scribe       — (silent)      Memory, decisions, session logs
 🔄  Ralph        — (monitor)     Work queue, backlog, keep-alive
 🛡️  Rai         — (background)  RAI awareness, content safety
-🔍  Fact Checker — (verifier)    Verification + Devil's Advocate
+🔍  Verity Cross — Fact Checker  Verification + Devil's Advocate
 ```
 
 5. Use the `ask_user` tool to confirm the roster. Provide choices so the user sees a selectable menu.
@@ -74,6 +74,8 @@ No team exists yet. **Propose one — but DO NOT create any files until the user
 **Casting state initialization:** Copy `.squad/templates/casting-policy.json` to `.squad/casting/policy.json` (or create from defaults). Create `registry.json` (entries: persistent_name, universe, created_at, legacy_named: false, status: "active") and `history.json` (first assignment snapshot with unique assignment_id).
 
 **Seeding:** Each agent's `history.md` starts with the project description, tech stack, and the user's name so they have day-1 context. Agent folder names are the cast name in lowercase (e.g., `.squad/agents/ripley/`). The Scribe's charter includes maintaining `decisions.md` and cross-agent context sharing. Rai's charter is seeded from the `Rai-charter.md` template, and `.squad/rai/policy.md` is seeded from `rai-policy.md`. Fact Checker's charter is seeded from `fact-checker-charter.md` and `.squad/fact-checker/policy.md` is seeded from `fact-checker-policy.md`.
+
+**Verifier identity:** Seed exactly one verifier row: `| Verity Cross | Fact Checker | agents/fact-checker/charter.md | active |`. Keep the charter/history in `.squad/agents/fact-checker/`, with name `Verity Cross` and role `Fact Checker, Devil's Advocate & Verification Agent`. Use `fact-checker` as the casting registry key and `Verity Cross` as its `persistent_name`; do not create an additional `Fact Checker` row or a `verity-cross` agent folder.
 
 **Team.md structure:** `team.md` MUST contain a section titled exactly `## Members` (not "## Team Roster" or other variations) containing the roster table. This header is hard-coded in GitHub workflows (`squad-heartbeat.yml`, `squad-issue-assign.yml`, `squad-triage.yml`, `sync-squad-labels.yml`) for label automation. If the header is missing or titled differently, label routing breaks.
 

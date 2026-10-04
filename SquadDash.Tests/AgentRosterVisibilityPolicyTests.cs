@@ -34,7 +34,8 @@ public class AgentRosterVisibilityPolicyTests {
             "scribe",
             charterPath: @"C:\Repo\.squad\agents\scribe\charter.md",
             folderPath: @"C:\Repo\.squad\agents\scribe",
-            isCompact: true);
+            isCompact: true,
+            isUtilityAgent: true);
 
         Assert.That(AgentRosterVisibilityPolicy.ShouldShow(agent), Is.True);
     }
@@ -77,20 +78,63 @@ public class AgentRosterVisibilityPolicyTests {
         Assert.That(AgentRosterVisibilityPolicy.ShouldShow(agent), Is.True);
     }
 
-    [Test]
-    public void ShouldShow_ReturnsFalse_ForOtherUtilityAgents() {
+    [TestCase("Fact Checker", null)]
+    [TestCase("Verity Cross", null)]
+    [TestCase("Other Name", @"C:\Repo\.squad\agents\FACT-CHECKER\")]
+    public void IsVisibleUtilityAgent_RecognizesVerifierAliases(string name, string? folder) {
+        Assert.That(AgentRosterVisibilityPolicy.IsVisibleUtilityAgent(name, folder), Is.True);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void LoadedRoster_ShowsOneVerifierAndPreservesOtherUtilityVisibility(bool withTeamFile) {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/agents/legacy-verifier/charter.md", "# Fact Checker");
+        workspace.CreateFile(".squad/agents/fact-checker/charter.md", "# Verity Cross");
+        workspace.CreateFile(".squad/agents/scribe/charter.md", "# Scribe");
+        workspace.CreateFile(".squad/agents/ralph/charter.md", "# Ralph");
+        workspace.CreateFile(".squad/agents/Rai/charter.md", "# Rai");
+        workspace.CreateFile(".squad/agents/rory/charter.md", "# Rory");
+        if (withTeamFile) {
+            workspace.CreateFile(".squad/team.md", """
+                ## Members
+                | Name | Role | Charter | Status |
+                |------|------|---------|--------|
+                | Fact Checker | Verifier | agents/legacy-verifier/charter.md | Active |
+                | Verity Cross | Fact Checker | agents/fact-checker/charter.md | Active |
+                """);
+        }
+
+        var visible = new SquadTeamRosterLoader().Load(workspace.RootPath)
+            .Select(member => new AgentStatusCard(
+                member.Name, member.Name[..1], member.Role, member.Status,
+                string.Empty, string.Empty, "#FF4472C4", member.AccentKey,
+                charterPath: member.CharterPath,
+                folderPath: member.FolderPath,
+                isUtilityAgent: member.IsUtilityAgent))
+            .Where(AgentRosterVisibilityPolicy.ShouldShow)
+            .Select(agent => agent.Name)
+            .ToArray();
+
+        Assert.That(visible, Is.EquivalentTo(new[] { "Verity Cross", "Scribe", "Rory" }));
+    }
+
+    [TestCase("Ralph", "ralph")]
+    [TestCase("Rai", "Rai")]
+    public void ShouldShow_ReturnsFalse_ForOtherUtilityAgents(string name, string folder) {
         var agent = new AgentStatusCard(
-            "Ralph",
+            name,
             "R",
             "Work Monitor",
             "Ready",
             string.Empty,
             string.Empty,
             "#FF4472C4",
-            "ralph",
-            charterPath: @"C:\Repo\.squad\agents\ralph\charter.md",
-            folderPath: @"C:\Repo\.squad\agents\ralph",
-            isCompact: true);
+            folder,
+            charterPath: $@"C:\Repo\.squad\agents\{folder}\charter.md",
+            folderPath: $@"C:\Repo\.squad\agents\{folder}",
+            isCompact: true,
+            isUtilityAgent: true);
 
         Assert.That(AgentRosterVisibilityPolicy.ShouldShow(agent), Is.False);
     }

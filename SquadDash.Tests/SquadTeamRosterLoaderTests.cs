@@ -209,6 +209,127 @@ internal sealed class SquadTeamRosterLoaderTests {
         });
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Load_CollapsesDuplicateVerifierRows_PreferringStableFolder(bool canonicalFirst) {
+        using var workspace = new TestWorkspace();
+        const string legacy = "| Fact Checker | Legacy verifier | agents/legacy-verifier/charter.md | Silent |";
+        const string canonical = "| Verity Cross | Fact Checker | agents/fact-checker/charter.md | Active |";
+        workspace.CreateFile(".squad/team.md", $"""
+            ## Members
+            | Name | Role | Charter | Status |
+            |------|------|---------|--------|
+            {(canonicalFirst ? canonical : legacy)}
+            | Arjun Sen | Backend Dev | agents/arjun-sen/charter.md | Active |
+            {(canonicalFirst ? legacy : canonical)}
+            """);
+        workspace.CreateFile(".squad/agents/legacy-verifier/charter.md", "# Fact Checker");
+        workspace.CreateFile(".squad/agents/legacy-verifier/history.md", "Legacy history");
+        workspace.CreateFile(".squad/agents/fact-checker/charter.md", "# Verity Cross");
+        workspace.CreateFile(".squad/agents/fact-checker/history.md", "Canonical history");
+
+        var members = new SquadTeamRosterLoader().Load(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(members.Select(member => member.Name), Is.EqualTo(new[] { "Verity Cross", "Arjun Sen" }));
+            Assert.That(members[0].Role, Is.EqualTo(FactCheckerInstructions.Role));
+            Assert.That(members[0].Status, Is.EqualTo("Ready"));
+            Assert.That(members[0].AccentKey, Is.EqualTo("fact-checker"));
+            Assert.That(members[0].IsUtilityAgent, Is.True);
+            Assert.That(members[0].FolderPath, Is.EqualTo(workspace.GetPath(".squad", "agents", "fact-checker")));
+            Assert.That(members[0].CharterPath, Does.EndWith("fact-checker\\charter.md"));
+            Assert.That(members[0].HistoryPath, Does.EndWith("fact-checker\\history.md"));
+            Assert.That(File.ReadAllText(workspace.GetPath(".squad", "agents", "legacy-verifier", "history.md")),
+                Is.EqualTo("Legacy history"));
+        });
+    }
+
+    [TestCase("Fact Checker", "# Verity Cross")]
+    [TestCase("Fact Checker", "# Fact Checker")]
+    [TestCase("Verity Cross", "# Verity Cross")]
+    public void Load_ReconcilesLegacyRowWithAppendedBuiltIn(string name, string canonicalHeading) {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/team.md", $"""
+            ## Members
+            | Name | Role | Charter | Status |
+            |------|------|---------|--------|
+            | {name} | Fact Checker | agents/legacy-verifier/charter.md | Active |
+            """);
+        workspace.CreateFile(".squad/agents/legacy-verifier/charter.md", $"# {name}");
+        workspace.CreateFile(".squad/agents/fact-checker/charter.md", canonicalHeading);
+        workspace.CreateFile(".squad/agents/fact-checker/history.md", "Canonical history");
+
+        var member = new SquadTeamRosterLoader().Load(workspace.RootPath).Single();
+
+        Assert.Multiple(() => {
+            Assert.That(member.Name, Is.EqualTo(FactCheckerInstructions.DisplayName));
+            Assert.That(member.AccentKey, Is.EqualTo(FactCheckerInstructions.Handle));
+            Assert.That(member.CharterPath, Does.EndWith("fact-checker\\charter.md"));
+            Assert.That(member.HistoryPath, Does.EndWith("fact-checker\\history.md"));
+        });
+    }
+
+    [TestCase("Fact Checker")]
+    [TestCase("Verity Cross")]
+    public void Load_CollapsesFolderOnlyVerifierAliases(string legacyName) {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/agents/legacy-verifier/charter.md", $"# {legacyName}");
+        workspace.CreateFile(".squad/agents/fact-checker/charter.md", "# Fact Checker");
+        workspace.CreateFile(".squad/agents/fact-checker/history.md", "Canonical history");
+
+        var member = new SquadTeamRosterLoader().Load(workspace.RootPath).Single();
+
+        Assert.Multiple(() => {
+            Assert.That(member.Name, Is.EqualTo(FactCheckerInstructions.DisplayName));
+            Assert.That(member.AccentKey, Is.EqualTo(FactCheckerInstructions.Handle));
+            Assert.That(member.IsUtilityAgent, Is.True);
+            Assert.That(member.CharterPath, Does.EndWith("fact-checker\\charter.md"));
+            Assert.That(member.HistoryPath, Does.EndWith("fact-checker\\history.md"));
+        });
+    }
+
+    [TestCase("Fact Checker")]
+    [TestCase("Verity Cross")]
+    [TestCase("  fAcT cHeCkEr  ")]
+    public void Load_CollapsesNameOnlyAliasesWithoutCreatingWorkspaceFiles(string name) {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/team.md", $"""
+            ## Members
+            | Name | Role | Charter | Status |
+            |------|------|---------|--------|
+            | {name} | Verifier | - | Active |
+            | Verity Cross | Fact Checker | - | Active |
+            """);
+
+        var member = new SquadTeamRosterLoader().Load(workspace.RootPath).Single();
+
+        Assert.Multiple(() => {
+            Assert.That(member.Name, Is.EqualTo(FactCheckerInstructions.DisplayName));
+            Assert.That(member.AccentKey, Is.EqualTo(FactCheckerInstructions.Handle));
+            Assert.That(member.IsUtilityAgent, Is.True);
+            Assert.That(member.FolderPath, Is.Null);
+            Assert.That(member.CharterPath, Is.Null);
+            Assert.That(SquadTeamRosterLoader.GetMissingUtilityAgentNames(workspace.RootPath),
+                Does.Not.Contain("Fact Checker"));
+            Assert.That(Directory.Exists(workspace.GetPath(".squad", "agents")), Is.False);
+        });
+    }
+
+    [Test]
+    public void Load_DoesNotCollapseAnotherAgentWithFactCheckerRole() {
+        using var workspace = new TestWorkspace();
+        workspace.CreateFile(".squad/agents/vesper-knox/charter.md", "# Vesper Knox — Fact Checker");
+        workspace.CreateFile(".squad/agents/fact-checker/charter.md", "# Verity Cross");
+
+        var members = new SquadTeamRosterLoader().Load(workspace.RootPath);
+
+        Assert.Multiple(() => {
+            Assert.That(members, Has.Count.EqualTo(2));
+            Assert.That(members.Single(member => member.Name == "Vesper Knox").IsUtilityAgent, Is.False);
+            Assert.That(members.Count(member => member.AccentKey == FactCheckerInstructions.Handle), Is.EqualTo(1));
+        });
+    }
+
     [Test]
     public void GetMissingUtilityAgentNames_ReturnsMissingBuiltIns() {
         using var workspace = new TestWorkspace();

@@ -21,24 +21,16 @@ internal static class AgentRosterVisibilityPolicy {
         IsScribeFolder(folderPath) ||
         IsRory(name) ||
         IsRoryFolder(folderPath) ||
-        IsFactChecker(name) ||
-        IsFactCheckerFolder(folderPath);
+        FactCheckerInstructions.IsAgent(name, folderPath);
 
     private static bool IsScribe(string? value) =>
         string.Equals(value?.Trim(), "Scribe", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsFactChecker(string? value) =>
-        string.Equals(value?.Trim(), "Fact Checker", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsRory(string? value) =>
         string.Equals(value?.Trim(), "Rory", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsScribeFolder(string? folderPath) {
         return IsUtilityFolder(folderPath, IsScribe);
-    }
-
-    private static bool IsFactCheckerFolder(string? folderPath) {
-        return IsUtilityFolder(folderPath, IsFactCheckerFolderName);
     }
 
     private static bool IsRoryFolder(string? folderPath) {
@@ -48,9 +40,6 @@ internal static class AgentRosterVisibilityPolicy {
     private static bool IsRoryFolderName(string? value) =>
         string.Equals(value?.Trim(), SquadPlanningWorkspaceRepairService.AgentFolderName,
             StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsFactCheckerFolderName(string? value) =>
-        string.Equals(value?.Trim(), "fact-checker", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsUtilityFolder(string? folderPath, Func<string?, bool> matches) {
         if (string.IsNullOrWhiteSpace(folderPath))

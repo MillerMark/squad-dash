@@ -9,6 +9,17 @@ internal static class FactCheckerInstructions
     internal const string DisplayName = "Verity Cross";
     internal const string Role = "Fact Checker, Devil's Advocate & Verification Agent";
 
+    internal static bool IsAgent(string? name, string? folderPath) =>
+        string.Equals(name?.Trim(), "Fact Checker", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(name?.Trim(), DisplayName, StringComparison.OrdinalIgnoreCase) ||
+        IsAgentFolder(folderPath);
+
+    internal static bool IsAgentFolder(string? folderPath) =>
+        string.Equals(
+            Path.GetFileName(folderPath?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
+            Handle,
+            StringComparison.OrdinalIgnoreCase);
+
     internal static string LoadCharter() =>
         HostInstructionStore.LoadEmbedded(HostInstructionKind.FactCheckerCharter).Trim();
 
@@ -35,7 +46,7 @@ internal static class FactCheckerInstructions
     internal static SquadTeamMember Canonicalize(SquadTeamMember member)
     {
         if (!string.Equals(member.AccentKey, Handle, StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(Path.GetFileName(member.FolderPath), Handle, StringComparison.OrdinalIgnoreCase))
+            !IsAgent(member.Name, member.FolderPath))
             return member;
 
         return member with

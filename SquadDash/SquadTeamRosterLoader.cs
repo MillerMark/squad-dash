@@ -23,6 +23,7 @@ internal sealed class SquadTeamRosterLoader {
         var listedMembers = LoadFromTeamFile(normalizedWorkspace, Path.Combine(squadFolder, "team.md"));
         var listedUtilityNames = new HashSet<string>(
             listedMembers
+                .Select(FactCheckerInstructions.Canonicalize)
                 .Where(member => member.IsUtilityAgent)
                 .Select(member => member.Name),
             StringComparer.OrdinalIgnoreCase);
@@ -30,7 +31,9 @@ internal sealed class SquadTeamRosterLoader {
         return UtilityAgentFolderNames
             .Where(folderName =>
                 !Directory.Exists(Path.Combine(agentsFolder, folderName)) &&
-                !listedUtilityNames.Contains(TitleCase(folderName)))
+                 !listedUtilityNames.Contains(folderName == FactCheckerInstructions.Handle
+                     ? FactCheckerInstructions.DisplayName
+                     : TitleCase(folderName)))
             .Select(TitleCase)
             .ToArray();
     }
@@ -49,9 +52,7 @@ internal sealed class SquadTeamRosterLoader {
 
         var members = LoadFromTeamFile(normalizedWorkspace, Path.Combine(squadFolder, "team.md"), retiredSlugs);
         if (members.Count == 0)
-            return LoadFromAgentFolders(agentsFolder)
-                .Select(FactCheckerInstructions.Canonicalize)
-                .ToArray();
+            return ReconcileFactChecker(LoadFromAgentFolders(agentsFolder), agentsFolder);
 
         var existingFolders = new HashSet<string>(
             members
@@ -83,7 +84,46 @@ internal sealed class SquadTeamRosterLoader {
             members.Add(folderMember);
         }
 
-        return members.Select(FactCheckerInstructions.Canonicalize).ToArray();
+        return ReconcileFactChecker(members, agentsFolder);
+    }
+
+    private static IReadOnlyList<SquadTeamMember> ReconcileFactChecker(
+        IReadOnlyList<SquadTeamMember> members, string agentsFolder) {
+        var canonicalized = members.Select(FactCheckerInstructions.Canonicalize).ToArray();
+        var verifier = canonicalized.FirstOrDefault(member =>
+            member.AccentKey == FactCheckerInstructions.Handle &&
+            FactCheckerInstructions.IsAgentFolder(member.FolderPath));
+        if (verifier is null) {
+            verifier = canonicalized.FirstOrDefault(member => member.AccentKey == FactCheckerInstructions.Handle);
+            if (verifier is null)
+                return canonicalized;
+
+            // A legacy name may have suppressed appending the built-in folder above.
+            // Keep that row's state but route charter/history access to the stable folder.
+            var canonicalFolder = Path.Combine(agentsFolder, FactCheckerInstructions.Handle);
+            if (Directory.Exists(canonicalFolder)) {
+                var folderMember = BuildFromDirectory(canonicalFolder, isUtility: true);
+                verifier = verifier with {
+                    FolderPath = folderMember.FolderPath,
+                    CharterPath = folderMember.CharterPath,
+                    HistoryPath = folderMember.HistoryPath
+                };
+            }
+        }
+
+        var result = new List<SquadTeamMember>(canonicalized.Length);
+        var addedVerifier = false;
+        foreach (var member in canonicalized) {
+            if (member.AccentKey != FactCheckerInstructions.Handle) {
+                result.Add(member);
+            }
+            else if (!addedVerifier) {
+                result.Add(verifier);
+                addedVerifier = true;
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
