@@ -141,7 +141,8 @@ internal static class DecomposePlanInbox
         PlanTaskCommitEvidence? taskCommitEvidence = null,
         Plan? durablePlan = null,
         string? currentHead = null,
-        Func<string, string, bool>? isAncestor = null)
+        Func<string, string, bool>? isAncestor = null,
+        InboxAttachment? humanActionGuideReference = null)
     {
         InboxAction BuildAction(string label, string action, string hint) => new()
         {
@@ -278,6 +279,12 @@ internal static class DecomposePlanInbox
 
         if (isReadyToResume)
             body += "\nThe completed step remains accepted. Resuming starts only the next pending step.\n";
+        else if (attentionCard.Category == PlanAttentionCategory.HumanInputRequired)
+        {
+            body += humanActionGuideReference is null
+                ? "\nThe required instructions are not available on this recovery message. Revise the remaining plan instead of retrying without them.\n"
+                : "\nOpen the required instructions attachment. After providing the requested input, choose **Continue After Human Input**.\n";
+        }
         else if (hasCommitEvidence)
         {
             var shortCommit = taskCommitEvidence!.Commit.Length > 7
@@ -295,7 +302,24 @@ internal static class DecomposePlanInbox
         else
             body += $"\nSquadDash does not have exact task-owned commit attribution. Review the repository changes, then explicitly mark {stepLabel} complete or continue working.\n";
 
-        body += "\nChoose an action below.";
+        body += "\nChoose an action.";
+
+        var attachments = new List<InboxAttachment>
+        {
+            new()
+            {
+                Type = AttachmentType,
+                Label = "View plan and dependencies",
+                PlanGroupId = plan.Group.GroupId,
+                PlanRevision = plan.Revision,
+                Content = JsonSerializer.Serialize(plan, SnapshotOptions),
+            }
+        };
+        if (attentionCard.Category == PlanAttentionCategory.HumanInputRequired &&
+            humanActionGuideReference is not null)
+        {
+            attachments.Add(humanActionGuideReference);
+        }
 
         return new InboxMessage
         {
@@ -306,17 +330,7 @@ internal static class DecomposePlanInbox
             Read = false,
             Priority = "critical",
             Body = body,
-            Attachments =
-            [
-                new InboxAttachment
-                {
-                    Type = AttachmentType,
-                    Label = "View plan and dependencies",
-                    PlanGroupId = plan.Group.GroupId,
-                    PlanRevision = plan.Revision,
-                    Content = JsonSerializer.Serialize(plan, SnapshotOptions),
-                }
-            ],
+            Attachments = attachments,
             Actions = actions,
         };
     }

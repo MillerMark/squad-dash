@@ -26,7 +26,8 @@ internal static class DecomposeRecoveryInboxReconciler
         InboxMessage message,
         Plan? plan,
         string? currentHead = null,
-        Func<string, string, bool>? isAncestor = null)
+        Func<string, string, bool>? isAncestor = null,
+        InboxAttachment? humanActionGuideReference = null)
     {
         if (!IsRecoveryMessage(message))
             return new Result(message, IsActionable: true, ShouldArchive: false);
@@ -58,7 +59,9 @@ internal static class DecomposeRecoveryInboxReconciler
                 plan.InterruptionData?.TaskCommitEvidence,
                 plan,
                 currentHead,
-                isAncestor) with
+                isAncestor,
+                humanActionGuideReference ??
+                PlanHumanActionGuideReferenceResolver.FindPreservedReference(message)) with
             {
                 Read = message.Read,
                 Priority = "critical",

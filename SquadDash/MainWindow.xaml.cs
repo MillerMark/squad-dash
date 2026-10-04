@@ -18908,7 +18908,8 @@ public partial class MainWindow : Window
             plan.InterruptionData?.TaskCommitEvidence,
             plan,
             currentHead,
-            (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant)) with
+            (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant),
+            ResolveHumanActionGuideReference(plan, taskId)) with
         {
             Read = existing.Read,
         };
@@ -19637,7 +19638,8 @@ public partial class MainWindow : Window
             evidence,
             durablePlan,
             currentHead,
-            (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant));
+            (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant),
+            ResolveHumanActionGuideReference(durablePlan, taskId));
         var existing = _inboxStore.GetById(message.Id);
         _inboxStore.Save(existing is null
             ? message
@@ -19650,6 +19652,16 @@ public partial class MainWindow : Window
         if (existing is null)
             AppendInboxReceivedEntry(message.Subject, message.Id);
         _ = RefreshRecoveryGitSnapshotAsync(refreshSurfaces: true);
+    }
+
+    private InboxAttachment? ResolveHumanActionGuideReference(Plan? plan, string taskId)
+    {
+        if (plan is null || _inboxStore is null)
+            return null;
+
+        var approvalMessage = _inboxStore.GetById(
+            DurableApprovalRequestManager.BuildMessageId(plan.PlanId));
+        return PlanHumanActionGuideReferenceResolver.Resolve(plan, taskId, approvalMessage);
     }
 
     private void ScheduleDecomposeSystemEntry(
@@ -20198,6 +20210,16 @@ public partial class MainWindow : Window
             ? "Human check: "
             : "What happened: ") + CommitReferenceText.Shorten(attentionCard.RecordedReason));
 
+        var humanActionGuideReference = ResolveHumanActionGuideReference(durablePlan, taskId);
+        if (humanActionGuideReference?.InboxMessageId is { } humanActionGuideMessageId)
+        {
+            AddNavigationLink(
+                PlanHumanActionGuideReferenceResolver.LinkLabel,
+                "Open the durable instructions prepared for this human action.",
+                () => OpenOrFocusInboxMessage(humanActionGuideMessageId));
+            copyParts.Add(PlanHumanActionGuideReferenceResolver.LinkLabel);
+        }
+
         if (humanChecklistItems.Length > 0)
         {
             var checklistStack = new StackPanel { Margin = new Thickness(0, 0, 0, 7) };
@@ -20470,7 +20492,8 @@ public partial class MainWindow : Window
             PlanAttentionCategory.HumanVerificationRequired =>
                 "Verify this step is complete to continue the plan.",
             PlanAttentionCategory.HumanInputRequired =>
-                "Reply with the requested decision. SquadDash will preserve the plan until then.",
+                recoveryActionSet?.DecisionPrompt ??
+                "Provide the requested human input, then check this step again.",
             PlanAttentionCategory.AutomaticWorkExhausted or PlanAttentionCategory.UnexpectedState
                 when recoveryActionSet is not null =>
                 recoveryActionSet.DecisionPrompt,
@@ -23371,7 +23394,8 @@ public partial class MainWindow : Window
                 message,
                 plan,
                 currentHead,
-                (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant));
+                (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant),
+                ResolveHumanActionGuideReference(plan, plan?.InterruptionData?.InterruptedTaskId ?? string.Empty));
             if (!Equals(result.Message, message))
             {
                 _inboxStore.Save(result.Message);
@@ -23419,7 +23443,8 @@ public partial class MainWindow : Window
             message,
             plan,
             currentHead,
-            (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant));
+            (ancestor, descendant) => IsCachedRecoveryAncestor(ancestor, descendant),
+            ResolveHumanActionGuideReference(plan, plan?.InterruptionData?.InterruptedTaskId ?? string.Empty));
         if (!Equals(result.Message, message))
             _inboxStore.Save(result.Message);
         if (result.ShouldArchive)

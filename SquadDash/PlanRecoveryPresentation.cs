@@ -292,6 +292,34 @@ internal static class PlanRecoveryActionSetBuilder
         var hasDurableCorrection = plan.InterruptionData?.RecoveryCorrection is not null;
         var category = plan.InterruptionData?.AttentionCategory;
 
+        if (category == PlanAttentionCategory.HumanInputRequired)
+        {
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.ContinueWorking,
+                "Continue After Human Input",
+                $"After providing the requested decision or completing the requested action, check {stepLabel} again.",
+                "continue-working",
+                PrimaryKind: PlanRecoveryPrimaryActionKind.RetryVerification));
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.ReviseRemainingPlan,
+                "✎ Revise Remaining Plan…",
+                "Change the remaining plan if the required human action should not be performed.",
+                "replan-failed-task"));
+            if (includeEndPlan && PlanRecoveryControlPolicy.HasActionableInterruption(plan))
+            {
+                actions.Add(new PlanRecoverySurfaceActionPresentation(
+                    PlanRecoverySurfaceActionKind.EndPlan,
+                    "End Plan",
+                    "Stop this incomplete plan without discarding its history or repository work.",
+                    "end-plan",
+                    QuickReplyTone.Destructive));
+            }
+
+            return new PlanRecoveryActionSetPresentation(
+                "Provide the requested human input, then check this step again.",
+                actions);
+        }
+
         if (hasDurableCorrection)
         {
             actions.Add(new PlanRecoverySurfaceActionPresentation(
