@@ -498,15 +498,6 @@ internal sealed class AgentThreadRegistry {
         SquadSdkEvent evt,
         string statusText,
         string detailText) {
-        if (evt.Type == "subagent_started") {
-            thread.RuntimeProfileAlias = null;
-            thread.RuntimeModel = null;
-        }
-        if (!string.IsNullOrWhiteSpace(evt.ProfileAlias))
-            thread.RuntimeProfileAlias = evt.ProfileAlias.Trim();
-        var runtimeModel = evt.SessionModel ?? evt.Model;
-        if (!string.IsNullOrWhiteSpace(runtimeModel))
-            thread.RuntimeModel = runtimeModel.Trim();
         if (!string.IsNullOrWhiteSpace(evt.AgentId))
             thread.AgentId = evt.AgentId;
         if (!string.IsNullOrWhiteSpace(evt.ParentToolCallId ?? evt.ToolCallId))
@@ -634,8 +625,6 @@ internal sealed class AgentThreadRegistry {
             if (!string.IsNullOrWhiteSpace(agent.AgentId))
                 thread.BackgroundTaskId = agent.AgentId.Trim();
             thread.AgentType = agent.AgentType ?? thread.AgentType;
-            if (string.IsNullOrWhiteSpace(thread.RuntimeModel) && !string.IsNullOrWhiteSpace(agent.Model))
-                thread.RuntimeModel = agent.Model.Trim();
             thread.Prompt ??= agent.Prompt;
             thread.LatestIntent = agent.LatestIntent ?? thread.LatestIntent;
             thread.RecentActivity = agent.RecentActivity ?? thread.RecentActivity;
@@ -933,8 +922,6 @@ internal sealed class AgentThreadRegistry {
                 DetailText = record.DetailText,
                 CompletedAt = record.CompletedAt,
                 CompletionFooterProfileAlias = record.CompletionFooterProfileAlias,
-                RuntimeProfileAlias = record.RuntimeProfileAlias,
-                RuntimeModel = record.RuntimeModel,
                 IsCurrentBackgroundRun = false,
                 WasObservedAsBackgroundTask = record.WasObservedAsBackgroundTask == true ||
                                                IsPersistedBackgroundThread(record)

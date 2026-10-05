@@ -6661,10 +6661,10 @@ public partial class MainWindow : Window
 
         // Set or clear the completion-footer alias annotation (visual-only; does NOT write to
         // ResponseTextBuilder and is NOT part of the transcript search index).
-        // Routes can change while a run is active; use only metadata from that run.
+        // Prefer the SDK event value; fall back to the named-agent route we sent at launch time.
         var subagentMsgAlias = evt.ProfileAlias;
         if (string.IsNullOrEmpty(subagentMsgAlias))
-            subagentMsgAlias = thread.RuntimeProfileAlias;
+            subagentMsgAlias = ResolveRouteProfileAlias(thread);
         thread.CompletionFooterProfileAlias = string.IsNullOrEmpty(subagentMsgAlias) ? null : subagentMsgAlias;
 
         thread.ResponseStreamed = false;
@@ -6814,7 +6814,7 @@ public partial class MainWindow : Window
         // preserve whatever HandleSubagentMessage may have set.
         var subagentCompletedAlias = evt.ProfileAlias;
         if (string.IsNullOrEmpty(subagentCompletedAlias))
-            subagentCompletedAlias = thread.RuntimeProfileAlias;
+            subagentCompletedAlias = ResolveRouteProfileAlias(thread);
         if (!string.IsNullOrEmpty(subagentCompletedAlias))
             thread.CompletionFooterProfileAlias = subagentCompletedAlias;
         // If subagentCompletedAlias is still empty here, trust whatever HandleSubagentMessage already set.
@@ -42362,9 +42362,13 @@ public partial class MainWindow : Window
         var handle = GetThreadModelOverrideHandle(thread, agent);
         var category = GetThreadModelProfileCategory(thread, handle);
         var resolution = ResolveThreadModelProfile(thread, handle, category);
-        lines.Add(string.Empty);
-        lines.AddRange(AgentModelPresentation.BuildDetails(
-            thread.RuntimeProfileAlias, thread.RuntimeModel, resolution));
+        var alias = resolution.Profile?.Alias;
+        if (!string.IsNullOrEmpty(alias))
+        {
+            lines.Add(string.Empty);
+            var hasOverride = resolution.Reason == ModelProfileResolutionReason.Override;
+            lines.Add(hasOverride ? $"Using: {alias} (override)" : $"Using: {alias}");
+        }
 
         return string.Join(Environment.NewLine, lines);
     }
@@ -42378,7 +42382,7 @@ public partial class MainWindow : Window
             sb.AppendLine();
             sb.Append(relativeTime);
         }
-        var coordinatorAlias = _bridge.ActiveProfile?.Alias;
+        var coordinatorAlias = _modelProfileStore.GetDefaultProfile()?.Alias;
         if (!string.IsNullOrEmpty(coordinatorAlias))
         {
             sb.AppendLine();
@@ -42434,13 +42438,24 @@ public partial class MainWindow : Window
         return result.Profile?.Alias;
     }
 
-    private static string? GetThreadModelOverrideHandle(TranscriptThreadState thread, AgentStatusCard? agent)
+    /// <summary>
+    /// Looks up the profile alias for <paramref name="thread"/> in the current
+    /// <c>_bridge.NamedAgentRoutes</c> list.  Returns <c>null</c> when no matching
+    /// route is found or when the matching route has no <c>ProfileAlias</c>.
+    /// </summary>
+    private string? ResolveRouteProfileAlias(TranscriptThreadState thread)
     {
-        return NormalizeQuickReplyAgentHandle(thread.RequestedAgentHandle)
-            ?? NormalizeQuickReplyAgentHandle(thread.AgentCardKey)
-            ?? NormalizeQuickReplyAgentHandle(agent?.AccentStorageKey)
-            ?? NormalizeQuickReplyAgentHandle(thread.AgentName);
+        var handle = (thread.AgentId ?? thread.RequestedAgentHandle ?? thread.AgentName)
+                     ?.Trim().TrimStart('@').ToLowerInvariant();
+        if (string.IsNullOrEmpty(handle))
+            return null;
+        return _bridge.NamedAgentRoutes
+            .FirstOrDefault(r => string.Equals(r.Handle, handle, StringComparison.OrdinalIgnoreCase))
+            ?.ProfileAlias;
     }
+
+    private static string? GetThreadModelOverrideHandle(TranscriptThreadState thread, AgentStatusCard? agent) =>
+        AgentModelPresentation.GetOverrideHandle(thread, agent?.AccentStorageKey);
 
     private static string? GetThreadModelProfileCategory(TranscriptThreadState thread, string? handle)
     {
@@ -45416,13 +45431,8 @@ public partial class MainWindow : Window
         return routeMode.Trim().ToLowerInvariant();
     }
 
-    private static string? NormalizeQuickReplyAgentHandle(string? handle)
-    {
-        if (string.IsNullOrWhiteSpace(handle))
-            return null;
-
-        return handle.Trim().TrimStart('@').ToLowerInvariant();
-    }
+    private static string? NormalizeQuickReplyAgentHandle(string? handle) =>
+        AgentModelPresentation.NormalizeHandle(handle);
 
     private static string DeriveQuickReplyAgentHandle(string? name, string? charterPath)
     {

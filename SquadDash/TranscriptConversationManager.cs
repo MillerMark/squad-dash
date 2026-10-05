@@ -1720,9 +1720,7 @@ internal sealed class TranscriptConversationManager {
             thread.WasObservedAsBackgroundTask ? true : null,
             thread.RosterIdentityVerified,
             thread.AssignedPlanTaskId,
-            string.IsNullOrEmpty(thread.CompletionFooterProfileAlias) ? null : thread.CompletionFooterProfileAlias,
-            thread.RuntimeProfileAlias,
-            thread.RuntimeModel);
+            string.IsNullOrEmpty(thread.CompletionFooterProfileAlias) ? null : thread.CompletionFooterProfileAlias);
     }
 
     internal IReadOnlyList<TranscriptThreadRecord> BuildPersistedAgentThreadRecords(bool includeCurrentTurns) {

@@ -130,7 +130,7 @@ internal sealed class ModelOverrideDialog : ChromedWindow {
         _currentOverrideProfileId = FindCurrentOverrideProfileId();
 
         var subheading = new TextBlock {
-            Text = "New launches of this agent will use the selected profile. Running agents keep their current model:",
+            Text = "Future prompts to this agent will use:",
             TextWrapping = TextWrapping.Wrap,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 8)

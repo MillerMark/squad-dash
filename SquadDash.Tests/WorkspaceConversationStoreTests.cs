@@ -401,9 +401,7 @@ internal sealed class WorkspaceConversationStoreTests {
                                 "Looks solid overall.",
                                 true,
                                 Array.Empty<TranscriptToolRecord>())
-                        ],
-                        RuntimeProfileAlias: " GPT 6 Astra ",
-                        RuntimeModel: " gpt-6-astra ")
+                        ])
                 ]));
 
         var loaded = _store.Load(_workspacePath);
@@ -428,8 +426,6 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(thread.CompletedAt, Is.EqualTo(completedAt.ToUniversalTime()));
             Assert.That(thread.Turns, Has.Count.EqualTo(1));
             Assert.That(thread.Turns[0].ResponseText, Is.EqualTo("Looks solid overall."));
-            Assert.That(thread.RuntimeProfileAlias, Is.EqualTo("GPT 6 Astra"));
-            Assert.That(thread.RuntimeModel, Is.EqualTo("gpt-6-astra"));
         });
     }
 
