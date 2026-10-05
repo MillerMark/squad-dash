@@ -16,6 +16,7 @@ internal static class DockingMapBuilder
             ["tasks"]       = "Tasks",
             ["approvals"]   = "Aprvl",
             ["notes"]       = "Notes",
+            ["buttons"]     = "Buttons",
             ["inbox"]       = "Inbox",
             ["maintenance"] = "Maint",
             ["watch-health"] = "Watch",

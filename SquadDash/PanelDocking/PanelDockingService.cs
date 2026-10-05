@@ -101,6 +101,7 @@ internal sealed class PanelDockingService
         ["tasks"]       = 6,
         ["approvals"]   = 10,
         ["notes"]       = 12,
+        ["buttons"]     = 20,
         ["maintenance"] = 14,
         ["inbox"]       = 16,
         ["plans"]       = 18,
@@ -108,11 +109,11 @@ internal sealed class PanelDockingService
     };
 
     // Physical grid columns available for dockable top-zone panels, in left-to-right order.
-    // Columns 3,5,7,8,9,11,13,15 are splitter/WatchPanel/buffer columns and are skipped.
-    private static readonly int[] TopZonePhysicalColumns = [5, 7, 11, 13, 15, 17, 19];
+    // Skip the splitter, WatchPanel, and buffer columns.
+    private static readonly int[] TopZonePhysicalColumns = [5, 7, 11, 13, 15, 17, 19, 21];
 
     // Splitter columns to the left of each panel slot (index i is left of PhysicalColumns[i]).
-    private static readonly int[] TopZoneSplitterColumns = [4, 6, 10, 12, 14, 16, 18];
+    private static readonly int[] TopZoneSplitterColumns = [4, 6, 10, 12, 14, 16, 18, 20];
 
     // Width of the thin insertion-indicator strip used for both top-zone and empty side-zone
     // docking previews, keeping the visual language consistent across all drop targets.
@@ -155,8 +156,9 @@ internal sealed class PanelDockingService
     private GridSplitter? _topZoneSplitter45;
     private GridSplitter? _topZoneSplitter56;
     private GridSplitter? _topZoneSplitter67;
+    private GridSplitter? _topZoneSplitter78;
     private UIElement? _watchPanelElement;
-    private readonly ColumnDefinition?[] _topZonePanelColumns = new ColumnDefinition?[7];
+    private readonly ColumnDefinition?[] _topZonePanelColumns = new ColumnDefinition?[8];
     // Legacy absorber column retained by the fixed top-zone grid. It is kept collapsed so
     // Roster & History, not a blank column, fills the space up to the leftmost splitter.
     private ColumnDefinition? _topZoneFlexAbsorberColumn;
@@ -386,7 +388,8 @@ internal sealed class PanelDockingService
         UIElement watchPanel,
         ColumnDefinition[] panelColumnDefs,
         ColumnDefinition? flexAbsorberColumn = null,
-        ColumnDefinition? leftBoundaryColumn = null)
+        ColumnDefinition? leftBoundaryColumn = null,
+        GridSplitter? splitter78 = null)
     {
         _topZoneSplitter01 = splitter01;
         _topZoneSplitter12 = splitter12;
@@ -395,6 +398,7 @@ internal sealed class PanelDockingService
         _topZoneSplitter45 = splitter45;
         _topZoneSplitter56 = splitter56;
         _topZoneSplitter67 = splitter67;
+        _topZoneSplitter78 = splitter78;
         _watchPanelElement = watchPanel;
         _topZoneFlexAbsorberColumn = flexAbsorberColumn;
         _topZoneLeftBoundaryColumn = leftBoundaryColumn;
@@ -402,8 +406,9 @@ internal sealed class PanelDockingService
         for (int i = 0; i < Math.Min(panelColumnDefs.Length, _topZonePanelColumns.Length); i++)
             _topZonePanelColumns[i] = panelColumnDefs[i];
 
-        foreach (var splitter in new[] { splitter01, splitter12, splitter23, splitter34, splitter45, splitter56, splitter67 })
+        foreach (var splitter in new[] { splitter01, splitter12, splitter23, splitter34, splitter45, splitter56, splitter67, splitter78 })
         {
+            if (splitter is null) continue;
             splitter.PreviewMouseLeftButtonDown += OnTopZoneSplitterMouseLeftButtonDown;
             splitter.MouseMove += OnTopZoneSplitterMouseMove;
             splitter.MouseLeftButtonUp += OnTopZoneSplitterMouseLeftButtonUp;
@@ -646,6 +651,7 @@ internal sealed class PanelDockingService
         if (ReferenceEquals(splitter, _topZoneSplitter45)) return 4;
         if (ReferenceEquals(splitter, _topZoneSplitter56)) return 5;
         if (ReferenceEquals(splitter, _topZoneSplitter67)) return 6;
+        if (ReferenceEquals(splitter, _topZoneSplitter78)) return 7;
         return -1;
     }
 
@@ -1814,11 +1820,11 @@ internal sealed class PanelDockingService
         sb.Append($"  | col8(WatchPanel)={cols[8].ActualWidth:F0}");
         sb.Append($"  | col9(flexBufAuto)={cols[9].ActualWidth:F0}({cols[9].Width})");
 
-        var slotLabels = new[] { "rank0", "rank1", "rank2", "rank3", "rank4", "rank5", "rank6" };
         for (int i = 0; i < TopZonePhysicalColumns.Length; i++)
         {
             int ci = TopZonePhysicalColumns[i];
-            sb.Append($"  | col{ci}({slotLabels[i]})=act:{cols[ci].ActualWidth:F0}" +
+            if (ci >= cols.Count) break;
+            sb.Append($"  | col{ci}(rank{i})=act:{cols[ci].ActualWidth:F0}" +
                       $" star:{cols[ci].Width} min:{cols[ci].MinWidth:F0}");
         }
 
@@ -2002,6 +2008,7 @@ internal sealed class PanelDockingService
         bool rank4 = occupiedRanks.Length > 4 && occupiedRanks[4];
         bool rank5 = occupiedRanks.Length > 5 && occupiedRanks[5];
         bool rank6 = occupiedRanks.Length > 6 && occupiedRanks[6];
+        bool rank7 = occupiedRanks.Length > 7 && occupiedRanks[7];
 
         SetSplitterVisibility(_topZoneSplitter01, rank0);
         SetSplitterVisibility(_topZoneSplitter12, rank1);
@@ -2010,6 +2017,7 @@ internal sealed class PanelDockingService
         SetSplitterVisibility(_topZoneSplitter45, rank4);
         SetSplitterVisibility(_topZoneSplitter56, rank5);
         SetSplitterVisibility(_topZoneSplitter67, rank6);
+        SetSplitterVisibility(_topZoneSplitter78, rank7);
     }
 
     private static void SetSplitterVisibility(GridSplitter? splitter, bool visible) =>

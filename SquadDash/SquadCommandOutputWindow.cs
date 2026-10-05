@@ -64,7 +64,7 @@ internal sealed class SquadCommandOutputWindow : Window {
             FontSize = 12
         };
         outputBox.SetResourceReference(Control.BackgroundProperty, "PanelSurface");
-        outputBox.SetResourceReference(Control.ForegroundProperty, "PrimaryText");
+        outputBox.SetResourceReference(Control.ForegroundProperty, "LabelText");
         root.Children.Add(outputBox);
     }
 

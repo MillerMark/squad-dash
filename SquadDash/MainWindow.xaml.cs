@@ -996,6 +996,7 @@ public partial class MainWindow : Window
                 ["tasks"]        = TasksPanelBorder,
                 ["approvals"]    = ApprovalPanelBorder,
                 ["notes"]        = NotesPanelBorder,
+                ["buttons"]      = ButtonsPanelBorder,
                 ["maintenance"]  = CodeHealthPanelBorder,
                 ["inbox"]        = InboxPanelBorder,
                 ["plans"]        = PlansPanelBorder,
@@ -1092,9 +1093,12 @@ public partial class MainWindow : Window
                 TopZonePanelsGrid.ColumnDefinitions[15],
                 TopZonePanelsGrid.ColumnDefinitions[17],
                 TopZonePanelsGrid.ColumnDefinitions[19],
+                TopZonePanelsGrid.ColumnDefinitions[21],
             },
             TopZonePanelsGrid.ColumnDefinitions[3],
-            TopZonePanelsGrid.ColumnDefinitions[1]);
+            TopZonePanelsGrid.ColumnDefinitions[1],
+            TopZoneSplitter78);
+        InitializeButtonsPanel();
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         SquadDashTrace.Write(
             TraceCategory.Startup,
@@ -31809,6 +31813,7 @@ public partial class MainWindow : Window
             return panelName.ToLowerInvariant() switch
             {
                 "notes" => _notesPanelVisible,
+                "buttons" => _buttonsPanelVisible,
                 // Add other panels as needed in the future
                 _ => false
             };
@@ -34563,6 +34568,7 @@ public partial class MainWindow : Window
             ["tasks"]       = TasksPanelBorder,
             ["approvals"]   = ApprovalPanelBorder,
             ["notes"]       = NotesPanelBorder,
+            ["buttons"]     = ButtonsPanelBorder,
             ["maintenance"] = CodeHealthPanelBorder,
             ["inbox"]       = InboxPanelBorder,
             ["loop"]        = LoopPanelBorder,
@@ -35208,6 +35214,7 @@ public partial class MainWindow : Window
             if (ViewCommitApprovalsMenuItem is not null) ViewCommitApprovalsMenuItem.IsChecked = _approvalPanelVisible;
             if (ViewInboxMenuItem           is not null) ViewInboxMenuItem.IsChecked           = _inboxPanel?.PanelVisible ?? false;
             if (ViewNotesMenuItem           is not null) ViewNotesMenuItem.IsChecked           = _notesPanelVisible;
+            if (ViewButtonsPanelMenuItem    is not null) ViewButtonsPanelMenuItem.IsChecked    = _buttonsPanelVisible;
             if (ViewPlansMenuItem           is not null) ViewPlansMenuItem.IsChecked           = _plansPanelVisible;
             if (ViewCodeHealthMenuItem     is not null) ViewCodeHealthMenuItem.IsChecked     = _codeHealthPanelVisible;
         }
@@ -36015,6 +36022,7 @@ public partial class MainWindow : Window
             (Border: TasksPanelBorder,         PanelId: "tasks"),
             (Border: ApprovalPanelBorder,      PanelId: "approvals"),
             (Border: NotesPanelBorder,         PanelId: "notes"),
+            (Border: ButtonsPanelBorder,       PanelId: "buttons"),
             (Border: CodeHealthPanelBorder,    PanelId: "maintenance"),
             (Border: InboxPanelBorder,         PanelId: "inbox"),
             (Border: LoopPanelBorder,          PanelId: "loop"),
@@ -39247,6 +39255,7 @@ public partial class MainWindow : Window
         _workspaceOwnershipLease = workspaceLease;
         _startupWorkspaceLease = null;
 
+        InvalidateButtonsWorkspace();
         _currentWorkspace = targetWorkspace;
         AgentArtifactStore.CleanupExpiredArchives(
             _currentWorkspace.FolderPath,
@@ -39262,6 +39271,7 @@ public partial class MainWindow : Window
 
         var workspaceStateDir = _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath);
         SquadDashTrace.SetWorkspace(workspaceStateDir);
+        LoadButtonsWorkspace(workspaceStateDir);
         _approvalStore = new CommitApprovalStore(workspaceStateDir);
         _pendingApprovalGroupsBySha.Clear();
         _approvalItems = _approvalStore.Load();
@@ -39291,6 +39301,7 @@ public partial class MainWindow : Window
         {
             _layoutPresetManager.Initialize(_currentWorkspace.FolderPath);
             var loadedLayout = _dockingService.LoadAndApplyLayout(_currentWorkspace.FolderPath);
+            RestoreButtonsPanelState();
 
             if (loadedLayout.LeftZoneWidth is double lw && lw > 0
                 && LeftZoneColumn.Width.Value > 0)
@@ -53364,6 +53375,7 @@ public partial class MainWindow : Window
             ("tasks", TasksPanelBorder),
             ("approvals", ApprovalPanelBorder),
             ("notes", NotesPanelBorder),
+            ("buttons", ButtonsPanelBorder),
             ("maintenance", CodeHealthPanelBorder),
             ("inbox", InboxPanelBorder),
             ("plans", PlansPanelBorder),
@@ -53399,6 +53411,9 @@ public partial class MainWindow : Window
                 return true;
             case "notes":
                 element = NotesPanelBorder;
+                return true;
+            case "buttons":
+                element = ButtonsPanelBorder;
                 return true;
             case "maintenance":
                 element = CodeHealthPanelBorder;
@@ -55247,6 +55262,7 @@ public partial class MainWindow : Window
     private void RestoreDocsPanelState()
     {
         _docsPanelState = _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        RestoreButtonsPanelState();
 
         // Restore per-workspace fullscreen transcript state.
         if (_docsPanelState.FullScreenTranscript == true)
@@ -64022,6 +64038,9 @@ public partial class MainWindow : Window
                 _notesPanelVisible = ids.Contains("notes");
                 SyncNotesPanel();
                 if (ViewNotesMenuItem is not null) ViewNotesMenuItem.IsChecked = _notesPanelVisible;
+
+                _buttonsPanelVisible = ids.Contains("buttons");
+                SyncButtonsPanel();
 
                 _codeHealthPanelVisible = ids.Contains("maintenance");
                 SyncCodeHealthPanel();

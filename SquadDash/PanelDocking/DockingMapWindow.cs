@@ -272,6 +272,7 @@ internal sealed class DockingMapWindow : Window
         "tasks"        => "Tasks",
         "approvals"    => "Approvals",
         "notes"        => "Notes",
+        "buttons"      => "Buttons",
         "maintenance"  => "Health",
         "inbox"        => "Inbox",
         "loop"         => "Loop",

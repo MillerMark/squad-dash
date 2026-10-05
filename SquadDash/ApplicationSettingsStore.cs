@@ -1289,6 +1289,7 @@ internal sealed class ApplicationSettingsStore {
                 TasksPanelVisible = state.TasksPanelVisible ?? existing.TasksPanelVisible,
                 ApprovalPanelVisible = state.ApprovalPanelVisible ?? existing.ApprovalPanelVisible,
                 NotesPanelVisible = state.NotesPanelVisible ?? existing.NotesPanelVisible,
+                ButtonsPanelVisible = state.ButtonsPanelVisible ?? existing.ButtonsPanelVisible,
                 LoopPanelVisible = state.LoopPanelVisible ?? existing.LoopPanelVisible,
                 CodeHealthPanelVisible = state.CodeHealthPanelVisible ?? existing.CodeHealthPanelVisible,
                 InboxPanelVisible = state.InboxPanelVisible ?? existing.InboxPanelVisible,
@@ -1304,6 +1305,7 @@ internal sealed class ApplicationSettingsStore {
                 ApprovalsPanelFilter = state.ApprovalsPanelFilter ?? existing.ApprovalsPanelFilter,
                 TasksPanelFilter = state.TasksPanelFilter ?? existing.TasksPanelFilter,
                 NotesPanelFilter = state.NotesPanelFilter ?? existing.NotesPanelFilter,
+                ButtonsPanelFilter = state.ButtonsPanelFilter ?? existing.ButtonsPanelFilter,
                 InboxShowUnreadOnly = state.InboxShowUnreadOnly ?? existing.InboxShowUnreadOnly,
                 InboxFilterText = state.InboxFilterText ?? existing.InboxFilterText,
             };
@@ -1350,6 +1352,8 @@ internal sealed record WorkspaceDocsPanelState
     /// <c>true</c> = user had the panel open and wants it restored on next startup.
     /// </summary>
     public bool? NotesPanelVisible { get; init; }
+
+    public bool? ButtonsPanelVisible { get; init; }
 
     /// <summary>
     /// Whether the Loop inline panel was explicitly closed by the user.
@@ -1444,6 +1448,8 @@ internal sealed record WorkspaceDocsPanelState
     /// Last filter text entered in the Notes panel filter box. Null = no filter.
     /// </summary>
     public string? NotesPanelFilter { get; init; }
+
+    public string? ButtonsPanelFilter { get; init; }
 
     /// <summary>
     /// Whether the Inbox "Unread Only" filter is active. Null / false = off (default).
