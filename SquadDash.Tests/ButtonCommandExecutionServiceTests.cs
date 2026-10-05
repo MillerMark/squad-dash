@@ -4,6 +4,7 @@ using NUnit.Framework;
 namespace SquadDash.Tests;
 
 [TestFixture]
+[NonParallelizable]
 internal sealed class ButtonCommandExecutionServiceTests {
     private TestWorkspace _workspace = null!;
     private string _stateDirectory = null!;
@@ -206,6 +207,99 @@ internal sealed class ButtonCommandExecutionServiceTests {
             Assert.That(result.Error, Is.EqualTo(error));
             Assert.That(result.CleanupError, Is.EqualTo("cleanup error"));
             Assert.That(result.Succeeded, Is.EqualTo(succeeded));
+        });
+    }
+
+    [TestCase(0)]
+    [TestCase(7)]
+    public async Task ExecuteAsync_PowerShellMultiline_CapturesBothFullStreamsAndMapsExitCode(int exitCode) {
+        Assert.That(WorkspaceIssueFactory.IsPowerShellAvailable(), Is.True,
+            "The production PowerShell availability probe must succeed; this integration case must not be skipped.");
+        _workspace.CreateFile(@".git\HEAD", "ref: refs/heads/test-authored-command\n");
+        const int lineCount = 512;
+        var stdoutLine = "stdout-" + new string('o', 256);
+        var stderrLine = "stderr-" + new string('e', 256);
+        // Each stream exceeds pipe capacity. Sequential draining would block before either tail is reached.
+        var button = Button(
+            $"$stdout = '{stdoutLine}'\r\n" +
+            $"$stderr = '{stderrLine}'\r\n" +
+            $"for ($i = 0; $i -lt {lineCount}; $i++) {{\r\n" +
+            "    Write-Output $stdout\r\n" +
+            "    [Console]::Error.WriteLine($stderr)\r\n" +
+            "}\r\n" +
+            "Write-Output 'stdout-tail'\r\n" +
+            "[Console]::Error.WriteLine('stderr-tail')\r\n" +
+            $"exit {exitCode}");
+
+        var result = await new ButtonCommandExecutionService().ExecuteAsync(button, _snapshot);
+
+        AssertExecutedResult(result, button, exitCode,
+            string.Concat(Enumerable.Repeat(stdoutLine + Environment.NewLine, lineCount)) + "stdout-tail" + Environment.NewLine,
+            string.Concat(Enumerable.Repeat(stderrLine + Environment.NewLine, lineCount)) + "stderr-tail" + Environment.NewLine);
+    }
+
+    [TestCase(0)]
+    [TestCase(9)]
+    public async Task ExecuteAsync_RawCommand_CapturesDistinctStreamsAndMapsExitCode(int exitCode) {
+        _workspace.CreateFile(@".git\HEAD", "ref: refs/heads/test-authored-command\n");
+        var button = Button(
+            "echo raw-stdout\r\n" +
+            "1>&2 echo raw-stderr\r\n" +
+            $"exit /b {exitCode}", ButtonCommandType.RawCommand);
+
+        var result = await new ButtonCommandExecutionService().ExecuteAsync(button, _snapshot);
+
+        AssertExecutedResult(result, button, exitCode,
+            "raw-stdout" + Environment.NewLine, "raw-stderr" + Environment.NewLine);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_InvalidTestOwnedPowerShellImage_ReturnsStartErrorWithoutExitCode() {
+        Assert.That(WorkspaceIssueFactory.IsPowerShellAvailable(), Is.True);
+        _workspace.CreateFile(@".git\HEAD", "ref: refs/heads/test-authored-command\n");
+        _workspace.CreateFile("pwsh.exe", "Test-owned invalid executable image; contains no executable code.");
+        var button = Button("Write-Output 'must-not-run'");
+        var originalDirectory = Environment.CurrentDirectory;
+        ButtonExecutionResult result;
+        try {
+            // Windows searches the host's current directory before PATH. Only this nonparallel
+            // test process changes directory; no installed executable or environment variable is modified.
+            Environment.CurrentDirectory = _workspace.RootPath;
+            Assert.That(WorkspaceIssueFactory.IsPowerShellAvailable(), Is.True);
+            result = await new ButtonCommandExecutionService().ExecuteAsync(button, _snapshot);
+        }
+        finally {
+            Environment.CurrentDirectory = originalDirectory;
+        }
+
+        Assert.Multiple(() => {
+            Assert.That(result.Button, Is.EqualTo(button));
+            Assert.That(result.Workspace, Is.EqualTo(_snapshot));
+            Assert.That(result.ExitCode, Is.Null);
+            Assert.That(result.StandardOutput, Is.Empty);
+            Assert.That(result.StandardError, Is.Empty);
+            Assert.That(result.Error, Does.Contain("pwsh.exe").And.Contain(_workspace.RootPath));
+            Assert.That(result.Error, Does.Not.Contain("not available on PATH"));
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.CleanupError, Is.Null);
+            Assert.That(Directory.Exists(Path.Combine(_stateDirectory, "button-runs")), Is.True,
+                "Script creation must have completed before the process-start failure.");
+            Assert.That(Directory.GetFiles(Path.Combine(_stateDirectory, "button-runs")), Is.Empty);
+        });
+    }
+
+    private void AssertExecutedResult(ButtonExecutionResult result, ButtonDefinition button, int exitCode,
+        string stdout, string stderr) {
+        Assert.Multiple(() => {
+            Assert.That(result.Button, Is.EqualTo(button));
+            Assert.That(result.Workspace, Is.EqualTo(_snapshot));
+            Assert.That(result.ExitCode, Is.EqualTo(exitCode));
+            Assert.That(result.StandardOutput, Is.EqualTo(stdout));
+            Assert.That(result.StandardError, Is.EqualTo(stderr));
+            Assert.That(result.Error, Is.EqualTo(exitCode == 0 ? null : $"Button command exited with code {exitCode}."));
+            Assert.That(result.Succeeded, Is.EqualTo(exitCode == 0));
+            Assert.That(result.CleanupError, Is.Null);
+            Assert.That(Directory.GetFiles(Path.Combine(_stateDirectory, "button-runs")), Is.Empty);
         });
     }
 
