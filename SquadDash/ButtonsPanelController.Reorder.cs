@@ -185,25 +185,37 @@ internal sealed partial class ButtonsPanelController {
             RestoreReorder();
             return;
         }
+        await CommitReorderAsync(gesture.PersistedOrder, gesture.PreviewFullOrder,
+            SaveOrderAsync, ReloadOrderAsync, ReportReorderError, gesture.Cancel);
+    }
+
+    internal async Task CommitReorderAsync(
+        IReadOnlyList<Guid> expectedOrder, IReadOnlyList<Guid> newOrder,
+        Func<IReadOnlyList<Guid>, IReadOnlyList<Guid>, Task<IReadOnlyList<ButtonDefinition>>>? saveOrderAsync,
+        Func<Task<IReadOnlyList<ButtonDefinition>>>? reloadOrderAsync,
+        Action<Exception>? reportError, Action cancelGesture,
+        Func<Task>? waitForAnimationAsync = null) {
+        // Tests can control settling without pointer input or a live dispatcher timer.
+        waitForAnimationAsync ??= WaitForReorderAnimationAsync;
         var revision = _dataRevision;
         _savingOrder = true;
         try {
-            var save = SaveOrderAsync ?? throw new InvalidOperationException("Button order storage is unavailable.");
-            var saved = await save(gesture.PersistedOrder, gesture.PreviewFullOrder);
+            var save = saveOrderAsync ?? throw new InvalidOperationException("Button order storage is unavailable.");
+            var saved = await save(expectedOrder, newOrder);
             if (revision == _dataRevision) {
                 ViewModel.Buttons = saved;
                 ViewModel.LoadError = null;
             }
             // Retain the existing visuals until the preview animation reaches its slots.
-            await WaitForReorderAnimationAsync();
+            await waitForAnimationAsync();
         }
         catch (Exception ex) when (ButtonsUiErrors.IsExpected(ex)) {
             SquadDashTrace.Write("Buttons", $"Reorder failed: {ex.Message}");
-            gesture.Cancel();
+            cancelGesture();
             AnimateOriginalSlots();
-            await WaitForReorderAnimationAsync();
-            ReportReorderError?.Invoke(ex);
-            if (revision == _dataRevision && ReloadOrderAsync is { } reload) {
+            await waitForAnimationAsync();
+            reportError?.Invoke(ex);
+            if (revision == _dataRevision && reloadOrderAsync is { } reload) {
                 try {
                     var persisted = await reload();
                     if (revision == _dataRevision) {
@@ -213,7 +225,7 @@ internal sealed partial class ButtonsPanelController {
                             .Where(_reorderButtons.ContainsKey).ToArray();
                         if (visible.Length == _reorderButtons.Count) {
                             AnimateOrder(visible);
-                            await WaitForReorderAnimationAsync();
+                            await waitForAnimationAsync();
                         }
                     }
                 }
@@ -221,7 +233,7 @@ internal sealed partial class ButtonsPanelController {
                     SquadDashTrace.Write("Buttons", $"Reload after reorder failed: {reloadError.Message}");
                     if (revision == _dataRevision)
                         ViewModel.LoadError = $"Unable to reload buttons: {reloadError.Message}";
-                    ReportReorderError?.Invoke(reloadError);
+                    reportError?.Invoke(reloadError);
                 }
             }
         }
