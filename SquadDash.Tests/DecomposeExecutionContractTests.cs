@@ -359,6 +359,31 @@ internal sealed class DecomposeStepResultParserTests
             Assert.That(combined, Does.Contain("3 independent validation problems"));
         });
     }
+
+    [Test]
+    public void Combine_IsIdempotent_WhenAnInputIsAlreadyACombinedMessage()
+    {
+        var inner = DecomposeStepResultContractDiagnostics.Combine(
+            ["A complete result requires passed verification evidence.",
+             "Proof evidence requires requirementId, proofType, and summary."]);
+
+        var combined = DecomposeStepResultContractDiagnostics.Combine(
+            [inner, "Task BUTTONS returned empty evidence for backend-build."]);
+
+        Assert.Multiple(() =>
+        {
+            // The three distinct problems are reported once, with an accurate count.
+            Assert.That(combined, Does.Contain("3 independent validation problems"));
+            // The inner header must not reappear as a nested bullet.
+            Assert.That(
+                System.Text.RegularExpressions.Regex.Matches(
+                    combined!, "independent validation problems"),
+                Has.Count.EqualTo(1));
+            Assert.That(combined, Does.Contain("A complete result requires passed verification evidence."));
+            Assert.That(combined, Does.Contain("Proof evidence requires requirementId, proofType, and summary."));
+            Assert.That(combined, Does.Contain("Task BUTTONS returned empty evidence for backend-build."));
+        });
+    }
 }
 
 [TestFixture]

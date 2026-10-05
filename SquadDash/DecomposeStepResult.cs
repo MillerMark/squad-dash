@@ -646,19 +646,40 @@ internal static class DecomposeStepResultContractDiagnostics
             .Select(violation => violation.Message)
             .ToArray();
 
+    private const string MultiProblemHeaderPrefix = "The result envelope has ";
+    private const string MultiProblemHeaderMarker = " independent validation problems:\n- ";
+    private const string BulletSeparator = "\n- ";
+
     internal static string? Combine(IEnumerable<string?> diagnostics)
     {
         var all = diagnostics
             .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value!.Trim())
+            .SelectMany(value => Flatten(value!.Trim()))
+            .Select(value => value.Trim())
+            .Where(value => value.Length > 0)
             .Distinct(StringComparer.Ordinal)
             .ToArray();
         return all.Length switch
         {
             0 => null,
             1 => all[0],
-            _ => $"The result envelope has {all.Length} independent validation problems:\n- " +
-                 string.Join("\n- ", all),
+            _ => $"The result envelope has {all.Length}{MultiProblemHeaderMarker}" +
+                 string.Join(BulletSeparator, all),
         };
+    }
+
+    // Combine is idempotent: an input that is itself a previously combined multi-problem
+    // message is expanded back into its component problems so the header line never reappears
+    // as a nested bullet and the reported count stays accurate.
+    private static IEnumerable<string> Flatten(string value)
+    {
+        if (value.StartsWith(MultiProblemHeaderPrefix, StringComparison.Ordinal))
+        {
+            var markerIndex = value.IndexOf(MultiProblemHeaderMarker, StringComparison.Ordinal);
+            if (markerIndex >= 0)
+                return value[(markerIndex + MultiProblemHeaderMarker.Length)..]
+                    .Split(BulletSeparator, StringSplitOptions.None);
+        }
+        return [value];
     }
 }

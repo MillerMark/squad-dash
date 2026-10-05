@@ -15140,11 +15140,11 @@ public partial class MainWindow : Window
                             repairPlan, taskId, _CodeHealthGroupRunner.GetCurrentStepTitle());
                     ScheduleDecomposeSystemEntry(resultEnvelopeWasPresent
                         ? "⚙ The task result JSON did not match the required schema. " +
-                          "SquadDash is asking the AI to correct it without repeating the work. " +
-                          $"Technical detail: {repairError}"
+                          "SquadDash is asking the AI to correct it without repeating the work.\n\n" +
+                          $"Technical detail — {repairError}"
                         : $"{stepIdentity} is not yet accepted. " +
-                          "SquadDash is requesting the missing result envelope without repeating the task. " +
-                           $"Technical detail: {repairError}");
+                          "SquadDash is requesting the missing result envelope without repeating the task.\n\n" +
+                           $"Technical detail — {repairError}");
                 }
                 if (activeExecution.PendingInboxLinkRepairError is { } inboxLinkError)
                     repairPrompt += DecomposeEnvelopeRepairPrompt.BuildInboxLinkCorrection(inboxLinkError);
