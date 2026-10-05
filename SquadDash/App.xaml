@@ -1258,7 +1258,8 @@
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="RadioButton">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                        Background="{TemplateBinding Background}">
                                 <!-- Outer ring — sized to FontSize so it scales with the body font -->
                                 <Grid Width="{TemplateBinding FontSize}"
                                       Height="{TemplateBinding FontSize}"
@@ -1274,8 +1275,8 @@
                                     <Ellipse x:Name="InnerDot"
                                              Margin="3"
                                              Fill="{DynamicResource LabelText}"
-                                             HorizontalAlignment="Center"
-                                             VerticalAlignment="Center"
+                                             HorizontalAlignment="Stretch"
+                                             VerticalAlignment="Stretch"
                                              Visibility="Collapsed"/>
                                 </Grid>
                                 <ContentPresenter VerticalAlignment="Center"

@@ -143,6 +143,25 @@ internal sealed class ButtonEditorSessionTests {
         Assert.That(errors.ContainsKey(nameof(ButtonContent.CommandText)), Is.EqualTo(!valid));
     }
 
+    [TestCase(ButtonCommandType.PowerShell)]
+    [TestCase(ButtonCommandType.RawCommand)]
+    [TestCase(ButtonCommandType.Url)]
+    public void Save_CommandType_RoundTripsIntoReopenedEditor(ButtonCommandType type) {
+        var session = new ButtonEditorSession(_store, null, 0, () => true);
+        var content = new ButtonContent("Open", "", "https://example.com/", type);
+        var created = session.Save(content);
+        var loaded = _store.Load().Single();
+        var reopened = new ButtonEditorSession(_store, loaded, loaded.SortOrder, () => true);
+        Assert.That(reopened.SavedDefinition!.Content.CommandType, Is.EqualTo(type));
+
+        var nextType = (ButtonCommandType)(((int)type + 1) % 3);
+        reopened.Save(content with { CommandType = nextType });
+        Assert.Multiple(() => {
+            Assert.That(_store.Load().Single().Id, Is.EqualTo(created.Id));
+            Assert.That(_store.Load().Single().Content.CommandType, Is.EqualTo(nextType));
+        });
+    }
+
     private static ButtonContent Content(string caption) =>
         new(caption, "", "echo test", ButtonCommandType.RawCommand);
 }
