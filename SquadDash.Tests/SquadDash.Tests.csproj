@@ -9,6 +9,19 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\SquadDash\ButtonDefinition.cs" Link="Source\ButtonDefinition.cs" />
+    <Compile Include="..\SquadDash\ButtonsStore.cs" Link="Source\ButtonsStore.cs" />
+    <Compile Include="..\SquadDash\JsonFileStorageStrictWrite.cs" Link="Source\JsonFileStorageStrictWrite.cs" />
+    <Compile Include="..\SquadDash\ButtonPlaceholders.cs" Link="Source\ButtonPlaceholders.cs" />
+    <Compile Include="..\SquadDash\ButtonCommandExecutionService.cs" Link="Source\ButtonCommandExecutionService.cs" />
+    <Compile Include="..\SquadDash\ButtonCaptionPresentation.cs" Link="Source\ButtonCaptionPresentation.cs" />
+    <Compile Include="..\SquadDash\ButtonTokenCompletion.cs" Link="Source\ButtonTokenCompletion.cs" />
+    <Compile Include="..\SquadDash\ButtonEditorSession.cs" Link="Source\ButtonEditorSession.cs" />
+    <Compile Include="..\SquadDash\ButtonsUiErrors.cs" Link="Source\ButtonsUiErrors.cs" />
+    <Compile Include="..\SquadDash\ButtonReorderGesture.cs" Link="Source\ButtonReorderGesture.cs" />
+    <Compile Include="..\SquadDash\ButtonsPanelController.cs" Link="Source\ButtonsPanelController.cs" />
+    <Compile Include="..\SquadDash\ButtonsPanelController.Reorder.cs" Link="Source\ButtonsPanelController.Reorder.cs" />
+    <Compile Include="..\SquadDash\ButtonsPanelViewModel.cs" Link="Source\ButtonsPanelViewModel.cs" />
     <Compile Include="..\SquadDash\FractionConverter.cs" Link="Source\FractionConverter.cs" />
     <Compile Include="..\SquadDash\HomeBranchResolver.cs" Link="Source\HomeBranchResolver.cs" />
     <Compile Include="..\SquadDash\HomeBranchRepositoryReader.cs" Link="Source\HomeBranchRepositoryReader.cs" />
