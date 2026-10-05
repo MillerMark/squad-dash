@@ -8,7 +8,7 @@ using System.Windows.Media;
 
 namespace SquadDash;
 
-internal sealed class ButtonsPanelController {
+internal sealed partial class ButtonsPanelController {
     private readonly StackPanel _listPanel;
     private readonly Action _newButton;
     private readonly Action<ButtonDefinition> _editButton;
@@ -26,6 +26,7 @@ internal sealed class ButtonsPanelController {
         _editButton = editButton;
         _deleteButton = deleteButton;
         _execute = execute;
+        InitializeReordering(panel);
         ClearFilterAction = () => filterBox.Clear();
         panel.ContextMenu = BuildContextMenu();
         // TextBox has a built-in menu that would otherwise hide the panel's New action.
@@ -52,23 +53,27 @@ internal sealed class ButtonsPanelController {
     }
 
     internal void Refresh(IReadOnlyList<ButtonDefinition> buttons) {
+        InvalidateReorder(dataChanged: true);
         ViewModel.Buttons = buttons;
         ViewModel.LoadError = null;
         Rebuild();
     }
 
     internal void SetFilter(string text) {
+        InvalidateReorder();
         ViewModel.FilterText = text.Trim();
         Rebuild();
     }
 
     internal void ShowError(string message) {
+        InvalidateReorder(dataChanged: true);
         ViewModel.Buttons = [];
         ViewModel.LoadError = message;
         Rebuild();
     }
 
     private void Rebuild() {
+        if (_settling || _savingOrder) return;
         _listPanel.Children.Clear();
         if (ViewModel.LoadError is { } error) {
             var text = new TextBlock { Text = error, TextWrapping = TextWrapping.Wrap };
@@ -108,7 +113,7 @@ internal sealed class ButtonsPanelController {
         button.SetResourceReference(FrameworkElement.StyleProperty, "ThemedButtonStyle");
         button.SetResourceReference(Control.FontSizeProperty, "FontSizeNormal");
         ToolTipService.SetIsEnabled(button, true);
-        // Step 3 can suppress a completed hold-drag here; pointer-down never executes.
+        WireReorderButton(button);
         button.Click += (_, e) => {
             e.Handled = true;
             RequestExecution(definition);
@@ -116,7 +121,10 @@ internal sealed class ButtonsPanelController {
         return button;
     }
 
-    internal void RequestExecution(ButtonDefinition definition) => _execute(definition);
+    internal void RequestExecution(ButtonDefinition definition) {
+        if (_settling || _savingOrder || _reorderGesture?.SuppressExecution == true) return;
+        _execute(definition);
+    }
 
     internal ContextMenu BuildContextMenu(ButtonDefinition? definition = null) {
         var menu = new ContextMenu();

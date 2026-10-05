@@ -18,8 +18,23 @@ public partial class MainWindow {
     private void InitializeButtonsPanel() {
         _buttonsPanel = new ButtonsPanelController(ButtonsListPanel, ButtonsPanelBorder, ButtonsFilterBox,
             () => OpenButtonEditor(null), OpenButtonEditor, DeleteWorkspaceButton,
-            async definition => await ExecuteWorkspaceButtonAsync(definition));
+            async definition => await ExecuteWorkspaceButtonAsync(definition)) {
+                SaveOrderAsync = SaveWorkspaceButtonOrderAsync,
+                ReloadOrderAsync = ReloadWorkspaceButtonOrderAsync,
+                ReportReorderError = ex => HandleUiCallbackException("Reorder workspace buttons", ex)
+            };
         Closed += (_, _) => InvalidateButtonsWorkspace();
+    }
+
+    private Task<IReadOnlyList<ButtonDefinition>> SaveWorkspaceButtonOrderAsync(
+        IReadOnlyList<Guid> expectedOrder, IReadOnlyList<Guid> newOrder) {
+        var store = _buttonsStore ?? throw new InvalidOperationException("No workspace button store is available.");
+        return Task.Run(() => store.Reorder(expectedOrder, newOrder));
+    }
+
+    private Task<IReadOnlyList<ButtonDefinition>> ReloadWorkspaceButtonOrderAsync() {
+        var store = _buttonsStore ?? throw new InvalidOperationException("No workspace button store is available.");
+        return Task.Run(store.Load);
     }
 
     private void InvalidateButtonsWorkspace() {
