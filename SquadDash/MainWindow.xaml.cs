@@ -25630,14 +25630,27 @@ public partial class MainWindow : Window
                 {
                     capturedRtb.ReleaseMouseCapture();
 
-                    // The current event was already routed to the captured RTB.
-                    // Schedule a synthetic click on the intended target at Input priority
-                    // so it fires after the current routing completes and the capture is
-                    // fully released.  This gives the user a one-click experience rather
-                    // than requiring a second press.
                     var hitButton = FindVisualAncestorOrSelf<Button>(hitElement);
-                    if (hitButton is not null)
+                    if (hitButton is { Tag: ButtonDefinition })
                     {
+                        // The original route still targets the RTB. Replay the press, not
+                        // Click, so Release mode and hold-drag cancellation remain intact.
+                        e.Handled = true;
+                        if (hitButton.IsEnabled && hitButton.IsVisible)
+                        {
+                            var recoveredPress = new MouseButtonEventArgs(e.MouseDevice, e.Timestamp, e.ChangedButton)
+                            {
+                                RoutedEvent = Mouse.PreviewMouseDownEvent,
+                                Source = hitButton
+                            };
+                            hitButton.RaiseEvent(recoveredPress);
+                            recoveredPress.RoutedEvent = Mouse.MouseDownEvent;
+                            hitButton.RaiseEvent(recoveredPress);
+                        }
+                    }
+                    else if (hitButton is not null)
+                    {
+                        // Preserve the existing one-click recovery for other buttons.
                         _ = Dispatcher.BeginInvoke(
                             System.Windows.Threading.DispatcherPriority.Input,
                             () =>
