@@ -1,9 +1,10 @@
 using System;
-using System.Globalization;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -17,19 +18,21 @@ internal sealed class ButtonEditorWindow : ChromedWindow {
     private readonly TextBox _tooltip;
     private readonly TextBox _command;
     private readonly TextBox _directory;
-    private readonly TextBox _sortOrder;
-    private readonly TextBox _identity;
-    private readonly ComboBox _commandType;
+    private readonly RadioButton[] _commandTypes;
+    private readonly Dictionary<string, (Control Control, TextBlock Error)> _fieldErrors = [];
+    private readonly PttTextBoxAttachment _dictation;
     private readonly TextBlock _error;
     private readonly Popup _tokens;
     private readonly ListBox _tokenList;
     private int _tokenStart = -1;
     private bool _closed;
 
-    internal ButtonEditorWindow(MainWindow owner, ButtonEditorSession session, Action onSaved) {
+    internal ButtonEditorWindow(MainWindow owner, ButtonEditorSession session, Action onSaved,
+        Func<ApplicationSettingsSnapshot> getSettings) : base(captionHeight: CloseButtonHeight) {
         Owner = owner;
         _session = session;
         _onSaved = onSaved;
+        _dictation = new PttTextBoxAttachment(getSettings, this, Dispatcher);
         Title = session.SavedDefinition is null ? "New button" : "Edit button";
         Width = 720;
         Height = 780;
@@ -61,39 +64,46 @@ internal sealed class ButtonEditorWindow : ChromedWindow {
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
         });
         var content = session.SavedDefinition?.Content;
-        _identity = Input(session.SavedDefinition?.Id.ToString() ?? "(assigned on first save)");
-        _identity.IsReadOnly = true;
-        AddField("Stable ID", _identity);
         _caption = Input(content?.Caption ?? string.Empty);
-        AddField("Caption (Markdown **bold** supported)", _caption);
+        AddField("Caption (Markdown **bold** supported)", _caption, nameof(ButtonContent.Caption));
         _tooltip = Input(content?.Tooltip ?? string.Empty);
-        AddField("Tooltip", _tooltip);
-        _commandType = new ComboBox { SelectedValuePath = "Tag" };
-        _commandType.Items.Add(new ComboBoxItem { Content = "PowerShell", Tag = ButtonCommandType.PowerShell });
-        _commandType.Items.Add(new ComboBoxItem { Content = "raw-cmd", Tag = ButtonCommandType.RawCommand });
-        _commandType.SelectedValue = content?.CommandType ?? ButtonCommandType.PowerShell;
-        _commandType.SetResourceReference(FrameworkElement.StyleProperty, "ThemedComboBoxStyle");
-        _commandType.SetResourceReference(Control.BackgroundProperty, "InputSurface");
-        _commandType.SetResourceReference(Control.ForegroundProperty, "LabelText");
-        _commandType.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
-        AddField("Command type", _commandType);
+        AddField("Tooltip", _tooltip, nameof(ButtonContent.Tooltip));
+        fields.Children.Add(Label("Command type"));
+        var types = new WrapPanel();
+        fields.Children.Add(types);
+        _commandTypes = new[] {
+            MakeCommandType("PowerShell", ButtonCommandType.PowerShell),
+            MakeCommandType("Raw command", ButtonCommandType.RawCommand),
+            MakeCommandType("URL", ButtonCommandType.Url)
+        };
+        foreach (var radio in _commandTypes) types.Children.Add(radio);
         _command = Input(content?.CommandText ?? string.Empty);
         _command.AcceptsReturn = true;
         _command.AcceptsTab = true;
-        _command.FontFamily = new FontFamily("Consolas");
+        _command.SetResourceReference(Control.FontFamilyProperty, "MonoFont");
         _command.TextWrapping = TextWrapping.NoWrap;
         _command.Height = 200;
         _command.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         _command.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-        AddField("Command (type { for tokens)", _command);
+        AddField("Command or URL (type { for tokens)", _command, nameof(ButtonContent.CommandText));
         _directory = Input(content?.WorkingDirectory ?? string.Empty);
-        AddField("Working directory (optional; defaults to workspace root)", _directory);
-        _sortOrder = Input(session.InitialSortOrder.ToString(CultureInfo.InvariantCulture));
-        AddField("Sort order (zero-based)", _sortOrder);
+        AddField("Working directory (optional; defaults to workspace root)", _directory, nameof(ButtonContent.WorkingDirectory));
         fields.Children.Add(Label("Tokens resolve when you run the saved button, in its originating workspace.\n" +
             ButtonPlaceholders.SubstitutionRule));
-        foreach (var placeholder in ButtonPlaceholders.Catalog)
-            fields.Children.Add(Label($"{placeholder.Token}: {placeholder.Description}\nPowerShell: {placeholder.PowerShellExample}\nraw-cmd: {placeholder.CmdExample}"));
+        foreach (var placeholder in ButtonPlaceholders.Catalog) {
+            var hint = Label(string.Empty);
+            var text = $"{placeholder.Token}: {placeholder.Description}\nPowerShell: {placeholder.PowerShellExample}\nRaw command: {placeholder.CmdExample}";
+            var parts = text.Split(placeholder.Token, StringSplitOptions.None);
+            for (var i = 0; i < parts.Length; i++) {
+                if (i > 0) {
+                    var token = new Run(placeholder.Token);
+                    token.SetResourceReference(TextElement.FontFamilyProperty, "MonoFont");
+                    hint.Inlines.Add(token);
+                }
+                hint.Inlines.Add(new Run(parts[i]));
+            }
+            fields.Children.Add(hint);
+        }
 
         _tokenList = new ListBox {
             DisplayMemberPath = nameof(ButtonPlaceholder.Token),
@@ -103,14 +113,20 @@ internal sealed class ButtonEditorWindow : ChromedWindow {
         _tokenList.SetResourceReference(Control.BackgroundProperty, "InputSurface");
         _tokenList.SetResourceReference(Control.ForegroundProperty, "LabelText");
         _tokenList.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
+        _tokenList.SetResourceReference(Control.FontFamilyProperty, "MonoFont");
         _tokenList.ItemContainerStyle = BuildTokenItemStyle();
         var popupContent = new StackPanel { MaxWidth = 420 };
         popupContent.Children.Add(_tokenList);
         var help = Label(string.Empty);
         popupContent.Children.Add(help);
+        var substitutionHelp = Label(ButtonPlaceholders.SubstitutionRule);
+        substitutionHelp.SetResourceReference(TextBlock.FontFamilyProperty, SystemFonts.MessageFontFamilyKey);
+        substitutionHelp.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeNormal");
+        substitutionHelp.Margin = new Thickness(0, 20, 0, 4);
+        popupContent.Children.Add(substitutionHelp);
         _tokenList.SelectionChanged += (_, _) => {
             if (_tokenList.SelectedItem is ButtonPlaceholder item)
-                help.Text = $"{item.Description}\nResolved at invocation.\n{item.PowerShellExample}\n{item.CmdExample}\n{ButtonPlaceholders.SubstitutionRule}";
+                help.Text = $"{item.Description}\nResolved at invocation.\n{item.PowerShellExample}\n{item.CmdExample}";
         };
         var popupBorder = new Border { Child = popupContent, Padding = new Thickness(8), BorderThickness = new Thickness(1) };
         popupBorder.SetResourceReference(Border.BackgroundProperty, "PopupSurface");
@@ -142,15 +158,43 @@ internal sealed class ButtonEditorWindow : ChromedWindow {
             }
         };
         Deactivated += (_, _) => _tokens.IsOpen = false;
+        ContentRendered += (_, _) => {
+            _caption.Focus();
+            Keyboard.Focus(_caption);
+        };
+        PreviewKeyDown += (_, e) => {
+            if (!e.Handled && _dictation.HandlePreviewKeyDown(e, Keyboard.FocusedElement as TextBox))
+                e.Handled = true;
+        };
+        PreviewKeyUp += (_, e) => _dictation.HandlePreviewKeyUp(e);
         Closed += (_, _) => {
             _closed = true;
             _session.Invalidate();
             _tokens.IsOpen = false;
+            if (_dictation.IsActive) _ = _dictation.StopAsync();
+            _dictation.Dispose();
         };
 
-        void AddField(string label, Control control) {
+        RadioButton MakeCommandType(string label, ButtonCommandType type) {
+            var radio = new RadioButton {
+                Content = label, Tag = type, GroupName = "CommandType",
+                IsChecked = (content?.CommandType ?? ButtonCommandType.PowerShell) == type,
+                Margin = new Thickness(0, 4, 20, 4)
+            };
+            radio.SetResourceReference(FrameworkElement.StyleProperty, "ThemedRadioButtonStyle");
+            return radio;
+        }
+
+        void AddField(string label, Control control, string name) {
             fields.Children.Add(Label(label));
             fields.Children.Add(control);
+            var error = Label(string.Empty);
+            error.SetResourceReference(TextBlock.ForegroundProperty, "SystemErrorText");
+            error.Visibility = Visibility.Collapsed;
+            fields.Children.Add(error);
+            _fieldErrors.Add(name, (control, error));
+            if (control is TextBox textBox)
+                textBox.TextChanged += (_, _) => error.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -160,25 +204,42 @@ internal sealed class ButtonEditorWindow : ChromedWindow {
     }
 
     private void Save() {
+        _error.Text = string.Empty;
+        foreach (var field in _fieldErrors.Values) field.Error.Visibility = Visibility.Collapsed;
+        var type = (ButtonCommandType)_commandTypes.Single(radio => radio.IsChecked == true).Tag;
+        var content = new ButtonContent(_caption.Text, _tooltip.Text, _command.Text, type,
+            string.IsNullOrWhiteSpace(_directory.Text) ? null : _directory.Text);
+        var errors = ButtonEditorSession.ValidateFields(content);
+        if (errors.Count > 0) {
+            foreach (var (field, message) in errors) ShowFieldError(field, message);
+            _fieldErrors[errors.First().Key].Control.Focus();
+            return;
+        }
         var persisted = false;
         try {
-            if (!int.TryParse(_sortOrder.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var order))
-                throw new ArgumentException("Sort order must be a whole number.");
-            if (_commandType.SelectedValue is not ButtonCommandType type)
-                throw new ArgumentException("Select a command type.");
-            _session.Save(new ButtonContent(_caption.Text, _tooltip.Text, _command.Text, type,
-                string.IsNullOrWhiteSpace(_directory.Text) ? null : _directory.Text), order);
+            _session.Save(content);
             persisted = true;
             _onSaved();
             Close();
         }
         catch (Exception ex) when (ButtonsUiErrors.IsExpected(ex)) {
             SquadDashTrace.Write("Buttons", $"Editor save failed: {ex}");
+            if (!persisted && ex is ArgumentException { ParamName: { } name } && _fieldErrors.ContainsKey(name)) {
+                ShowFieldError(name, ex.Message);
+                _fieldErrors[name].Control.Focus();
+                return;
+            }
             _error.Text = persisted
                 ? $"The button was saved, but the editor could not finish refreshing the panel: {ex.Message}"
                 : ex.Message;
-            _identity.Text = _session.SavedDefinition?.Id.ToString() ?? "(assigned on first save)";
         }
+    }
+
+    private void ShowFieldError(string name, string message) {
+        var field = _fieldErrors[name];
+        field.Error.Text = message;
+        field.Error.Visibility = Visibility.Visible;
+        field.Error.BringIntoView();
     }
 
     private void UpdateTokens() {

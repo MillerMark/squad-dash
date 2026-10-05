@@ -87,7 +87,7 @@ public partial class MainWindow {
             var session = new ButtonEditorSession(store, definition, store.Load().Count,
                 () => !_isClosing && generation == _buttonsWorkspaceGeneration &&
                     ReferenceEquals(workspace, _currentWorkspace) && ReferenceEquals(store, _buttonsStore));
-            var editor = new ButtonEditorWindow(this, session, RefreshWorkspaceButtons);
+            var editor = new ButtonEditorWindow(this, session, RefreshWorkspaceButtons, () => _settingsSnapshot);
             _buttonEditors.Add(editor);
             editor.Closed += (_, _) => _buttonEditors.Remove(editor);
             editor.Show();
@@ -111,6 +111,7 @@ public partial class MainWindow {
     }
 
     private async Task ExecuteWorkspaceButtonAsync(ButtonDefinition definition) {
+        SquadCommandOutputWindow? window = null;
         try {
             RequireCurrentPanelItem(definition);
             if (_buttonsStore is null || _currentWorkspace is null)
@@ -118,26 +119,55 @@ public partial class MainWindow {
             var store = _buttonsStore;
             var snapshot = ButtonWorkspaceSnapshot.Capture(_currentWorkspace,
                 _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath));
+            var title = $"Button: {ButtonCaptionPresentation.VisibleText(definition.Content.Caption)}";
+            if (definition.Content.CommandType != ButtonCommandType.Url && CanShowOwnedWindow()) {
+                window = new SquadCommandOutputWindow(title, "Loading saved command...", isBusy: true) { Owner = this };
+                window.Show();
+            }
+            var saved = await Task.Run(() => store.Load().SingleOrDefault(item => item.Id == definition.Id)
+                ?? throw new ButtonConflictException("The button was deleted before execution."));
+            title = $"Button: {ButtonCaptionPresentation.VisibleText(saved.Content.Caption)}";
+            if (saved.Content.CommandType != ButtonCommandType.Url && window is null && CanShowOwnedWindow()) {
+                window = new SquadCommandOutputWindow(title, "Running command...", isBusy: true) { Owner = this };
+                window.Show();
+            }
+            window?.SetTitle(title);
+            window?.SetBusy(true, "Running...");
             // Store locking and the invocation-time branch lookup must not block the UI thread.
-            var result = await Task.Run(async () => {
-                var saved = store.Load().SingleOrDefault(item => item.Id == definition.Id)
-                    ?? throw new ButtonConflictException("The button was deleted before execution.");
-                return await new ButtonCommandExecutionService().ExecuteAsync(saved, snapshot);
-            });
+            var result = await Task.Run(async () => await new ButtonCommandExecutionService().ExecuteAsync(saved, snapshot));
             if (result.Error is not null || result.CleanupError is not null || result.ExitCode != 0)
                 SquadDashTrace.Write("Buttons", $"Execution {result.Button.Id}: exit={result.ExitCode}; error={result.Error}; cleanup={result.CleanupError}");
+            if (saved.Content.CommandType == ButtonCommandType.Url) {
+                window?.Close();
+                if (result.Succeeded)
+                    return;
+                var errorOutput = FormatButtonExecutionOutput(result);
+                if (!CanShowOwnedWindow()) {
+                    SquadDashTrace.Write("Buttons", $"Owner closed before URL error output could be displayed:\n{errorOutput}");
+                    return;
+                }
+                var errorWindow = new SquadCommandOutputWindow(title, errorOutput) { Owner = this };
+                errorWindow.Show();
+                return;
+            }
             var output = FormatButtonExecutionOutput(result);
+            if (window is not null && window.IsVisible) {
+                window.SetBusy(false);
+                window.SetOutput(output);
+                return;
+            }
             if (!CanShowOwnedWindow()) {
                 SquadDashTrace.Write("Buttons", $"Owner closed before command output could be displayed:\n{output}");
                 return;
             }
-            var window = new SquadCommandOutputWindow(
-                $"Button: {ButtonCaptionPresentation.VisibleText(result.Button.Content.Caption)}", output) { Owner = this };
-            window.SetResourceReference(Control.BackgroundProperty, "AppSurface");
-            window.SetResourceReference(Control.ForegroundProperty, "LabelText");
-            window.Show();
+            var fallbackWindow = new SquadCommandOutputWindow(title, output) { Owner = this };
+            fallbackWindow.Show();
         }
         catch (Exception ex) when (ButtonsUiErrors.IsExpected(ex)) {
+            if (window?.IsVisible == true) {
+                window.SetBusy(false);
+                window.SetOutput($"Unable to run the button: {ex.Message}");
+            }
             HandleUiCallbackException("Run workspace button", ex);
         }
     }

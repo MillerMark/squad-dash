@@ -73,6 +73,13 @@ internal sealed class ButtonCommandExecutionService {
             if (button.Content.CommandType == ButtonCommandType.PowerShell &&
                 !await Task.Run(WorkspaceIssueFactory.IsPowerShellAvailable).ConfigureAwait(false))
                 throw new InvalidOperationException("PowerShell 7+ (pwsh.exe) is not available on PATH.");
+            if (button.Content.CommandType == ButtonCommandType.Url) {
+                var startInfo = BuildStartInfo(invocation, scriptPath: string.Empty);
+                // Shell activation can reuse an existing browser and return no new process.
+                using var browser = Process.Start(startInfo);
+                SquadDashTrace.Write("Buttons", $"Button {button.Id} for '{workspace.FolderPath}' opened URL '{startInfo.FileName}'.");
+                return new ButtonExecutionResult(button, workspace, 0, string.Empty, string.Empty, null);
+            }
 
             var scriptDirectory = Path.Combine(workspace.WorkspaceStateDirectory, "button-runs");
             Directory.CreateDirectory(scriptDirectory);
@@ -157,9 +164,37 @@ internal sealed class ButtonCommandExecutionService {
     /// </summary>
     public static ProcessStartInfo BuildStartInfo(ButtonInvocation invocation, string scriptPath) {
         ArgumentNullException.ThrowIfNull(invocation);
-        ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
+        switch (invocation.Button.Content.CommandType) {
+            case ButtonCommandType.Url:
+                var url = ValidateBrowserUrl(invocation.CommandText);
+                return new ProcessStartInfo {
+                    FileName = url,
+                    WorkingDirectory = invocation.WorkingDirectory,
+                    UseShellExecute = true
+                };
+            case ButtonCommandType.PowerShell:
+                ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
+                var powerShellStartInfo = BuildCapturedStartInfo(invocation.WorkingDirectory, scriptPath);
+                powerShellStartInfo.FileName = "pwsh.exe";
+                foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand",
+                             Convert.ToBase64String(Encoding.Unicode.GetBytes(PowerShellBootstrap)) })
+                    powerShellStartInfo.ArgumentList.Add(argument);
+                return powerShellStartInfo;
+            case ButtonCommandType.RawCommand:
+                ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
+                var rawStartInfo = BuildCapturedStartInfo(invocation.WorkingDirectory, scriptPath);
+                rawStartInfo.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+                // Environment expansion avoids reparsing percent characters in the AppData path.
+                rawStartInfo.Arguments = "/d /s /c \"chcp 65001 >nul & \"%SQUADDASH_BUTTON_SCRIPT%\"\"";
+                return rawStartInfo;
+            default:
+                throw new ArgumentException("Unsupported button command type.", nameof(invocation));
+        }
+    }
+
+    private static ProcessStartInfo BuildCapturedStartInfo(string workingDirectory, string scriptPath) {
         var startInfo = new ProcessStartInfo {
-            WorkingDirectory = invocation.WorkingDirectory,
+            WorkingDirectory = workingDirectory,
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardInput = true,
@@ -169,22 +204,19 @@ internal sealed class ButtonCommandExecutionService {
             StandardErrorEncoding = Encoding.UTF8
         };
         startInfo.Environment["SQUADDASH_BUTTON_SCRIPT"] = scriptPath;
-        switch (invocation.Button.Content.CommandType) {
-            case ButtonCommandType.PowerShell:
-                startInfo.FileName = "pwsh.exe";
-                foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand",
-                             Convert.ToBase64String(Encoding.Unicode.GetBytes(PowerShellBootstrap)) })
-                    startInfo.ArgumentList.Add(argument);
-                break;
-            case ButtonCommandType.RawCommand:
-                startInfo.FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
-                // Environment expansion avoids reparsing percent characters in the AppData path.
-                startInfo.Arguments = "/d /s /c \"chcp 65001 >nul & \"%SQUADDASH_BUTTON_SCRIPT%\"\"";
-                break;
-            default:
-                throw new ArgumentException("Unsupported button command type.", nameof(invocation));
-        }
         return startInfo;
+    }
+
+    internal static string ValidateBrowserUrl(string value) {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        if (!Uri.TryCreate(value.Trim(), UriKind.Absolute, out var url))
+            throw new ArgumentException("Button URL must be an absolute URL.", nameof(value));
+        if (!string.Equals(url.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(url.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Button URL must use http or https.", nameof(value));
+        if (string.IsNullOrWhiteSpace(url.Host))
+            throw new ArgumentException("Button URL must include a host name.", nameof(value));
+        return url.AbsoluteUri;
     }
 
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(ProcessStartInfo startInfo) {

@@ -82,6 +82,67 @@ internal sealed class ButtonEditorSessionTests {
         Assert.That(_store.Load(), Is.Empty);
     }
 
+    [Test]
+    public void SaveWithoutOrder_AppendsToCurrentListAndPreservesConcurrentReorder() {
+        var a = _store.Create(Content("A"));
+        var session = new ButtonEditorSession(_store, null, 1, () => true);
+        var b = _store.Create(Content("B"));
+        var created = session.Save(Content("C"));
+        _store.Reorder([a.Id, b.Id, created.Id], [created.Id, b.Id, a.Id]);
+        var edited = session.Save(Content("C edited"));
+        Assert.Multiple(() => {
+            Assert.That(created.SortOrder, Is.EqualTo(2));
+            Assert.That(edited.Id, Is.EqualTo(created.Id));
+            Assert.That(edited.ContentRevision, Is.EqualTo(2));
+            Assert.That(edited.SortOrder, Is.Zero);
+            Assert.That(_store.Load().Select(item => item.Id), Is.EqualTo(new[] { created.Id, b.Id, a.Id }));
+        });
+    }
+
+    [Test]
+    public void SaveWithoutOrder_ConcurrentDeletionDoesNotInvalidateRemainingEditorsSortPosition() {
+        var a = _store.Create(Content("A"));
+        var b = _store.Create(Content("B"));
+        var session = new ButtonEditorSession(_store, b, 1, () => true);
+        _store.Delete(a.Id, a.ContentRevision);
+        Assert.That(session.Save(Content("B edited")).SortOrder, Is.Zero);
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void SaveWithoutOrder_StaleWorkspaceOrClosedEditorIsRejected(bool close) {
+        var current = true;
+        var session = new ButtonEditorSession(_store, null, 0, () => current);
+        if (close) session.Invalidate();
+        else current = false;
+        Assert.That(() => session.Save(Content("No save")), Throws.TypeOf<ButtonConflictException>());
+        Assert.That(_store.Load(), Is.Empty);
+    }
+
+    [Test]
+    public void SaveWithoutOrder_ConcurrentContentEditIsRejected() {
+        var original = _store.Create(Content("Original"));
+        var session = new ButtonEditorSession(_store, original, 0, () => true);
+        _store.Update(original.Id, original.ContentRevision, Content("Other editor"));
+        Assert.That(() => session.Save(Content("Stale")), Throws.TypeOf<ButtonConflictException>());
+    }
+
+    [Test]
+    public void ValidateFields_ReportsErrorsAgainstTheirControls() {
+        var errors = ButtonEditorSession.ValidateFields(new(" ", "", "", ButtonCommandType.PowerShell));
+        Assert.That(errors.Keys, Is.EquivalentTo(new[] { nameof(ButtonContent.Caption), nameof(ButtonContent.CommandText) }));
+    }
+
+    [TestCase("https://example.com/{branch}?name={workspaceName}", true)]
+    [TestCase("https://{workspaceName}.example.com/", true)]
+    [TestCase("not a URL", false)]
+    [TestCase("file:///C:/Windows/notepad.exe", false)]
+    [TestCase("", false)]
+    public void ValidateFields_UrlErrorsBelongToCommandControl(string url, bool valid) {
+        var errors = ButtonEditorSession.ValidateFields(new("Open", "", url, ButtonCommandType.Url));
+        Assert.That(errors.ContainsKey(nameof(ButtonContent.CommandText)), Is.EqualTo(!valid));
+    }
+
     private static ButtonContent Content(string caption) =>
         new(caption, "", "echo test", ButtonCommandType.RawCommand);
 }

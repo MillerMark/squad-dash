@@ -15,6 +15,8 @@
                  <ResourceDictionary Source="Themes/ImageEditorIcons.xaml" />
              </ResourceDictionary.MergedDictionaries>
 
+            <FontFamily x:Key="MonoFont">Consolas</FontFamily>
+
             <!-- Transcript selection dimmed at 50% opacity when context menu is open (focus leaves RTB) -->
             <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}"
                              Color="{x:Static SystemColors.HighlightColor}"

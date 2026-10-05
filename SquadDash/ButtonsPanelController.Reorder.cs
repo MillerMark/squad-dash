@@ -26,6 +26,12 @@ internal sealed partial class ButtonsPanelController {
     private bool _settling;
     private bool _savingOrder;
     private bool _releasingCapture;
+    private bool _pressedButtonDragVisualApplied;
+    private Thickness _pressedButtonBaseBorderThickness;
+    private Thickness _pressedButtonBasePadding;
+    private object? _pressedButtonBaseBorderThicknessLocalValue = DependencyProperty.UnsetValue;
+    private object? _pressedButtonBaseBorderBrushLocalValue = DependencyProperty.UnsetValue;
+    private object? _pressedButtonBasePaddingLocalValue = DependencyProperty.UnsetValue;
 
     internal Func<IReadOnlyList<Guid>, IReadOnlyList<Guid>, Task<IReadOnlyList<ButtonDefinition>>>? SaveOrderAsync { get; set; }
     internal Func<Task<IReadOnlyList<ButtonDefinition>>>? ReloadOrderAsync { get; set; }
@@ -151,6 +157,7 @@ internal sealed partial class ButtonsPanelController {
             _pressedButton!.Cursor = Cursors.SizeNS;
             ToolTipService.SetIsEnabled(_pressedButton, false);
             Panel.SetZIndex(_pressedButton, 1);
+            ApplyDraggedButtonVisuals(_pressedButton);
         }
         var order = gesture.PreviewVisibleOrder;
         var tops = CalculateTops(order);
@@ -330,6 +337,40 @@ internal sealed partial class ButtonsPanelController {
             _pressedButton.ClearValue(FrameworkElement.CursorProperty);
             ToolTipService.SetIsEnabled(_pressedButton, true);
             Panel.SetZIndex(_pressedButton, 0);
+            if (_pressedButtonDragVisualApplied) {
+                RestoreLocalValue(_pressedButton, Control.BorderThicknessProperty, _pressedButtonBaseBorderThicknessLocalValue);
+                RestoreLocalValue(_pressedButton, Control.BorderBrushProperty, _pressedButtonBaseBorderBrushLocalValue);
+                RestoreLocalValue(_pressedButton, Control.PaddingProperty, _pressedButtonBasePaddingLocalValue);
+                _pressedButtonDragVisualApplied = false;
+            }
         }
+    }
+
+    private void ApplyDraggedButtonVisuals(Button button) {
+        if (_pressedButtonDragVisualApplied) return;
+        _pressedButtonBaseBorderThicknessLocalValue = button.ReadLocalValue(Control.BorderThicknessProperty);
+        _pressedButtonBaseBorderBrushLocalValue = button.ReadLocalValue(Control.BorderBrushProperty);
+        _pressedButtonBasePaddingLocalValue = button.ReadLocalValue(Control.PaddingProperty);
+        _pressedButtonBaseBorderThickness = button.BorderThickness;
+        _pressedButtonBasePadding = button.Padding;
+        button.BorderThickness = new Thickness(
+            _pressedButtonBaseBorderThickness.Left * 2,
+            _pressedButtonBaseBorderThickness.Top * 2,
+            _pressedButtonBaseBorderThickness.Right * 2,
+            _pressedButtonBaseBorderThickness.Bottom * 2);
+        button.SetResourceReference(Control.BorderBrushProperty, "ImportantText");
+        button.Padding = new Thickness(
+            Math.Max(0, _pressedButtonBasePadding.Left - _pressedButtonBaseBorderThickness.Left),
+            Math.Max(0, _pressedButtonBasePadding.Top - _pressedButtonBaseBorderThickness.Top),
+            Math.Max(0, _pressedButtonBasePadding.Right - _pressedButtonBaseBorderThickness.Right),
+            Math.Max(0, _pressedButtonBasePadding.Bottom - _pressedButtonBaseBorderThickness.Bottom));
+        _pressedButtonDragVisualApplied = true;
+    }
+
+    private static void RestoreLocalValue(DependencyObject target, DependencyProperty property, object? localValue) {
+        if (Equals(localValue, DependencyProperty.UnsetValue))
+            target.ClearValue(property);
+        else
+            target.SetValue(property, localValue);
     }
 }

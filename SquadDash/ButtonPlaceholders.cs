@@ -15,6 +15,8 @@ internal static class ButtonPlaceholders {
     public const string SubstitutionRule =
         "Tokens are case-sensitive and replaced once with literal values, never shell-quoted or escaped. " +
         "Unknown tokens and script-block braces stay unchanged. Quote tokens yourself for the selected shell. " +
+        "For a literal opening { or closing } brace, type it directly; no doubling or backslash escape is needed. " +
+        "Only the three exact token names shown here are substituted. " +
         "Examples assume values contain no quote characters: PowerShell single quotes need embedded apostrophes doubled; " +
         "cmd double quotes group paths with spaces, but percent expansion and other cmd syntax still apply. " +
         "Use a script tailored to your workspace if names contain shell syntax.";

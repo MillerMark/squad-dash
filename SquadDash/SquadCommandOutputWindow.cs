@@ -1,15 +1,19 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 
 namespace SquadDash;
 
-internal sealed class SquadCommandOutputWindow : Window {
+internal sealed class SquadCommandOutputWindow : ChromedWindow {
+    private readonly TextBox _outputBox;
+    private readonly ProgressBar _busyIndicator;
+    private readonly TextBlock _busyText;
+
     public SquadCommandOutputWindow(
         string title,
         string output,
-        bool showDelegateButton = false) {
+        bool showDelegateButton = false,
+        bool isBusy = false) : base(captionHeight: CloseButtonHeight) {
         Title = title;
         Width = 720;
         Height = 480;
@@ -17,15 +21,64 @@ internal sealed class SquadCommandOutputWindow : Window {
         MinHeight = 320;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
-        var root = new DockPanel { Margin = new Thickness(16) };
-        Content = root;
+        var root = new Grid { Margin = new Thickness(16) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        ApplyOuterBorder(titleText: title).Child = root;
+
+        var busyPanel = new StackPanel {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 12)
+        };
+        _busyIndicator = new ProgressBar {
+            IsIndeterminate = true,
+            Width = 110,
+            Height = 12,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        _busyText = new TextBlock {
+            VerticalAlignment = VerticalAlignment.Center,
+            Text = "Running..."
+        };
+        _busyText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        busyPanel.Children.Add(_busyIndicator);
+        busyPanel.Children.Add(_busyText);
+        Grid.SetRow(busyPanel, 0);
+        root.Children.Add(busyPanel);
+
+        var outputBorder = new Border {
+            Padding = new Thickness(10),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10)
+        };
+        outputBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+        outputBorder.SetResourceReference(Border.BorderBrushProperty, "LineColor");
+        Grid.SetRow(outputBorder, 1);
+        root.Children.Add(outputBorder);
+
+        _outputBox = new TextBox {
+            IsReadOnly = true,
+            AcceptsReturn = true,
+            AcceptsTab = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            BorderThickness = new Thickness(0)
+        };
+        _outputBox.SetResourceReference(Control.FontFamilyProperty, "MonoFont");
+        _outputBox.SetResourceReference(Control.FontSizeProperty, "FontSizeNormal");
+        _outputBox.SetResourceReference(Control.BackgroundProperty, "CardSurface");
+        _outputBox.SetResourceReference(Control.ForegroundProperty, "LabelText");
+        outputBorder.Child = _outputBox;
 
         var buttons = new StackPanel {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 12, 0, 0)
         };
-        DockPanel.SetDock(buttons, Dock.Bottom);
+        Grid.SetRow(buttons, 2);
         root.Children.Add(buttons);
 
         if (showDelegateButton) {
@@ -52,21 +105,25 @@ internal sealed class SquadCommandOutputWindow : Window {
         closeButton.Click += (_, _) => Close();
         buttons.Children.Add(closeButton);
 
-        var outputBox = new TextBox {
-            Text = string.IsNullOrWhiteSpace(output) ? "(no output)" : output.TrimEnd(),
-            IsReadOnly = true,
-            AcceptsReturn = true,
-            AcceptsTab = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = 12
-        };
-        outputBox.SetResourceReference(Control.BackgroundProperty, "PanelSurface");
-        outputBox.SetResourceReference(Control.ForegroundProperty, "LabelText");
-        root.Children.Add(outputBox);
+        SetOutput(output);
+        SetBusy(isBusy);
     }
 
     public bool DelegateRequested { get; private set; }
+
+    public void SetTitle(string title) {
+        Title = title;
+        if (TitleLabel is not null) TitleLabel.Text = title;
+    }
+
+    public void SetOutput(string output) {
+        _outputBox.Text = string.IsNullOrWhiteSpace(output) ? "(no output)" : output.TrimEnd();
+        _outputBox.ScrollToHome();
+    }
+
+    public void SetBusy(bool isBusy, string message = "Running...") {
+        _busyIndicator.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        _busyText.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        _busyText.Text = message;
+    }
 }

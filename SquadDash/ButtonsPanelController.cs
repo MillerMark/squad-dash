@@ -9,6 +9,8 @@ using System.Windows.Media;
 namespace SquadDash;
 
 internal sealed partial class ButtonsPanelController {
+    private const double EmptyMinimumDockWidth = 185;
+    private const double CaptionPaddingWidth = 30;
     private readonly StackPanel _listPanel;
     private readonly Action _newButton;
     private readonly Action<ButtonDefinition> _editButton;
@@ -17,6 +19,7 @@ internal sealed partial class ButtonsPanelController {
 
     internal ButtonsPanelViewModel ViewModel { get; } = new();
     internal Action ClearFilterAction { get; set; }
+    internal Action<double>? DockWidthHintChanged { get; set; }
 
     internal ButtonsPanelController(StackPanel listPanel, FrameworkElement panel, TextBox filterBox,
         Action newButton, Action<ButtonDefinition> editButton,
@@ -79,6 +82,7 @@ internal sealed partial class ButtonsPanelController {
             var text = new TextBlock { Text = error, TextWrapping = TextWrapping.Wrap };
             text.SetResourceReference(TextBlock.ForegroundProperty, "SystemErrorText");
             _listPanel.Children.Add(text);
+            PublishDockWidthHint();
             return;
         }
         foreach (var definition in ViewModel.Buttons.OrderBy(item => item.SortOrder)) {
@@ -86,10 +90,9 @@ internal sealed partial class ButtonsPanelController {
                 continue;
             _listPanel.Children.Add(BuildButton(definition));
         }
-        if (_listPanel.Children.Count != 0) return;
-        if (ViewModel.FilterText.Length > 0) {
+        if (_listPanel.Children.Count == 0 && ViewModel.FilterText.Length > 0) {
             _listPanel.Children.Add(FilterEmptyStateHelper.Build(ClearFilterAction));
-        } else {
+        } else if (_listPanel.Children.Count == 0) {
             var empty = new TextBlock {
                 Text = "Right-click to create a new button.",
                 Margin = new Thickness(4, 8, 4, 4),
@@ -98,6 +101,7 @@ internal sealed partial class ButtonsPanelController {
             empty.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             _listPanel.Children.Add(empty);
         }
+        PublishDockWidthHint();
     }
 
     internal Button BuildButton(ButtonDefinition definition) {
@@ -105,7 +109,7 @@ internal sealed partial class ButtonsPanelController {
             Content = ButtonCaptionPresentation.Render(definition.Content.Caption),
             Tag = definition,
             Margin = new Thickness(0, 4, 0, 0),
-            Padding = new Thickness(8),
+            Padding = new Thickness(2, 8, 2, 8),
             ClickMode = ClickMode.Release,
             ToolTip = ToolTipHelper.MakeThemedToolTip(definition.Content.Tooltip),
             ContextMenu = BuildContextMenu(definition)
@@ -149,5 +153,25 @@ internal sealed partial class ButtonsPanelController {
             item.Click += (_, e) => { e.Handled = true; action(); };
             menu.Items.Add(item);
         }
+    }
+
+    internal double? GetDockWidthHint() {
+        var visibleButtons = _listPanel.Children.OfType<Button>().ToArray();
+        if (visibleButtons.Length == 0)
+            return EmptyMinimumDockWidth;
+        var maxCaptionWidth = visibleButtons.Max(MeasureCaptionWidth);
+        return Math.Ceiling(maxCaptionWidth + CaptionPaddingWidth);
+    }
+
+    private static double MeasureCaptionWidth(Button button) {
+        if (button.Content is not TextBlock caption)
+            return 0;
+        caption.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return caption.DesiredSize.Width;
+    }
+
+    private void PublishDockWidthHint() {
+        if (DockWidthHintChanged is not null && GetDockWidthHint() is { } width)
+            DockWidthHintChanged(width);
     }
 }

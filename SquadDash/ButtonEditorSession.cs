@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace SquadDash;
@@ -20,6 +21,36 @@ internal sealed class ButtonEditorSession {
     }
 
     internal void Invalidate() => _closed = true;
+
+    internal static IReadOnlyDictionary<string, string> ValidateFields(ButtonContent content) {
+        var errors = new Dictionary<string, string>();
+        if (string.IsNullOrWhiteSpace(content.Caption))
+            errors.Add(nameof(ButtonContent.Caption), "Enter a caption.");
+        if (string.IsNullOrWhiteSpace(content.CommandText))
+            errors.Add(nameof(ButtonContent.CommandText),
+                content.CommandType == ButtonCommandType.Url ? "Enter a URL." : "Enter a command.");
+        else if (content.CommandType == ButtonCommandType.Url) {
+            try {
+                var template = ButtonPlaceholders.Resolve(content.CommandText, "workspace", "workspace", "branch");
+                ButtonCommandExecutionService.ValidateBrowserUrl(template);
+            }
+            catch (ArgumentException ex) {
+                SquadDashTrace.Write("Buttons", $"URL validation failed: {ex.Message}");
+                errors.Add(nameof(ButtonContent.CommandText), ex.Message);
+            }
+        }
+        return errors;
+    }
+
+    internal ButtonDefinition Save(ButtonContent content) {
+        if (_closed || !_isCurrentWorkspace())
+            throw new ButtonConflictException("The workspace changed. Reopen the button editor in its workspace.");
+        SavedDefinition = SavedDefinition is { } existing
+            ? _store.Update(existing.Id, existing.ContentRevision, content)
+            : _store.Create(content);
+        InitialSortOrder = SavedDefinition.SortOrder;
+        return SavedDefinition;
+    }
 
     internal ButtonDefinition Save(ButtonContent content, int sortOrder) {
         if (_closed || !_isCurrentWorkspace())

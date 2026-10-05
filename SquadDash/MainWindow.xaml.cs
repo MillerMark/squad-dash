@@ -1099,6 +1099,7 @@ public partial class MainWindow : Window
             TopZonePanelsGrid.ColumnDefinitions[1],
             TopZoneSplitter78);
         InitializeButtonsPanel();
+        WireButtonsDockSizing();
         SquadDashTrace.Write(TraceCategory.Startup, $"Constructor: InitializeComponent {ctorSw.ElapsedMilliseconds}ms.");
         SquadDashTrace.Write(
             TraceCategory.Startup,
@@ -25820,6 +25821,7 @@ public partial class MainWindow : Window
         sw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance,
             $"ApplyFontSizeScale level={_fontScaleLevel} keys={newDict.Count} swap={swapSw.ElapsedMilliseconds}ms total={sw.ElapsedMilliseconds}ms");
+        ApplyButtonsDockSizing();
     }
 
     private void SetFontSizeScale(int levelIndex)
@@ -53662,6 +53664,27 @@ public partial class MainWindow : Window
     private static Brush ThemeBrush(string key) =>
         (Brush?)Application.Current.Resources[key] ?? Brushes.Gray;
 
+    private void WireButtonsDockSizing()
+    {
+        if (_buttonsPanel is null || ButtonsPanelBorder is null) return;
+        ButtonsPanelBorder.MaximumUsefulSizeProvider = orientation => orientation switch
+        {
+            DockResizeOrientation.Horizontal => _buttonsPanel.GetDockWidthHint(),
+            _ => null
+        };
+        _buttonsPanel.DockWidthHintChanged = width => ApplyButtonsDockSizing(width);
+        ApplyButtonsDockSizing();
+    }
+
+    private void ApplyButtonsDockSizing(double? widthOverride = null)
+    {
+        if (ButtonsPanelBorder is null || _buttonsPanel is null) return;
+        var width = Math.Ceiling(widthOverride ?? _buttonsPanel.GetDockWidthHint() ?? 185);
+        ButtonsPanelBorder.MinWidth = width;
+        ButtonsPanelBorder.DockMinimumWidth = width;
+        ButtonsPanelBorder.DockMaximumUsefulWidth = width;
+    }
+
     private void ApplyTheme(string themeName)
     {
         var themeUri = string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
@@ -53763,6 +53786,7 @@ public partial class MainWindow : Window
         RefreshSessionGapStripes();
 
         UpdateThemeMenuState();
+        ApplyButtonsDockSizing();
 
     }
 

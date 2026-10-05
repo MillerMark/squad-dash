@@ -35,4 +35,14 @@ internal sealed class ButtonPlaceholdersTests {
         Assert.That(() => ButtonPlaceholders.Resolve("echo no tokens", @"C:\repo", "repo", branch!),
             Throws.InstanceOf<ArgumentException>());
     }
+
+    [TestCase("{", "{")]
+    [TestCase("}", "}")]
+    [TestCase("{{", "{{")]
+    [TestCase("}}", "}}")]
+    [TestCase("Write-Output '{' '}'", "Write-Output '{' '}'")]
+    [TestCase("{ if ($true) { echo '{branch}' }}", "{ if ($true) { echo 'main' }}")]
+    public void Resolve_LiteralBracesNeedNoEscapeAndDoNotChangeScriptSyntax(string text, string expected) {
+        Assert.That(ButtonPlaceholders.Resolve(text, @"C:\repo", "repo", "main"), Is.EqualTo(expected));
+    }
 }

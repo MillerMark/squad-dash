@@ -2,6 +2,8 @@ using System.Reflection;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Markup;
+using System.Windows.Media;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -38,6 +40,165 @@ internal sealed class ButtonsPanelControllerTests {
             Assert.That(click.Handled, Is.True);
             Assert.That(_executed, Is.EqualTo(new[] { _definition }));
         });
+    }
+
+    [Test]
+    public void ReorderDragVisuals_ApplyAndResetBorderAndImportantBorderOnly() {
+        _button.BorderThickness = new Thickness(1, 2, 3, 4);
+        _button.Padding = new Thickness(8);
+        _button.Resources["InputBorder"] = Brushes.DimGray;
+        _button.Resources["ImportantText"] = Brushes.OrangeRed;
+        _button.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
+        if (_button.Content is not TextBlock)
+            Assert.Fail("Button content should be a TextBlock.");
+        var caption = (TextBlock)_button.Content;
+        _button.Resources["LabelText"] = Brushes.DimGray;
+        caption.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+
+        InvokePrivate("ApplyDraggedButtonVisuals", _button);
+        Assert.Multiple(() => {
+            Assert.That(_button.BorderBrush, Is.EqualTo(Brushes.OrangeRed));
+            Assert.That(_button.BorderThickness, Is.EqualTo(new Thickness(2, 4, 6, 8)));
+            Assert.That(_button.Padding, Is.EqualTo(new Thickness(7, 6, 5, 4)));
+            Assert.That(caption.Foreground, Is.EqualTo(Brushes.DimGray));
+        });
+        SetControllerState("_pressedButton", _button);
+        InvokePrivate("ResetReorderVisuals");
+
+        Assert.Multiple(() => {
+            Assert.That(_button.BorderBrush, Is.EqualTo(Brushes.DimGray));
+            Assert.That(_button.BorderThickness, Is.EqualTo(new Thickness(1, 2, 3, 4)));
+            Assert.That(_button.Padding, Is.EqualTo(new Thickness(8)));
+            Assert.That(caption.Foreground, Is.EqualTo(Brushes.DimGray));
+        });
+    }
+
+    [Test]
+    public void ReorderDragVisuals_ResetRestoresStyleBackedBorderValues() {
+        _button.ClearValue(Control.BorderBrushProperty);
+        _button.ClearValue(Control.BorderThicknessProperty);
+        _button.ClearValue(Control.PaddingProperty);
+        _button.Resources["ImportantText"] = Brushes.OrangeRed;
+
+        InvokePrivate("ApplyDraggedButtonVisuals", _button);
+        SetControllerState("_pressedButton", _button);
+        InvokePrivate("ResetReorderVisuals");
+
+        Assert.Multiple(() => {
+            Assert.That(_button.ReadLocalValue(Control.BorderBrushProperty), Is.EqualTo(DependencyProperty.UnsetValue));
+            Assert.That(_button.ReadLocalValue(Control.BorderThicknessProperty), Is.EqualTo(DependencyProperty.UnsetValue));
+            Assert.That(_button.ReadLocalValue(Control.PaddingProperty), Is.EqualTo(DependencyProperty.UnsetValue));
+        });
+    }
+
+    [Test]
+    public void ReorderDragVisuals_ResetRestoresDynamicBorderBrushExpression() {
+        _button.Resources["InputBorder"] = Brushes.DimGray;
+        _button.Resources["ImportantText"] = Brushes.OrangeRed;
+        _button.SetResourceReference(Control.BorderBrushProperty, "InputBorder");
+
+        InvokePrivate("ApplyDraggedButtonVisuals", _button);
+        SetControllerState("_pressedButton", _button);
+        InvokePrivate("ResetReorderVisuals");
+        Assert.That(_button.BorderBrush, Is.EqualTo(Brushes.DimGray));
+
+        _button.Resources["InputBorder"] = Brushes.DodgerBlue;
+        Assert.That(_button.BorderBrush, Is.EqualTo(Brushes.DodgerBlue),
+            "Reset must restore the dynamic resource expression, not a resolved brush snapshot.");
+    }
+
+    [Test]
+    public void GetDockWidthHint_UsesLongestVisibleCaptionAndOnlyEmptyFloor() {
+        var shortCaption = new ButtonDefinition(Guid.NewGuid(),
+            new ButtonContent("A", "tip", "echo never-run", ButtonCommandType.RawCommand), 0, 1);
+        var plain = new ButtonDefinition(Guid.NewGuid(),
+            new ButtonContent("WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW", "tip", "echo never-run", ButtonCommandType.RawCommand), 1, 1);
+        var bold = new ButtonDefinition(Guid.NewGuid(),
+            new ButtonContent("**WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW**", "tip", "echo never-run", ButtonCommandType.RawCommand), 2, 1);
+        var fontSensitive = new ButtonDefinition(Guid.NewGuid(),
+            new ButtonContent("iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii", "tip", "echo never-run", ButtonCommandType.RawCommand), 3, 1);
+        _controller.Refresh(new[] { shortCaption });
+        var shortWidth = _controller.GetDockWidthHint() ?? 0;
+
+        _controller.Refresh(new[] { plain });
+        var plainWidth = _controller.GetDockWidthHint() ?? 0;
+
+        _controller.Refresh(new[] { bold });
+        var boldWidth = _controller.GetDockWidthHint() ?? 0;
+
+        _controller.Refresh(new[] { fontSensitive });
+        var renderedFontWidth = _controller.GetDockWidthHint() ?? 0;
+        var renderedButton = _list.Children.OfType<Button>().Single();
+        renderedButton.FontFamily = new FontFamily("Courier New");
+        renderedButton.FontSize += 6;
+        var overriddenFontWidth = _controller.GetDockWidthHint() ?? 0;
+
+        _controller.Refresh(new[] { bold });
+        _controller.SetFilter("not-present");
+        var emptyFilteredWidth = _controller.GetDockWidthHint() ?? 0;
+
+        Assert.Multiple(() => {
+            Assert.That(shortWidth, Is.LessThan(185), "Non-empty lists must not be floored to the empty-state minimum.");
+            Assert.That(emptyFilteredWidth, Is.EqualTo(185));
+            Assert.That(boldWidth, Is.GreaterThan(plainWidth));
+            Assert.That(overriddenFontWidth, Is.Not.EqualTo(renderedFontWidth), "Width hint must follow the current rendered font.");
+        });
+    }
+
+    [Test]
+    public void GetDockWidthHint_AtHintWidth_DoesNotWrapOrClipCaptionWithVisibleScrollbar() {
+        var definitions = Enumerable.Range(0, 24).Select(index => new ButtonDefinition(
+            Guid.NewGuid(),
+            new ButtonContent(index == 0
+                    ? "**WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW**"
+                    : $"Button {index:D2}",
+                "tip", "echo never-run", ButtonCommandType.RawCommand),
+            index, 1)).ToArray();
+
+        var list = new StackPanel();
+        var panel = new Border {
+            Width = 500,
+            Height = 210,
+            Padding = new Thickness(2, 8, 2, 12),
+            BorderThickness = new Thickness(1)
+        };
+        var root = new Grid { Width = 500, Height = 210 };
+        var scrollViewer = new ScrollViewer {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Visible,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Height = 190,
+            Content = list
+        };
+        panel.Child = scrollViewer;
+        root.Children.Add(panel);
+        root.Resources["ThemedButtonStyle"] = CreateThemedButtonStyle();
+        root.Resources["FontSizeNormal"] = 13d;
+
+        var controller = new ButtonsPanelController(list, panel, new TextBox(), () => { }, _ => { }, _ => { }, _ => { });
+        controller.Refresh(definitions);
+
+        var widest = list.Children.OfType<Button>().Single(button => ReferenceEquals(button.Tag, definitions[0]));
+        widest.FontFamily = new FontFamily("Courier New");
+        widest.FontSize = 19;
+
+        var hint = controller.GetDockWidthHint() ?? 0;
+        panel.Width = hint;
+        root.Width = hint;
+        root.Measure(new Size(hint, root.Height));
+        root.Arrange(new Rect(0, 0, hint, root.Height));
+        root.UpdateLayout();
+
+        var visibleButtons = list.Children.OfType<Button>().ToArray();
+        var maxCaptionWidth = visibleButtons.Max(button => MeasureNaturalCaptionWidth((TextBlock)button.Content));
+        Assert.That(hint, Is.EqualTo(Math.Ceiling(maxCaptionWidth + 30)),
+            "Preferred width must remain exact caption width + 30.");
+
+        foreach (var button in visibleButtons) {
+            var caption = (TextBlock)button.Content;
+            var naturalWidth = MeasureNaturalCaptionWidth(caption);
+            Assert.That(caption.ActualWidth, Is.GreaterThanOrEqualTo(naturalWidth - 1),
+                "At the returned minimum width, captions must not wrap or clip.");
+        }
     }
 
     [TestCase("dragging")]
@@ -243,5 +404,47 @@ internal sealed class ButtonsPanelControllerTests {
         var field = typeof(ButtonsPanelController).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)
             ?? throw new MissingFieldException(typeof(ButtonsPanelController).FullName, fieldName);
         field.SetValue(_controller, value);
+    }
+
+    private void InvokePrivate(string methodName, params object[] args) {
+        var method = typeof(ButtonsPanelController).GetMethod(methodName,
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new MissingMethodException(typeof(ButtonsPanelController).FullName, methodName);
+        method.Invoke(_controller, args);
+    }
+
+    private static double MeasureNaturalCaptionWidth(TextBlock caption) {
+        caption.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        return caption.DesiredSize.Width;
+    }
+
+    private static Style CreateThemedButtonStyle() {
+        const string xaml = """
+                            <Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                                   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                                   TargetType="Button">
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="Foreground" Value="Black" />
+                                <Setter Property="BorderBrush" Value="Black" />
+                                <Setter Property="BorderThickness" Value="1" />
+                                <Setter Property="Padding" Value="8,4" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}"
+                                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                                    CornerRadius="3"
+                                                    Padding="{TemplateBinding Padding}">
+                                                <ContentPresenter HorizontalAlignment="Center"
+                                                                  VerticalAlignment="Center"
+                                                                  TextElement.Foreground="{TemplateBinding Foreground}" />
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                            """;
+        return (Style)XamlReader.Parse(xaml);
     }
 }

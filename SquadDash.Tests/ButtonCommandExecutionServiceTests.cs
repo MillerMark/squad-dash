@@ -135,6 +135,49 @@ internal sealed class ButtonCommandExecutionServiceTests {
         AssertRedirectedUtf8(info, invocation.WorkingDirectory);
     }
 
+    [Test]
+    public void BuildUrlInvocation_UsesShellExecuteAndDefaultBrowserLaunchPath() {
+        var invocation = Prepare(Button("https://example.com/path?q=1", ButtonCommandType.Url));
+
+        var info = ButtonCommandExecutionService.BuildStartInfo(invocation, scriptPath: string.Empty);
+
+        Assert.Multiple(() => {
+            Assert.That(info.FileName, Is.EqualTo("https://example.com/path?q=1"));
+            Assert.That(info.UseShellExecute, Is.True);
+            Assert.That(info.WorkingDirectory, Is.EqualTo(invocation.WorkingDirectory));
+            Assert.That(info.RedirectStandardOutput, Is.False);
+            Assert.That(info.RedirectStandardError, Is.False);
+            Assert.That(info.RedirectStandardInput, Is.False);
+        });
+    }
+
+    [TestCase("relative/path")]
+    [TestCase("ftp://example.com/download")]
+    [TestCase("file:///C:/Windows")]
+    [TestCase("https://")]
+    public void BuildUrlInvocation_InvalidUrl_ThrowsBeforeLaunch(string url) {
+        var invocation = Prepare(Button(url, ButtonCommandType.Url));
+        Assert.That(() => ButtonCommandExecutionService.BuildStartInfo(invocation, scriptPath: string.Empty),
+            Throws.TypeOf<ArgumentException>());
+    }
+
+    [Test]
+    public async Task ExecuteAsync_UrlValidationFailure_ReturnsErrorWithoutScriptsOrCapturedStreams() {
+        _workspace.CreateFile(@".git\HEAD", "ref: refs/heads/main\n");
+
+        var result = await new ButtonCommandExecutionService().ExecuteAsync(
+            Button("ftp://example.com/download", ButtonCommandType.Url), _snapshot);
+
+        Assert.Multiple(() => {
+            Assert.That(result.ExitCode, Is.Null);
+            Assert.That(result.Error, Does.Contain("http or https"));
+            Assert.That(result.StandardOutput, Is.Empty);
+            Assert.That(result.StandardError, Is.Empty);
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(Directory.Exists(Path.Combine(_stateDirectory, "button-runs")), Is.False);
+        });
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task ExecuteAsync_MissingOrDetachedHead_ReturnsOriginatingWorkspaceErrorWithoutLaunching(bool detached) {

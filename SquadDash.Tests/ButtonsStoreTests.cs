@@ -31,6 +31,7 @@ internal sealed class ButtonsStoreTests {
 
     [TestCase(ButtonCommandType.PowerShell, null)]
     [TestCase(ButtonCommandType.RawCommand, @"tools\release")]
+    [TestCase(ButtonCommandType.Url, null)]
     public void Create_Reload_RoundTripsEveryField(ButtonCommandType type, string? directory) {
         var content = new ButtonContent("**Deploy** app", "Hover \"tip\"\nsecond line",
             "$message = 'caf\u00e9 \"quoted\"'\r\nWrite-Output $message\n{ branch braces }", type, directory);
@@ -186,6 +187,42 @@ internal sealed class ButtonsStoreTests {
         Assert.That(() => _store.Load(), Throws.TypeOf<InvalidDataException>());
         Assert.That(() => _store.Create(Content("New")), Throws.TypeOf<InvalidDataException>());
         Assert.That(File.ReadAllBytes(_store.FilePath), Is.EqualTo(before));
+    }
+
+    [TestCase("PowerShell", ButtonCommandType.PowerShell)]
+    [TestCase("RawCommand", ButtonCommandType.RawCommand)]
+    [TestCase("raw-cmd", ButtonCommandType.RawCommand)]
+    [TestCase("URL", ButtonCommandType.Url)]
+    [TestCase(0, ButtonCommandType.PowerShell)]
+    [TestCase(1, ButtonCommandType.RawCommand)]
+    [TestCase(2, ButtonCommandType.Url)]
+    public void Load_AcceptsLegacyStringAndNumericCommandTypes(object persistedType, ButtonCommandType expectedType) {
+        var id = Guid.NewGuid();
+        Directory.CreateDirectory(Path.GetDirectoryName(_store.FilePath)!);
+        var payload = $$"""
+                        {
+                          "SchemaVersion": 1,
+                          "Items": [
+                            {
+                              "Id": "{{id}}",
+                              "SortOrder": 0,
+                              "ContentRevision": 1,
+                              "Content": {
+                                "Caption": "Test",
+                                "Tooltip": "tip",
+                                "CommandText": "echo hello",
+                                "CommandType": {{JsonSerializer.Serialize(persistedType)}},
+                                "WorkingDirectory": null
+                              }
+                            }
+                          ]
+                        }
+                        """;
+        File.WriteAllText(_store.FilePath, payload);
+
+        var loaded = _store.Load().Single();
+
+        Assert.That(loaded.Content.CommandType, Is.EqualTo(expectedType));
     }
 
     [TestCase("create")]
