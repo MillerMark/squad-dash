@@ -230,6 +230,7 @@
     <Compile Include="..\SquadDash\ModelProfileCategory.cs" Link="Source\ModelProfileCategory.cs" />
     <Compile Include="..\SquadDash\ModelProfileStore.cs" Link="Source\ModelProfileStore.cs" />
     <Compile Include="..\SquadDash\ModelProfileResolver.cs" Link="Source\ModelProfileResolver.cs" />
+    <Compile Include="..\SquadDash\AgentModelPresentation.cs" Link="Source\AgentModelPresentation.cs" />
     <Compile Include="..\SquadDash\AiProviderType.cs" Link="Source\AiProviderType.cs" />
     <Compile Include="..\SquadDash\CliModelMetadata.cs" Link="Source\CliModelMetadata.cs" />
     <Compile Include="..\SquadDash\ICliModelCatalogService.cs" Link="Source\ICliModelCatalogService.cs" />

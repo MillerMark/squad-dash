@@ -263,6 +263,47 @@ internal sealed class ModelProfileStoreTests {
         Assert.That(cleared.ContainsKey("agent-alpha"), Is.False);
     }
 
+    [TestCase("lyra-morn", "LYRA-MORN")]
+    [TestCase(" LyRa-MoRn ", "lyra-morn")]
+    public void SavedAgentOverride_ReachesNamedAgentRoute_AfterReload(string savedHandle, string launchHandle) {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var profileStore = new ModelProfileStore(new ApplicationSettingsStore(settingsPath));
+        var defaultProfile = new ModelProfile("default", "Copilot", "copilot", null, "default-model", null, IsDefault: true);
+        var categoryProfile = defaultProfile with { Id = "category", Alias = "Named agents", IsDefault = false };
+        var overrideProfile = new ModelProfile(
+            "astra", "GPT 6 Astra", "openai", "https://example.test/v1", "gpt-6-astra", null);
+        profileStore.SaveProfiles([defaultProfile, categoryProfile, overrideProfile]);
+        profileStore.SaveCategoryAssignments(new Dictionary<string, string> {
+            [ModelProfileCategory.SpawnedNamedAgents] = categoryProfile.Id
+        });
+        profileStore.SaveAgentOverride(savedHandle, overrideProfile.Id);
+
+        var reloaded = new ModelProfileStore(new ApplicationSettingsStore(settingsPath));
+        var resolution = ModelProfileResolver.ResolveWithReason(
+            reloaded.GetProfiles(), reloaded.GetCategoryAssignments(), launchHandle,
+            ModelProfileCategory.SpawnedNamedAgents, reloaded.GetAgentOverrides());
+        var route = SquadSdkProcess.BuildNamedAgentRoute(
+            launchHandle, "Lyra Morn", null, null, resolution.Profile);
+
+        Assert.Multiple(() => {
+            Assert.That(reloaded.GetAgentOverrides()[launchHandle], Is.EqualTo(overrideProfile.Id));
+            Assert.That(resolution.Reason, Is.EqualTo(ModelProfileResolutionReason.Override));
+            Assert.That(route.Handle, Is.EqualTo("lyra-morn"));
+            Assert.That(route.ProfileId, Is.EqualTo(overrideProfile.Id));
+            Assert.That(route.ProfileAlias, Is.EqualTo(overrideProfile.Alias));
+            Assert.That(route.Model, Is.EqualTo(overrideProfile.Model));
+            Assert.That(route.Provider?.Type, Is.EqualTo("openai"));
+        });
+
+        reloaded.ClearAgentOverride(launchHandle);
+        var cleared = new ModelProfileStore(new ApplicationSettingsStore(settingsPath));
+        Assert.That(ModelProfileResolver.Resolve(
+            cleared.GetProfiles(), cleared.GetCategoryAssignments(), launchHandle,
+            ModelProfileCategory.SpawnedNamedAgents, cleared.GetAgentOverrides())?.Id,
+            Is.EqualTo(categoryProfile.Id));
+    }
+
     [Test]
     public void LegacyMigration_AnthropicProvider_ProducesAnthropicProfile() {
         using var workspace = new TestWorkspace();

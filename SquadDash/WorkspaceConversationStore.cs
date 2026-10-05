@@ -743,7 +743,9 @@ internal sealed class WorkspaceConversationStore {
             thread.WasObservedAsBackgroundTask == true ? true : null,
             thread.RosterIdentityVerified,
             NormalizeSingleLine(thread.AssignedPlanTaskId),
-            NormalizeSingleLine(thread.CompletionFooterProfileAlias));
+            NormalizeSingleLine(thread.CompletionFooterProfileAlias),
+            NormalizeSingleLine(thread.RuntimeProfileAlias),
+            NormalizeSingleLine(thread.RuntimeModel));
     }
 
     private static int? NormalizeSequence(int? sequence) {
@@ -1421,4 +1423,6 @@ internal sealed record TranscriptThreadRecord(
     bool? WasObservedAsBackgroundTask = null,
     bool? RosterIdentityVerified = null,
     string? AssignedPlanTaskId = null,
-    string? CompletionFooterProfileAlias = null);
+    string? CompletionFooterProfileAlias = null,
+    string? RuntimeProfileAlias = null,
+    string? RuntimeModel = null);

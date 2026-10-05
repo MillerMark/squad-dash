@@ -64,6 +64,8 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     /// Set by HandleSubagentMessage; cleared on reactivation.
     /// </summary>
     public string? CompletionFooterProfileAlias { get; set; }
+    public string? RuntimeProfileAlias { get; set; }
+    public string? RuntimeModel { get; set; }
     public string? AgentId { get; set; }
     public string? BackgroundTaskId { get; set; }
     public string? ToolCallId { get; set; }

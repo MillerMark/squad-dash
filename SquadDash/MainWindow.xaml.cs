@@ -6661,10 +6661,10 @@ public partial class MainWindow : Window
 
         // Set or clear the completion-footer alias annotation (visual-only; does NOT write to
         // ResponseTextBuilder and is NOT part of the transcript search index).
-        // Prefer the SDK event value; fall back to the named-agent route we sent at launch time.
+        // Routes can change while a run is active; use only metadata from that run.
         var subagentMsgAlias = evt.ProfileAlias;
         if (string.IsNullOrEmpty(subagentMsgAlias))
-            subagentMsgAlias = ResolveRouteProfileAlias(thread);
+            subagentMsgAlias = thread.RuntimeProfileAlias;
         thread.CompletionFooterProfileAlias = string.IsNullOrEmpty(subagentMsgAlias) ? null : subagentMsgAlias;
 
         thread.ResponseStreamed = false;
@@ -6814,7 +6814,7 @@ public partial class MainWindow : Window
         // preserve whatever HandleSubagentMessage may have set.
         var subagentCompletedAlias = evt.ProfileAlias;
         if (string.IsNullOrEmpty(subagentCompletedAlias))
-            subagentCompletedAlias = ResolveRouteProfileAlias(thread);
+            subagentCompletedAlias = thread.RuntimeProfileAlias;
         if (!string.IsNullOrEmpty(subagentCompletedAlias))
             thread.CompletionFooterProfileAlias = subagentCompletedAlias;
         // If subagentCompletedAlias is still empty here, trust whatever HandleSubagentMessage already set.
@@ -41221,9 +41221,8 @@ public partial class MainWindow : Window
         if (availableWidth <= 0)
         {
             TranscriptTitleTextBlock.Text = baseText;
-            var gpa0 = BuildGpaTooltip(displayTitle);
-            TranscriptTitleTextBlock.ToolTip = gpa0 is not null ? (object)gpa0
-                : (!string.IsNullOrWhiteSpace(intent) ? MakeThemedToolTip(BuildCoordinatorTooltipText(baseText, relativeTime)) : null);
+            TranscriptTitleTextBlock.ToolTip = BuildSecondaryTranscriptInfoTooltip(
+                FindAgentCardForThread(thread), thread, baseText, relativeTime);
             return;
         }
 
@@ -41283,19 +41282,8 @@ public partial class MainWindow : Window
             TranscriptTitleTextBlock.TextTrimming = TextTrimming.CharacterEllipsis;
         }
 
-        var gpaTooltip = BuildGpaTooltip(displayTitle);
-        if (gpaTooltip is not null)
-        {
-            TranscriptTitleTextBlock.ToolTip = gpaTooltip;
-        }
-        else if (!string.IsNullOrWhiteSpace(intent) || !string.IsNullOrWhiteSpace(relativeTime))
-        {
-            TranscriptTitleTextBlock.ToolTip = MakeThemedToolTip(BuildCoordinatorTooltipText(baseText, relativeTime));
-        }
-        else
-        {
-            TranscriptTitleTextBlock.ToolTip = null;
-        }
+        TranscriptTitleTextBlock.ToolTip = BuildSecondaryTranscriptInfoTooltip(
+            FindAgentCardForThread(thread), thread, baseText, relativeTime);
     }
 
     private void UpdateTransientTranscriptFooters(TranscriptThreadState selectedThread)
@@ -42354,14 +42342,14 @@ public partial class MainWindow : Window
             : null;
 
     private ToolTip BuildSecondaryTranscriptInfoTooltip(
-        AgentStatusCard agent,
+        AgentStatusCard? agent,
         TranscriptThreadState thread,
         string baseText,
         string? relativeTime) =>
         MakeThemedToolTip(BuildSecondaryTranscriptInfoTooltipText(agent, thread, baseText, relativeTime));
 
     private string BuildSecondaryTranscriptInfoTooltipText(
-        AgentStatusCard agent,
+        AgentStatusCard? agent,
         TranscriptThreadState thread,
         string baseText,
         string? relativeTime)
@@ -42374,13 +42362,9 @@ public partial class MainWindow : Window
         var handle = GetThreadModelOverrideHandle(thread, agent);
         var category = GetThreadModelProfileCategory(thread, handle);
         var resolution = ResolveThreadModelProfile(thread, handle, category);
-        var alias = resolution.Profile?.Alias;
-        if (!string.IsNullOrEmpty(alias))
-        {
-            lines.Add(string.Empty);
-            var hasOverride = !string.IsNullOrWhiteSpace(resolution.ExplicitOverrideProfileId);
-            lines.Add(hasOverride ? $"Using: {alias} (override)" : $"Using: {alias}");
-        }
+        lines.Add(string.Empty);
+        lines.AddRange(AgentModelPresentation.BuildDetails(
+            thread.RuntimeProfileAlias, thread.RuntimeModel, resolution));
 
         return string.Join(Environment.NewLine, lines);
     }
@@ -42394,7 +42378,7 @@ public partial class MainWindow : Window
             sb.AppendLine();
             sb.Append(relativeTime);
         }
-        var coordinatorAlias = _modelProfileStore.GetDefaultProfile()?.Alias;
+        var coordinatorAlias = _bridge.ActiveProfile?.Alias;
         if (!string.IsNullOrEmpty(coordinatorAlias))
         {
             sb.AppendLine();
@@ -42434,7 +42418,10 @@ public partial class MainWindow : Window
         {
             RefreshBridgeNamedAgentRoutes();
             if (thread is not null)
+            {
                 RefreshSecondaryTranscriptTitle(thread);
+            }
+            UpdateTranscriptThreadBadge();
         }
     }
 
@@ -42447,27 +42434,11 @@ public partial class MainWindow : Window
         return result.Profile?.Alias;
     }
 
-    /// <summary>
-    /// Looks up the profile alias for <paramref name="thread"/> in the current
-    /// <c>_bridge.NamedAgentRoutes</c> list.  Returns <c>null</c> when no matching
-    /// route is found or when the matching route has no <c>ProfileAlias</c>.
-    /// </summary>
-    private string? ResolveRouteProfileAlias(TranscriptThreadState thread)
-    {
-        var handle = (thread.AgentId ?? thread.RequestedAgentHandle ?? thread.AgentName)
-                     ?.Trim().TrimStart('@').ToLowerInvariant();
-        if (string.IsNullOrEmpty(handle))
-            return null;
-        return _bridge.NamedAgentRoutes
-            .FirstOrDefault(r => string.Equals(r.Handle, handle, StringComparison.OrdinalIgnoreCase))
-            ?.ProfileAlias;
-    }
-
-    private static string? GetThreadModelOverrideHandle(TranscriptThreadState thread, AgentStatusCard agent)
+    private static string? GetThreadModelOverrideHandle(TranscriptThreadState thread, AgentStatusCard? agent)
     {
         return NormalizeQuickReplyAgentHandle(thread.RequestedAgentHandle)
             ?? NormalizeQuickReplyAgentHandle(thread.AgentCardKey)
-            ?? NormalizeQuickReplyAgentHandle(agent.AccentStorageKey)
+            ?? NormalizeQuickReplyAgentHandle(agent?.AccentStorageKey)
             ?? NormalizeQuickReplyAgentHandle(thread.AgentName);
     }
 

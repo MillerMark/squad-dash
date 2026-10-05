@@ -244,6 +244,32 @@ internal sealed class AgentThreadRegistryTests {
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void RuntimeModelMetadata_IsRetainedUntilTheNextLaunch() {
+        var registry = MakeRegistry();
+        var thread = MakeThread("model-thread", "Lyra Morn");
+        registry.UpdateAgentThreadLifecycle(thread, new SquadSdkEvent {
+            Type = "subagent_started", ProfileAlias = "GPT 6 Astra", Model = "gpt-6-astra"
+        }, "Running", "Working");
+        registry.UpdateAgentThreadLifecycle(thread, new SquadSdkEvent {
+            Type = "subagent_completed"
+        }, "Completed", "Done");
+
+        Assert.Multiple(() => {
+            Assert.That(thread.RuntimeProfileAlias, Is.EqualTo("GPT 6 Astra"));
+            Assert.That(thread.RuntimeModel, Is.EqualTo("gpt-6-astra"));
+        });
+
+        registry.UpdateAgentThreadLifecycle(thread, new SquadSdkEvent {
+            Type = "subagent_started"
+        }, "Running", "New launch without metadata");
+
+        Assert.Multiple(() => {
+            Assert.That(thread.RuntimeProfileAlias, Is.Null);
+            Assert.That(thread.RuntimeModel, Is.Null);
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void SyncBackgroundAgentThreads_RefreshesWorkingDirectoryFromSnapshot() {
         var registry = MakeRegistry();
 
@@ -252,12 +278,14 @@ internal sealed class AgentThreadRegistryTests {
                 AgentId = "lyra-morn",
                 ToolCallId = "tool-worktree",
                 Status = "running",
+                Model = "gpt-6-astra",
                 WorkingDirectory = @"D:\Source\refreshed-worktree"
             }
         ]);
 
         var thread = registry.ThreadsByToolCallId["tool-worktree"];
         Assert.That(thread.WorkingDirectory, Is.EqualTo(@"D:\Source\refreshed-worktree"));
+        Assert.That(thread.RuntimeModel, Is.EqualTo("gpt-6-astra"));
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -541,7 +569,9 @@ internal sealed class AgentThreadRegistryTests {
                 string.Empty,
                 startedAt,
                 null,
-                Array.Empty<TranscriptTurnRecord>())
+                Array.Empty<TranscriptTurnRecord>(),
+                RuntimeProfileAlias: "GPT 6 Astra",
+                RuntimeModel: "gpt-6-astra")
         ]);
 
         var thread = registry.ThreadOrder.Single();
@@ -549,6 +579,8 @@ internal sealed class AgentThreadRegistryTests {
             Assert.That(thread.StartedAt, Is.EqualTo(startedAt));
             Assert.That(thread.LastObservedActivityAt, Is.EqualTo(startedAt));
             Assert.That(thread.StatusText, Is.EqualTo(string.Empty));
+            Assert.That(thread.RuntimeProfileAlias, Is.EqualTo("GPT 6 Astra"));
+            Assert.That(thread.RuntimeModel, Is.EqualTo("gpt-6-astra"));
         });
     }
 
