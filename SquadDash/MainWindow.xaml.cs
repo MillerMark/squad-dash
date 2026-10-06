@@ -775,6 +775,9 @@ public partial class MainWindow : Window
         public TranscriptThreadState Thread { get; init; } = null!;
         public RichTextBox TranscriptBox { get; init; } = null!;
         public TextBlock TitleBlock { get; init; } = null!;
+        public ActivitySpinner TitleSpinner { get; init; } = null!;
+        public string? CachedTitleBaseText { get; set; }
+        public string CachedTitleFullText { get; set; } = string.Empty;
         public Button NavUpButton { get; init; } = null!;
         public Button NavDownButton { get; init; } = null!;
         public Button CloseButton { get; init; } = null!;
@@ -41570,6 +41573,7 @@ public partial class MainWindow : Window
             $"CloseSecondaryPanel closing thread={entry.Thread.ThreadId} agent={entry.Agent.Name} seq={entry.Thread.SequenceNumber} title=\"{entry.TitleBlock.Text}\"");
         int prevVisibleTotal = _secondaryTranscripts.Count + (_mainTranscriptVisible ? 1 : 0);
         _secondaryTranscripts.Remove(entry);
+        _pendingSecondaryTitleFits.Remove(entry);
         _ownershipMap.UnregisterSecondaryPanel(entry.PanelBorder);
         entry.Thread.IsSecondaryPanelOpen = false;
         SyncThreadChip(entry.Thread);
@@ -41837,6 +41841,7 @@ public partial class MainWindow : Window
                 SquadDashTrace.Write(TraceCategory.TranscriptPanels,
                     $"RefreshSecondaryTranscriptEntries remapped panel thread={entry.Thread.ThreadId} oldAgent={entry.Agent.Name} newAgent={currentCard.Name}");
                 entry.Agent = currentCard;
+                entry.TitleSpinner.DataContext = currentCard;
                 // Keep the ownership map in sync — the panel border key is stable but the
                 // AgentStatusCard instance just changed (dynamic agents are torn down and
                 // recreated by EnsureDynamicAgentCards).  Without this update,
@@ -41905,6 +41910,9 @@ public partial class MainWindow : Window
         };
         titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        var titleSpinner = new ActivitySpinner { VerticalAlignment = VerticalAlignment.Center };
+        TranscriptTitleSpinnerLayout.SetTitle(titleSpinner, titleBlock);
+        titleSpinner.DataContext = agent;
         titleBlock.ToolTip = BuildSecondaryTranscriptInfoTooltip(agent, thread, initialBaseText, null);
         titleBlock.PreviewMouseRightButtonUp += (_, e) =>
         {
@@ -42095,7 +42103,11 @@ public partial class MainWindow : Window
             Orientation = Orientation.Vertical,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        headerTextStack.Children.Add(titleBlock);
+        var titleRow = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(titleSpinner, Dock.Left);
+        titleRow.Children.Add(titleSpinner);
+        titleRow.Children.Add(titleBlock);
+        headerTextStack.Children.Add(titleRow);
         headerTextStack.Children.Add(worktreeIndicatorPanel);
         headerDock.Children.Add(headerTextStack);
 
@@ -42125,6 +42137,7 @@ public partial class MainWindow : Window
             Thread = thread,
             TranscriptBox = rtb,
             TitleBlock = titleBlock,
+            TitleSpinner = titleSpinner,
             NavUpButton = navUp,
             NavDownButton = navDown,
             CloseButton = closeBtn,
@@ -42168,11 +42181,12 @@ public partial class MainWindow : Window
             catch (Exception ex) { HandleUiCallbackException("SecondaryTranscript.MouseLeave", ex); }
         };
 
-        headerDock.SizeChanged += (_, _) =>
+        headerDock.SizeChanged += (_, e) =>
         {
-            try { ApplySecondaryTranscriptTitleFit(entry); }
+            try { if (e.WidthChanged) QueueSecondaryTranscriptTitleFit(entry); }
             catch (Exception ex) { HandleUiCallbackException("SecondaryPanel.HeaderDock.SizeChanged", ex); }
         };
+        titleSpinner.IsVisibleChanged += (_, _) => QueueSecondaryTranscriptTitleFit(entry);
 
         closeBtn.Click += (_, _) => { try { CloseSecondaryPanel(entry); } catch (Exception ex) { HandleUiCallbackException("SecondaryPanel.Close", ex); } };
 
@@ -42490,7 +42504,22 @@ public partial class MainWindow : Window
             : baseText;
 
         var tooltipText = BuildSecondaryTranscriptInfoTooltipText(entry.Agent, entry.Thread, baseText, relativeTime);
+        entry.CachedTitleBaseText = baseText;
+        entry.CachedTitleFullText = fullText;
+        ApplyCachedSecondaryTranscriptTitleFit(entry);
+        entry.TitleBlock.ToolTip = MakeThemedToolTip(tooltipText);
 
+        SquadDashTrace.Write(TraceCategory.TranscriptPanels,
+            $"ApplySecondaryTranscriptTitleFit thread={entry.Thread.ThreadId} text=\"{entry.TitleBlock.Text}\" fontSize={entry.TitleBlock.FontSize:F1}");
+    }
+
+    private void ApplyCachedSecondaryTranscriptTitleFit(SecondaryTranscriptEntry entry)
+    {
+        if (entry.CachedTitleBaseText is null)
+        {
+            ApplySecondaryTranscriptTitleFit(entry);
+            return;
+        }
         var availableWidth = entry.HeaderDock.ActualWidth
             - entry.RightStack.ActualWidth
             - entry.TitleBlock.Margin.Left
@@ -42498,71 +42527,19 @@ public partial class MainWindow : Window
 
         if (availableWidth <= 0)
         {
-            entry.TitleBlock.Text = baseText;
-            entry.TitleBlock.ToolTip = MakeThemedToolTip(tooltipText);
+            entry.TitleBlock.Text = entry.CachedTitleBaseText;
             return;
         }
 
         var nominalSize = entry.TitleBlock.TryFindResource("FontSizeSubtitle") is double d ? d : 13.0;
-
-        double Measure(string text, double fontSize)
-        {
-            try
-            {
-                var ft = new FormattedText(text,
-                    System.Globalization.CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight,
-                    new Typeface(entry.TitleBlock.FontFamily, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
-                    fontSize,
-                    Brushes.Black,
-                    VisualTreeHelper.GetDpi(entry.TitleBlock).PixelsPerDip);
-                return ft.Width;
-            }
-            catch { return double.MaxValue; }
-        }
-
-        entry.TitleBlock.TextTrimming = TextTrimming.None;
-
-        if (Measure(fullText, nominalSize) <= availableWidth)
-        {
-            entry.TitleBlock.Text = fullText;
-            entry.TitleBlock.FontSize = nominalSize;
-        }
-        else if (Measure(fullText, nominalSize * 0.85) <= availableWidth)
-        {
-            entry.TitleBlock.Text = fullText;
-            entry.TitleBlock.FontSize = nominalSize * 0.85;
-        }
-        else if (Measure(fullText, nominalSize * 0.70) <= availableWidth)
-        {
-            entry.TitleBlock.Text = fullText;
-            entry.TitleBlock.FontSize = nominalSize * 0.70;
-        }
-        else if (Measure(baseText, nominalSize) <= availableWidth)
-        {
-            // Full text doesn't fit at 70% — keep full text with ellipsis so time
-            // is still visible (truncated) rather than completely dropped.
-            entry.TitleBlock.Text = fullText;
-            entry.TitleBlock.FontSize = nominalSize;
-            entry.TitleBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-        }
-        else if (Measure(baseText, nominalSize * 0.70) <= availableWidth)
-        {
-            entry.TitleBlock.Text = fullText;
-            entry.TitleBlock.FontSize = nominalSize * 0.70;
-            entry.TitleBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-        }
-        else
-        {
-            entry.TitleBlock.Text = fullText;
-            entry.TitleBlock.FontSize = nominalSize * 0.70;
-            entry.TitleBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-        }
-
-        entry.TitleBlock.ToolTip = MakeThemedToolTip(tooltipText);
-
-        SquadDashTrace.Write(TraceCategory.TranscriptPanels,
-            $"ApplySecondaryTranscriptTitleFit thread={entry.Thread.ThreadId} text=\"{entry.TitleBlock.Text}\" fontSize={entry.TitleBlock.FontSize:F1}");
+        var decision = TranscriptTitleFitPolicy.Resolve(
+            entry.CachedTitleFullText, entry.CachedTitleBaseText, nominalSize, availableWidth,
+            (text, fontSize) => TranscriptTitleSpinnerLayout.MeasureText(entry.TitleBlock, text, fontSize)
+                + (entry.TitleSpinner.Visibility == Visibility.Visible
+                    ? TranscriptTitleSpinnerLayout.GetExpandedWidth(entry.TitleBlock, fontSize) : 0));
+        entry.TitleBlock.Text = decision.DisplayText;
+        entry.TitleBlock.FontSize = decision.FontSize;
+        entry.TitleBlock.TextTrimming = decision.Trimming;
     }
 
     private static ToolTip MakeThemedToolTip(string text) => ToolTipHelper.MakeThemedToolTip(text);

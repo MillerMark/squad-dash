@@ -2906,7 +2906,7 @@
                                            DockPanel.Dock="Left"
                                            DataContext="{x:Null}"
                                            IsVisibleChanged="TranscriptTitleSpinner_IsVisibleChanged"
-                                           FontSize="{Binding FontSize, ElementName=TranscriptTitleTextBlock}"
+                                           local:TranscriptTitleSpinnerLayout.Title="{Binding ElementName=TranscriptTitleTextBlock}"
                                            VerticalAlignment="Center" />
                     <TextBlock x:Name="TranscriptTitleTextBlock"
                                DockPanel.Dock="Left"

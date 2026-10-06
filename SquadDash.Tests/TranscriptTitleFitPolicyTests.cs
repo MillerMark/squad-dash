@@ -71,11 +71,13 @@ internal sealed class TranscriptTitleFitPolicyTests
     }
 
     [Test]
+    [Apartment(ApartmentState.STA)]
     public void Resolve_BudgetsCandidateFontSpinnerWidthRatherThanPreviousSmallerSlot()
     {
+        var title = new System.Windows.Controls.TextBlock { FontSize = 18 };
         var decision = TranscriptTitleFitPolicy.Resolve(
-            "full title", "base", 18, 219,
-            (_, size) => 200 * size / 18 + ActivitySpinner.GetExpandedLayoutWidth(size));
+            "full title", "base", 18, 200 + TranscriptTitleSpinnerLayout.GetExpandedWidth(title, 18) - 1,
+            (_, size) => 200 * size / 18 + TranscriptTitleSpinnerLayout.GetExpandedWidth(title, size));
         Assert.That(decision.FontSize, Is.EqualTo(15.3).Within(0.0001));
         Assert.That(decision.Trimming, Is.EqualTo(TextTrimming.None));
     }

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Windows;
-using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace SquadDash;
@@ -15,7 +14,7 @@ public partial class MainWindow
 
     private readonly ResizeLayoutPerformanceAccumulator _resizeLayoutPerformanceAccumulator =
         new(ResizePerfReportInterval, ResizePerfIdleInterval);
-    private readonly Dictionary<(string Text, double FontSize, double Dpi, FontFamily FontFamily, string Culture), double> _mainTitleMeasureCache = new();
+    private readonly HashSet<SecondaryTranscriptEntry> _pendingSecondaryTitleFits = new();
 
     private DispatcherTimer? _resizeLayoutPerformanceFlushTimer;
     private DispatcherTimer? _mainTitleResizeFitTimer;
@@ -52,9 +51,21 @@ public partial class MainWindow
         if (_isClosing || activeThread.Kind == TranscriptThreadKind.Coordinator)
             return;
 
-        if (!_mainTitleResizeFitPending)
+        if (!_mainTitleResizeFitPending && _pendingSecondaryTitleFits.Count == 0)
             _mainTitleResizeFitQueuedAt = Stopwatch.GetTimestamp();
         _mainTitleResizeFitPending = true;
+        _mainTitleResizeFitTimer ??= CreateMainTitleResizeFitTimer();
+        if (!_mainTitleResizeFitTimer.IsEnabled)
+            _mainTitleResizeFitTimer.Start();
+    }
+
+    private void QueueSecondaryTranscriptTitleFit(SecondaryTranscriptEntry entry)
+    {
+        if (_isClosing || !_secondaryTranscripts.Contains(entry))
+            return;
+        if (!_mainTitleResizeFitPending && _pendingSecondaryTitleFits.Count == 0)
+            _mainTitleResizeFitQueuedAt = Stopwatch.GetTimestamp();
+        _pendingSecondaryTitleFits.Add(entry);
         _mainTitleResizeFitTimer ??= CreateMainTitleResizeFitTimer();
         if (!_mainTitleResizeFitTimer.IsEnabled)
             _mainTitleResizeFitTimer.Start();
@@ -69,18 +80,26 @@ public partial class MainWindow
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (!_mainTitleResizeFitPending)
+            if (!_mainTitleResizeFitPending && _pendingSecondaryTitleFits.Count == 0)
                 return;
 
+            var fitMainTitle = _mainTitleResizeFitPending;
             _mainTitleResizeFitPending = false;
+            var secondaryTitles = new List<SecondaryTranscriptEntry>(_pendingSecondaryTitleFits);
+            _pendingSecondaryTitleFits.Clear();
             try
             {
                 var now = Stopwatch.GetTimestamp();
                 var dispatchDelayMs = StopwatchTicksToMs(now - _mainTitleResizeFitQueuedAt);
                 var fitSw = Stopwatch.StartNew();
-                var appliedFromCache = TryApplyCachedMainTranscriptTitleFit();
-                if (!appliedFromCache)
-                    UpdateTranscriptThreadBadge();
+                if (fitMainTitle)
+                {
+                    var appliedFromCache = TryApplyCachedMainTranscriptTitleFit();
+                    if (!appliedFromCache)
+                        UpdateTranscriptThreadBadge();
+                }
+                foreach (var entry in secondaryTitles)
+                    ApplyCachedSecondaryTranscriptTitleFit(entry);
                 fitSw.Stop();
                 _resizeLayoutPerformanceAccumulator.RecordTitleFit(
                     fitSw.Elapsed.TotalMilliseconds,
@@ -145,40 +164,12 @@ public partial class MainWindow
             availableWidth,
             // Budget the candidate font's final spinner slot, not its currently animated
             // width. Otherwise font-fit changes resize the spinner and feed back into fit.
-            (text, fontSize) => MeasureMainTranscriptTitleWidth(text, fontSize)
+            (text, fontSize) => TranscriptTitleSpinnerLayout.MeasureText(TranscriptTitleTextBlock, text, fontSize)
                 + (TranscriptTitleSpinner.Visibility == Visibility.Visible
-                    ? ActivitySpinner.GetExpandedLayoutWidth(fontSize) : 0));
+                    ? TranscriptTitleSpinnerLayout.GetExpandedWidth(TranscriptTitleTextBlock, fontSize) : 0));
         TranscriptTitleTextBlock.Text = decision.DisplayText;
         TranscriptTitleTextBlock.FontSize = decision.FontSize;
         TranscriptTitleTextBlock.TextTrimming = decision.Trimming;
-    }
-
-    private double MeasureMainTranscriptTitleWidth(string text, double fontSize)
-    {
-        var pixelsPerDip = VisualTreeHelper.GetDpi(TranscriptTitleTextBlock).PixelsPerDip;
-        var culture = System.Globalization.CultureInfo.CurrentCulture;
-        var key = (
-            text,
-            fontSize,
-            pixelsPerDip,
-            TranscriptTitleTextBlock.FontFamily,
-            culture.Name);
-        if (_mainTitleMeasureCache.TryGetValue(key, out var cachedWidth))
-            return cachedWidth;
-
-        var formatted = new FormattedText(
-            text,
-            culture,
-            FlowDirection.LeftToRight,
-            new Typeface(TranscriptTitleTextBlock.FontFamily, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
-            fontSize,
-            Brushes.Black,
-            pixelsPerDip);
-        var width = formatted.Width;
-        if (_mainTitleMeasureCache.Count >= 256)
-            _mainTitleMeasureCache.Clear();
-        _mainTitleMeasureCache[key] = width;
-        return width;
     }
 
     private void EnsureResizeLayoutPerformanceTracking()
@@ -257,6 +248,7 @@ public partial class MainWindow
     private void DisposeResizeAndTitlePerfTracking()
     {
         _mainTitleResizeFitPending = false;
+        _pendingSecondaryTitleFits.Clear();
         var nowTicks = Stopwatch.GetTimestamp();
         FlushResizeLayoutPerformanceIfDue(force: true, nowTicks);
         DetachResizeLayoutPassTracking();

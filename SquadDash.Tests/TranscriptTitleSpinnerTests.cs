@@ -203,6 +203,8 @@ internal sealed class TranscriptTitleSpinnerTests
         for (var i = 0; i < 12; i++)
         {
             var spinner = Spinner();
+            var title = new TextBlock { Text = $"Agent {i}", FontSize = 16, FontWeight = FontWeights.SemiBold };
+            TranscriptTitleSpinnerLayout.SetTitle(spinner, title);
             spinner.SetContinuousActive(true);
             Tick(spinner, 200);
             panel.Children.Add(spinner);
@@ -270,8 +272,7 @@ internal sealed class TranscriptTitleSpinnerTests
         var card = Card();
         var spinner = Spinner(card);
         var title = new TextBlock { Text = "Coordinator", FontSize = 16, HorizontalAlignment = HorizontalAlignment.Left };
-        spinner.SetBinding(ActivitySpinner.FontSizeProperty,
-            new Binding(nameof(TextBlock.FontSize)) { Source = title });
+        TranscriptTitleSpinnerLayout.SetTitle(spinner, title);
         var panel = new DockPanel { LastChildFill = false };
         var navigation = new Border { Width = 56, Height = 22 };
         DockPanel.SetDock(navigation, Dock.Right);
@@ -279,11 +280,11 @@ internal sealed class TranscriptTitleSpinnerTests
         panel.Children.Add(spinner);
         panel.Children.Add(title);
         card.FireActivityPulse(SpinnerActivityKind.Writing);
-        Tick(spinner, 40);
+        Tick(spinner, 80);
         var initialX = LayoutTitleX(panel, title);
-        Assert.That(initialX, Is.GreaterThan(15));
+        Assert.That(initialX, Is.EqualTo(TranscriptTitleSpinnerLayout.GetExpandedWidth(title, 16)).Within(0.001));
         title.FontSize = 20;
-        Assert.That(spinner.FontSize, Is.EqualTo(20));
+        Assert.That(spinner.FontSize, Is.EqualTo(12));
         Tick(spinner, 40);
         var previousX = LayoutTitleX(panel, title);
         card.NotifyTurnEnded();
@@ -319,7 +320,9 @@ internal sealed class TranscriptTitleSpinnerTests
             Assert.That(spinner.Name.LocalName, Is.EqualTo(nameof(ActivitySpinner)));
             Assert.That(children.IndexOf(spinner) + 1, Is.EqualTo(children.IndexOf(title)));
             Assert.That((string?)spinner.Attribute("DockPanel.Dock"), Is.EqualTo("Left"));
-            Assert.That((string?)spinner.Attribute("FontSize"), Is.EqualTo("{Binding FontSize, ElementName=TranscriptTitleTextBlock}"));
+            Assert.That((string?)spinner.Attribute(XName.Get("TranscriptTitleSpinnerLayout.Title", "clr-namespace:SquadDash")),
+                Is.EqualTo("{Binding ElementName=TranscriptTitleTextBlock}"));
+            Assert.That((string?)spinner.Attribute("VerticalAlignment"), Is.EqualTo("Center"));
             Assert.That((string?)spinner.Attribute("IsVisibleChanged"), Is.EqualTo("TranscriptTitleSpinner_IsVisibleChanged"));
             Assert.That(spinner.Attribute("Width"), Is.Null);
             Assert.That(spinner.Attribute("MinWidth"), Is.Null);
@@ -331,7 +334,119 @@ internal sealed class TranscriptTitleSpinnerTests
         Assert.That(source, Does.Contain("TranscriptTitleSpinner.DataContext = FindAgentCardForThread(thread);")
             .And.Contain("TranscriptTitleSpinner.DataContext = _leadAgent;"));
         Assert.That(ReadSource("MainWindow.ResizePerformance.cs"),
-            Does.Contain("ActivitySpinner.GetExpandedLayoutWidth(fontSize)"));
+            Does.Contain("TranscriptTitleSpinnerLayout.GetExpandedWidth(TranscriptTitleTextBlock, fontSize)"));
+    }
+
+    [Test]
+    public void SecondaryTitles_ConstructOwnSpinnerAndRebindWhenPanelAgentChanges()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        Assert.That(source, Does.Contain("var titleSpinner = new ActivitySpinner { VerticalAlignment = VerticalAlignment.Center };")
+            .And.Contain("TranscriptTitleSpinnerLayout.SetTitle(titleSpinner, titleBlock);")
+            .And.Contain("titleSpinner.DataContext = agent;")
+            .And.Contain("titleRow.Children.Add(titleSpinner);")
+            .And.Contain("titleRow.Children.Add(titleBlock);")
+            .And.Contain("TitleSpinner = titleSpinner,")
+            .And.Contain("entry.TitleSpinner.DataContext = currentCard;")
+            .And.Contain("titleSpinner.IsVisibleChanged += (_, _) => QueueSecondaryTranscriptTitleFit(entry);")
+            .And.Contain("if (e.WidthChanged) QueueSecondaryTranscriptTitleFit(entry);")
+            .And.Contain("TranscriptTitleSpinnerLayout.GetExpandedWidth(entry.TitleBlock, fontSize)"));
+        Assert.That(source.IndexOf("titleRow.Children.Add(titleSpinner);", StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("titleRow.Children.Add(titleBlock);", StringComparison.Ordinal)));
+        Assert.That(ReadSource("MainWindow.ResizePerformance.cs"),
+            Does.Contain("new List<SecondaryTranscriptEntry>(_pendingSecondaryTitleFits)")
+                .And.Contain("ApplyCachedSecondaryTranscriptTitleFit(entry);")
+                .And.Contain("_pendingSecondaryTitleFits.Clear();"));
+    }
+
+    [TestCase("Segoe UI", 16)]
+    [TestCase("Consolas", 22)]
+    public void TitleSizing_UsesSixtyPercentAndActualSpaceAdvanceAndTracksTypography(string family, double fontSize)
+    {
+        var title = new TextBlock
+        {
+            Text = "Agent",
+            FontFamily = new FontFamily(family),
+            FontSize = fontSize,
+            FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var spinner = Spinner();
+        spinner.VerticalAlignment = VerticalAlignment.Center;
+        TranscriptTitleSpinnerLayout.SetTitle(spinner, title);
+        spinner.SetContinuousActive(true);
+        Tick(spinner, 200);
+        var panel = new DockPanel { LastChildFill = false };
+        panel.Children.Add(spinner);
+        panel.Children.Add(title);
+
+        void AssertMetrics()
+        {
+            var space = new FormattedText(" ", title.Language.GetSpecificCulture(), title.FlowDirection,
+                new Typeface(title.FontFamily, title.FontStyle, title.FontWeight, title.FontStretch),
+                title.FontSize, Brushes.Black, VisualTreeHelper.GetDpi(title).PixelsPerDip).WidthIncludingTrailingWhitespace;
+            var x = LayoutTitleX(panel, title);
+            Assert.Multiple(() =>
+            {
+                Assert.That(spinner.FontSize, Is.EqualTo(title.FontSize * 0.6).Within(0.0001));
+                Assert.That(spinner.Margin, Is.EqualTo(new Thickness(0, 0, space, 0)));
+                Assert.That(space, Is.GreaterThan(0));
+                Assert.That(x, Is.EqualTo(ActivitySpinner.GetExpandedLayoutWidth(title.FontSize * 0.6) + space).Within(0.001));
+                Assert.That(spinner.TranslatePoint(new Point(0, spinner.ActualHeight / 2), panel).Y,
+                    Is.EqualTo(title.TranslatePoint(new Point(0, title.ActualHeight / 2), panel).Y).Within(0.001));
+            });
+        }
+
+        AssertMetrics();
+        title.FontSize += 5;
+        title.FontFamily = new FontFamily("Times New Roman");
+        title.FontWeight = FontWeights.Bold;
+        title.FontStyle = FontStyles.Italic;
+        Tick(spinner, 200);
+        AssertMetrics();
+        Assert.That(Spinner().FontSize, Is.EqualTo(12), "Unconfigured agent-card/plan spinners keep their default size.");
+    }
+
+    [Test]
+    public void MultiplePanelTitles_KeepTheirOwnActivityWritingDotAndCompletionFade()
+    {
+        var cards = new[] { Card(), Card(), Card() };
+        var titles = cards.Select(card =>
+        {
+            var spinner = Spinner();
+            TranscriptTitleSpinnerLayout.SetTitle(spinner, new TextBlock { FontSize = 16 });
+            spinner.DataContext = card;
+            return spinner;
+        }).ToArray();
+        var kinds = new[] { SpinnerActivityKind.Thinking, SpinnerActivityKind.Reading, SpinnerActivityKind.Writing };
+        for (var i = 0; i < cards.Length; i++)
+        {
+            cards[i].FireActivityPulse(kinds[i]);
+            Tick(titles[i], 12);
+        }
+        Assert.Multiple(() =>
+        {
+            for (var i = 0; i < titles.Length; i++)
+            {
+                Assert.That(titles[i].Visibility, Is.EqualTo(Visibility.Visible));
+                Assert.That(State<SpinnerActivityKind>(titles[i], "_currentKind"), Is.EqualTo(kinds[i]));
+                Assert.That(State<double>(titles[i], "_writeDotRadius"), i == 2 ? Is.GreaterThan(0.5) : Is.Zero);
+            }
+        });
+        cards[2].NotifyTurnEnded();
+        cards[1].NotifyActivityPaused();
+        Assert.Multiple(() =>
+        {
+            Assert.That(State<bool>(titles[0], "_forcedFadeOutActive"), Is.False);
+            Assert.That(State<double>(titles[1], "_forcedFadeOutDuration"), Is.EqualTo(0.2));
+            Assert.That(State<double>(titles[2], "_forcedFadeOutDuration"), Is.EqualTo(3));
+        });
+        Tick(titles[1], 200);
+        Tick(titles[2], 200);
+        Assert.That(titles[1].Visibility, Is.EqualTo(Visibility.Collapsed));
+        Assert.That(titles[2].Visibility, Is.EqualTo(Visibility.Collapsed));
+        Tick(titles[0], 1600);
+        Assert.That(titles[0].Visibility, Is.EqualTo(Visibility.Collapsed));
     }
 
     private ActivitySpinner Spinner(AgentStatusCard? card = null, double fontSize = 12)
