@@ -1,6 +1,8 @@
 using System;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
@@ -8,6 +10,11 @@ internal sealed class SquadCommandOutputWindow : ChromedWindow {
     private readonly TextBox _outputBox;
     private readonly ProgressBar _busyIndicator;
     private readonly TextBlock _busyText;
+    private readonly DispatcherTimer _elapsedTimer;
+    private readonly Stopwatch _elapsed = new();
+    private string _busyMessage = string.Empty;
+    private bool _hasLiveOutput;
+    private bool _isClosed;
 
     public SquadCommandOutputWindow(
         string title,
@@ -38,11 +45,21 @@ internal sealed class SquadCommandOutputWindow : ChromedWindow {
             Height = 12,
             Margin = new Thickness(0, 0, 8, 0)
         };
+        _busyIndicator.SetResourceReference(StyleProperty, "CommandOutputProgressBarStyle");
+        _busyIndicator.SetResourceReference(Control.BackgroundProperty, "TrackSurface");
+        _busyIndicator.SetResourceReference(Control.ForegroundProperty, "ActionLinkText");
         _busyText = new TextBlock {
-            VerticalAlignment = VerticalAlignment.Center,
-            Text = "Running..."
+            VerticalAlignment = VerticalAlignment.Center
         };
         _busyText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        _elapsedTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _elapsedTimer.Tick += (_, _) => UpdateBusyText();
+        Closed += (_, _) => {
+            _isClosed = true;
+            SetBusy(false);
+        };
         busyPanel.Children.Add(_busyIndicator);
         busyPanel.Children.Add(_busyText);
         Grid.SetRow(busyPanel, 0);
@@ -121,9 +138,39 @@ internal sealed class SquadCommandOutputWindow : ChromedWindow {
         _outputBox.ScrollToHome();
     }
 
-    public void SetBusy(bool isBusy, string message = "Running...") {
+    public void AppendOutputLine(string line) {
+        // Queued progress must not overwrite the completed summary or resurrect a closed window.
+        if (!_elapsed.IsRunning || _isClosed) return;
+        if (!_hasLiveOutput) {
+            _outputBox.Clear();
+            _hasLiveOutput = true;
+        }
+        _outputBox.AppendText(line + Environment.NewLine);
+        _outputBox.ScrollToEnd();
+    }
+
+    public void SetBusy(bool isBusy, string message = "Executing command\u2026") {
+        isBusy &= !_isClosed;
         _busyIndicator.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
         _busyText.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
-        _busyText.Text = message;
+        _busyMessage = message;
+        if (isBusy) {
+            if (!_elapsed.IsRunning) {
+                _hasLiveOutput = false;
+                _elapsed.Restart();
+            }
+            UpdateBusyText();
+            _elapsedTimer.Start();
+        }
+        else {
+            _elapsedTimer.Stop();
+            _elapsed.Reset();
+            _busyText.Text = string.Empty;
+        }
+    }
+
+    private void UpdateBusyText() {
+        var elapsed = _elapsed.Elapsed;
+        _busyText.Text = $"{_busyMessage} {(long)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
     }
 }

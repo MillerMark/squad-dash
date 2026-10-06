@@ -59,7 +59,8 @@ internal sealed class ButtonCommandExecutionService {
         "& $env:SQUADDASH_BUTTON_SCRIPT\n" +
         "if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE }; exit 1 }\n";
 
-    public async Task<ButtonExecutionResult> ExecuteAsync(ButtonDefinition button, ButtonWorkspaceSnapshot workspace) {
+    public async Task<ButtonExecutionResult> ExecuteAsync(ButtonDefinition button, ButtonWorkspaceSnapshot workspace,
+        IProgress<string>? outputProgress = null) {
         ArgumentNullException.ThrowIfNull(button);
         ArgumentNullException.ThrowIfNull(workspace);
         string? scriptPath = null;
@@ -90,7 +91,7 @@ internal sealed class ButtonCommandExecutionService {
             await File.WriteAllTextAsync(scriptPath, BuildScriptContent(invocation), encoding).ConfigureAwait(false);
 
             SquadDashTrace.Write("Buttons", $"Starting button {button.Id} for '{workspace.FolderPath}'.");
-            var output = await RunProcessAsync(BuildStartInfo(invocation, scriptPath)).ConfigureAwait(false);
+            var output = await RunProcessAsync(BuildStartInfo(invocation, scriptPath), outputProgress).ConfigureAwait(false);
             var error = output.ExitCode == 0 ? null : $"Button command exited with code {output.ExitCode}.";
             result = new ButtonExecutionResult(button, workspace, output.ExitCode, output.Stdout, output.Stderr, error);
             SquadDashTrace.Write("Buttons", $"Button {button.Id} for '{workspace.FolderPath}' exited with code {output.ExitCode}.");
@@ -219,7 +220,35 @@ internal sealed class ButtonCommandExecutionService {
         return url.AbsoluteUri;
     }
 
-    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(ProcessStartInfo startInfo) {
+    // Capture chunks verbatim: ReadLine/AppendLine would normalize newlines and add one to an unterminated tail.
+    internal static async Task<string> CaptureOutputAsync(TextReader reader, IProgress<string>? outputProgress) {
+        var captured = new StringBuilder();
+        var line = new StringBuilder();
+        var buffer = new char[4096];
+        var previousWasCarriageReturn = false;
+        int count;
+        while ((count = await reader.ReadAsync(buffer.AsMemory()).ConfigureAwait(false)) != 0) {
+            captured.Append(buffer, 0, count);
+            if (outputProgress is null) continue;
+            for (var i = 0; i < count; i++) {
+                var character = buffer[i];
+                if (character == '\r' || (character == '\n' && !previousWasCarriageReturn)) {
+                    outputProgress.Report(line.ToString());
+                    line.Clear();
+                }
+                else if (character != '\n') {
+                    line.Append(character);
+                }
+                previousWasCarriageReturn = character == '\r';
+            }
+        }
+        if (line.Length > 0)
+            outputProgress?.Report(line.ToString());
+        return captured.ToString();
+    }
+
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(
+        ProcessStartInfo startInfo, IProgress<string>? outputProgress) {
         using var process = new Process { StartInfo = startInfo };
         var started = false;
         try {
@@ -227,8 +256,8 @@ internal sealed class ButtonCommandExecutionService {
             if (!started)
                 throw new InvalidOperationException($"Could not start '{startInfo.FileName}'.");
             process.StandardInput.Close();
-            var stdout = process.StandardOutput.ReadToEndAsync();
-            var stderr = process.StandardError.ReadToEndAsync();
+            var stdout = CaptureOutputAsync(process.StandardOutput, outputProgress);
+            var stderr = CaptureOutputAsync(process.StandardError, outputProgress);
             await Task.WhenAll(stdout, stderr, process.WaitForExitAsync()).ConfigureAwait(false);
             return (process.ExitCode, await stdout.ConfigureAwait(false), await stderr.ConfigureAwait(false));
         }

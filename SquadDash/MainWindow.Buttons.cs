@@ -121,20 +121,26 @@ public partial class MainWindow {
                 _conversationManager.ConversationStore.GetWorkspaceStateDirectory(_currentWorkspace.FolderPath));
             var title = $"Button: {ButtonCaptionPresentation.VisibleText(definition.Content.Caption)}";
             if (definition.Content.CommandType != ButtonCommandType.Url && CanShowOwnedWindow()) {
-                window = new SquadCommandOutputWindow(title, "Loading saved command...", isBusy: true) { Owner = this };
+                window = new SquadCommandOutputWindow(title, "Executing command\u2026", isBusy: true) { Owner = this };
                 window.Show();
             }
             var saved = await Task.Run(() => store.Load().SingleOrDefault(item => item.Id == definition.Id)
                 ?? throw new ButtonConflictException("The button was deleted before execution."));
             title = $"Button: {ButtonCaptionPresentation.VisibleText(saved.Content.Caption)}";
             if (saved.Content.CommandType != ButtonCommandType.Url && window is null && CanShowOwnedWindow()) {
-                window = new SquadCommandOutputWindow(title, "Running command...", isBusy: true) { Owner = this };
+                window = new SquadCommandOutputWindow(title, "Executing command\u2026", isBusy: true) { Owner = this };
                 window.Show();
             }
             window?.SetTitle(title);
-            window?.SetBusy(true, "Running...");
+            window?.SetBusy(true);
+            // Progress captures the UI synchronization context; neither pipe reader waits on the dispatcher.
+            var progress = new Progress<string>(line => {
+                if (window?.IsVisible == true)
+                    window.AppendOutputLine(line);
+            });
             // Store locking and the invocation-time branch lookup must not block the UI thread.
-            var result = await Task.Run(async () => await new ButtonCommandExecutionService().ExecuteAsync(saved, snapshot));
+            var result = await Task.Run(async () => await new ButtonCommandExecutionService().ExecuteAsync(saved, snapshot, progress));
+            window?.SetBusy(false);
             if (result.Error is not null || result.CleanupError is not null || result.ExitCode != 0)
                 SquadDashTrace.Write("Buttons", $"Execution {result.Button.Id}: exit={result.ExitCode}; error={result.Error}; cleanup={result.CleanupError}");
             if (saved.Content.CommandType == ButtonCommandType.Url) {
@@ -169,6 +175,9 @@ public partial class MainWindow {
                 window.SetOutput($"Unable to run the button: {ex.Message}");
             }
             HandleUiCallbackException("Run workspace button", ex);
+        }
+        finally {
+            window?.SetBusy(false);
         }
     }
 

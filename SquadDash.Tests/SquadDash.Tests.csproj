@@ -14,6 +14,7 @@
     <Compile Include="..\SquadDash\JsonFileStorageStrictWrite.cs" Link="Source\JsonFileStorageStrictWrite.cs" />
     <Compile Include="..\SquadDash\ButtonPlaceholders.cs" Link="Source\ButtonPlaceholders.cs" />
     <Compile Include="..\SquadDash\ButtonCommandExecutionService.cs" Link="Source\ButtonCommandExecutionService.cs" />
+    <Compile Include="..\SquadDash\SquadCommandOutputWindow.cs" Link="Source\SquadCommandOutputWindow.cs" />
     <Compile Include="..\SquadDash\ButtonCaptionPresentation.cs" Link="Source\ButtonCaptionPresentation.cs" />
     <Compile Include="..\SquadDash\ButtonTokenCompletion.cs" Link="Source\ButtonTokenCompletion.cs" />
     <Compile Include="..\SquadDash\ButtonEditorSession.cs" Link="Source\ButtonEditorSession.cs" />

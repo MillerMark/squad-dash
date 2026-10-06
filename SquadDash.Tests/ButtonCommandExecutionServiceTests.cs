@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using NUnit.Framework;
 
@@ -274,11 +275,14 @@ internal sealed class ButtonCommandExecutionServiceTests {
             "[Console]::Error.WriteLine('stderr-tail')\r\n" +
             $"exit {exitCode}");
 
-        var result = await new ButtonCommandExecutionService().ExecuteAsync(button, _snapshot);
+        var lines = new ConcurrentQueue<string>();
+        var result = await new ButtonCommandExecutionService().ExecuteAsync(button, _snapshot, new InlineProgress(lines.Enqueue));
 
         AssertExecutedResult(result, button, exitCode,
             string.Concat(Enumerable.Repeat(stdoutLine + Environment.NewLine, lineCount)) + "stdout-tail" + Environment.NewLine,
             string.Concat(Enumerable.Repeat(stderrLine + Environment.NewLine, lineCount)) + "stderr-tail" + Environment.NewLine);
+        Assert.That(lines, Is.EquivalentTo(Enumerable.Repeat(stdoutLine, lineCount)
+            .Concat(Enumerable.Repeat(stderrLine, lineCount)).Concat(new[] { "stdout-tail", "stderr-tail" })));
     }
 
     [TestCase(0)]
@@ -294,6 +298,52 @@ internal sealed class ButtonCommandExecutionServiceTests {
 
         AssertExecutedResult(result, button, exitCode,
             "raw-stdout" + Environment.NewLine, "raw-stderr" + Environment.NewLine);
+    }
+
+    [TestCase(1)]
+    [TestCase(2)]
+    [TestCase(4096)]
+    public async Task CaptureOutputAsync_ReportsLinesAndPreservesExactNewlinesAndUnterminatedTail(int chunkSize) {
+        const string text = "first\r\n\r\nsecond\nthird\rfourth caf\u00e9\nlast";
+        var lines = new List<string>();
+        using var reader = new ChunkedReader(text, chunkSize);
+
+        var captured = await ButtonCommandExecutionService.CaptureOutputAsync(reader, new InlineProgress(lines.Add));
+
+        Assert.Multiple(() => {
+            Assert.That(captured, Is.EqualTo(text));
+            Assert.That(lines, Is.EqualTo(new[] { "first", "", "second", "third", "fourth caf\u00e9", "last" }));
+        });
+    }
+
+    [Test]
+    public async Task ExecuteAsync_StreamsBothPipesBeforeExitAndStillReturnsExactBuffers() {
+        Assert.That(WorkspaceIssueFactory.IsPowerShellAvailable(), Is.True);
+        _workspace.CreateFile(@".git\HEAD", "ref: refs/heads/test-authored-command\n");
+        var lines = new ConcurrentQueue<string>();
+        var progress = new InlineProgress(line => {
+            lines.Enqueue(line);
+            if (line is "stdout-ready" or "stderr-ready")
+                File.WriteAllText(_workspace.GetPath(line), "received");
+        });
+        // The command cannot produce its tails or succeed until both live notifications arrive.
+        // A deadline bounds a regressed test without introducing a production execution timeout.
+        var button = Button(
+            "[Console]::Out.Write(\"stdout-ready`r`n\")\n" +
+            "[Console]::Error.Write(\"stderr-ready`n\")\n" +
+            "$deadline = [DateTime]::UtcNow.AddSeconds(10)\n" +
+            "while (!(Test-Path stdout-ready) -or !(Test-Path stderr-ready)) {\n" +
+            "    if ([DateTime]::UtcNow -gt $deadline) { exit 88 }\n" +
+            "    Start-Sleep -Milliseconds 20\n" +
+            "}\n" +
+            "[Console]::Out.Write('stdout-tail')\n" +
+            "[Console]::Error.Write('stderr-tail')\n" +
+            "exit 7");
+
+        var result = await new ButtonCommandExecutionService().ExecuteAsync(button, _snapshot, progress);
+
+        AssertExecutedResult(result, button, 7, "stdout-ready\r\nstdout-tail", "stderr-ready\nstderr-tail");
+        Assert.That(lines, Is.EquivalentTo(new[] { "stdout-ready", "stderr-ready", "stdout-tail", "stderr-tail" }));
     }
 
     [Test]
@@ -348,6 +398,15 @@ internal sealed class ButtonCommandExecutionServiceTests {
 
     private ButtonInvocation Prepare(ButtonDefinition button) =>
         ButtonCommandExecutionService.PrepareInvocation(button, _snapshot, "main");
+
+    private sealed class InlineProgress(Action<string> report) : IProgress<string> {
+        public void Report(string value) => report(value);
+    }
+
+    private sealed class ChunkedReader(string text, int chunkSize) : StringReader(text) {
+        public override ValueTask<int> ReadAsync(Memory<char> buffer, CancellationToken cancellationToken = default) =>
+            base.ReadAsync(buffer[..Math.Min(chunkSize, buffer.Length)], cancellationToken);
+    }
 
     private static ButtonDefinition Button(string command, ButtonCommandType type = ButtonCommandType.PowerShell,
         string? directory = null) =>
