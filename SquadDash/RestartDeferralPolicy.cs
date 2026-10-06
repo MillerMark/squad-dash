@@ -59,7 +59,7 @@ internal static class RestartDeferralPolicy {
     internal static string BuildStatusMessage(RestartDeferralReason reason) =>
         reason switch {
             RestartDeferralReason.PromptRunning =>
-                "Build finished. Restart will happen after the current Squad turn completes.",
+                "SquadDash has been rebuilt. This instance will restart (with the new build) after the current turn completes.",
             RestartDeferralReason.LoopRunning =>
                 "Build finished. Restart will happen after the active loop stops.",
             RestartDeferralReason.BackgroundWork =>
