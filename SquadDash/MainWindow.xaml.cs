@@ -41198,6 +41198,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        TranscriptTitleSpinner.DataContext = FindAgentCardForThread(thread);
         var title = thread.DisplayTitle?.Trim();
         var displayTitle = string.IsNullOrWhiteSpace(title) ? "Agent" : AbbreviateAgentName(title);
         var possessive = $"{displayTitle}'s transcript";
@@ -41215,6 +41216,7 @@ public partial class MainWindow : Window
 
         var availableWidth = TranscriptTitleDockPanel.ActualWidth
             - PromptNavButtonsPanel.ActualWidth
+            - TranscriptTitleSpinner.DesiredSize.Width
             - TranscriptTitleTextBlock.Margin.Left
             - TranscriptTitleTextBlock.Margin.Right;
 
@@ -42628,6 +42630,7 @@ public partial class MainWindow : Window
         if (_pendingPrimaryTranscriptVisualThread?.Kind == TranscriptThreadKind.Agent)
             return;
 
+        TranscriptTitleSpinner.DataContext = _leadAgent;
         if (_transcriptScrollViewer is null)
         {
             TranscriptTitleTextBlock.Text = "Coordinator";

@@ -2902,7 +2902,15 @@
                             </Viewbox>
                         </Button>
                     </StackPanel>
+                    <local:ActivitySpinner x:Name="TranscriptTitleSpinner"
+                                           DockPanel.Dock="Left"
+                                           DataContext="{x:Null}"
+                                           FontSize="{Binding FontSize, ElementName=TranscriptTitleTextBlock}"
+                                           VerticalAlignment="Center" />
                     <TextBlock x:Name="TranscriptTitleTextBlock"
+                               DockPanel.Dock="Left"
+                               HorizontalAlignment="Left"
+                               VerticalAlignment="Center"
                                Text="Transcript"
                                FontSize="16"
                                FontWeight="SemiBold"

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -139,6 +141,7 @@ public sealed class ActivitySpinner : FrameworkElement
         _lastTick = DateTime.UtcNow;
 
         DataContextChanged += OnDataContextChanged;
+        Loaded += OnLoaded;
         Unloaded += OnUnloaded;
 
         // Subscribe to static theme-changed notifications
@@ -148,25 +151,114 @@ public sealed class ActivitySpinner : FrameworkElement
     // ── DataContext binding to AgentStatusCard ──────────────────────────────
 
     private AgentStatusCard? _subscribedCard;
+    private static readonly ConditionalWeakTable<AgentStatusCard, List<WeakReference<ActivitySpinner>>> CardSpinners = new();
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
+        if (_subscribedCard is null && e.NewValue is not AgentStatusCard)
+            return;
+
+        DetachFromCard();
+        ResetActivity();
+        if (e.NewValue is AgentStatusCard card)
+            AttachToCard(card);
+    }
+
+    private void AttachToCard(AgentStatusCard card)
+    {
+        var spinners = CardSpinners.GetOrCreateValue(card);
+        spinners.RemoveAll(reference => !reference.TryGetTarget(out _));
+        // A newly displayed transcript must inherit writing/coasting/fading, not replay
+        // a pulse that could restart an already completed turn.
+        foreach (var reference in spinners)
+        {
+            if (reference.TryGetTarget(out var source))
+            {
+                CopyActivityFrom(source);
+                break;
+            }
+        }
+
+        spinners.Add(new WeakReference<ActivitySpinner>(this));
+        _subscribedCard = card;
+        card.ActivityPulsed += OnActivityPulsed;
+        card.PropertyChanged += OnCardPropertyChanged;
+        card.TurnEnded += OnTurnEnded;
+        card.ActivityPaused += OnActivityPaused;
+        SyncAccentColor();
+    }
+
+    private void DetachFromCard()
+    {
         if (_subscribedCard is not null)
         {
+            if (CardSpinners.TryGetValue(_subscribedCard, out var spinners))
+            {
+                spinners.RemoveAll(reference =>
+                    !reference.TryGetTarget(out var spinner) || ReferenceEquals(spinner, this));
+                if (spinners.Count == 0)
+                    CardSpinners.Remove(_subscribedCard);
+            }
             _subscribedCard.ActivityPulsed -= OnActivityPulsed;
             _subscribedCard.PropertyChanged -= OnCardPropertyChanged;
             _subscribedCard.TurnEnded -= OnTurnEnded;
             _subscribedCard.ActivityPaused -= OnActivityPaused;
             _subscribedCard = null;
         }
-        if (e.NewValue is AgentStatusCard card)
+    }
+
+    private void ResetActivity()
+    {
+        _physicsTimer.Stop();
+        _angularVelocity = _angle = _spinnerOpacity = _targetOpacity = 0;
+        _velocityTarget = _velocityAccelPhase = 0;
+        _writeDotRadius = _writeDotTarget = _dotGlowPhase = 0;
+        _currentKind = SpinnerActivityKind.Thinking;
+        _scaleTarget = _currentScale = _animatedWidth = _widthTarget = 0;
+        _forcedFadeOutActive = false;
+        _forcedFadeOutDuration = _forcedFadeOutElapsed = 0;
+        MinimumAngularVelocity = 0;
+        Visibility = Visibility.Collapsed;
+        InvalidateMeasure();
+        InvalidateVisual();
+    }
+
+    private void CopyActivityFrom(ActivitySpinner source)
+    {
+        _angularVelocity = source._angularVelocity;
+        _angle = source._angle;
+        _spinnerOpacity = source._spinnerOpacity;
+        _targetOpacity = source._targetOpacity;
+        _velocityTarget = source._velocityTarget;
+        _velocityAccelPhase = source._velocityAccelPhase;
+        _currentKind = source._currentKind;
+        _dotGlowPhase = source._dotGlowPhase;
+        _writeDotRadius = source._writeDotRadius * Diameter / source.Diameter;
+        _writeDotTarget = source._writeDotTarget * Diameter / source.Diameter;
+        _scaleTarget = source._scaleTarget;
+        _currentScale = source._currentScale;
+        _animatedWidth = source._animatedWidth * (Diameter + 4) / (source.Diameter + 4);
+        _widthTarget = source._widthTarget * (Diameter + 4) / (source.Diameter + 4);
+        _forcedFadeOutActive = source._forcedFadeOutActive;
+        _forcedFadeOutDuration = source._forcedFadeOutDuration;
+        _forcedFadeOutElapsed = source._forcedFadeOutElapsed;
+        MinimumAngularVelocity = source.MinimumAngularVelocity;
+        Visibility = source.Visibility;
+        _lastTick = DateTime.UtcNow;
+        if (source._physicsTimer.IsEnabled)
+            _physicsTimer.Start();
+        InvalidateMeasure();
+        InvalidateVisual();
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        AgentStatusCard.ThemeChanged -= OnThemeChanged;
+        AgentStatusCard.ThemeChanged += OnThemeChanged;
+        if (_subscribedCard is null && DataContext is AgentStatusCard card)
         {
-            _subscribedCard = card;
-            card.ActivityPulsed += OnActivityPulsed;
-            card.PropertyChanged += OnCardPropertyChanged;
-            card.TurnEnded += OnTurnEnded;
-            card.ActivityPaused += OnActivityPaused;
-            SyncAccentColor();
+            ResetActivity();
+            AttachToCard(card);
         }
     }
 
@@ -187,14 +279,7 @@ public sealed class ActivitySpinner : FrameworkElement
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _physicsTimer.Stop();
-        if (_subscribedCard is not null)
-        {
-            _subscribedCard.ActivityPulsed -= OnActivityPulsed;
-            _subscribedCard.PropertyChanged -= OnCardPropertyChanged;
-            _subscribedCard.TurnEnded -= OnTurnEnded;
-            _subscribedCard.ActivityPaused -= OnActivityPaused;
-            _subscribedCard = null;
-        }
+        DetachFromCard();
         AgentStatusCard.ThemeChanged -= OnThemeChanged;
     }
 
