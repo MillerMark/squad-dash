@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace SquadDash;
@@ -51,9 +52,11 @@ internal sealed record ButtonExecutionResult(
 /// On ordinary completion only process handles and the temporary script are cleaned up. A runner IO/wait
 /// failure attempts to kill its owned process tree, logging cleanup failures; it does not kill other processes.
 /// Host termination can leave scripts/children behind. Detached descendants are not supervised, and inherited
-/// stdout/stderr handles may delay completion. There is intentionally no arbitrary deployment deadline.
+/// stdout/stderr handles cannot delay completion beyond a short post-exit output grace period.
+/// There is intentionally no arbitrary deployment deadline for the launched process itself.
 /// </summary>
 internal sealed class ButtonCommandExecutionService {
+    private static readonly TimeSpan OutputDrainGrace = TimeSpan.FromMilliseconds(500);
     private const string PowerShellBootstrap =
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n" +
         "& $env:SQUADDASH_BUTTON_SCRIPT\n" +
@@ -221,13 +224,31 @@ internal sealed class ButtonCommandExecutionService {
     }
 
     // Capture chunks verbatim: ReadLine/AppendLine would normalize newlines and add one to an unterminated tail.
-    internal static async Task<string> CaptureOutputAsync(TextReader reader, IProgress<string>? outputProgress) {
+    internal static async Task<string> CaptureOutputAsync(TextReader reader, IProgress<string>? outputProgress,
+        CancellationToken stopReading = default) {
         var captured = new StringBuilder();
         var line = new StringBuilder();
         var buffer = new char[4096];
         var previousWasCarriageReturn = false;
-        int count;
-        while ((count = await reader.ReadAsync(buffer.AsMemory()).ConfigureAwait(false)) != 0) {
+        while (!stopReading.IsCancellationRequested) {
+            var read = reader.ReadAsync(buffer.AsMemory(), stopReading).AsTask();
+            int count;
+            try {
+                // Anonymous pipe reads may not support cancellation. Cancel our wait instead,
+                // so an inherited writer cannot hold the capture loop (or its partial buffer) open.
+                count = await read.WaitAsync(stopReading).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (stopReading.IsCancellationRequested) {
+                SquadDashTrace.Write("Buttons", "Stopped waiting for redirected output after capture was stopped.");
+                // Disposing the local pipe may fault the outstanding read later. Observe it without
+                // keeping the capture loop alive or publishing output after finalization.
+                _ = read.ContinueWith(completed =>
+                    SquadDashTrace.Write("Buttons", $"Stopped output read completed with an error: {completed.Exception}"),
+                    CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+                break;
+            }
+            if (count == 0) break;
             captured.Append(buffer, 0, count);
             if (outputProgress is null) continue;
             for (var i = 0; i < count; i++) {
@@ -250,15 +271,24 @@ internal sealed class ButtonCommandExecutionService {
     private static async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(
         ProcessStartInfo startInfo, IProgress<string>? outputProgress) {
         using var process = new Process { StartInfo = startInfo };
+        using var stopReading = new CancellationTokenSource();
         var started = false;
         try {
             started = process.Start();
             if (!started)
                 throw new InvalidOperationException($"Could not start '{startInfo.FileName}'.");
             process.StandardInput.Close();
-            var stdout = CaptureOutputAsync(process.StandardOutput, outputProgress);
-            var stderr = CaptureOutputAsync(process.StandardError, outputProgress);
-            await Task.WhenAll(stdout, stderr, process.WaitForExitAsync()).ConfigureAwait(false);
+            var stdout = CaptureOutputAsync(process.StandardOutput, outputProgress, stopReading.Token);
+            var stderr = CaptureOutputAsync(process.StandardError, outputProgress, stopReading.Token);
+            var drain = Task.WhenAll(stdout, stderr);
+            await process.WaitForExitAsync().ConfigureAwait(false);
+            if (await Task.WhenAny(drain, Task.Delay(OutputDrainGrace)).ConfigureAwait(false) != drain) {
+                SquadDashTrace.Write("Buttons", $"Process {process.Id} exited; ending output capture after {OutputDrainGrace.TotalMilliseconds} ms grace.");
+                stopReading.Cancel();
+            }
+            // These capture loops now finish on EOF OR cancellation of their read wait.
+            // Joining them flushes partial lines and freezes the buffers, not waiting for child-owned EOF.
+            await drain.ConfigureAwait(false);
             return (process.ExitCode, await stdout.ConfigureAwait(false), await stderr.ConfigureAwait(false));
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException or Win32Exception) {
@@ -272,6 +302,9 @@ internal sealed class ButtonCommandExecutionService {
                 }
             }
             throw;
+        }
+        finally {
+            stopReading.Cancel();
         }
     }
 }

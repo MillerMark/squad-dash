@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using NUnit.Framework;
 
@@ -317,6 +318,26 @@ internal sealed class ButtonCommandExecutionServiceTests {
     }
 
     [Test]
+    public async Task CaptureOutputAsync_StoppedPendingRead_PreservesCapturedTextAndFlushesTail() {
+        using var reader = new HeldOpenReader("first\r\ntail");
+        using var stopReading = new CancellationTokenSource();
+        var lines = new List<string>();
+        var capture = ButtonCommandExecutionService.CaptureOutputAsync(reader, new InlineProgress(lines.Add), stopReading.Token);
+        await reader.ReadPending.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        stopReading.Cancel();
+        var captured = await capture.WaitAsync(TimeSpan.FromSeconds(3));
+
+        Assert.Multiple(() => {
+            Assert.That(captured, Is.EqualTo("first\r\ntail"));
+            Assert.That(lines, Is.EqualTo(new[] { "first", "tail" }));
+            Assert.That(reader.PendingRead.Task.IsCompleted, Is.False,
+                "Capture must not depend on the underlying pipe supporting cancellation or reaching EOF.");
+        });
+        reader.PendingRead.SetResult(0);
+    }
+
+    [Test]
     public async Task ExecuteAsync_StreamsBothPipesBeforeExitAndStillReturnsExactBuffers() {
         Assert.That(WorkspaceIssueFactory.IsPowerShellAvailable(), Is.True);
         _workspace.CreateFile(@".git\HEAD", "ref: refs/heads/test-authored-command\n");
@@ -344,6 +365,81 @@ internal sealed class ButtonCommandExecutionServiceTests {
 
         AssertExecutedResult(result, button, 7, "stdout-ready\r\nstdout-tail", "stderr-ready\nstderr-tail");
         Assert.That(lines, Is.EquivalentTo(new[] { "stdout-ready", "stderr-ready", "stdout-tail", "stderr-tail" }));
+    }
+
+    [Test]
+    public async Task ExecuteAsync_InheritedPipes_FinalizesAfterLauncherExitWithoutStoppingDescendant() {
+        Assert.That(WorkspaceIssueFactory.IsPowerShellAvailable(), Is.True);
+        _workspace.CreateFile(@".git\HEAD", "ref: refs/heads/test-authored-command\n");
+        var readyPath = _workspace.GetPath("descendant-ready").Replace("'", "''");
+        var childCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(
+            $"[IO.File]::WriteAllText('{readyPath}', 'ready'); Start-Sleep -Seconds 60"));
+        var launcherReady = new TaskCompletionSource<Process>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var descendantReady = new TaskCompletionSource<Process>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lines = new ConcurrentQueue<string>();
+        var progress = new InlineProgress(line => {
+            lines.Enqueue(line);
+            if (line.StartsWith("launcher:", StringComparison.Ordinal))
+                launcherReady.SetResult(Process.GetProcessById(int.Parse(line["launcher:".Length..])));
+            if (line.StartsWith("descendant:", StringComparison.Ordinal))
+                descendantReady.SetResult(Process.GetProcessById(int.Parse(line["descendant:".Length..])));
+        });
+        // Process.Start without redirection inherits BOTH captured pipe handles. The descendant
+        // signals readiness but does not close those handles until explicitly cleaned up by this test.
+        var button = Button(
+            "[Console]::Out.WriteLine(\"launcher:$PID\")\n" +
+            "$info = [Diagnostics.ProcessStartInfo]::new([Environment]::ProcessPath)\n" +
+            "$info.UseShellExecute = $false\n" +
+            "$info.CreateNoWindow = $true\n" +
+            "$info.WorkingDirectory = [IO.Path]::GetTempPath()\n" +
+            $"$info.Arguments = '-NoProfile -NonInteractive -EncodedCommand {childCommand}'\n" +
+            "$child = [Diagnostics.Process]::Start($info)\n" +
+            "[Console]::Out.WriteLine(\"descendant:$($child.Id)\")\n" +
+            "$deadline = [DateTime]::UtcNow.AddSeconds(15)\n" +
+            "while (!(Test-Path descendant-ready) -or !(Test-Path allow-launcher-exit)) {\n" +
+            "    if ([DateTime]::UtcNow -gt $deadline) { exit 88 }\n" +
+            "    Start-Sleep -Milliseconds 20\n" +
+            "}\n" +
+            "[Console]::Out.Write('stdout-tail')\n" +
+            "[Console]::Error.Write('stderr-tail')\n" +
+            "exit 7");
+        var execution = new ButtonCommandExecutionService().ExecuteAsync(button, _snapshot, progress);
+        Process? launcher = null;
+        Process? descendant = null;
+        try {
+            launcher = await launcherReady.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            descendant = await descendantReady.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            // Acquire the launcher's handle before allowing it to exit, independently of pipe EOF.
+            _ = launcher.SafeHandle;
+            _ = descendant.SafeHandle;
+            File.WriteAllText(_workspace.GetPath("allow-launcher-exit"), "exit");
+            await launcher.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+
+            var result = await execution.WaitAsync(TimeSpan.FromSeconds(3));
+
+            AssertExecutedResult(result, button, 7,
+                $"launcher:{launcher.Id}{Environment.NewLine}descendant:{descendant.Id}{Environment.NewLine}stdout-tail",
+                "stderr-tail");
+            Assert.Multiple(() => {
+                Assert.That(descendant.HasExited, Is.False, "Finalization must not kill the inherited-handle owner.");
+                Assert.That(lines, Is.EquivalentTo(new[] {
+                    $"launcher:{launcher.Id}", $"descendant:{descendant.Id}", "stdout-tail", "stderr-tail" }));
+            });
+        }
+        finally {
+            // These handles belong only to this test; never discover or terminate unrelated processes.
+            launcher ??= launcherReady.Task.IsCompletedSuccessfully ? launcherReady.Task.Result : null;
+            descendant ??= descendantReady.Task.IsCompletedSuccessfully ? descendantReady.Task.Result : null;
+            foreach (var ownedProcess in new[] { launcher, descendant }) {
+                if (ownedProcess is null) continue;
+                using (ownedProcess) {
+                    if (!ownedProcess.HasExited)
+                        ownedProcess.Kill();
+                    await ownedProcess.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                }
+            }
+            await execution.WaitAsync(TimeSpan.FromSeconds(10));
+        }
     }
 
     [Test]
@@ -406,6 +502,22 @@ internal sealed class ButtonCommandExecutionServiceTests {
     private sealed class ChunkedReader(string text, int chunkSize) : StringReader(text) {
         public override ValueTask<int> ReadAsync(Memory<char> buffer, CancellationToken cancellationToken = default) =>
             base.ReadAsync(buffer[..Math.Min(chunkSize, buffer.Length)], cancellationToken);
+    }
+
+    private sealed class HeldOpenReader(string text) : TextReader {
+        private bool _returnedText;
+        public TaskCompletionSource ReadPending { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<int> PendingRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override ValueTask<int> ReadAsync(Memory<char> buffer, CancellationToken cancellationToken = default) {
+            if (!_returnedText) {
+                text.AsMemory().CopyTo(buffer);
+                _returnedText = true;
+                return ValueTask.FromResult(text.Length);
+            }
+            ReadPending.SetResult();
+            return new ValueTask<int>(PendingRead.Task);
+        }
     }
 
     private static ButtonDefinition Button(string command, ButtonCommandType type = ButtonCommandType.PowerShell,
