@@ -166,6 +166,8 @@
     <Compile Include="..\SquadDash\SquadCliSelectionStore.cs" Link="Source\SquadCliSelectionStore.cs" />
     <Compile Include="..\SquadDash\SquadCliCommands.cs" Link="Source\SquadCliCommands.cs" />
     <Compile Include="..\SquadDash\TraceCategory.cs" Link="Source\TraceCategory.cs" />
+    <Compile Include="..\SquadDash\TranscriptTitleFitPolicy.cs" Link="Source\TranscriptTitleFitPolicy.cs" />
+    <Compile Include="..\SquadDash\ResizeLayoutPerformanceAccumulator.cs" Link="Source\ResizeLayoutPerformanceAccumulator.cs" />
     <Compile Include="..\SquadDash\TranscriptViewMode.cs" Link="Source\TranscriptViewMode.cs" />
     <Compile Include="..\SquadDash\ILiveTraceTarget.cs" Link="Source\ILiveTraceTarget.cs" />
     <Compile Include="..\SquadDash\TranscriptInactiveSelectionAdorner.cs" Link="Source\TranscriptInactiveSelectionAdorner.cs" />

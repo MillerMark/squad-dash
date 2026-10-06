@@ -232,7 +232,7 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
         TraceCategory.Inbox        => "Inbox save pipeline — INBOX_MESSAGE_JSON detection, stripping, parsing, and InboxStore.Save calls.",
         TraceCategory.General      => "Catch-all for trace messages that don't belong to a specific category.",
         TraceCategory.Load         => "Workspace and data loading — conversation store reads, thread restore, and workspace-open lifecycle.",
-        TraceCategory.Performance  => "Startup and render timing — TURN_RENDER, LOAD UI, SCROLL_SETTLE, VIRTUAL_PREPEND, and other perf markers.",
+        TraceCategory.Performance  => "Startup and render timing — TURN_RENDER, LOAD UI, SCROLL_SETTLE, VIRTUAL_PREPEND, RESIZE, LAYOUT_PASS, and other perf markers.",
         TraceCategory.PromptHealth => "Prompt text diagnostics — context size, token estimates, and prompt-health check events.",
         TraceCategory.Routing      => "Agent routing decisions — quick-reply routing, thread selection, and routing-issue publications.",
         TraceCategory.Scroll       => "Scroll position tracking — viewport anchoring, extent-change re-anchor, scroll-to-bottom button show/hide.",

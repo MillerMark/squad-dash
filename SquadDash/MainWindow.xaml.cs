@@ -1508,6 +1508,7 @@ public partial class MainWindow : Window
         };
         SizeChanged += (_, e) =>
         {
+            var resizeStarted = System.Diagnostics.Stopwatch.GetTimestamp();
             try
             {
                 OnMainWindowMoved();
@@ -1517,6 +1518,11 @@ public partial class MainWindow : Window
             catch (Exception ex)
             {
                 HandleUiCallbackException("Window.SizeChanged", ex);
+            }
+            finally
+            {
+                OnWindowSizeChangedForResizeTrace(e,
+                    System.Diagnostics.Stopwatch.GetElapsedTime(resizeStarted).TotalMilliseconds);
             }
         };
         StateChanged += (_, _) =>
@@ -41213,10 +41219,10 @@ public partial class MainWindow : Window
         var fullText = !string.IsNullOrWhiteSpace(relativeTime)
             ? $"{baseText} - {relativeTime}"
             : baseText;
+        CacheMainTranscriptTitleFitInputs(thread, baseText, relativeTime);
 
         var availableWidth = TranscriptTitleDockPanel.ActualWidth
             - PromptNavButtonsPanel.ActualWidth
-            - TranscriptTitleSpinner.DesiredSize.Width
             - TranscriptTitleTextBlock.Margin.Left
             - TranscriptTitleTextBlock.Margin.Right;
 
@@ -41227,62 +41233,7 @@ public partial class MainWindow : Window
                 FindAgentCardForThread(thread), thread, baseText, relativeTime);
             return;
         }
-
-        var nominalSize = TranscriptTitleTextBlock.TryFindResource("FontSizeSubtitle") is double d ? d : 13.0;
-
-        double Measure(string text, double fontSize)
-        {
-            try
-            {
-                var ft = new FormattedText(text,
-                    System.Globalization.CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight,
-                    new Typeface(TranscriptTitleTextBlock.FontFamily, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal),
-                    fontSize,
-                    Brushes.Black,
-                    VisualTreeHelper.GetDpi(TranscriptTitleTextBlock).PixelsPerDip);
-                return ft.Width;
-            }
-            catch { return double.MaxValue; }
-        }
-
-        TranscriptTitleTextBlock.TextTrimming = TextTrimming.None;
-
-        if (Measure(fullText, nominalSize) <= availableWidth)
-        {
-            TranscriptTitleTextBlock.Text = fullText;
-            TranscriptTitleTextBlock.FontSize = nominalSize;
-        }
-        else if (Measure(fullText, nominalSize * 0.85) <= availableWidth)
-        {
-            TranscriptTitleTextBlock.Text = fullText;
-            TranscriptTitleTextBlock.FontSize = nominalSize * 0.85;
-        }
-        else if (Measure(fullText, nominalSize * 0.70) <= availableWidth)
-        {
-            TranscriptTitleTextBlock.Text = fullText;
-            TranscriptTitleTextBlock.FontSize = nominalSize * 0.70;
-        }
-        else if (Measure(baseText, nominalSize) <= availableWidth)
-        {
-            // Full text doesn't fit at 70% — keep full text with ellipsis so time
-            // is still visible (truncated) rather than completely dropped.
-            TranscriptTitleTextBlock.Text = fullText;
-            TranscriptTitleTextBlock.FontSize = nominalSize;
-            TranscriptTitleTextBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-        }
-        else if (Measure(baseText, nominalSize * 0.70) <= availableWidth)
-        {
-            TranscriptTitleTextBlock.Text = fullText;
-            TranscriptTitleTextBlock.FontSize = nominalSize * 0.70;
-            TranscriptTitleTextBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-        }
-        else
-        {
-            TranscriptTitleTextBlock.Text = fullText;
-            TranscriptTitleTextBlock.FontSize = nominalSize * 0.70;
-            TranscriptTitleTextBlock.TextTrimming = TextTrimming.CharacterEllipsis;
-        }
+        ApplyMainTranscriptTitleFit(fullText, baseText, availableWidth);
 
         TranscriptTitleTextBlock.ToolTip = BuildSecondaryTranscriptInfoTooltip(
             FindAgentCardForThread(thread), thread, baseText, relativeTime);
@@ -42874,9 +42825,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var activeThread = _selectedTranscriptThread ?? CoordinatorThread;
-            if (activeThread.Kind != TranscriptThreadKind.Coordinator)
-                UpdateTranscriptThreadBadge();
+            OnTranscriptTitleDockSizeChanged(e);
         }
         catch (Exception ex)
         {
@@ -50307,6 +50256,7 @@ public partial class MainWindow : Window
             if (_onDocRevisionCompleted is not null)     _broker.Unsubscribe(_onDocRevisionCompleted);
             DetachDispatcherDiagnostics();
             _isClosing = true;
+            DisposeResizeAndTitlePerfTracking();
             StopPttCtrlPollTimer();
             _promptHealthTimer.Stop();
             _statusPresentationTimer.Stop();

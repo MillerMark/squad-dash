@@ -171,6 +171,100 @@ internal sealed class TranscriptTitleSpinnerTests
     }
 
     [Test]
+    public void SettledSpinner_RendersWithoutInvalidatingLayout()
+    {
+        var spinner = Spinner();
+        spinner.SetContinuousActive(true);
+        Tick(spinner, 200);
+        var size = new Size(100, 40);
+        var invalidMeasureFrames = 0;
+        var invalidArrangeFrames = 0;
+        for (var i = 0; i < 120; i++)
+        {
+            spinner.Measure(size);
+            spinner.Arrange(new Rect(size));
+            Tick(spinner, 1);
+            if (!spinner.IsMeasureValid) invalidMeasureFrames++;
+            if (!spinner.IsArrangeValid) invalidArrangeFrames++;
+        }
+
+        TestContext.Out.WriteLine($"Settled spinner / 120 ticks: measureInvalid={invalidMeasureFrames}, arrangeInvalid={invalidArrangeFrames}");
+        Assert.Multiple(() =>
+        {
+            Assert.That(invalidMeasureFrames, Is.Zero);
+            Assert.That(invalidArrangeFrames, Is.Zero);
+        });
+    }
+
+    [Test]
+    public void ResizingWithMultipleSpinners_DoesNotQueueExtraLayoutForFrameDrawing()
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        for (var i = 0; i < 12; i++)
+        {
+            var spinner = Spinner();
+            spinner.SetContinuousActive(true);
+            Tick(spinner, 200);
+            panel.Children.Add(spinner);
+        }
+        var extraLayoutRequests = 0;
+        for (var frame = 0; frame < 120; frame++)
+        {
+            var size = new Size(500 + frame, 40);
+            panel.Measure(size);
+            panel.Arrange(new Rect(size));
+            foreach (var spinner in _spinners)
+            {
+                Tick(spinner, 1);
+                if (!spinner.IsMeasureValid || !spinner.IsArrangeValid)
+                    extraLayoutRequests++;
+            }
+        }
+        TestContext.Out.WriteLine($"12 spinners / 120 resize frames: extraLayoutRequests={extraLayoutRequests}");
+        Assert.That(extraLayoutRequests, Is.Zero);
+    }
+
+    [Test]
+    public void RenderOnlyFrames_UpdateChildDrawingAndClearItAfterFade()
+    {
+        var spinner = Spinner();
+        spinner.Pulse(SpinnerActivityKind.Writing);
+        Tick(spinner, 12);
+        Assert.That(VisualTreeHelper.GetChildrenCount(spinner), Is.EqualTo(1));
+        var visual = (DrawingVisual)VisualTreeHelper.GetChild(spinner, 0);
+        var before = visual.Drawing;
+        Tick(spinner, 1);
+        Assert.Multiple(() =>
+        {
+            Assert.That(visual.Drawing, Is.Not.SameAs(before));
+            Assert.That(visual.ContentBounds.IsEmpty, Is.False);
+            Assert.That(State<double>(spinner, "_writeDotRadius"), Is.GreaterThan(0.5));
+        });
+        spinner.BeginForcedFadeOut();
+        Tick(spinner, 200);
+        Assert.Multiple(() =>
+        {
+            Assert.That(spinner.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(visual.ContentBounds.IsEmpty, Is.True);
+        });
+    }
+
+    [Test]
+    public void FontSizeChange_StillRemeasuresAndSettlesToExactExpandedWidth()
+    {
+        var spinner = Spinner();
+        spinner.SetContinuousActive(true);
+        Tick(spinner, 200);
+        spinner.Measure(new Size(100, 40));
+        spinner.FontSize = 20;
+        Assert.That(spinner.IsMeasureValid, Is.False);
+        Tick(spinner, 200);
+        spinner.Measure(new Size(100, 40));
+        Assert.That(spinner.DesiredSize.Width,
+            Is.EqualTo(ActivitySpinner.GetExpandedLayoutWidth(20)).Within(0.0001));
+    }
+
+    [Test]
     public void DockedTitle_FollowsAnimatedWidthAndReturnsToLeftWithoutResidualGap()
     {
         var card = Card();
@@ -226,6 +320,7 @@ internal sealed class TranscriptTitleSpinnerTests
             Assert.That(children.IndexOf(spinner) + 1, Is.EqualTo(children.IndexOf(title)));
             Assert.That((string?)spinner.Attribute("DockPanel.Dock"), Is.EqualTo("Left"));
             Assert.That((string?)spinner.Attribute("FontSize"), Is.EqualTo("{Binding FontSize, ElementName=TranscriptTitleTextBlock}"));
+            Assert.That((string?)spinner.Attribute("IsVisibleChanged"), Is.EqualTo("TranscriptTitleSpinner_IsVisibleChanged"));
             Assert.That(spinner.Attribute("Width"), Is.Null);
             Assert.That(spinner.Attribute("MinWidth"), Is.Null);
             Assert.That(spinner.Attribute("Margin"), Is.Null);
@@ -234,8 +329,9 @@ internal sealed class TranscriptTitleSpinnerTests
         });
         var source = ReadSource("MainWindow.xaml.cs");
         Assert.That(source, Does.Contain("TranscriptTitleSpinner.DataContext = FindAgentCardForThread(thread);")
-            .And.Contain("TranscriptTitleSpinner.DataContext = _leadAgent;")
-            .And.Contain("- TranscriptTitleSpinner.DesiredSize.Width"));
+            .And.Contain("TranscriptTitleSpinner.DataContext = _leadAgent;"));
+        Assert.That(ReadSource("MainWindow.ResizePerformance.cs"),
+            Does.Contain("ActivitySpinner.GetExpandedLayoutWidth(fontSize)"));
     }
 
     private ActivitySpinner Spinner(AgentStatusCard? card = null, double fontSize = 12)

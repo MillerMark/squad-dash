@@ -11,7 +11,7 @@ namespace SquadDash;
 public enum SpinnerActivityKind { Thinking, Reading, Writing }
 
 /// <summary>
-/// Physics-based activity spinner drawn directly via OnRender.
+/// Physics-based activity spinner drawn into a retained child visual.
 /// Subscribes to its DataContext (AgentStatusCard) for activity pulses.
 /// </summary>
 public sealed class ActivitySpinner : FrameworkElement
@@ -42,6 +42,8 @@ public sealed class ActivitySpinner : FrameworkElement
     // Animated layout width (drives smooth text slide)
     private double _animatedWidth = 0.0;
     private double _widthTarget = 0.0;
+    private double _measuredWidth;
+    private readonly DrawingVisual _drawing = new();
 
     // Dynamic sizing — driven by FontSize dependency property
     public static readonly DependencyProperty FontSizeProperty =
@@ -49,7 +51,7 @@ public sealed class ActivitySpinner : FrameworkElement
             nameof(FontSize), typeof(double), typeof(ActivitySpinner),
             new FrameworkPropertyMetadata(
                 12.0,
-                FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender,
+                FrameworkPropertyMetadataOptions.AffectsMeasure,
                 OnFontSizeChanged));
 
     /// <summary>Body font size used to size the spinner. Diameter = FontSize × 1.2 × 0.85.</summary>
@@ -65,9 +67,12 @@ public sealed class ActivitySpinner : FrameworkElement
         // Keep layout width target in sync when spinner is active
         if (spinner._scaleTarget > 0.0)
             spinner._widthTarget = spinner.Diameter + 4;
+        spinner.DrawFrame();
     }
 
-    private double Diameter => FontSize * 1.2 * 0.85;
+    internal static double GetExpandedLayoutWidth(double fontSize) => fontSize * 1.2 * 0.85 + 4;
+
+    private double Diameter => GetExpandedLayoutWidth(FontSize) - 4;
 
     // Timers
     private readonly DispatcherTimer _physicsTimer;
@@ -129,7 +134,7 @@ public sealed class ActivitySpinner : FrameworkElement
 
     public ActivitySpinner()
     {
-
+        AddVisualChild(_drawing);
         _spinnerOpacity = 0;
         Visibility = Visibility.Collapsed;
 
@@ -220,7 +225,7 @@ public sealed class ActivitySpinner : FrameworkElement
         MinimumAngularVelocity = 0;
         Visibility = Visibility.Collapsed;
         InvalidateMeasure();
-        InvalidateVisual();
+        DrawFrame();
     }
 
     private void CopyActivityFrom(ActivitySpinner source)
@@ -248,7 +253,7 @@ public sealed class ActivitySpinner : FrameworkElement
         if (source._physicsTimer.IsEnabled)
             _physicsTimer.Start();
         InvalidateMeasure();
-        InvalidateVisual();
+        DrawFrame();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -287,7 +292,7 @@ public sealed class ActivitySpinner : FrameworkElement
     {
         SyncAccentColor();
         if (_physicsTimer.IsEnabled)
-            InvalidateVisual();
+            DrawFrame();
     }
 
     // ── Activity pulse entry point ──────────────────────────────────────────
@@ -463,9 +468,11 @@ public sealed class ActivitySpinner : FrameworkElement
         if (_scaleTarget == 0.0 && _currentScale < 0.01 && _writeDotRadius < 0.5)
             _widthTarget = 0.0;
 
-        var prevAnimatedWidth = _animatedWidth;
         _animatedWidth += (_widthTarget - _animatedWidth) * Math.Min(1.0, dt / 0.4);
-        if (Math.Abs(_animatedWidth - prevAnimatedWidth) > 0.05)
+        if (Math.Abs(_widthTarget - _animatedWidth) < 0.05)
+            _animatedWidth = _widthTarget;
+        if (Math.Abs(_animatedWidth - _measuredWidth) > 0.05
+            || (_animatedWidth == _widthTarget && _animatedWidth != _measuredWidth))
             InvalidateMeasure();
 
         // ────────────────────────────────────────────────────────────────────
@@ -480,10 +487,11 @@ public sealed class ActivitySpinner : FrameworkElement
             _physicsTimer.Stop();
             Visibility = Visibility.Collapsed;
             InvalidateMeasure();
+            DrawFrame();
             return;
         }
 
-        InvalidateVisual();
+        DrawFrame();
     }
 
     // ── Layout ──────────────────────────────────────────────────────────────
@@ -491,6 +499,7 @@ public sealed class ActivitySpinner : FrameworkElement
     protected override Size MeasureOverride(Size availableSize)
     {
         var h = Diameter + 4; // 2px padding each side
+        _measuredWidth = _animatedWidth;
         return new(_animatedWidth, h);
     }
 
@@ -501,8 +510,16 @@ public sealed class ActivitySpinner : FrameworkElement
 
     // ── Rendering ───────────────────────────────────────────────────────────
 
-    protected override void OnRender(DrawingContext dc)
+    protected override int VisualChildrenCount => 1;
+
+    protected override Visual GetVisualChild(int index) =>
+        index == 0 ? _drawing : throw new ArgumentOutOfRangeException(nameof(index));
+
+    private void DrawFrame()
     {
+        // UIElement.InvalidateVisual also invalidates arrange. Updating a child visual
+        // keeps rotation, opacity and writing-dot frames out of WPF's layout queue.
+        using var dc = _drawing.RenderOpen();
         var renderSpinner = _spinnerOpacity > 0;
         var renderDot     = _writeDotRadius > 0.5;
 
