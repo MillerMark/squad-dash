@@ -11,7 +11,7 @@ namespace SquadDash;
 
 public static class TranscriptTitleSpinnerLayout
 {
-    internal const double FontScale = 0.6;
+    internal const double FontScale = 0.8;
 
     private readonly record struct MeasureKey(
         string Text, double FontSize, double Dpi, Typeface Typeface, string Culture, FlowDirection FlowDirection);
@@ -47,7 +47,7 @@ public static class TranscriptTitleSpinnerLayout
             return;
         }
 
-        spinner.Opacity = 0.8;
+        spinner.Opacity = 0.85;
         spinner.SetBinding(ActivitySpinner.FontSizeProperty, new Binding(nameof(TextBlock.FontSize))
         {
             Source = title,

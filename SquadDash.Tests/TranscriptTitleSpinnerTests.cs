@@ -287,7 +287,7 @@ internal sealed class TranscriptTitleSpinnerTests
         var initialX = LayoutTitleX(panel, title);
         Assert.That(initialX, Is.EqualTo(TranscriptTitleSpinnerLayout.GetExpandedWidth(title, 16)).Within(0.001));
         title.FontSize = 20;
-        Assert.That(spinner.FontSize, Is.EqualTo(12));
+        Assert.That(spinner.FontSize, Is.EqualTo(16));
         Tick(spinner, 40);
         var previousX = LayoutTitleX(panel, title);
         card.NotifyTurnEnded();
@@ -386,10 +386,10 @@ internal sealed class TranscriptTitleSpinnerTests
             var x = LayoutTitleX(panel, title);
             Assert.Multiple(() =>
             {
-                Assert.That(spinner.FontSize, Is.EqualTo(title.FontSize * 0.6).Within(0.0001));
+                Assert.That(spinner.FontSize, Is.EqualTo(title.FontSize * 0.8).Within(0.0001));
                 Assert.That(spinner.Margin, Is.EqualTo(new Thickness(0, 0, space, 0)));
                 Assert.That(space, Is.GreaterThan(0));
-                Assert.That(x, Is.EqualTo(ActivitySpinner.GetExpandedLayoutWidth(title.FontSize * 0.6) + space).Within(0.001));
+                Assert.That(x, Is.EqualTo(ActivitySpinner.GetExpandedLayoutWidth(title.FontSize * 0.8) + space).Within(0.001));
                 Assert.That(spinner.TranslatePoint(new Point(0, spinner.ActualHeight / 2), panel).Y,
                     Is.EqualTo(title.TranslatePoint(new Point(0, title.ActualHeight / 2), panel).Y).Within(0.001));
             });
@@ -567,10 +567,10 @@ internal sealed class TranscriptTitleSpinnerTests
                         Assert.That(spinner.ActualHeight, Is.GreaterThan(4));
                         Assert.That(space, Is.GreaterThan(2), "A real title-font space must not collapse to zero.");
                         Assert.That(titleX - right, Is.EqualTo(space).Within(0.001));
-                        Assert.That(spinner.Opacity, Is.EqualTo(0.8));
-                        Assert.That(peakAlpha, Is.InRange(80, 204), "The actual spinner pixels must render at title-only opacity.");
+                        Assert.That(spinner.Opacity, Is.EqualTo(0.85));
+                        Assert.That(peakAlpha, Is.InRange(80, 218), "The actual spinner pixels must render at title-only opacity.");
                         if (i == 2)
-                            Assert.That(peakAlpha, Is.EqualTo(204), "The writing-dot border must peak at 80% alpha.");
+                            Assert.That(peakAlpha, Is.InRange(214, 218), "The writing-dot border must peak at 85% alpha.");
                         Assert.That(redPixels, i == 2 ? Is.GreaterThan(0) : Is.Zero);
                     });
                     for (var y = 0; y < bitmap.PixelHeight; y++)
