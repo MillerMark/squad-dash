@@ -1,4 +1,4 @@
-﻿<!-- decompose-group: SQUADCLI-20260826 | branch: upgrade/squad-cli-0-12-compat | revision: 3f0c2db8b77b06be -->
+<!-- decompose-group: SQUADCLI-20260826 | branch: upgrade/squad-cli-0-12-compat | revision: 3f0c2db8b77b06be -->
 **[SQUADCLI-20260826] Upgrade SquadDash to Squad CLI 0.12**
 > Upgrade SquadDash from Squad CLI 0.10-era assumptions to 0.12-compatible behavior across SDK bridge, CLI resolution, model catalog refresh, update detection, and workspace upgrade dry-run, while preserving explicit fallback behavior for older CLI installs where required.
 
