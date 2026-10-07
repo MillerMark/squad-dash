@@ -55,6 +55,7 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public string ThreadId { get; }
     public TranscriptThreadKind Kind { get; }
     public FlowDocument Document { get; }
+    internal TranscriptSpinnerActivitySource SpinnerActivity { get; } = new();
     public TranscriptTurnView? CurrentTurn { get; set; }
     public Paragraph? TransientFooterParagraph { get; set; }
     public Paragraph? CompletedTimeParagraph { get; set; }

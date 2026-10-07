@@ -1131,7 +1131,8 @@ public partial class MainWindow : Window
             observeBackgroundAgentActivity: (thread, reason) => _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, reason),
             renderConversationHistory: (thread, turns) => _conversationManager.RenderConversationHistoryAsync(thread, turns),
             resolveBackgroundAgentDisplayLabel: agent => _backgroundTaskPresenter.ResolveBackgroundAgentDisplayLabel(agent),
-            buildAgentLabel: thread => BackgroundTaskPresenter.BuildBackgroundAgentLabel(thread));
+            buildAgentLabel: thread => BackgroundTaskPresenter.BuildBackgroundAgentLabel(thread),
+            notifyThreadEnded: NotifyAgentThreadEnded);
         _backgroundTaskPresenter = new BackgroundTaskPresenter(
             agentThreadRegistry: _agentThreadRegistry,
             appendLine: (text, brush) => AppendLine(text, brush),
@@ -6426,8 +6427,6 @@ public partial class MainWindow : Window
                 _backgroundTaskPresenter.RefreshLeadAgentBackgroundStatus();
                 FlushDeferredSystemLines();
                 _leadAgent?.NotifyTurnEnded();
-                foreach (var agentThread in _agentThreadRegistry.ThreadOrder)
-                    FindAgentCardForThread(agentThread)?.NotifyTurnEnded();
                 {
                     var agentName = _leadAgent?.Name ?? "Agent";
                     var rawResponse = doneCurrentTurn?.ResponseTextBuilder.ToString();
@@ -7184,7 +7183,6 @@ public partial class MainWindow : Window
         thread.CompletionFooterProfileAlias = string.IsNullOrEmpty(subagentMsgAlias) ? null : subagentMsgAlias;
 
         thread.ResponseStreamed = false;
-        FindAgentCardForThread(thread)?.NotifyTurnEnded();
 
         SyncThreadChip(thread);
         UpdateAgentCardFromThread(thread);
@@ -7470,7 +7468,7 @@ public partial class MainWindow : Window
             observedAt,
             AllocateNarrativeSequence(thread.CurrentTurn!));
         SyncThreadChip(thread);
-        FindAgentCardForThread(thread)?.NotifyActivityPaused();
+        NotifyAgentThreadActivityPaused(thread);
         UpdateAgentCardFromThread(thread, syncBuckets: true);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_throttled");
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
@@ -25103,6 +25101,7 @@ public partial class MainWindow : Window
             if (card is null)
                 continue;
 
+            thread.SpinnerActivity.AccentSource = card;
             card.Threads.Add(thread);
         }
 
@@ -41742,7 +41741,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        TranscriptTitleSpinner.DataContext = FindAgentCardForThread(thread);
+        TranscriptTitleSpinner.DataContext = thread.SpinnerActivity;
         var title = thread.DisplayTitle?.Trim();
         var displayTitle = string.IsNullOrWhiteSpace(title) ? "Agent" : AbbreviateAgentName(title);
         var possessive = $"{displayTitle}'s transcript";
@@ -42376,7 +42375,7 @@ public partial class MainWindow : Window
                 SquadDashTrace.Write(TraceCategory.TranscriptPanels,
                     $"RefreshSecondaryTranscriptEntries remapped panel thread={entry.Thread.ThreadId} oldAgent={entry.Agent.Name} newAgent={currentCard.Name}");
                 entry.Agent = currentCard;
-                entry.TitleSpinner.DataContext = currentCard;
+                entry.Thread.SpinnerActivity.AccentSource = currentCard;
                 // Keep the ownership map in sync — the panel border key is stable but the
                 // AgentStatusCard instance just changed (dynamic agents are torn down and
                 // recreated by EnsureDynamicAgentCards).  Without this update,
@@ -42445,7 +42444,8 @@ public partial class MainWindow : Window
         };
         titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        var titleRow = TranscriptTitleSpinnerLayout.CreateSecondaryTitleRow(titleBlock, agent, out var titleSpinner);
+        thread.SpinnerActivity.AccentSource = agent;
+        var titleRow = TranscriptTitleSpinnerLayout.CreateSecondaryTitleRow(titleBlock, thread.SpinnerActivity, out var titleSpinner);
         titleBlock.ToolTip = BuildSecondaryTranscriptInfoTooltip(agent, thread, initialBaseText, null);
         titleBlock.PreviewMouseRightButtonUp += (_, e) =>
         {
@@ -53557,6 +53557,7 @@ public partial class MainWindow : Window
         SpinnerActivityKind kind,
         TranscriptThreadState? thread = null)
     {
+        thread?.SpinnerActivity.FireActivityPulse(kind);
         card?.FireActivityPulse(kind);
 
         var execution = _conversationManager.ConversationState.ActiveLoopExecution;
@@ -53586,6 +53587,31 @@ public partial class MainWindow : Window
 
         _broker.Publish(new PlanTaskActivityPulseEvent(planId, taskId, kind));
     }
+
+    private void NotifyAgentThreadEnded(TranscriptThreadState thread)
+    {
+        thread.SpinnerActivity.NotifyTurnEnded();
+
+        var card = FindAgentCardForThread(thread);
+        if (card is not null && !HasOtherActiveThread(card, thread))
+            card.NotifyTurnEnded();
+    }
+
+    private void NotifyAgentThreadActivityPaused(TranscriptThreadState thread)
+    {
+        thread.SpinnerActivity.NotifyActivityPaused();
+
+        var card = FindAgentCardForThread(thread);
+        if (card is not null && !HasOtherActiveThread(card, thread))
+            card.NotifyActivityPaused();
+    }
+
+    private static bool HasOtherActiveThread(AgentStatusCard card, TranscriptThreadState excludedThread) =>
+        card.Threads.Any(candidate =>
+            !ReferenceEquals(candidate, excludedThread) &&
+            candidate.CompletedAt is null &&
+            candidate.IsCurrentBackgroundRun &&
+            !AgentThreadRegistry.IsTerminalBackgroundStatus(candidate.StatusText));
 
     private void UpdateAgentCardImageVisibility(double windowHeight)
     {

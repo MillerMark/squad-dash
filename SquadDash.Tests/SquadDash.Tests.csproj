@@ -392,6 +392,7 @@
     <Compile Include="..\SquadDash\BridgeEventDispatchQueue.cs" Link="Source\BridgeEventDispatchQueue.cs" />
     <Compile Include="..\SquadDash\PostedUiActionTracker.cs" Link="Source\PostedUiActionTracker.cs" />
     <Compile Include="..\SquadDash\AgentStatusCard.cs" Link="Source\AgentStatusCard.cs" />
+    <Compile Include="..\SquadDash\SpinnerActivitySource.cs" Link="Source\SpinnerActivitySource.cs" />
     <Compile Include="..\SquadDash\ActivitySpinner.cs" Link="Source\ActivitySpinner.cs" />
     <Compile Include="..\SquadDash\TranscriptSelectionController.cs" Link="Source\TranscriptSelectionController.cs" />
     <Compile Include="..\SquadDash\TranscriptPanelOwnershipMap.cs" Link="Source\TranscriptPanelOwnershipMap.cs" />

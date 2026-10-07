@@ -680,6 +680,20 @@ internal sealed class AgentThreadRegistryTests {
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void FinalizeAgentThread_TerminalStatus_NotifiesTurnEnded() {
+        TranscriptThreadState? notified = null;
+        var registry = MakeRegistry(notifyThreadEnded: thread => notified = thread);
+        var thread = registry.GetOrCreateAgentThread(
+            "tool-terminal", "lira-terminal", "lira-morn", "Lira Morn",
+            null, "running", "Test terminal spinner cleanup", DateTimeOffset.UtcNow.ToString("O"));
+        thread.StatusText = "Completed";
+
+        registry.FinalizeAgentThread(thread);
+
+        Assert.That(notified, Is.SameAs(thread));
+    }
+
     // ── Static: HasRosterBackedIdentity ─────────────────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]
@@ -702,7 +716,8 @@ internal sealed class AgentThreadRegistryTests {
 
     private static AgentThreadRegistry MakeRegistry(
         Func<TeamAgentDescriptor[]>? getKnownTeamAgentDescriptors = null,
-        Action<TranscriptThreadState, string?>? beginTranscriptTurn = null) =>
+        Action<TranscriptThreadState, string?>? beginTranscriptTurn = null,
+        Action<TranscriptThreadState>? notifyThreadEnded = null) =>
         new AgentThreadRegistry(
             beginTranscriptTurn:              beginTranscriptTurn ?? ((_, _) => { }),
             finalizeCurrentTurnResponse:      _ => { },
@@ -721,7 +736,8 @@ internal sealed class AgentThreadRegistryTests {
             observeBackgroundAgentActivity:   (_, _) => { },
             renderConversationHistory:        (_, _) => Task.CompletedTask,
             resolveBackgroundAgentDisplayLabel: _ => string.Empty,
-            buildAgentLabel:                  _ => string.Empty);
+            buildAgentLabel:                  _ => string.Empty,
+            notifyThreadEnded:                notifyThreadEnded);
 
     private static TranscriptThreadState MakeThread(string threadId, string title) =>
         new TranscriptThreadState(

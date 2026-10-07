@@ -101,6 +101,7 @@ internal sealed class AgentThreadRegistry {
     private readonly Func<TranscriptThreadState, IReadOnlyList<TranscriptTurnRecord>, Task> _renderConversationHistory;
     private readonly Func<SquadBackgroundAgentInfo, string> _resolveBackgroundAgentDisplayLabel;
     private readonly Func<TranscriptThreadState, string> _buildAgentLabel;
+    private readonly Action<TranscriptThreadState>? _notifyThreadEnded;
 
     /// <summary>
     /// When set, called for each APPROVAL_GROUP_JSON block found in a completed
@@ -126,7 +127,8 @@ internal sealed class AgentThreadRegistry {
         Action<TranscriptThreadState, string> observeBackgroundAgentActivity,
         Func<TranscriptThreadState, IReadOnlyList<TranscriptTurnRecord>, Task> renderConversationHistory,
         Func<SquadBackgroundAgentInfo, string> resolveBackgroundAgentDisplayLabel,
-        Func<TranscriptThreadState, string> buildAgentLabel) {
+        Func<TranscriptThreadState, string> buildAgentLabel,
+        Action<TranscriptThreadState>? notifyThreadEnded = null) {
 
         _beginTranscriptTurn              = beginTranscriptTurn;
         _finalizeCurrentTurnResponse      = finalizeCurrentTurnResponse;
@@ -146,6 +148,7 @@ internal sealed class AgentThreadRegistry {
         _renderConversationHistory        = renderConversationHistory;
         _resolveBackgroundAgentDisplayLabel = resolveBackgroundAgentDisplayLabel;
         _buildAgentLabel                  = buildAgentLabel;
+        _notifyThreadEnded                = notifyThreadEnded;
     }
 
     // ── Thread creation ──────────────────────────────────────────────────────
@@ -560,6 +563,7 @@ internal sealed class AgentThreadRegistry {
         if (IsTerminalBackgroundStatus(thread.StatusText)) {
             thread.IsSteeringTurnActive = false;
             thread.SteeringTurnId = null;
+            _notifyThreadEnded?.Invoke(thread);
         }
         _syncThreadChip(thread);
         ParseAndApplyApprovalGroups(thread, rawResponse);

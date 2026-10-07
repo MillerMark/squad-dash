@@ -82,25 +82,21 @@ internal sealed class TranscriptTitleSpinnerTests
         }
     }
 
-    [TestCase(false, 3.0)]
-    [TestCase(true, 0.2)]
-    public void SelectingFadingCard_PreservesFadeProgressAndDoesNotRestartCompletedTurn(bool paused, double duration)
+    [Test]
+    public void SelectingPausedCard_PreservesFadeProgress()
     {
         var card = Card();
         var source = Spinner(card);
         card.FireActivityPulse(SpinnerActivityKind.Writing);
         Tick(source, 12);
-        if (paused)
-            card.NotifyActivityPaused();
-        else
-            card.NotifyTurnEnded();
+        card.NotifyActivityPaused();
         Tick(source, 1);
 
         var title = Spinner(card);
         Assert.Multiple(() =>
         {
             Assert.That(State<bool>(title, "_forcedFadeOutActive"), Is.True);
-            Assert.That(State<double>(title, "_forcedFadeOutDuration"), Is.EqualTo(duration));
+            Assert.That(State<double>(title, "_forcedFadeOutDuration"), Is.EqualTo(0.2));
             Assert.That(State<double>(title, "_forcedFadeOutElapsed"),
                 Is.EqualTo(State<double>(source, "_forcedFadeOutElapsed")));
         });
@@ -112,6 +108,37 @@ internal sealed class TranscriptTitleSpinnerTests
             Assert.That(source.Visibility, Is.EqualTo(Visibility.Collapsed));
             Assert.That(title.Visibility, Is.EqualTo(Visibility.Collapsed));
             Assert.That(completedTitle.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+    }
+
+    [Test]
+    public void TurnEnded_FadesSpinnerAndTitleSpacingOverFourTenthsOfASecond()
+    {
+        var card = Card();
+        var spinner = Spinner(card);
+        card.FireActivityPulse(SpinnerActivityKind.Writing);
+        Tick(spinner, 12);
+
+        card.NotifyTurnEnded();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(spinner.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(State<bool>(spinner, "_forcedFadeOutActive"), Is.True);
+            Assert.That(State<double>(spinner, "_forcedFadeOutDuration"), Is.EqualTo(0.4));
+        });
+        Tick(spinner, 4);
+        Assert.That(spinner.Visibility, Is.EqualTo(Visibility.Visible));
+        Assert.That(State<double>(spinner, "_animatedWidth"), Is.LessThan(ActivitySpinner.GetExpandedLayoutWidth(spinner.FontSize)));
+
+        Tick(spinner, 5);
+        Assert.Multiple(() =>
+        {
+            Assert.That(spinner.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(State<DispatcherTimer>(spinner, "_physicsTimer").IsEnabled, Is.False);
+            Assert.That(State<double>(spinner, "_animatedWidth"), Is.Zero);
+            Assert.That(State<double>(spinner, "_angularVelocity"), Is.Zero);
+            Assert.That(State<double>(spinner, "_writeDotRadius"), Is.Zero);
         });
     }
 
@@ -270,7 +297,7 @@ internal sealed class TranscriptTitleSpinnerTests
     }
 
     [Test]
-    public void DockedTitle_FollowsAnimatedWidthAndReturnsToLeftWithoutResidualGap()
+    public void DockedTitle_SlidesLeftDuringTurnEndedFade()
     {
         var card = Card();
         var spinner = Spinner(card);
@@ -291,20 +318,21 @@ internal sealed class TranscriptTitleSpinnerTests
         Tick(spinner, 40);
         var previousX = LayoutTitleX(panel, title);
         card.NotifyTurnEnded();
-        var intermediatePositions = new HashSet<double>();
-        for (var i = 0; i < 200; i++)
+        var intermediatePositions = new List<double>();
+        for (var i = 0; i < 4; i++)
         {
             Tick(spinner, 1);
             var x = LayoutTitleX(panel, title);
-            Assert.That(x, Is.LessThanOrEqualTo(previousX + 0.01));
-            if (x > 0.5 && x < initialX)
-                intermediatePositions.Add(Math.Round(x, 2));
+            Assert.That(x, Is.LessThan(previousX));
+            intermediatePositions.Add(x);
             previousX = x;
         }
+        Tick(spinner, 5);
+        var finalX = LayoutTitleX(panel, title);
         Assert.Multiple(() =>
         {
-            Assert.That(intermediatePositions.Count, Is.GreaterThan(10));
-            Assert.That(previousX, Is.Zero);
+            Assert.That(intermediatePositions, Has.All.GreaterThan(0));
+            Assert.That(finalX, Is.Zero);
             Assert.That(spinner.Visibility, Is.EqualTo(Visibility.Collapsed));
         });
     }
@@ -334,7 +362,7 @@ internal sealed class TranscriptTitleSpinnerTests
             Assert.That((string?)panel.Attribute("LastChildFill"), Is.EqualTo("False"));
         });
         var source = ReadSource("MainWindow.xaml.cs");
-        Assert.That(source, Does.Contain("TranscriptTitleSpinner.DataContext = FindAgentCardForThread(thread);")
+        Assert.That(source, Does.Contain("TranscriptTitleSpinner.DataContext = thread.SpinnerActivity;")
             .And.Contain("TranscriptTitleSpinner.DataContext = _leadAgent;"));
         Assert.That(ReadSource("MainWindow.ResizePerformance.cs"),
             Does.Contain("TranscriptTitleSpinnerLayout.GetExpandedWidth(TranscriptTitleTextBlock, fontSize)"));
@@ -344,10 +372,10 @@ internal sealed class TranscriptTitleSpinnerTests
     public void SecondaryTitles_ConstructOwnSpinnerAndRebindWhenPanelAgentChanges()
     {
         var source = ReadSource("MainWindow.xaml.cs");
-        Assert.That(source, Does.Contain("TranscriptTitleSpinnerLayout.CreateSecondaryTitleRow(titleBlock, agent, out var titleSpinner)")
+        Assert.That(source, Does.Contain("TranscriptTitleSpinnerLayout.CreateSecondaryTitleRow(titleBlock, thread.SpinnerActivity, out var titleSpinner)")
             .And.Contain("headerTextStack.Children.Add(titleRow);")
             .And.Contain("TitleSpinner = titleSpinner,")
-            .And.Contain("entry.TitleSpinner.DataContext = currentCard;")
+            .And.Contain("entry.Thread.SpinnerActivity.AccentSource = currentCard;")
             .And.Contain("titleSpinner.IsVisibleChanged += (_, _) => QueueSecondaryTranscriptTitleFit(entry);")
             .And.Contain("if (e.WidthChanged) QueueSecondaryTranscriptTitleFit(entry);")
             .And.Contain("TranscriptTitleSpinnerLayout.GetExpandedWidth(entry.TitleBlock, fontSize)"));
@@ -437,7 +465,8 @@ internal sealed class TranscriptTitleSpinnerTests
         {
             Assert.That(State<bool>(titles[0], "_forcedFadeOutActive"), Is.False);
             Assert.That(State<double>(titles[1], "_forcedFadeOutDuration"), Is.EqualTo(0.2));
-            Assert.That(State<double>(titles[2], "_forcedFadeOutDuration"), Is.EqualTo(3));
+            Assert.That(State<double>(titles[2], "_forcedFadeOutDuration"), Is.EqualTo(0.4));
+            Assert.That(titles[2].Visibility, Is.EqualTo(Visibility.Visible));
         });
         Tick(titles[1], 200);
         Tick(titles[2], 200);
@@ -445,6 +474,59 @@ internal sealed class TranscriptTitleSpinnerTests
         Assert.That(titles[2].Visibility, Is.EqualTo(Visibility.Collapsed));
         Tick(titles[0], 1600);
         Assert.That(titles[0].Visibility, Is.EqualTo(Visibility.Collapsed));
+    }
+
+    [Test]
+    public void SameRosterAgent_DistinctTranscriptSources_DoNotShareSpinnerActivity()
+    {
+        var sharedAgent = Card();
+        var completedTranscript = new TranscriptSpinnerActivitySource { AccentSource = sharedAgent };
+        var activeTranscript = new TranscriptSpinnerActivitySource { AccentSource = sharedAgent };
+        var completedSpinner = Spinner();
+        var activeSpinner = Spinner();
+        completedSpinner.DataContext = completedTranscript;
+        activeSpinner.DataContext = activeTranscript;
+
+        completedTranscript.FireActivityPulse(SpinnerActivityKind.Thinking);
+        activeTranscript.FireActivityPulse(SpinnerActivityKind.Writing);
+        Tick(completedSpinner, 12);
+        Tick(activeSpinner, 12);
+        completedTranscript.NotifyTurnEnded();
+        Tick(completedSpinner, 9);
+
+        activeTranscript.FireActivityPulse(SpinnerActivityKind.Writing);
+        Tick(activeSpinner, 2);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(completedSpinner.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(State<DispatcherTimer>(completedSpinner, "_physicsTimer").IsEnabled, Is.False);
+            Assert.That(activeSpinner.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(State<SpinnerActivityKind>(activeSpinner, "_currentKind"), Is.EqualTo(SpinnerActivityKind.Writing));
+        });
+    }
+
+    [Test]
+    public void OpeningActiveTranscriptAfterEarlierPulse_RestoresOnlyThatTranscriptActivity()
+    {
+        var sharedAgent = Card();
+        var activeTranscript = new TranscriptSpinnerActivitySource { AccentSource = sharedAgent };
+        var completedTranscript = new TranscriptSpinnerActivitySource { AccentSource = sharedAgent };
+        activeTranscript.FireActivityPulse(SpinnerActivityKind.Reading);
+        completedTranscript.FireActivityPulse(SpinnerActivityKind.Thinking);
+        completedTranscript.NotifyTurnEnded();
+
+        var activeSpinner = Spinner();
+        var completedSpinner = Spinner();
+        activeSpinner.DataContext = activeTranscript;
+        completedSpinner.DataContext = completedTranscript;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(activeSpinner.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(State<SpinnerActivityKind>(activeSpinner, "_currentKind"), Is.EqualTo(SpinnerActivityKind.Reading));
+            Assert.That(completedSpinner.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
     }
 
     [TestCase(SpinnerActivityKind.Thinking)]
@@ -524,7 +606,7 @@ internal sealed class TranscriptTitleSpinnerTests
                 && State<double>(spinner, "_spinnerOpacity") > 0.1));
             for (var i = 0; i < spinners.Length; i++)
             {
-                Assert.That(State<AgentStatusCard>(spinners[i], "_subscribedCard"), Is.SameAs(cards[i]));
+                Assert.That(State<ISpinnerActivitySource>(spinners[i], "_subscribedSource"), Is.SameAs(cards[i]));
                 Assert.That(State<DispatcherTimer>(spinners[i], "_physicsTimer").IsEnabled, Is.True);
                 Assert.That(State<SpinnerActivityKind>(spinners[i], "_currentKind"), Is.EqualTo(kinds[i]));
                 Tick(spinners[i], 80);
@@ -605,7 +687,7 @@ internal sealed class TranscriptTitleSpinnerTests
             Assert.That(spinners[1].Visibility, Is.EqualTo(Visibility.Collapsed));
             replacement.FireActivityPulse(SpinnerActivityKind.Reading);
             Tick(spinners[1], 80);
-            Assert.That(State<AgentStatusCard>(spinners[1], "_subscribedCard"), Is.SameAs(replacement));
+            Assert.That(State<ISpinnerActivitySource>(spinners[1], "_subscribedSource"), Is.SameAs(replacement));
             Assert.That(spinners[1].Visibility, Is.EqualTo(Visibility.Visible));
 
             replacement.NotifyActivityPaused();

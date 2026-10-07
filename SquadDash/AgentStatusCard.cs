@@ -7,7 +7,7 @@ using System.Windows.Media;
 
 namespace SquadDash;
 
-internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName {
+internal sealed class AgentStatusCard : ISpinnerActivitySource, IHaveUniqueName {
     private static bool _isDarkTheme = false;
     private static bool _imagesVisible = true;
     private static bool _avatarsSettingEnabled = true;
@@ -381,13 +381,13 @@ internal sealed class AgentStatusCard : INotifyPropertyChanged, IHaveUniqueName 
     public void FireActivityPulse(SpinnerActivityKind kind) =>
         ActivityPulsed?.Invoke(this, kind);
 
-    /// <summary>Fired when the agent's turn ends — causes the spinner to begin a forced wind-down.</summary>
+    /// <summary>Fired when the agent's turn ends — causes the spinner to stop immediately.</summary>
     public event EventHandler? TurnEnded;
 
     /// <summary>Fired when active work pauses for an external wait such as provider throttling.</summary>
     public event EventHandler? ActivityPaused;
 
-    /// <summary>Call from the UI thread when the agent's turn completes to trigger forced spinner fade-out.</summary>
+    /// <summary>Call from the UI thread when the agent's turn completes to stop its spinner.</summary>
     public void NotifyTurnEnded() => TurnEnded?.Invoke(this, EventArgs.Empty);
 
     /// <summary>Stops the activity indication promptly while the agent is waiting rather than working.</summary>

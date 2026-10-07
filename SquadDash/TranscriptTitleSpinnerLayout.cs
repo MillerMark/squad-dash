@@ -25,11 +25,11 @@ public static class TranscriptTitleSpinnerLayout
     public static TextBlock? GetTitle(DependencyObject element) => (TextBlock?)element.GetValue(TitleProperty);
     public static void SetTitle(DependencyObject element, TextBlock value) => element.SetValue(TitleProperty, value);
 
-    internal static DockPanel CreateSecondaryTitleRow(TextBlock title, AgentStatusCard agent, out ActivitySpinner spinner)
+    internal static DockPanel CreateSecondaryTitleRow(TextBlock title, ISpinnerActivitySource activitySource, out ActivitySpinner spinner)
     {
         spinner = new ActivitySpinner { VerticalAlignment = VerticalAlignment.Center };
         SetTitle(spinner, title);
-        spinner.DataContext = agent;
+        spinner.DataContext = activitySource;
         var row = new DockPanel { LastChildFill = true };
         DockPanel.SetDock(spinner, Dock.Left);
         row.Children.Add(spinner);

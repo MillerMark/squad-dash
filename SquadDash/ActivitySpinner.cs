@@ -16,6 +16,8 @@ public enum SpinnerActivityKind { Thinking, Reading, Writing }
 /// </summary>
 public sealed class ActivitySpinner : FrameworkElement
 {
+    private const double TurnEndedFadeOutSeconds = 0.4;
+
     // Physics state
     private double _angularVelocity;    // rad/s
     private double _angle;              // radians, current rotation
@@ -34,7 +36,7 @@ public sealed class ActivitySpinner : FrameworkElement
     private double _scaleTarget = 0.0;
     private double _currentScale = 0.0;
 
-    // Forced fade-out state (triggered when a turn ends)
+    // Forced fade-out state (triggered when activity pauses)
     private bool _forcedFadeOutActive;
     private double _forcedFadeOutDuration;
     private double _forcedFadeOutElapsed;
@@ -153,62 +155,69 @@ public sealed class ActivitySpinner : FrameworkElement
         AgentStatusCard.ThemeChanged += OnThemeChanged;
     }
 
-    // ── DataContext binding to AgentStatusCard ──────────────────────────────
+    // ── DataContext binding to an activity source ──────────────────────────
 
-    private AgentStatusCard? _subscribedCard;
-    private static readonly ConditionalWeakTable<AgentStatusCard, List<WeakReference<ActivitySpinner>>> CardSpinners = new();
+    private ISpinnerActivitySource? _subscribedSource;
+    private static readonly ConditionalWeakTable<ISpinnerActivitySource, List<WeakReference<ActivitySpinner>>> SourceSpinners = new();
 
     private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (_subscribedCard is null && e.NewValue is not AgentStatusCard)
+        if (_subscribedSource is null && e.NewValue is not ISpinnerActivitySource)
             return;
 
-        DetachFromCard();
+        DetachFromSource();
         ResetActivity();
-        if (e.NewValue is AgentStatusCard card)
-            AttachToCard(card);
+        if (e.NewValue is ISpinnerActivitySource source)
+            AttachToSource(source);
     }
 
-    private void AttachToCard(AgentStatusCard card)
+    private void AttachToSource(ISpinnerActivitySource source)
     {
-        var spinners = CardSpinners.GetOrCreateValue(card);
+        var spinners = SourceSpinners.GetOrCreateValue(source);
         spinners.RemoveAll(reference => !reference.TryGetTarget(out _));
+        var inheritedExistingActivity = false;
         // A newly displayed transcript must inherit writing/coasting/fading, not replay
         // a pulse that could restart an already completed turn.
         foreach (var reference in spinners)
         {
-            if (reference.TryGetTarget(out var source))
+            if (reference.TryGetTarget(out var existingSpinner))
             {
-                CopyActivityFrom(source);
+                CopyActivityFrom(existingSpinner);
+                inheritedExistingActivity = true;
                 break;
             }
         }
 
         spinners.Add(new WeakReference<ActivitySpinner>(this));
-        _subscribedCard = card;
-        card.ActivityPulsed += OnActivityPulsed;
-        card.PropertyChanged += OnCardPropertyChanged;
-        card.TurnEnded += OnTurnEnded;
-        card.ActivityPaused += OnActivityPaused;
+        _subscribedSource = source;
+        source.ActivityPulsed += OnActivityPulsed;
+        source.PropertyChanged += OnSourcePropertyChanged;
+        source.TurnEnded += OnTurnEnded;
+        source.ActivityPaused += OnActivityPaused;
         SyncAccentColor();
+        if (!inheritedExistingActivity &&
+            source is IStatefulSpinnerActivitySource { IsActivityActive: true } statefulSource)
+        {
+            OnActivityPulsed(source, statefulSource.CurrentActivityKind);
+        }
     }
 
-    private void DetachFromCard()
+    private void DetachFromSource()
     {
-        if (_subscribedCard is not null)
+        if (_subscribedSource is not null)
         {
-            if (CardSpinners.TryGetValue(_subscribedCard, out var spinners))
+            if (SourceSpinners.TryGetValue(_subscribedSource, out var spinners))
             {
                 spinners.RemoveAll(reference =>
                     !reference.TryGetTarget(out var spinner) || ReferenceEquals(spinner, this));
                 if (spinners.Count == 0)
-                    CardSpinners.Remove(_subscribedCard);
+                    SourceSpinners.Remove(_subscribedSource);
             }
-            _subscribedCard.ActivityPulsed -= OnActivityPulsed;
-            _subscribedCard.PropertyChanged -= OnCardPropertyChanged;
-            _subscribedCard.TurnEnded -= OnTurnEnded;
-            _subscribedCard.ActivityPaused -= OnActivityPaused;
-            _subscribedCard = null;
+            _subscribedSource.ActivityPulsed -= OnActivityPulsed;
+            _subscribedSource.PropertyChanged -= OnSourcePropertyChanged;
+            _subscribedSource.TurnEnded -= OnTurnEnded;
+            _subscribedSource.ActivityPaused -= OnActivityPaused;
+            _subscribedSource = null;
         }
     }
 
@@ -260,31 +269,29 @@ public sealed class ActivitySpinner : FrameworkElement
     {
         AgentStatusCard.ThemeChanged -= OnThemeChanged;
         AgentStatusCard.ThemeChanged += OnThemeChanged;
-        if (_subscribedCard is null && DataContext is AgentStatusCard card)
+        if (_subscribedSource is null && DataContext is ISpinnerActivitySource source)
         {
             ResetActivity();
-            AttachToCard(card);
+            AttachToSource(source);
         }
     }
 
-    private void OnCardPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    private void OnSourcePropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(AgentStatusCard.AccentColorHex)
-                           or nameof(AgentStatusCard.EffectiveAccentBrush)
-                           or nameof(AgentStatusCard.EffectiveSpinnerAccentBrush))
+        if (e.PropertyName is nameof(ISpinnerActivitySource.EffectiveSpinnerAccentBrush))
             SyncAccentColor();
     }
 
     private void SyncAccentColor()
     {
-        if (_subscribedCard?.EffectiveSpinnerAccentBrush is SolidColorBrush scb)
+        if (_subscribedSource?.EffectiveSpinnerAccentBrush is SolidColorBrush scb)
             AccentColor = scb.Color;
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _physicsTimer.Stop();
-        DetachFromCard();
+        DetachFromSource();
         AgentStatusCard.ThemeChanged -= OnThemeChanged;
     }
 
@@ -303,15 +310,22 @@ public sealed class ActivitySpinner : FrameworkElement
     /// </summary>
     public void BeginForcedFadeOut(double durationSeconds = 3.0)
     {
-        if (!_physicsTimer.IsEnabled || _angularVelocity < FadeOutThreshold)
+        if (!_physicsTimer.IsEnabled)
             return;
 
         _forcedFadeOutActive = true;
         _forcedFadeOutDuration = durationSeconds;
         _forcedFadeOutElapsed = 0.0;
+        _velocityTarget = 0;
+        _velocityAccelPhase = 0;
+        _targetOpacity = 0;
+        _writeDotTarget = 0;
+        _scaleTarget = 0;
+        _widthTarget = 0;
+        MinimumAngularVelocity = 0;
     }
 
-    private void OnTurnEnded(object? sender, EventArgs e) => BeginForcedFadeOut(3.0);
+    private void OnTurnEnded(object? sender, EventArgs e) => BeginForcedFadeOut(TurnEndedFadeOutSeconds);
 
     private void OnActivityPaused(object? sender, EventArgs e) => BeginForcedFadeOut(0.2);
 
@@ -394,12 +408,13 @@ public sealed class ActivitySpinner : FrameworkElement
             _forcedFadeOutElapsed += dt;
             var remaining = Math.Max(0.001, _forcedFadeOutDuration - _forcedFadeOutElapsed);
             _angularVelocity *= Math.Exp(-dt / (remaining / 3.0));
+            _writeDotRadius *= Math.Exp(-dt / (remaining / 3.0));
             _velocityTarget = 0;
             _velocityAccelPhase = 0;
             if (_forcedFadeOutElapsed >= _forcedFadeOutDuration)
             {
-                _angularVelocity = 0;
-                _forcedFadeOutActive = false;
+                ResetActivity();
+                return;
             }
         }
 
@@ -463,7 +478,10 @@ public sealed class ActivitySpinner : FrameworkElement
         if (coastingToStop)
             _scaleTarget = 0.0;
 
-        _currentScale += (_scaleTarget - _currentScale) * Math.Min(1.0, dt / 0.4);
+        var layoutResponseSeconds = _forcedFadeOutActive
+            ? Math.Max(0.001, _forcedFadeOutDuration / 5.0)
+            : 0.4;
+        _currentScale += (_scaleTarget - _currentScale) * Math.Min(1.0, dt / layoutResponseSeconds);
 
         // ── Animated layout width ────────────────────────────────────────────
         // Collapse the layout footprint only after the visual has nearly vanished
@@ -471,7 +489,7 @@ public sealed class ActivitySpinner : FrameworkElement
         if (_scaleTarget == 0.0 && _currentScale < 0.01 && _writeDotRadius < 0.5)
             _widthTarget = 0.0;
 
-        _animatedWidth += (_widthTarget - _animatedWidth) * Math.Min(1.0, dt / 0.4);
+        _animatedWidth += (_widthTarget - _animatedWidth) * Math.Min(1.0, dt / layoutResponseSeconds);
         if (Math.Abs(_widthTarget - _animatedWidth) < 0.05)
             _animatedWidth = _widthTarget;
         if (Math.Abs(_animatedWidth - _measuredWidth) > 0.05
