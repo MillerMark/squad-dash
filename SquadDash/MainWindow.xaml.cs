@@ -41910,9 +41910,7 @@ public partial class MainWindow : Window
         };
         titleBlock.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        var titleSpinner = new ActivitySpinner { VerticalAlignment = VerticalAlignment.Center };
-        TranscriptTitleSpinnerLayout.SetTitle(titleSpinner, titleBlock);
-        titleSpinner.DataContext = agent;
+        var titleRow = TranscriptTitleSpinnerLayout.CreateSecondaryTitleRow(titleBlock, agent, out var titleSpinner);
         titleBlock.ToolTip = BuildSecondaryTranscriptInfoTooltip(agent, thread, initialBaseText, null);
         titleBlock.PreviewMouseRightButtonUp += (_, e) =>
         {
@@ -42103,10 +42101,6 @@ public partial class MainWindow : Window
             Orientation = Orientation.Vertical,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
-        var titleRow = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(titleSpinner, Dock.Left);
-        titleRow.Children.Add(titleSpinner);
-        titleRow.Children.Add(titleBlock);
         headerTextStack.Children.Add(titleRow);
         headerTextStack.Children.Add(worktreeIndicatorPanel);
         headerDock.Children.Add(headerTextStack);

@@ -419,8 +419,11 @@ public sealed class ActivitySpinner : FrameworkElement
         _angle += _angularVelocity * dt;
         if (_angle >= Math.PI * 2) _angle -= Math.PI * 2;
 
-        // Opacity: drive target toward 0 when coasting to a stop
-        if (_angularVelocity < FadeOutThreshold && MinimumAngularVelocity <= 0)
+        // A first 60 Hz tick can still be below the idle threshold while accelerating.
+        // Do not erase its activation targets before the impulse has ramped up.
+        var coastingToStop = _velocityAccelPhase <= 0
+            && _angularVelocity < FadeOutThreshold && MinimumAngularVelocity <= 0;
+        if (coastingToStop)
             _targetOpacity = 0.0;
 
         // Lerp opacity toward target at OpacityLerpRate units/sec
@@ -457,7 +460,7 @@ public sealed class ActivitySpinner : FrameworkElement
             _dotGlowPhase += 2.0 * Math.PI * DotGlowHz * dt;
 
         // ── Scale animation (ease-out lerp, ~400 ms) ────────────────────────
-        if (_angularVelocity < FadeOutThreshold && MinimumAngularVelocity <= 0)
+        if (coastingToStop)
             _scaleTarget = 0.0;
 
         _currentScale += (_scaleTarget - _currentScale) * Math.Min(1.0, dt / 0.4);

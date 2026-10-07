@@ -3,7 +3,10 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using System.Xml.Linq;
 
 namespace SquadDash.Tests;
@@ -341,18 +344,13 @@ internal sealed class TranscriptTitleSpinnerTests
     public void SecondaryTitles_ConstructOwnSpinnerAndRebindWhenPanelAgentChanges()
     {
         var source = ReadSource("MainWindow.xaml.cs");
-        Assert.That(source, Does.Contain("var titleSpinner = new ActivitySpinner { VerticalAlignment = VerticalAlignment.Center };")
-            .And.Contain("TranscriptTitleSpinnerLayout.SetTitle(titleSpinner, titleBlock);")
-            .And.Contain("titleSpinner.DataContext = agent;")
-            .And.Contain("titleRow.Children.Add(titleSpinner);")
-            .And.Contain("titleRow.Children.Add(titleBlock);")
+        Assert.That(source, Does.Contain("TranscriptTitleSpinnerLayout.CreateSecondaryTitleRow(titleBlock, agent, out var titleSpinner)")
+            .And.Contain("headerTextStack.Children.Add(titleRow);")
             .And.Contain("TitleSpinner = titleSpinner,")
             .And.Contain("entry.TitleSpinner.DataContext = currentCard;")
             .And.Contain("titleSpinner.IsVisibleChanged += (_, _) => QueueSecondaryTranscriptTitleFit(entry);")
             .And.Contain("if (e.WidthChanged) QueueSecondaryTranscriptTitleFit(entry);")
             .And.Contain("TranscriptTitleSpinnerLayout.GetExpandedWidth(entry.TitleBlock, fontSize)"));
-        Assert.That(source.IndexOf("titleRow.Children.Add(titleSpinner);", StringComparison.Ordinal),
-            Is.LessThan(source.IndexOf("titleRow.Children.Add(titleBlock);", StringComparison.Ordinal)));
         Assert.That(ReadSource("MainWindow.ResizePerformance.cs"),
             Does.Contain("new List<SecondaryTranscriptEntry>(_pendingSecondaryTitleFits)")
                 .And.Contain("ApplyCachedSecondaryTranscriptTitleFit(entry);")
@@ -449,6 +447,258 @@ internal sealed class TranscriptTitleSpinnerTests
         Assert.That(titles[0].Visibility, Is.EqualTo(Visibility.Collapsed));
     }
 
+    [TestCase(SpinnerActivityKind.Thinking)]
+    [TestCase(SpinnerActivityKind.Reading)]
+    [TestCase(SpinnerActivityKind.Writing)]
+    public void FirstPulse_AtRealFrameCadence_DoesNotFadeDuringAcceleration(SpinnerActivityKind kind)
+    {
+        var card = Card();
+        var title = new TextBlock { Text = "Secondary", FontSize = 16 };
+        var row = TranscriptTitleSpinnerLayout.CreateSecondaryTitleRow(title, card, out var spinner);
+        _spinners.Add(spinner);
+        card.FireActivityPulse(kind);
+        Tick(spinner, 1, 0.001);
+        Assert.That(State<DispatcherTimer>(spinner, "_physicsTimer").IsEnabled, Is.True);
+        Tick(spinner, 60, 1.0 / 60);
+        row.Measure(new Size(300, 40));
+        row.Arrange(new Rect(0, 0, 300, 40));
+        Assert.Multiple(() =>
+        {
+            Assert.That(spinner.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(State<double>(spinner, "_currentScale"), Is.GreaterThan(0.9));
+            Assert.That(State<double>(spinner, "_spinnerOpacity"), Is.GreaterThan(0.7));
+            Assert.That(((DrawingVisual)VisualTreeHelper.GetChild(spinner, 0)).ContentBounds.IsEmpty, Is.False);
+        });
+    }
+
+    [TestCase(96)]
+    [TestCase(144)]
+    [TestCase(192)]
+    public void LoadedProductionTitles_RenderIndependentActivitySpaceAndTitleOnlyOpacity(double rasterDpi)
+    {
+        var cards = new[] { Card(), Card(), Card() };
+        var rows = new DockPanel[3];
+        var titles = new TextBlock[3];
+        var spinners = new ActivitySpinner[3];
+        rows[0] = LoadPrimaryTitleRow();
+        spinners[0] = (ActivitySpinner)rows[0].FindName("TranscriptTitleSpinner");
+        titles[0] = (TextBlock)rows[0].FindName("TranscriptTitleTextBlock");
+        spinners[0].DataContext = cards[0];
+        _spinners.Add(spinners[0]);
+        titles[0].Text = "Coordinator";
+        for (var i = 1; i < rows.Length; i++)
+        {
+            titles[i] = new TextBlock
+            {
+                Text = $"Secondary agent {i}", FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            // Like the real secondary panel, this resource cannot resolve until parented.
+            titles[i].SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSubtitle");
+            rows[i] = TranscriptTitleSpinnerLayout.CreateSecondaryTitleRow(titles[i], cards[i], out spinners[i]);
+            _spinners.Add(spinners[i]);
+        }
+        var content = new StackPanel();
+        foreach (var row in rows)
+        {
+            row.Height = 40;
+            content.Children.Add(row);
+        }
+        var window = new Window
+        {
+            Content = content, Width = 560, Height = 200,
+            ShowActivated = false, ShowInTaskbar = false, Left = -10000, Top = -10000
+        };
+        window.Resources["FontSizeSubtitle"] = 16.0;
+        window.Resources["SubtleText"] = Brushes.Black;
+        try
+        {
+            window.Show();
+            DrainDispatcher();
+            var kinds = new[] { SpinnerActivityKind.Thinking, SpinnerActivityKind.Reading, SpinnerActivityKind.Writing };
+            for (var i = 0; i < cards.Length; i++)
+                cards[i].FireActivityPulse(kinds[i]);
+
+            // Let the actual Loaded subscriptions and dispatcher timers produce the first frames.
+            PumpUntil(() => spinners.All(spinner => State<double>(spinner, "_currentScale") > 0.1
+                && State<double>(spinner, "_spinnerOpacity") > 0.1));
+            for (var i = 0; i < spinners.Length; i++)
+            {
+                Assert.That(State<AgentStatusCard>(spinners[i], "_subscribedCard"), Is.SameAs(cards[i]));
+                Assert.That(State<DispatcherTimer>(spinners[i], "_physicsTimer").IsEnabled, Is.True);
+                Assert.That(State<SpinnerActivityKind>(spinners[i], "_currentKind"), Is.EqualTo(kinds[i]));
+                Tick(spinners[i], 80);
+            }
+            window.UpdateLayout();
+            SaveRenderedTitles(content, rasterDpi);
+
+            void AssertRenderedRows()
+            {
+                for (var i = 0; i < rows.Length; i++)
+                {
+                    var spinner = spinners[i];
+                    var title = titles[i];
+                    var space = new FormattedText(" ", title.Language.GetSpecificCulture(), title.FlowDirection,
+                        new Typeface(title.FontFamily, title.FontStyle, title.FontWeight, title.FontStretch),
+                        title.FontSize, Brushes.Black, VisualTreeHelper.GetDpi(title).PixelsPerDip).WidthIncludingTrailingWhitespace;
+                    var right = spinner.TranslatePoint(new Point(spinner.ActualWidth, 0), rows[i]).X;
+                    var titleX = title.TranslatePoint(new Point(), rows[i]).X;
+                    var rowY = rows[i].TranslatePoint(new Point(), content).Y;
+                    var bitmap = new CroppedBitmap(Render(content, rasterDpi), new Int32Rect(
+                        0, (int)Math.Round(rowY * rasterDpi / 96),
+                        (int)Math.Ceiling(rows[i].ActualWidth * rasterDpi / 96),
+                        (int)Math.Ceiling(rows[i].ActualHeight * rasterDpi / 96)));
+                    var pixels = Pixels(bitmap);
+                    var scale = rasterDpi / 96;
+                    var peakAlpha = 0;
+                    var redPixels = 0;
+                    for (var y = 0; y < bitmap.PixelHeight; y++)
+                    for (var x = 0; x < (int)Math.Floor(right * scale); x++)
+                    {
+                        var offset = (y * bitmap.PixelWidth + x) * 4;
+                        peakAlpha = Math.Max(peakAlpha, pixels[offset + 3]);
+                        if (pixels[offset + 2] > pixels[offset + 1] + 40
+                            && pixels[offset + 2] > pixels[offset] + 40 && pixels[offset + 3] > 50)
+                            redPixels++;
+                    }
+                    Assert.Multiple(() =>
+                    {
+                        Assert.That(spinner.IsVisible, Is.True);
+                        Assert.That(spinner.ActualHeight, Is.GreaterThan(4));
+                        Assert.That(space, Is.GreaterThan(2), "A real title-font space must not collapse to zero.");
+                        Assert.That(titleX - right, Is.EqualTo(space).Within(0.001));
+                        Assert.That(spinner.Opacity, Is.EqualTo(0.8));
+                        Assert.That(peakAlpha, Is.InRange(80, 204), "The actual spinner pixels must render at title-only opacity.");
+                        if (i == 2)
+                            Assert.That(peakAlpha, Is.EqualTo(204), "The writing-dot border must peak at 80% alpha.");
+                        Assert.That(redPixels, i == 2 ? Is.GreaterThan(0) : Is.Zero);
+                    });
+                    for (var y = 0; y < bitmap.PixelHeight; y++)
+                    for (var x = (int)Math.Ceiling(right * scale); x < (int)Math.Floor(titleX * scale); x++)
+                        Assert.That(pixels[(y * bitmap.PixelWidth + x) * 4 + 3], Is.Zero, "The measured space must be empty in the raster.");
+                    TestContext.Out.WriteLine($"Title {i}: font={title.FontSize}, space={space:0.###}, renderedGap={titleX - right:0.###}, peakAlpha={peakAlpha}, redPixels={redPixels}");
+                }
+            }
+
+            AssertRenderedRows();
+            window.Resources["FontSizeSubtitle"] = 22.0;
+            titles[0].FontSize = 22;
+            DrainDispatcher();
+            foreach (var spinner in spinners) Tick(spinner, 80);
+            window.UpdateLayout();
+            Assert.That(titles[1].FontSize, Is.EqualTo(22), "Late resource changes must reach the measured margin.");
+            AssertRenderedRows();
+
+            var nonTitle = Spinner();
+            nonTitle.Pulse(SpinnerActivityKind.Writing);
+            Tick(nonTitle, 80);
+            var nonTitleHost = new Border { Width = 40, Height = 40, Child = nonTitle };
+            nonTitleHost.Measure(new Size(40, 40));
+            nonTitleHost.Arrange(new Rect(0, 0, 40, 40));
+            var nonTitlePixels = Pixels(Render(nonTitleHost, rasterDpi));
+            Assert.That(nonTitle.Opacity, Is.EqualTo(1), "Agent-card and plan spinners must remain unchanged.");
+            Assert.That(nonTitlePixels.Where((_, index) => index % 4 == 3).Max(), Is.EqualTo(255));
+
+            var replacement = Card();
+            spinners[1].DataContext = replacement; // The production secondary-entry remap.
+            cards[1].FireActivityPulse(SpinnerActivityKind.Writing);
+            Assert.That(spinners[1].Visibility, Is.EqualTo(Visibility.Collapsed));
+            replacement.FireActivityPulse(SpinnerActivityKind.Reading);
+            Tick(spinners[1], 80);
+            Assert.That(State<AgentStatusCard>(spinners[1], "_subscribedCard"), Is.SameAs(replacement));
+            Assert.That(spinners[1].Visibility, Is.EqualTo(Visibility.Visible));
+
+            replacement.NotifyActivityPaused();
+            cards[2].NotifyTurnEnded();
+            Tick(spinners[1], 200);
+            Tick(spinners[2], 200);
+            Assert.That(spinners[0].Visibility, Is.EqualTo(Visibility.Visible), "Secondary completion must not end coordinator activity.");
+            Tick(spinners[0], 1600);
+            window.UpdateLayout();
+            for (var i = 0; i < spinners.Length; i++)
+            {
+                Assert.That(spinners[i].Visibility, Is.EqualTo(Visibility.Collapsed));
+                Assert.That(State<double>(spinners[i], "_spinnerOpacity"), Is.Zero);
+                Assert.That(((DrawingVisual)VisualTreeHelper.GetChild(spinners[i], 0)).ContentBounds.IsEmpty, Is.True);
+                Assert.That(titles[i].TranslatePoint(new Point(), rows[i]).X, Is.Zero, "No residual gap after fading.");
+            }
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static DockPanel LoadPrimaryTitleRow()
+    {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        XNamespace local = "clr-namespace:SquadDash";
+        var document = XDocument.Parse(ReadSource("MainWindow.xaml"));
+        var row = new XElement(document.Descendants().Single(element =>
+            (string?)element.Attribute(x + "Name") == "TranscriptTitleDockPanel"));
+        row.SetAttributeValue(XNamespace.Xmlns + "x", x.NamespaceName);
+        row.Attribute("SizeChanged")!.Remove();
+        row.Elements().Where(element => (string?)element.Attribute(x + "Name") is not
+            ("TranscriptTitleSpinner" or "TranscriptTitleTextBlock")).Remove();
+        row.Descendants().Attributes("IsVisibleChanged").Remove();
+        // Load the production XAML against the linked production types in the test assembly.
+        XNamespace testLocal = $"clr-namespace:SquadDash;assembly={typeof(ActivitySpinner).Assembly.GetName().Name}";
+        row.SetAttributeValue("xmlns", row.Name.NamespaceName);
+        row.SetAttributeValue(XNamespace.Xmlns + "local", testLocal.NamespaceName);
+        foreach (var element in row.Descendants())
+        {
+            if (element.Name.Namespace == local) element.Name = testLocal + element.Name.LocalName;
+            foreach (var attribute in element.Attributes().Where(attribute => attribute.Name.Namespace == local).ToArray())
+            {
+                element.SetAttributeValue(testLocal + attribute.Name.LocalName, attribute.Value);
+                attribute.Remove();
+            }
+        }
+        return (DockPanel)XamlReader.Parse(row.ToString());
+    }
+
+    private static RenderTargetBitmap Render(FrameworkElement element, double dpi)
+    {
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(element.ActualWidth * dpi / 96),
+            (int)Math.Ceiling(element.ActualHeight * dpi / 96), dpi, dpi, PixelFormats.Pbgra32);
+        var bounds = new Rect(0, 0, element.ActualWidth, element.ActualHeight);
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
+            dc.DrawRectangle(new VisualBrush(element) { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = bounds }, null, bounds);
+        bitmap.Render(visual);
+        return bitmap;
+    }
+
+    private static byte[] Pixels(BitmapSource bitmap)
+    {
+        var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4];
+        bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+        return pixels;
+    }
+
+    private static void SaveRenderedTitles(FrameworkElement element, double dpi)
+    {
+        var path = Path.Combine(TestContext.CurrentContext.TestDirectory, $"transcript-title-spinners-{dpi:0}.png");
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(Render(element, dpi)));
+        using (var file = File.Create(path)) encoder.Save(file);
+        TestContext.AddTestAttachment(path);
+    }
+
+    private static void DrainDispatcher() =>
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+
+    private static void PumpUntil(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            DrainDispatcher();
+            Thread.Sleep(10);
+        }
+        Assert.That(condition(), Is.True, "Loaded spinner timers did not produce visible activity.");
+    }
+
     private ActivitySpinner Spinner(AgentStatusCard? card = null, double fontSize = 12)
     {
         var spinner = new ActivitySpinner { FontSize = fontSize, DataContext = card };
@@ -461,13 +711,13 @@ internal sealed class TranscriptTitleSpinnerTests
     private static T State<T>(ActivitySpinner spinner, string name) =>
         (T)typeof(ActivitySpinner).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(spinner)!;
 
-    private static void Tick(ActivitySpinner spinner, int frames)
+    private static void Tick(ActivitySpinner spinner, int frames, double secondsPerFrame = 0.05)
     {
         var lastTick = typeof(ActivitySpinner).GetField("_lastTick", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var tick = typeof(ActivitySpinner).GetMethod("OnPhysicsTick", BindingFlags.Instance | BindingFlags.NonPublic)!;
         for (var i = 0; i < frames; i++)
         {
-            lastTick.SetValue(spinner, DateTime.UtcNow.AddSeconds(-0.05));
+            lastTick.SetValue(spinner, DateTime.UtcNow.AddSeconds(-secondsPerFrame));
             tick.Invoke(spinner, [null, EventArgs.Empty]);
         }
     }

@@ -25,6 +25,18 @@ public static class TranscriptTitleSpinnerLayout
     public static TextBlock? GetTitle(DependencyObject element) => (TextBlock?)element.GetValue(TitleProperty);
     public static void SetTitle(DependencyObject element, TextBlock value) => element.SetValue(TitleProperty, value);
 
+    internal static DockPanel CreateSecondaryTitleRow(TextBlock title, AgentStatusCard agent, out ActivitySpinner spinner)
+    {
+        spinner = new ActivitySpinner { VerticalAlignment = VerticalAlignment.Center };
+        SetTitle(spinner, title);
+        spinner.DataContext = agent;
+        var row = new DockPanel { LastChildFill = true };
+        DockPanel.SetDock(spinner, Dock.Left);
+        row.Children.Add(spinner);
+        row.Children.Add(title);
+        return row;
+    }
+
     private static void OnTitleChanged(DependencyObject sender, DependencyPropertyChangedEventArgs e)
     {
         var spinner = (ActivitySpinner)sender;
@@ -35,6 +47,7 @@ public static class TranscriptTitleSpinnerLayout
             return;
         }
 
+        spinner.Opacity = 0.8;
         spinner.SetBinding(ActivitySpinner.FontSizeProperty, new Binding(nameof(TextBlock.FontSize))
         {
             Source = title,
