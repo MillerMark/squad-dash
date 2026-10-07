@@ -532,6 +532,76 @@ test("named roster tool preserves max reasoning effort in delegated session conf
     assert.equal(configs[1].reasoningEffort, "max");
 });
 
+test("named roster tool forwards completion-only reasoning as subagent thinking", async () => {
+    const configs = [];
+    const thinkingDeltas = [];
+    let sessionNumber = 0;
+    const service = new SquadBridgeService({
+        onSubagentThinkingDelta(sessionId, subagent) {
+            thinkingDeltas.push({ sessionId, subagent });
+        }
+    });
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            configs.push(config);
+            sessionNumber++;
+            const currentSessionNumber = sessionNumber;
+            const listeners = new Map();
+            return {
+                sessionId: `session-final-reasoning-${currentSessionNumber}`,
+                on(eventName, handler) {
+                    listeners.set(eventName, handler);
+                },
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => {
+                    if (currentSessionNumber === 2) {
+                        listeners.get("reasoning")?.({
+                            reasoningId: "reasoning-final-only",
+                            content: "Completed the Azure-backed analysis."
+                        });
+                    }
+                    return {
+                        content: currentSessionNumber === 1 ? "Coordinator done" : "Rune report"
+                    };
+                }
+            };
+        }
+    };
+
+    await service.runPrompt("Delegate the Azure analysis", {}, {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        namedAgentRoutes: [{
+            handle: "talia-rune",
+            displayName: "Talia Rune",
+            model: "gpt-6-astra",
+            reasoningEffort: "high",
+            provider: {
+                baseUrl: "https://squaddash-test.openai.azure.com",
+                type: "azure",
+                wireApi: "responses",
+                apiKey: "azure-test-key"
+            }
+        }]
+    });
+
+    const rosterTool = configs[0].tools.find(tool => tool.name === "delegate_roster_agent");
+    await rosterTool.handler({
+        agent_handle: "talia-rune",
+        prompt: "Inspect final reasoning forwarding."
+    }, {
+        sessionId: "session-final-reasoning-1",
+        toolCallId: "tool-talia-final-reasoning",
+        toolName: "delegate_roster_agent",
+        arguments: {}
+    });
+
+    assert.equal(thinkingDeltas.length, 1);
+    assert.equal(thinkingDeltas[0].sessionId, "session-final-reasoning-1");
+    assert.equal(thinkingDeltas[0].subagent.parentToolCallId, "tool-talia-final-reasoning");
+    assert.equal(thinkingDeltas[0].subagent.reasoningText, "Completed the Azure-backed analysis.");
+});
+
 test("named roster tool launches exact agent with its own provider profile", async () => {
     const configs = [];
     const started = [];
@@ -1441,6 +1511,263 @@ test("runPrompt routes streamed local think tags as thinking deltas", async () =
 
     assert.deepEqual(thinkingDeltas, ["\nThinking ", "live."]);
     assert.deepEqual(deltas, ["I am qwen3-14b-cuda-gpu."]);
+});
+
+test("runPrompt emits final message reasoningText when no reasoning delta was streamed", async () => {
+    const listeners = new Map();
+    const thinkingDeltas = [];
+    const session = {
+        sessionId: "session-final-message-reasoning",
+        on(eventName, handler) {
+            listeners.set(eventName, handler);
+        },
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => ({
+            content: "Done.",
+            reasoningText: "Reasoning supplied only with the completed message."
+        })
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => session
+    };
+
+    await service.runPrompt(
+        "Inspect completion reasoning.",
+        {
+            onThinking(chunk) {
+                thinkingDeltas.push(chunk);
+            }
+        },
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public"
+        });
+
+    assert.deepEqual(thinkingDeltas, ["Reasoning supplied only with the completed message."]);
+});
+
+test("runPrompt emits only the unseen suffix from final reasoning", async () => {
+    const listeners = new Map();
+    const thinkingDeltas = [];
+    const session = {
+        sessionId: "session-reconciled-final-reasoning",
+        on(eventName, handler) {
+            listeners.set(eventName, handler);
+        },
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => {
+            listeners.get("reasoning_delta")?.({
+                reasoningId: "reasoning-reconciled",
+                deltaContent: "Inspecting "
+            });
+            listeners.get("message")?.({
+                content: "Done.",
+                reasoningText: "Inspecting final details."
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-reconciled",
+                content: "Inspecting final details."
+            });
+            return {
+                content: "Done.",
+                reasoningText: "Inspecting final details."
+            };
+        }
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => session
+    };
+
+    await service.runPrompt(
+        "Inspect reasoning reconciliation.",
+        {
+            onThinking(chunk) {
+                thinkingDeltas.push(chunk);
+            }
+        },
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public"
+        });
+
+    assert.deepEqual(thinkingDeltas, ["Inspecting ", "final details."]);
+});
+
+test("runPrompt preserves a non-overlapping reasoning-only final message", async () => {
+    const listeners = new Map();
+    const thinkingDeltas = [];
+    const session = {
+        sessionId: "session-revised-final-reasoning",
+        on(eventName, handler) {
+            listeners.set(eventName, handler);
+        },
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => {
+            listeners.get("reasoning_delta")?.({
+                reasoningId: "reasoning-revised",
+                deltaContent: "Draft thought."
+            });
+            listeners.get("message")?.({
+                reasoningText: "Revised conclusion."
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-revised",
+                content: "Revised conclusion."
+            });
+            return { content: "Done." };
+        }
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => session
+    };
+
+    await service.runPrompt(
+        "Inspect revised completion reasoning.",
+        {
+            onThinking(chunk) {
+                thinkingDeltas.push(chunk);
+            }
+        },
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public"
+        });
+
+    assert.deepEqual(thinkingDeltas, ["Draft thought.", "\n\nRevised conclusion."]);
+});
+
+async function captureReasoningThinking(sessionId, driveSession) {
+    const listeners = new Map();
+    const thinkingDeltas = [];
+    const session = {
+        sessionId,
+        on(eventName, handler) {
+            listeners.set(eventName, handler);
+        },
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => driveSession(listeners)
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => session
+    };
+
+    await service.runPrompt(
+        "Inspect reasoning event correlation.",
+        {
+            onThinking(chunk) {
+                thinkingDeltas.push(chunk);
+            }
+        },
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public"
+        });
+
+    return thinkingDeltas;
+}
+
+test("runPrompt keeps overlapping text from separate reasoning blocks", async () => {
+    const thinkingDeltas = await captureReasoningThinking(
+        "session-overlapping-reasoning-blocks",
+        listeners => {
+            listeners.get("message")?.({
+                messageId: "message-overlap-1",
+                reasoningText: "abc"
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-overlap-1",
+                content: "abc"
+            });
+            listeners.get("message")?.({
+                messageId: "message-overlap-2",
+                reasoningText: "cde"
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-overlap-2",
+                content: "cde"
+            });
+            return {
+                messageId: "message-overlap-2",
+                content: "Done.",
+                reasoningText: "cde"
+            };
+        });
+
+    assert.deepEqual(thinkingDeltas, ["abc", "cde"]);
+});
+
+test("runPrompt keeps identical text from distinct reasoning blocks", async () => {
+    const thinkingDeltas = await captureReasoningThinking(
+        "session-identical-reasoning-blocks",
+        listeners => {
+            listeners.get("message")?.({
+                messageId: "message-identical-1",
+                reasoningText: "Same conclusion."
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-identical-1",
+                content: "Same conclusion."
+            });
+            listeners.get("message")?.({
+                messageId: "message-identical-2",
+                reasoningText: "Same conclusion."
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-identical-2",
+                content: "Same conclusion."
+            });
+            return {
+                messageId: "message-identical-2",
+                content: "Done.",
+                reasoningText: "Same conclusion."
+            };
+        });
+
+    assert.deepEqual(thinkingDeltas, ["Same conclusion.", "Same conclusion."]);
+});
+
+test("runPrompt deduplicates reasoning event before its matching final message", async () => {
+    const thinkingDeltas = await captureReasoningThinking(
+        "session-reasoning-before-message",
+        listeners => {
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-before-message",
+                content: "Completion-only reasoning."
+            });
+            listeners.get("message")?.({
+                messageId: "message-after-reasoning",
+                reasoningText: "Completion-only reasoning."
+            });
+            return {
+                messageId: "message-after-reasoning",
+                content: "Done.",
+                reasoningText: "Completion-only reasoning."
+            };
+        });
+
+    assert.deepEqual(thinkingDeltas, ["Completion-only reasoning."]);
+});
+
+test("runPrompt associates pending final reasoning only on an exact match", async () => {
+    const thinkingDeltas = await captureReasoningThinking(
+        "session-exact-reasoning-association",
+        listeners => {
+            listeners.get("message")?.({
+                messageId: "message-long-reasoning",
+                reasoningText: "Full reasoning text."
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-shorter-text",
+                content: "reasoning text."
+            });
+            return { content: "Done." };
+        });
+
+    assert.deepEqual(thinkingDeltas, ["Full reasoning text.", "reasoning text."]);
 });
 
 test("pending restart self-build hook disables run-slot deployment", () => {

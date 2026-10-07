@@ -493,8 +493,15 @@ type RequestContext = {
     steeringTurnId: string;
     aborted: boolean;
     handlers: SquadRunHandlers;
-    sawMessageDelta: boolean;
     streamedMessageContent: string;
+    emittedReasoningById: Map<string, string>;
+    activeReasoningId?: string;
+    activeAnonymousReasoningContent: string;
+    pendingUnidentifiedFinalReasoning?: string;
+    pendingIdentifiedFinalReasoning?: string;
+    lastFinalReasoningContent?: string;
+    lastFinalReasoningMessageId?: string;
+    emittedLocalThinkContent: string;
     lastAssistantMessageContent: string;
     localThinkState: LocalThinkStreamState;
     hiddenAdditionalContext?: string;
@@ -854,6 +861,57 @@ export function reconcileStreamedAndFinalResponse(
     // compaction: streamed progress remains accumulated while final contains
     // the complete last assistant message.
     return final;
+}
+
+type ReasoningReconciliation = {
+    mergedContent: string;
+    unstreamedContent?: string;
+};
+
+/**
+ * Reconciles reasoning already sent to the UI with an authoritative final
+ * reasoning block. Providers commonly emit the same reasoning first as
+ * deltas and then again as a final event. When the final block contains new
+ * text, preserve and emit that suffix; when the representations do not share
+ * an exact overlap, retain the final block rather than silently dropping it.
+ */
+function reconcileEmittedAndFinalReasoning(
+    emittedContent: string | undefined,
+    finalContent: string | undefined
+): ReasoningReconciliation {
+    const emitted = emittedContent ?? "";
+    const final = finalContent ?? "";
+    if (!final)
+        return { mergedContent: emitted };
+    if (!emitted)
+        return { mergedContent: final, unstreamedContent: final };
+    if (emitted.endsWith(final))
+        return { mergedContent: emitted };
+    if (final.startsWith(emitted)) {
+        const suffix = final.slice(emitted.length);
+        return {
+            mergedContent: final,
+            unstreamedContent: suffix.length > 0 ? suffix : undefined
+        };
+    }
+
+    const maxOverlap = Math.min(emitted.length, final.length);
+    for (let length = maxOverlap; length > 0; length--) {
+        if (emitted.endsWith(final.slice(0, length))) {
+            const suffix = final.slice(length);
+            return {
+                mergedContent: emitted + suffix,
+                unstreamedContent: suffix.length > 0 ? suffix : undefined
+            };
+        }
+    }
+
+    const separator = /\s$/.test(emitted) || /^\s/.test(final) ? "" : "\n\n";
+    const unstreamedContent = separator + final;
+    return {
+        mergedContent: emitted + unstreamedContent,
+        unstreamedContent
+    };
 }
 
 function longestTagPrefixSuffix(text: string, tag: string): number {
@@ -1939,7 +1997,7 @@ function extractParentToolCallId(event: unknown): string | undefined {
 }
 
 function extractAssistantReasoningText(event: unknown): string | undefined {
-    return getEventStringValue(event, "reasoningText");
+    return getEventRawStringValue(event, "reasoningText");
 }
 
 function toIsoTimestamp(value: unknown): string | undefined {
@@ -2714,8 +2772,10 @@ export class SquadBridgeService {
             steeringTurnId: randomUUID(),
             aborted: false,
             handlers,
-            sawMessageDelta: false,
             streamedMessageContent: "",
+            emittedReasoningById: new Map<string, string>(),
+            activeAnonymousReasoningContent: "",
+            emittedLocalThinkContent: "",
             lastAssistantMessageContent: state.lastAssistantMessageContent,
             localThinkState: {
                 mode: "response",
@@ -2771,6 +2831,11 @@ export class SquadBridgeService {
                 requestContext.lastAssistantMessageContent ||
                 state.lastAssistantMessageContent;
             const finalSplit = splitLocalThinkFinalContent(finalContent ?? "");
+            this.emitFallbackFinalRequestReasoning(
+                requestContext,
+                extractAssistantReasoningText(finalMessage),
+                getEventStringValue(finalMessage, "messageId"));
+            this.emitFinalLocalThink(requestContext, finalSplit.thinkingText);
             const finalResponseContent = finalSplit.thinkingText.length > 0
                 ? finalSplit.responseText
                 : finalContent;
@@ -3029,19 +3094,182 @@ export class SquadBridgeService {
         parentToolCallId: string,
         reasoningText: string | undefined
     ): string | undefined {
-        const streamed = state.subagentReasoningByToolCallId.get(parentToolCallId);
-        if (streamed !== undefined)
-            state.subagentReasoningByToolCallId.delete(parentToolCallId);
+        const emitted = state.subagentReasoningByToolCallId.get(parentToolCallId);
+        const reconciliation = reconcileEmittedAndFinalReasoning(emitted, reasoningText);
+        if (reasoningText)
+            state.subagentReasoningByToolCallId.set(parentToolCallId, reconciliation.mergedContent);
+        return reconciliation.unstreamedContent;
+    }
 
-        if (!reasoningText)
-            return undefined;
-        if (streamed === undefined)
-            return reasoningText;
-        if (reasoningText.startsWith(streamed)) {
-            const suffix = reasoningText.slice(streamed.length);
-            return suffix.trim().length > 0 ? suffix : undefined;
+    private emitRequestReasoningDelta(
+        request: RequestContext,
+        text: string,
+        speaker?: string,
+        reasoningId?: string
+    ): void {
+        if (text.length === 0)
+            return;
+
+        request.pendingUnidentifiedFinalReasoning = undefined;
+        request.pendingIdentifiedFinalReasoning = undefined;
+        if (reasoningId) {
+            request.activeReasoningId = reasoningId;
+            const emittedForBlock = request.emittedReasoningById.get(reasoningId) ?? "";
+            request.emittedReasoningById.set(reasoningId, emittedForBlock + text);
         }
-        return undefined;
+        else {
+            request.activeReasoningId = undefined;
+            request.activeAnonymousReasoningContent += text;
+        }
+        request.handlers.onThinking?.(text, speaker);
+    }
+
+    private emitIdentifiedFinalRequestReasoning(
+        request: RequestContext | undefined,
+        text: string | undefined,
+        speaker?: string,
+        reasoningId?: string
+    ): void {
+        if (!request || !text)
+            return;
+
+        const pendingUnidentified = request.pendingUnidentifiedFinalReasoning;
+        request.pendingUnidentifiedFinalReasoning = undefined;
+        request.pendingIdentifiedFinalReasoning = undefined;
+        if (pendingUnidentified === text) {
+            if (reasoningId) {
+                const existing = request.emittedReasoningById.get(reasoningId);
+                const reconciliation = reconcileEmittedAndFinalReasoning(existing, text);
+                request.emittedReasoningById.set(reasoningId, reconciliation.mergedContent);
+            }
+            if (request.activeReasoningId === reasoningId)
+                request.activeReasoningId = undefined;
+            request.lastFinalReasoningContent = text;
+            return;
+        }
+
+        let emitted = reasoningId
+            ? request.emittedReasoningById.get(reasoningId)
+            : undefined;
+        if (emitted === undefined && request.activeAnonymousReasoningContent.length > 0) {
+            emitted = request.activeAnonymousReasoningContent;
+            request.activeAnonymousReasoningContent = "";
+        }
+        const reconciliation = reconcileEmittedAndFinalReasoning(emitted, text);
+        if (reasoningId)
+            request.emittedReasoningById.set(reasoningId, reconciliation.mergedContent);
+        if (request.activeReasoningId === reasoningId)
+            request.activeReasoningId = undefined;
+
+        request.pendingIdentifiedFinalReasoning = text;
+        request.lastFinalReasoningContent = text;
+        if (reconciliation.unstreamedContent)
+            request.handlers.onThinking?.(reconciliation.unstreamedContent, speaker);
+    }
+
+    private emitMessageFinalReasoning(
+        request: RequestContext | undefined,
+        text: string | undefined,
+        speaker?: string,
+        messageId?: string
+    ): void {
+        if (!request || !text)
+            return;
+
+        request.pendingUnidentifiedFinalReasoning = undefined;
+        const pendingIdentified = request.pendingIdentifiedFinalReasoning;
+        request.pendingIdentifiedFinalReasoning = undefined;
+        if (pendingIdentified === text) {
+            request.lastFinalReasoningContent = text;
+            request.lastFinalReasoningMessageId = messageId;
+            return;
+        }
+
+        const activeReasoningId = request.activeReasoningId;
+        let emitted = activeReasoningId
+            ? request.emittedReasoningById.get(activeReasoningId)
+            : undefined;
+        if (emitted === undefined && request.activeAnonymousReasoningContent.length > 0) {
+            emitted = request.activeAnonymousReasoningContent;
+            request.activeAnonymousReasoningContent = "";
+        }
+
+        const reconciliation = reconcileEmittedAndFinalReasoning(emitted, text);
+        if (activeReasoningId) {
+            request.emittedReasoningById.set(activeReasoningId, reconciliation.mergedContent);
+            request.activeReasoningId = undefined;
+        }
+
+        request.pendingUnidentifiedFinalReasoning = text;
+        request.lastFinalReasoningContent = text;
+        request.lastFinalReasoningMessageId = messageId;
+        if (reconciliation.unstreamedContent)
+            request.handlers.onThinking?.(reconciliation.unstreamedContent, speaker);
+    }
+
+    private emitFallbackFinalRequestReasoning(
+        request: RequestContext,
+        text: string | undefined,
+        messageId?: string
+    ): void {
+        if (!text)
+            return;
+
+        if (messageId && request.lastFinalReasoningMessageId === messageId)
+            return;
+        if (!messageId && request.lastFinalReasoningContent === text)
+            return;
+        if (request.pendingIdentifiedFinalReasoning === text ||
+            request.pendingUnidentifiedFinalReasoning === text) {
+            request.pendingIdentifiedFinalReasoning = undefined;
+            request.pendingUnidentifiedFinalReasoning = undefined;
+            request.lastFinalReasoningContent = text;
+            request.lastFinalReasoningMessageId = messageId;
+            return;
+        }
+
+        const activeReasoningId = request.activeReasoningId;
+        let emitted = activeReasoningId
+            ? request.emittedReasoningById.get(activeReasoningId)
+            : undefined;
+        if (emitted === undefined && request.activeAnonymousReasoningContent.length > 0) {
+            emitted = request.activeAnonymousReasoningContent;
+            request.activeAnonymousReasoningContent = "";
+        }
+
+        const reconciliation = reconcileEmittedAndFinalReasoning(emitted, text);
+        if (activeReasoningId) {
+            request.emittedReasoningById.set(activeReasoningId, reconciliation.mergedContent);
+            request.activeReasoningId = undefined;
+        }
+        request.lastFinalReasoningContent = text;
+        request.lastFinalReasoningMessageId = messageId;
+        if (reconciliation.unstreamedContent)
+            request.handlers.onThinking?.(reconciliation.unstreamedContent);
+    }
+
+    private emitLocalThinkDelta(request: RequestContext, text: string, speaker?: string): void {
+        if (!text)
+            return;
+
+        request.emittedLocalThinkContent += text;
+        request.handlers.onThinking?.(text, speaker);
+    }
+
+    private emitFinalLocalThink(
+        request: RequestContext | undefined,
+        text: string | undefined,
+        speaker?: string
+    ): void {
+        if (!request || !text)
+            return;
+
+        const reconciliation = reconcileEmittedAndFinalReasoning(
+            request.emittedLocalThinkContent,
+            text);
+        request.emittedLocalThinkContent = reconciliation.mergedContent;
+        if (reconciliation.unstreamedContent)
+            request.handlers.onThinking?.(reconciliation.unstreamedContent, speaker);
     }
 
     private async refreshBackgroundTasks(state: SessionState): Promise<void> {
@@ -4054,8 +4282,41 @@ export class SquadBridgeService {
             }
 
             const request = state.currentRequest;
-            if (request && text.length > 0)
-                request.handlers.onThinking?.(text, extractThinkingSpeaker(event));
+            if (request && text.length > 0) {
+                this.emitRequestReasoningDelta(
+                    request,
+                    text,
+                    extractThinkingSpeaker(event),
+                    getEventStringValue(event, "reasoningId"));
+            }
+        });
+
+        state.session.on("reasoning", (event: unknown) => {
+            const text = getEventRawStringValue(event, "content") ?? "";
+            if (text.length > 0)
+                markRequestTreeActivity();
+            const parentToolCallId = extractParentToolCallId(event);
+            if (parentToolCallId) {
+                const reasoningText = this.takeUnstreamedSubagentFinalReasoning(
+                    state,
+                    parentToolCallId,
+                    text);
+                if (!reasoningText)
+                    return;
+
+                this.bridgeHandlers.onSubagentThinkingDelta?.(
+                    state.session.sessionId,
+                    this.buildSubagentTranscriptInfo(state, parentToolCallId, {
+                        reasoningText
+                    }));
+                return;
+            }
+
+            this.emitIdentifiedFinalRequestReasoning(
+                state.currentRequest,
+                text,
+                extractThinkingSpeaker(event),
+                getEventStringValue(event, "reasoningId"));
         });
 
         state.session.on("usage", (event: unknown) => {
@@ -4085,14 +4346,16 @@ export class SquadBridgeService {
 
         state.session.on("message", (event: unknown) => {
             const content = extractAssistantMessageContent(event);
-            if (content)
+            const explicitReasoningText = extractAssistantReasoningText(event);
+            if (content || explicitReasoningText)
                 markRequestTreeActivity();
             const parentToolCallId = extractParentToolCallId(event);
             if (parentToolCallId) {
                 const reasoningText = this.takeUnstreamedSubagentFinalReasoning(
                     state,
                     parentToolCallId,
-                    extractAssistantReasoningText(event));
+                    explicitReasoningText);
+                state.subagentReasoningByToolCallId.delete(parentToolCallId);
 
                 if (!content && !reasoningText)
                     return;
@@ -4106,7 +4369,7 @@ export class SquadBridgeService {
                 return;
             }
 
-            if (!content)
+            if (!content && !explicitReasoningText)
                 return;
 
             const request = state.currentRequest;
@@ -4114,12 +4377,18 @@ export class SquadBridgeService {
             const responseContent = split.thinkingText.length > 0
                 ? split.responseText
                 : content;
-            if (request && !request.sawMessageDelta && split.thinkingText.length > 0)
-                request.handlers.onThinking?.(split.thinkingText);
+            this.emitMessageFinalReasoning(
+                request,
+                explicitReasoningText,
+                extractThinkingSpeaker(event),
+                getEventStringValue(event, "messageId"));
+            this.emitFinalLocalThink(request, split.thinkingText, extractThinkingSpeaker(event));
 
-            state.lastAssistantMessageContent = responseContent;
-            if (request)
-                request.lastAssistantMessageContent = responseContent;
+            if (content) {
+                state.lastAssistantMessageContent = responseContent;
+                if (request)
+                    request.lastAssistantMessageContent = responseContent;
+            }
         });
 
         state.session.on("message_delta", (event: unknown) => {
@@ -4143,10 +4412,9 @@ export class SquadBridgeService {
             if (!request || chunk.length === 0)
                 return;
 
-            request.sawMessageDelta = true;
             const split = processLocalThinkDelta(request.localThinkState, chunk);
             if (split.thinkingText.length > 0)
-                request.handlers.onThinking?.(split.thinkingText);
+                this.emitLocalThinkDelta(request, split.thinkingText, extractThinkingSpeaker(event));
             if (split.responseText.length > 0)
                 request.streamedMessageContent += split.responseText;
         });
