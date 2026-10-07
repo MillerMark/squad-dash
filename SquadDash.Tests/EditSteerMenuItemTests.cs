@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using NUnit.Framework;
 
@@ -26,6 +27,31 @@ internal sealed class EditSteerMenuItemTests
             Assert.That((string?)steer.ElementsAfterSelf().First().Attribute(x + "Name"),
                 Is.EqualTo("EditNewQueueToFrontMenuItem"));
             Assert.That(steer.Attribute("Command"), Is.Null, "The click handler alone should invoke steering.");
+        });
+    }
+
+    [TestCase("EditSteerMenuItem")]
+    [TestCase("EditNewQueueToFrontMenuItem")]
+    [TestCase("EditNewQueueToTailMenuItem")]
+    [TestCase("EditMoveToFrontMenuItem")]
+    public void SubmenuOpened_EnablesItemOnlyWhenPromptWasLastFocused(string itemName)
+    {
+        var source = File.ReadAllText(SourcePath("MainWindow.xaml.cs"));
+        var start = source.IndexOf("private void EditMenuItem_SubmenuOpened(", StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0));
+        var end = source.IndexOf("private void EditFindMenuItem_Click(", start, StringComparison.Ordinal);
+        Assert.That(end, Is.GreaterThan(start));
+        var handler = source[start..end];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Match(
+                @"private bool LastFocusedIsPrompt\(\)\s*=>\s*ReferenceEquals\(_lastFocusedTextElement, PromptTextBox\);"));
+            Assert.That(handler, Does.Match(@"bool\s+isPrompt\s*=\s*LastFocusedIsPrompt\(\);"));
+            Assert.That(handler, Does.Match($@"{itemName}\.IsEnabled\s*=\s*isPrompt;"),
+                "Assign both true and false from last-focused prompt state on every menu open.");
+            Assert.That(Regex.Matches(handler, $@"{itemName}\.IsEnabled\s*=").Count, Is.EqualTo(1),
+                "Do not override the prompt-focus enablement.");
         });
     }
 

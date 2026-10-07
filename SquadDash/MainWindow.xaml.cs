@@ -64658,6 +64658,7 @@ public partial class MainWindow : Window
         EditInsertLinkMenuItem.IsEnabled           = isMdEditor;
         EditInsertTableMenuItem.IsEnabled          = isMdEditor;
 
+        EditSteerMenuItem.IsEnabled              = isPrompt;
         EditNewQueueToFrontMenuItem.IsEnabled    = isPrompt;
         EditNewQueueToTailMenuItem.IsEnabled     = isPrompt;
         EditMoveToFrontMenuItem.IsEnabled        = isPrompt;
