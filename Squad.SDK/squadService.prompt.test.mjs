@@ -1730,6 +1730,66 @@ test("runPrompt keeps identical text from distinct reasoning blocks", async () =
     assert.deepEqual(thinkingDeltas, ["Same conclusion.", "Same conclusion."]);
 });
 
+test("runPrompt correlates batched message and reasoning finals by exact text", async () => {
+    const thinkingDeltas = await captureReasoningThinking(
+        "session-batched-reasoning-finals",
+        listeners => {
+            listeners.get("message")?.({
+                messageId: "message-batched-alpha",
+                reasoningText: "alpha"
+            });
+            listeners.get("message")?.({
+                messageId: "message-batched-beta",
+                reasoningText: "beta"
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-batched-alpha",
+                content: "alpha"
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-batched-beta",
+                content: "beta"
+            });
+            return {
+                messageId: "message-batched-beta",
+                content: "Done.",
+                reasoningText: "beta"
+            };
+        });
+
+    assert.deepEqual(thinkingDeltas, ["alpha", "beta"]);
+});
+
+test("runPrompt preserves multiplicity for identical batched reasoning blocks", async () => {
+    const thinkingDeltas = await captureReasoningThinking(
+        "session-batched-identical-reasoning-finals",
+        listeners => {
+            listeners.get("message")?.({
+                messageId: "message-batched-identical-1",
+                reasoningText: "same"
+            });
+            listeners.get("message")?.({
+                messageId: "message-batched-identical-2",
+                reasoningText: "same"
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-batched-identical-1",
+                content: "same"
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-batched-identical-2",
+                content: "same"
+            });
+            return {
+                messageId: "message-batched-identical-2",
+                content: "Done.",
+                reasoningText: "same"
+            };
+        });
+
+    assert.deepEqual(thinkingDeltas, ["same", "same"]);
+});
+
 test("runPrompt deduplicates reasoning event before its matching final message", async () => {
     const thinkingDeltas = await captureReasoningThinking(
         "session-reasoning-before-message",
@@ -1768,6 +1828,71 @@ test("runPrompt associates pending final reasoning only on an exact match", asyn
         });
 
     assert.deepEqual(thinkingDeltas, ["Full reasoning text.", "reasoning text."]);
+});
+
+test("runPrompt emits fuller returned reasoning for the same message", async () => {
+    const thinkingDeltas = await captureReasoningThinking(
+        "session-fuller-returned-reasoning",
+        listeners => {
+            listeners.get("message")?.({
+                messageId: "message-fuller-returned-reasoning",
+                reasoningText: "Initial reasoning"
+            });
+            return {
+                messageId: "message-fuller-returned-reasoning",
+                content: "Done.",
+                reasoningText: "Initial reasoning completed."
+            };
+        });
+
+    assert.deepEqual(thinkingDeltas, ["Initial reasoning", " completed."]);
+});
+
+test("runPrompt preserves a revised final block with incidental boundary overlap", async () => {
+    const thinkingDeltas = await captureReasoningThinking(
+        "session-incidental-reasoning-overlap",
+        listeners => {
+            listeners.get("reasoning_delta")?.({
+                reasoningId: "reasoning-incidental-overlap",
+                deltaContent: "Draft ends with R"
+            });
+            listeners.get("message")?.({
+                messageId: "message-incidental-overlap",
+                reasoningText: "Revised conclusion."
+            });
+            listeners.get("reasoning")?.({
+                reasoningId: "reasoning-incidental-overlap",
+                content: "Revised conclusion."
+            });
+            return {
+                messageId: "message-incidental-overlap",
+                content: "Done.",
+                reasoningText: "Revised conclusion."
+            };
+        });
+
+    assert.deepEqual(thinkingDeltas, ["Draft ends with R", "\n\nRevised conclusion."]);
+});
+
+test("runPrompt keeps identical local think blocks from separate messages", async () => {
+    const thinkingDeltas = await captureReasoningThinking(
+        "session-distinct-local-think-blocks",
+        listeners => {
+            listeners.get("message")?.({
+                messageId: "message-local-think-1",
+                content: "<think>same local thought</think>First response."
+            });
+            listeners.get("message")?.({
+                messageId: "message-local-think-2",
+                content: "<think>same local thought</think>Second response."
+            });
+            return {
+                messageId: "message-local-think-2",
+                content: "<think>same local thought</think>Second response."
+            };
+        });
+
+    assert.deepEqual(thinkingDeltas, ["same local thought", "same local thought"]);
 });
 
 test("pending restart self-build hook disables run-slot deployment", () => {
@@ -2354,6 +2479,11 @@ test("subagent reasoning deltas stream as thinking without duplicating final rea
         parentToolCallId: "tool-call-1",
         content: "Done.",
         reasoningText: "Checking the failure path."
+    });
+    listeners.get("reasoning")({
+        parentToolCallId: "tool-call-1",
+        reasoningId: "reasoning-tool-call-1",
+        content: "Checking the failure path."
     });
 
     assert.equal(thinkingDeltas.length, 2);
