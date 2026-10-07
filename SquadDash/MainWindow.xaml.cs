@@ -35761,6 +35761,8 @@ public partial class MainWindow : Window
                                                  && !_agentsPanelFocusModeEnabled;
     }
 
+    private readonly PanelMenuItemSorter _panelMenuItemSorter = new();
+
     private void PanelsMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
     {
         try
@@ -35773,6 +35775,7 @@ public partial class MainWindow : Window
             if (ViewButtonsPanelMenuItem    is not null) ViewButtonsPanelMenuItem.IsChecked    = _buttonsPanelVisible;
             if (ViewPlansMenuItem           is not null) ViewPlansMenuItem.IsChecked           = _plansPanelVisible;
             if (ViewCodeHealthMenuItem     is not null) ViewCodeHealthMenuItem.IsChecked     = _codeHealthPanelVisible;
+            _panelMenuItemSorter.Sort(PanelsMenuItem?.Items);
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(PanelsMenuItem_SubmenuOpened), ex); }
     }

@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\SquadDash\PanelMenuItemSorter.cs" Link="Source\PanelMenuItemSorter.cs" />
     <Compile Include="..\SquadDash\ButtonDefinition.cs" Link="Source\ButtonDefinition.cs" />
     <Compile Include="..\SquadDash\ButtonsStore.cs" Link="Source\ButtonsStore.cs" />
     <Compile Include="..\SquadDash\JsonFileStorageStrictWrite.cs" Link="Source\JsonFileStorageStrictWrite.cs" />
