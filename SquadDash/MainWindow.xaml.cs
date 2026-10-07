@@ -53539,17 +53539,9 @@ public partial class MainWindow : Window
         if (_leadAgent is null)
             return;
 
-        _leadAgent.StatusText = status;
-        _leadAgent.BubbleText = bubble;
-        _leadAgent.DetailText = detail;
-
-        var kind = status switch
-        {
-            "Streaming" => SpinnerActivityKind.Writing,
-            "Tooling"   => SpinnerActivityKind.Reading,
-            _           => SpinnerActivityKind.Thinking,
-        };
-        PulseAgentActivity(_leadAgent, kind);
+        LeadAgentStatusPresentation.Update(
+            _leadAgent, status, bubble, detail,
+            kind => PulseAgentActivity(_leadAgent, kind));
     }
 
     private void PulseAgentActivity(

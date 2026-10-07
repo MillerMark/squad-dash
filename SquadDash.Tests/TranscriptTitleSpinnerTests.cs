@@ -26,6 +26,79 @@ internal sealed class TranscriptTitleSpinnerTests
         _spinners.Clear();
     }
 
+    [TestCase("Ready")]
+    [TestCase("Completed")]
+    [TestCase("Error")]
+    [TestCase("Waiting")]
+    [TestCase("Background")]
+    [TestCase("Unknown")]
+    public void LeadStatusRefresh_UpdatesPresentationWithoutStartingIdleSpinner(string status)
+    {
+        var card = Card();
+        var spinner = Spinner(card);
+        var pulses = 0;
+        card.ActivityPulsed += (_, _) => pulses++;
+
+        for (var i = 0; i < 3; i++)
+            LeadAgentStatusPresentation.Update(card, status, "bubble", "detail", card.FireActivityPulse);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.StatusText, Is.EqualTo(status));
+            Assert.That(card.BubbleText, Is.EqualTo("bubble"));
+            Assert.That(card.DetailText, Is.EqualTo("detail"));
+            Assert.That(pulses, Is.Zero);
+            Assert.That(spinner.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(State<DispatcherTimer>(spinner, "_physicsTimer").IsEnabled, Is.False);
+        });
+    }
+
+    [TestCase("Thinking", SpinnerActivityKind.Thinking)]
+    [TestCase("Recovering", SpinnerActivityKind.Thinking)]
+    [TestCase("Streaming", SpinnerActivityKind.Writing)]
+    [TestCase("Tooling", SpinnerActivityKind.Reading)]
+    public void LeadActiveStatus_PulsesWithExpectedActivityKind(string status, SpinnerActivityKind kind)
+    {
+        var card = Card();
+        var spinner = Spinner(card);
+        var pulses = new List<SpinnerActivityKind>();
+        card.ActivityPulsed += (_, activityKind) => pulses.Add(activityKind);
+
+        LeadAgentStatusPresentation.Update(card, status, "", "Working", card.FireActivityPulse);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(pulses, Is.EqualTo(new[] { kind }));
+            Assert.That(spinner.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(State<SpinnerActivityKind>(spinner, "_currentKind"), Is.EqualTo(kind));
+        });
+    }
+
+    [Test]
+    public void LeadReadyRefresh_AfterTurnEnd_DoesNotCancelFadeOrRestartSpinner()
+    {
+        var card = Card();
+        var spinner = Spinner(card);
+        LeadAgentStatusPresentation.Update(card, "Streaming", "", "", card.FireActivityPulse);
+        Tick(spinner, 12);
+        card.NotifyTurnEnded();
+
+        foreach (var status in new[] { "Completed", "Ready", "Ready" })
+        {
+            LeadAgentStatusPresentation.Update(card, status, "", "", card.FireActivityPulse);
+            Assert.That(State<bool>(spinner, "_forcedFadeOutActive"), Is.True);
+            Tick(spinner, 1);
+        }
+
+        Tick(spinner, 12);
+        LeadAgentStatusPresentation.Update(card, "Ready", "", "", card.FireActivityPulse);
+        Assert.Multiple(() =>
+        {
+            Assert.That(spinner.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(State<DispatcherTimer>(spinner, "_physicsTimer").IsEnabled, Is.False);
+        });
+    }
+
     [TestCase(SpinnerActivityKind.Thinking)]
     [TestCase(SpinnerActivityKind.Reading)]
     [TestCase(SpinnerActivityKind.Writing)]
