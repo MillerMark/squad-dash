@@ -64974,6 +64974,18 @@ public partial class MainWindow : Window
 
     // ── Edit menu: Queue operations ───────────────────────────────────────
 
+    private async void EditSteerMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await SteerActiveWorkAsync();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(EditSteerMenuItem_Click), ex);
+        }
+    }
+
     private void EditNewQueueToFrontMenuItem_Click(object sender, RoutedEventArgs e)
     {
         DismissHintPermanently(PromptHintFeature.CtrlQAddQueue);

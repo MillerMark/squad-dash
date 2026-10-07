@@ -697,6 +697,10 @@
                                   Click="EditInsertTableMenuItem_Click" />
                     </MenuItem>
                     <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                    <MenuItem Header="Steer"
+                              x:Name="EditSteerMenuItem"
+                              InputGestureText="Ctrl+Enter"
+                              Click="EditSteerMenuItem_Click" />
                     <MenuItem Header="New Queue to _Front"
                               x:Name="EditNewQueueToFrontMenuItem"
                               InputGestureText="Ctrl+Q"
