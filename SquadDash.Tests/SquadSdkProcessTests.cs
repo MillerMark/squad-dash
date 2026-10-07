@@ -704,6 +704,200 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public async Task SteerAsync_WhilePromptIsActive_SerializesAndCorrelatesReversedAcknowledgements() {
+        var requestLogPath = Path.Combine(_workspace.RootPath, "requests.jsonl");
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo($$"""
+            $requestLog = {{PowerShellSingleQuoted(requestLogPath)}}
+            $promptRequestId = $null
+            $steers = @()
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                Add-Content -LiteralPath $requestLog -Value $line -Encoding UTF8
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    $promptRequestId = $request.requestId
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'steer') {
+                    $steers += $request
+                    if ($steers.Count -eq 2) {
+                        for ($index = 1; $index -ge 0; $index--) {
+                            $steer = $steers[$index]
+                            Write-Output ('{"type":"steer_result","requestId":"' + $steer.requestId + '","sessionId":"' + $steer.sessionId + '","accepted":true,"message":"accepted:' + $steer.prompt + '"}')
+                        }
+                        Write-Output ('{"type":"done","requestId":"' + $promptRequestId + '"}')
+                    }
+                    continue
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            if (e.Type == "response_delta")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("keep working", _workspace.RootPath);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var firstSteerTask = sut.SteerAsync(" provider-session-one ", "First correction");
+        var secondSteerTask = sut.SteerAsync("provider-session-two", "Second correction");
+        var results = await Task.WhenAll(firstSteerTask, secondSteerTask);
+        await promptTask;
+
+        var loggedRequests = File.ReadLines(requestLogPath, Encoding.UTF8)
+            .Select(line => JsonDocument.Parse(line))
+            .ToArray();
+        try {
+            var promptRequestId = loggedRequests
+                .Single(document => document.RootElement.GetProperty("type").GetString() == "prompt")
+                .RootElement.GetProperty("requestId").GetString();
+            var steerRequests = loggedRequests
+                .Where(document => document.RootElement.GetProperty("type").GetString() == "steer")
+                .Select(document => document.RootElement)
+                .OrderBy(element => element.GetProperty("prompt").GetString(), StringComparer.Ordinal)
+                .ToArray();
+            var steerRequestIds = steerRequests
+                .Select(element => element.GetProperty("requestId").GetString())
+                .ToArray();
+
+            Assert.Multiple(() => {
+                Assert.That(results[0], Is.EqualTo(new SquadSdkSteerResult(
+                    true, "provider-session-one", "accepted:First correction")));
+                Assert.That(results[1], Is.EqualTo(new SquadSdkSteerResult(
+                    true, "provider-session-two", "accepted:Second correction")));
+                Assert.That(steerRequests, Has.Length.EqualTo(2));
+                Assert.That(steerRequests[0].GetProperty("sessionId").GetString(),
+                    Is.EqualTo("provider-session-one"));
+                Assert.That(steerRequests[0].GetProperty("prompt").GetString(),
+                    Is.EqualTo("First correction"));
+                Assert.That(steerRequests[1].GetProperty("sessionId").GetString(),
+                    Is.EqualTo("provider-session-two"));
+                Assert.That(steerRequests[1].GetProperty("prompt").GetString(),
+                    Is.EqualTo("Second correction"));
+                Assert.That(steerRequestIds.All(requestId => !string.IsNullOrEmpty(requestId)), Is.True);
+                Assert.That(steerRequestIds.Distinct(StringComparer.Ordinal).ToArray(), Has.Length.EqualTo(2));
+                Assert.That(steerRequestIds, Does.Not.Contain(promptRequestId));
+            });
+        }
+        finally {
+            foreach (var request in loggedRequests)
+                request.Dispose();
+        }
+    }
+
+    [Test]
+    public async Task SteerAsync_RejectionAcknowledgement_DoesNotFailActivePrompt() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activePromptEvents = new List<string?>();
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo("""
+            $promptRequestId = $null
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    $promptRequestId = $request.requestId
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'steer') {
+                    Write-Output ('{"type":"steer_result","requestId":"' + $request.requestId + '","sessionId":"' + $request.sessionId + '","accepted":false,"message":"target finished"}')
+                    Write-Output ('{"type":"response_delta","requestId":"' + $promptRequestId + '","chunk":"still working"}')
+                    Write-Output ('{"type":"done","requestId":"' + $promptRequestId + '"}')
+                    continue
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            lock (activePromptEvents)
+                activePromptEvents.Add(e.Type);
+            if (e.Type == "response_delta")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("keep working", _workspace.RootPath);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var error = Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await sut.SteerAsync("provider-session", "Too late"));
+        await promptTask;
+
+        Assert.Multiple(() => {
+            Assert.That(error!.Message, Is.EqualTo("target finished"));
+            Assert.That(activePromptEvents.Count(type => type == "response_delta"), Is.EqualTo(2));
+            Assert.That(activePromptEvents, Does.Contain("done"));
+            Assert.That(activePromptEvents, Does.Not.Contain("steer_result"),
+                "The request-correlated steering rejection must not leak into the active prompt event stream.");
+        });
+    }
+
+    [Test]
+    public async Task SteerAsync_LateRejectionAfterAcceptance_IsConsumedAsControlTraffic() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activePromptEvents = new List<string?>();
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo("""
+            $promptRequestId = $null
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    $promptRequestId = $request.requestId
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'steer') {
+                    Write-Output ('{"type":"steer_result","requestId":"' + $request.requestId + '","sessionId":"' + $request.sessionId + '","accepted":true}')
+                    Start-Sleep -Milliseconds 200
+                    Write-Output ('{"type":"steer_result","requestId":"' + $request.requestId + '","sessionId":"' + $request.sessionId + '","accepted":false,"message":"late transport rejection"}')
+                    Write-Output ('{"type":"done","requestId":"' + $promptRequestId + '"}')
+                    continue
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            lock (activePromptEvents)
+                activePromptEvents.Add(e.Type);
+            if (e.Type == "response_delta")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("keep working", _workspace.RootPath);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var result = await sut.SteerAsync("provider-session", "Change direction");
+        await promptTask;
+
+        Assert.Multiple(() => {
+            Assert.That(result.Accepted, Is.True);
+            Assert.That(activePromptEvents, Does.Contain("done"));
+            Assert.That(activePromptEvents, Does.Not.Contain("steer_result"),
+                "Late steering responses must stay isolated from the active prompt event stream.");
+        });
+    }
+
+    [Test]
     public async Task InterruptPrompt_SupersedesAnEarlierGenericAbortForSameRequest() {
         var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 

@@ -603,6 +603,8 @@ public partial class MainWindow : Window
     private bool _modelObservedThisSession;
     private readonly Queue<(string Text, Brush? Brush)> _deferredSystemLines = new();
     private string? _currentSessionState;
+    private bool _coordinatorSteeringTurnActive;
+    private bool _steeringPromptInProgress;
     // _clearConfirmationPending, _universeSelectionPending moved to PromptExecutionController
     private readonly SquadCliAdapter _squadCliAdapter;
     private readonly IWorkspaceUpgradeService _workspaceUpgradeService;
@@ -1674,6 +1676,7 @@ public partial class MainWindow : Window
                 }
                 else
                 {
+                    _coordinatorSteeringTurnActive = false;
                     CoordinatorThread.CompletedAt = DateTimeOffset.Now;
                     SyncQueuePauseLabel();
                     UpdateCompletedTimeFooters();
@@ -2685,7 +2688,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (IsActiveQueueItemLocked())
+            if (_steeringPromptInProgress || IsActiveQueueItemLocked())
                 return;
 
             if (_currentWorkspace is null)
@@ -2942,19 +2945,22 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Ctrl+Enter handler. Moves the active tab to the front of the queue.
+    /// Ctrl+Shift+Enter handler. Moves the active tab to the front of the queue.
     /// If the user is on the Active Draft tab, enqueues the current text at the front.
     /// Shows a transient "« Now at the front of the queue." label in the tab strip.
     /// </summary>
     private void PrioritizeActiveTabToFront()
     {
+        if (_steeringPromptInProgress)
+            return;
+
         if (_activeTabId is null)
         {
             // Active Draft — enqueue at front if there is text.
             var text = PromptTextBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(text)) return;
 
-            RecordHintFeatureUsed(PromptHintFeature.CtrlEnterPrioritize);
+            RecordHintFeatureUsed(PromptHintFeature.CtrlShiftEnterPrioritize);
 
             var isDictated = _promptHasVoiceInput;
             _promptHasVoiceInput = false;
@@ -2979,9 +2985,9 @@ public partial class MainWindow : Window
         {
             // Queued tab — move it to the front (no-op if already first).
             var capturedId = _activeTabId;
-            if (!IsCtrlEnterPrioritizeApplicable()) return;
+            if (!IsCtrlShiftEnterPrioritizeApplicable()) return;
 
-            RecordHintFeatureUsed(PromptHintFeature.CtrlEnterPrioritize);
+            RecordHintFeatureUsed(PromptHintFeature.CtrlShiftEnterPrioritize);
 
             _promptQueue.MoveToFront(capturedId);
             _promptQueue.RenumberSequentially();
@@ -3000,6 +3006,426 @@ public partial class MainWindow : Window
                     "prioritize-restore-active-tab");
             }
         }
+    }
+
+    private sealed record SteeringDraftSnapshot(
+        string? TabId,
+        string RawText,
+        bool IsDictated,
+        IReadOnlyList<FollowUpAttachment> Attachments) {
+
+        internal string AttachmentKey => TabId ?? string.Empty;
+    }
+
+    private async Task SteerActiveWorkAsync()
+    {
+        if (_steeringPromptInProgress)
+            return;
+
+        _steeringPromptInProgress = true;
+        UpdateInteractiveControlState(promptTextOnly: true);
+        try
+        {
+            await SteerActiveWorkCoreAsync();
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("UI", $"Steering UI failed: {ex}");
+            MessageBox.Show(
+                this,
+                $"SquadDash could not send the steering message. Your draft and attachments have been left unchanged.\n\n{ex.Message}",
+                "Steering failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _steeringPromptInProgress = false;
+            UpdateInteractiveControlState(promptTextOnly: true);
+            PromptTextBox.Focus();
+            if (_promptQueue.Count > 0)
+                _ = DrainQueueIfNeededAsync();
+        }
+    }
+
+    private async Task SteerActiveWorkCoreAsync()
+    {
+        if (IsActiveQueueItemLocked())
+            return;
+
+        var draft = CaptureSteeringDraft();
+        if (string.IsNullOrWhiteSpace(draft.RawText) && draft.Attachments.Count == 0)
+            return;
+
+        var targets = BuildSteeringTargets();
+        var steerableTargets = targets.Where(candidate => candidate.CanSteer).ToArray();
+        if (steerableTargets.Length == 0)
+        {
+            MessageBox.Show(
+                this,
+                "No active agent can accept steering right now. Your draft and attachments have been left unchanged.",
+                "Nothing to steer",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            PromptTextBox.Focus();
+            return;
+        }
+
+        SteeringTargetCandidate? target;
+        if (steerableTargets.Length == 1)
+        {
+            target = steerableTargets[0];
+        }
+        else
+        {
+            var defaultTarget = SteeringTargetResolver.SelectDefault(targets) ?? steerableTargets[0];
+            var dialog = new SteeringTargetDialog(targets, defaultTarget) { Owner = this };
+            if (dialog.ShowDialog() != true || dialog.SelectedTarget is null)
+            {
+                PromptTextBox.Focus();
+                return;
+            }
+
+            target = dialog.SelectedTarget;
+        }
+
+        // The modal picker runs a nested dispatcher loop, so lifecycle events can make the
+        // selected session ineligible while it is open. Resolve the same agent again and
+        // never silently redirect the message to a different target.
+        var selectedTargetId = target.Id;
+        var selectedSessionId = target.SessionId;
+        target = BuildSteeringTargets().FirstOrDefault(candidate =>
+            candidate.CanSteer &&
+            string.Equals(candidate.Id, selectedTargetId, StringComparison.Ordinal) &&
+            string.Equals(candidate.SessionId, selectedSessionId, StringComparison.Ordinal));
+        if (target is null)
+        {
+            MessageBox.Show(
+                this,
+                "That agent finished before the steering message was sent. Your draft and attachments have been left unchanged.",
+                "Agent is no longer active",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            PromptTextBox.Focus();
+            return;
+        }
+
+        // Capture the exact transcript turn before awaiting the provider. The SDK may
+        // acknowledge after lifecycle handling has finalized CurrentTurn; the accepted
+        // marker still belongs on the turn/session the user actually targeted.
+        var targetTranscriptThread = ResolveSteeringTranscriptThread(target.Id);
+        var targetTranscriptTurn = targetTranscriptThread?.CurrentTurn;
+
+        var prompt = draft.RawText.Trim();
+        if (draft.IsDictated)
+            prompt += "\n(some or all of this prompt was dictated by voice)";
+        // FollowUpAttachment also represents host-only context (transcript quotes, inbox
+        // messages, plans, and notes) that has no lossless SDK attachment shape. Use the
+        // same provider-neutral prompt blocks as ordinary sends so none are silently lost.
+        var bridgePrompt = BuildFollowUpPrompt(prompt, draft.Attachments);
+
+        SquadSdkSteerResult result;
+        try
+        {
+            result = await _bridge.SteerAsync(target.SessionId!, bridgePrompt);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("UI", $"Steering failed target={target.DisplayName}: {ex}");
+            MessageBox.Show(
+                this,
+                $"SquadDash could not steer {target.DisplayName}. Your draft and attachments have been left unchanged.\n\n{ex.Message}",
+                "Steering failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        if (!result.Accepted)
+        {
+            MessageBox.Show(
+                this,
+                string.IsNullOrWhiteSpace(result.Message)
+                    ? "The active agent could not accept this steering message. Your draft and attachments have been left unchanged."
+                    : result.Message + "\n\nYour draft and attachments have been left unchanged.",
+                "Steering was not accepted",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        // An accepted provider delivery must remain accepted even if presentation or
+        // persistence fails. Keep this best-effort work isolated from history/draft cleanup.
+        TryAppendAcceptedSteeringTranscriptEntry(
+            target,
+            targetTranscriptThread,
+            targetTranscriptTurn,
+            prompt,
+            bridgePrompt,
+            draft.Attachments);
+
+        try
+        {
+            _conversationManager.AddPromptToHistory(prompt, draft.Attachments);
+        }
+        catch (Exception ex)
+        {
+            // Delivery has already been acknowledged. History persistence is useful but must
+            // never misreport a successful steer as a failed delivery or retain a duplicate.
+            SquadDashTrace.Write("Persistence", $"Could not add accepted steering prompt to history: {ex}");
+        }
+
+        var consumed = false;
+        try
+        {
+            consumed = TryConsumeSteeredDraft(draft);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("UI", $"Steering was accepted but draft cleanup failed: {ex}");
+        }
+
+        SquadDashTrace.Write(
+            "UI",
+            $"Steering accepted target={target.DisplayName} targetId={target.Id} session={target.SessionId} draftConsumed={consumed} chars={bridgePrompt.Length} attachments={draft.Attachments.Count}");
+        if (!consumed)
+        {
+            MessageBox.Show(
+                this,
+                $"The steering message was sent to {target.DisplayName}, but SquadDash could not safely confirm that the original draft was cleared. Review it before sending again.",
+                "Steering sent",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+    }
+
+    private TranscriptThreadState? ResolveSteeringTranscriptThread(string targetId)
+    {
+        if (string.Equals(targetId, "coordinator", StringComparison.Ordinal))
+            return CoordinatorThread;
+
+        return _agentThreadRegistry.ThreadOrder.FirstOrDefault(thread =>
+            string.Equals(thread.ThreadId, targetId, StringComparison.Ordinal));
+    }
+
+    private void TryAppendAcceptedSteeringTranscriptEntry(
+        SteeringTargetCandidate target,
+        TranscriptThreadState? targetThread,
+        TranscriptTurnView? targetTurn,
+        string displayPrompt,
+        string providerPrompt,
+        IReadOnlyList<FollowUpAttachment> attachments)
+    {
+        if (targetThread is null || targetTurn is null ||
+            !ReferenceEquals(targetTurn.OwnerThread, targetThread))
+        {
+            SquadDashTrace.Write(
+                "Transcript",
+                $"Accepted steering marker skipped because its exact target turn was unavailable target={target.DisplayName} targetId={target.Id}.");
+            return;
+        }
+
+        try
+        {
+            var paragraph = SteeringTranscriptEntryFactory.CreateParagraph(
+                displayPrompt,
+                attachments,
+                historicalAttachmentCount: null,
+                HandleTranscriptLinkClick,
+                OpenPromptAttachments,
+                MakeThemedToolTip("This prompt includes attachments. Click to view."));
+            SteeringTranscriptEntryFactory.Append(
+                targetTurn,
+                providerPrompt,
+                paragraph,
+                DateTimeOffset.Now,
+                AllocateNarrativeSequence(targetTurn));
+            _conversationManager.PersistTranscriptTurnSnapshot(
+                targetThread,
+                targetTurn,
+                "steering-accepted");
+            ScrollToEndIfAtBottom(targetThread);
+        }
+        catch (Exception ex)
+        {
+            // The provider already acknowledged the message. Never surface this as a send
+            // failure or retain a duplicate draft just because transcript feedback failed.
+            SquadDashTrace.Write(
+                "Transcript",
+                $"Could not append accepted steering marker target={target.DisplayName} targetId={target.Id}: {ex}");
+        }
+    }
+
+    private SteeringDraftSnapshot CaptureSteeringDraft()
+    {
+        var tabId = _activeTabId;
+        var key = tabId ?? string.Empty;
+        var attachments = _followUpAttachments.TryGetValue(key, out var currentAttachments)
+            ? currentAttachments.ToArray()
+            : Array.Empty<FollowUpAttachment>();
+        var queuedItem = tabId is null
+            ? null
+            : _promptQueue.Items.FirstOrDefault(item => item.Id == tabId);
+        return new SteeringDraftSnapshot(
+            tabId,
+            PromptTextBox.Text,
+            tabId is null ? _promptHasVoiceInput : queuedItem?.IsDictated == true,
+            attachments);
+    }
+
+    private bool TryConsumeSteeredDraft(SteeringDraftSnapshot draft)
+    {
+        var currentAttachments = _followUpAttachments.TryGetValue(draft.AttachmentKey, out var list)
+            ? list
+            : [];
+        if (!currentAttachments.SequenceEqual(draft.Attachments))
+            return false;
+
+        if (draft.TabId is { } tabId)
+        {
+            var item = _promptQueue.Items.FirstOrDefault(candidate => candidate.Id == tabId);
+            if (item is null)
+                return false;
+            var currentText = string.Equals(_activeTabId, tabId, StringComparison.Ordinal)
+                ? PromptTextBox.Text
+                : item.Text;
+            if (!string.Equals(currentText, draft.RawText, StringComparison.Ordinal) ||
+                item.IsDictated != draft.IsDictated)
+                return false;
+
+            MarkAttachmentsSubmitted(draft.Attachments);
+            OnQueueTabRemove(tabId);
+            _followUpAttachments.Remove(tabId);
+            SyncQueuePanel();
+            UpdateFollowUpStrip();
+            return true;
+        }
+
+        var draftIsVisible = _activeTabId is null;
+        var currentDraftText = draftIsVisible
+            ? PromptTextBox.Text
+            : _queuePreEditDraft ?? string.Empty;
+        if (!string.Equals(currentDraftText, draft.RawText, StringComparison.Ordinal) ||
+            _promptHasVoiceInput != draft.IsDictated)
+            return false;
+
+        MarkAttachmentsSubmitted(draft.Attachments);
+        if (draftIsVisible)
+        {
+            ClearPromptTextBoxLogicalBuffer("steering-accepted");
+        }
+        else
+        {
+            _queuePreEditDraft = string.Empty;
+            _queuePreEditDraftCaretIndex = 0;
+            _queuePreEditDraftSelectionStart = 0;
+            _queuePreEditDraftSelectionLength = 0;
+        }
+        _followUpAttachments.Remove(string.Empty);
+        _promptHasVoiceInput = false;
+        PersistDraftFollowUp();
+        UpdateFollowUpStrip();
+        SyncQueuePanel();
+        return true;
+    }
+
+    private void MarkAttachmentsSubmitted(IReadOnlyList<FollowUpAttachment> attachments)
+    {
+        var submittedAt = DateTime.UtcNow;
+        foreach (var attachment in attachments.Where(item => item.ImagePath is not null))
+        {
+            _pastedImageStore.SetSubmittedAt(attachment.ImagePath!, submittedAt);
+            _pastedImageStore.DeleteAnnotationSidecar(attachment.ImagePath!);
+        }
+    }
+
+    private bool HasSteerableTarget() =>
+        _agentThreadRegistry is not null &&
+        _conversationManager is not null &&
+        BuildSteeringTargets().Any(candidate => candidate.CanSteer);
+
+    private IReadOnlyList<SteeringTargetCandidate> BuildSteeringTargets()
+    {
+        const string coordinatorId = "coordinator";
+        var threads = _agentThreadRegistry.ThreadOrder
+            .Where(thread => !thread.IsPlaceholderThread && !thread.IsTourDemoThread)
+            .ToArray();
+        var liveThreads = threads.Where(thread => thread.IsSteeringTurnActive).ToArray();
+        var includedThreadIds = new HashSet<string>(
+            liveThreads.Select(thread => thread.ThreadId),
+            StringComparer.Ordinal);
+
+        foreach (var liveThread in liveThreads)
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var owner = liveThread.OriginThread;
+            while (owner is { Kind: TranscriptThreadKind.Agent } && visited.Add(owner.ThreadId))
+            {
+                includedThreadIds.Add(owner.ThreadId);
+                owner = owner.OriginThread;
+            }
+        }
+
+        if (!_coordinatorSteeringTurnActive && includedThreadIds.Count == 0)
+            return Array.Empty<SteeringTargetCandidate>();
+
+        bool HasLiveDescendant(TranscriptThreadState possibleOwner) =>
+            liveThreads.Any(liveThread => IsDescendantOf(liveThread, possibleOwner));
+
+        var candidates = new List<SteeringTargetCandidate> {
+            new(
+                coordinatorId,
+                "Coordinator",
+                _conversationManager.CurrentSessionId,
+                ParentId: null,
+                StableOrder: 0,
+                IsRunning: _coordinatorSteeringTurnActive,
+                DirectLastActivityAt: CoordinatorThread.DirectLastActivityAt,
+                ActiveToolCount: CoordinatorThread.CurrentTurn?.ToolEntries.Count(entry => !entry.IsCompleted) ?? 0,
+                IsWaitingOnChild: liveThreads.Length > 0,
+                StatusText: liveThreads.Length > 0 ? "Waiting on child work" : _currentSessionState)
+        };
+
+        for (var index = 0; index < threads.Length; index++)
+        {
+            var thread = threads[index];
+            if (!includedThreadIds.Contains(thread.ThreadId))
+                continue;
+            var waitingOnChild = HasLiveDescendant(thread);
+            candidates.Add(new SteeringTargetCandidate(
+                thread.ThreadId,
+                thread.DisplayTitle,
+                thread.ProviderSessionId,
+                thread.OriginThread is { Kind: TranscriptThreadKind.Agent } origin &&
+                    includedThreadIds.Contains(origin.ThreadId)
+                        ? origin.ThreadId
+                        : coordinatorId,
+                StableOrder: index + 1,
+                IsRunning: thread.IsSteeringTurnActive,
+                DirectLastActivityAt: thread.DirectLastActivityAt,
+                ActiveToolCount: thread.CurrentTurn?.ToolEntries.Count(entry => !entry.IsCompleted) ?? 0,
+                IsWaitingOnChild: waitingOnChild,
+                StatusText: waitingOnChild ? "Waiting on child work" : thread.StatusText));
+        }
+
+        return SteeringTargetResolver.OrderForDisplay(candidates);
+    }
+
+    private static bool IsDescendantOf(
+        TranscriptThreadState candidate,
+        TranscriptThreadState possibleOwner)
+    {
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        var owner = candidate.OriginThread;
+        while (owner is not null && visited.Add(owner.ThreadId))
+        {
+            if (ReferenceEquals(owner, possibleOwner) ||
+                string.Equals(owner.ThreadId, possibleOwner.ThreadId, StringComparison.Ordinal))
+                return true;
+            owner = owner.OriginThread;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -3181,7 +3607,9 @@ public partial class MainWindow : Window
     }
 
     private PromptQueueItem? GetAutoDispatchCandidate()
-        => _promptQueue.GetAutoDispatchCandidate(
+        => _steeringPromptInProgress
+            ? null
+            : _promptQueue.GetAutoDispatchCandidate(
             _activeTabId,
             IsQueueDispatchHeld,
             TourDummyTag,
@@ -3193,7 +3621,7 @@ public partial class MainWindow : Window
             _pendingPlanRecoveryAssessment is not null &&
             _promptQueue.Items.Any(item => string.Equals(
                 item.SourceTag, PlanRecoveryAssessmentQueueTag, StringComparison.Ordinal));
-        if (_isPromptRunning || _queueDrainActive || IsNativeLoopRunning || _isClosing ||
+        if (_steeringPromptInProgress || _isPromptRunning || _queueDrainActive || IsNativeLoopRunning || _isClosing ||
             (_restartPending && !recoveryAssessmentMayFinishBeforeRestart))
             return false;
 
@@ -3549,7 +3977,7 @@ public partial class MainWindow : Window
     private async Task DrainQueueBeforeLoopIterationAsync()
     {
         bool dispatched = false;
-        while (!_isPromptRunning && !_isClosing && !_restartPending && !HasPendingDirectQuickReplyAgentFollowUp() && !LastTurnNeedsInput())
+        while (!_steeringPromptInProgress && !_isPromptRunning && !_isClosing && !_restartPending && !HasPendingDirectQuickReplyAgentFollowUp() && !LastTurnNeedsInput())
         {
             var item = GetAutoDispatchCandidate();
             if (item is null) break;
@@ -5711,6 +6139,7 @@ public partial class MainWindow : Window
     private void ForceCoordinatorAbortCleanup(string marker = "[aborted]")
     {
         _isPromptRunning = false;
+        _coordinatorSteeringTurnActive = false;
         SyncGateChangeActivity(isPromptRunning: false);
         ClearPendingPlanReviewCorrection(restoreCard: true);
         ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
@@ -5752,6 +6181,9 @@ public partial class MainWindow : Window
                 _settingsManager.Replace(_settingsStore.SaveLastUsedModel(model));
             }
         }
+
+        if (IsCoordinatorDirectSteeringActivity(evt.Type))
+            CoordinatorThread.DirectLastActivityAt = DateTimeOffset.Now;
 
         switch (evt.Type)
         {
@@ -5819,6 +6251,10 @@ public partial class MainWindow : Window
 
             case "subagent_started":
                 HandleSubagentStarted(evt);
+                break;
+
+            case "subagent_session_ready":
+                HandleSubagentSessionReady(evt);
                 break;
 
             case "subagent_message_delta":
@@ -5968,6 +6404,7 @@ public partial class MainWindow : Window
                 break;
 
             case "done":
+                _coordinatorSteeringTurnActive = false;
                 _pec.ActiveToolName = null;
                 var doneCurrentTurn = CoordinatorThread.CurrentTurn;
                 FinalizeCurrentTurnResponse();
@@ -6383,6 +6820,9 @@ public partial class MainWindow : Window
         if (_currentWorkspace is null || string.IsNullOrWhiteSpace(evt.SessionId))
             return;
 
+        _coordinatorSteeringTurnActive = true;
+        CoordinatorThread.DirectLastActivityAt = DateTimeOffset.Now;
+
         var sessionChanged = !string.Equals(
             _conversationManager.CurrentSessionId,
             evt.SessionId,
@@ -6405,8 +6845,13 @@ public partial class MainWindow : Window
             $"Session ready id={evt.SessionId} resumed={evt.SessionResumed?.ToString() ?? "(unknown)"} diagnostics={SessionResumeDiagnosticsPresentation.BuildSummary(evt) ?? "(none)"}");
     }
 
+    private static bool IsCoordinatorDirectSteeringActivity(string? eventType) =>
+        eventType is "thinking_started" or "thinking_delta" or "tool" or
+            "tool_start" or "tool_progress" or "tool_complete" or "response_delta";
+
     private void HandleSessionReset(SquadSdkEvent evt)
     {
+        _coordinatorSteeringTurnActive = false;
         var diagnostics = PromptContextDiagnosticsPresentation.BuildTraceSummary(
             _conversationManager.CapturePromptContextDiagnostics(),
             DateTimeOffset.UtcNow);
@@ -6560,6 +7005,7 @@ public partial class MainWindow : Window
         }
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        TryApplyAgentOriginFromParentSession(thread, evt);
         
         // Mark as inbox-launched if this agent was dispatched from an inbox action
         if (!string.IsNullOrWhiteSpace(evt.AgentName) && _inboxLaunchedAgentHandles.Contains(evt.AgentName))
@@ -6582,6 +7028,46 @@ public partial class MainWindow : Window
         // CompletedAt timestamp until the delegated worker returns and the coordinator turn
         // actually finishes; otherwise an active delegation is presented as failed history.
         _conversationManager.PersistAgentThreadSnapshot(thread);
+    }
+
+    private void HandleSubagentSessionReady(SquadSdkEvent evt)
+    {
+        if (ShouldSuppressSilentBackgroundAgent(evt))
+            return;
+
+        var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        TryApplyAgentOriginFromParentSession(thread, evt);
+        if (!string.IsNullOrWhiteSpace(evt.ProviderSessionId))
+            thread.ProviderSessionId = evt.ProviderSessionId.Trim();
+        thread.IsSteeringTurnActive = !string.IsNullOrWhiteSpace(thread.ProviderSessionId);
+        thread.IsCurrentBackgroundRun = true;
+        thread.StatusText = string.IsNullOrWhiteSpace(thread.StatusText) ? "Running" : thread.StatusText;
+        _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_session_ready");
+        SyncAgentCardsWithThreads();
+        _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
+        SquadDashTrace.Write(
+            "UI",
+            $"Subagent steering session ready thread={thread.ThreadId} providerSession={thread.ProviderSessionId ?? "(none)"} parentSession={evt.SessionId ?? "(none)"}");
+    }
+
+    private void TryApplyAgentOriginFromParentSession(
+        TranscriptThreadState thread,
+        SquadSdkEvent evt)
+    {
+        if (thread.OriginThread is not null || string.IsNullOrWhiteSpace(evt.SessionId))
+            return;
+
+        var owner = _agentThreadRegistry.ThreadOrder.FirstOrDefault(candidate =>
+            !ReferenceEquals(candidate, thread) &&
+            !string.IsNullOrWhiteSpace(candidate.ProviderSessionId) &&
+            string.Equals(candidate.ProviderSessionId, evt.SessionId, StringComparison.OrdinalIgnoreCase));
+        if (owner is null)
+            return;
+
+        _agentThreadRegistry.ApplyOriginMetadata(thread, owner, evt.ToolCallId);
+        SquadDashTrace.Write(
+            "Routing",
+            $"Agent origin resolved from provider session child={thread.ThreadId} owner={owner.ThreadId} parentSession={evt.SessionId}");
     }
 
     private void HandleSubagentMessageDelta(SquadSdkEvent evt)
@@ -6944,6 +7430,7 @@ public partial class MainWindow : Window
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         MaybeReactivateThread(thread);
         _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
+        thread.IsSteeringTurnActive = false;
         var observedAt = DateTimeOffset.Now;
         thread.ThrottleRetryAt = ProviderThrottlePresentation.ResolveRetryAt(
             evt.RetryAt,
@@ -26945,6 +27432,12 @@ public partial class MainWindow : Window
 
             switch (action)
             {
+                case PromptInputAction.SteerPrompt:
+                    RecordHintFeatureUsed(PromptHintFeature.CtrlEnterSteer);
+                    _ = SteerActiveWorkAsync();
+                    e.Handled = true;
+                    break;
+
                 case PromptInputAction.PrioritizeInQueue:
                     PrioritizeActiveTabToFront();
                     e.Handled = true;
@@ -28230,6 +28723,13 @@ public partial class MainWindow : Window
             sendAsQuickReply = false;
         }
 
+        if (wasTargetingPrompt && _steeringPromptInProgress && (send || sendAsQuickReply))
+        {
+            SquadDashTrace.Write("UI", "PTT send deferred while a steering acknowledgement is pending.");
+            send = false;
+            sendAsQuickReply = false;
+        }
+
         if (sendAsQuickReply && wasTargetingPrompt)
         {
             SquadDashTrace.Write("UI", "Prompt sent: PTT quick-reply send");
@@ -28418,8 +28918,8 @@ public partial class MainWindow : Window
     /// <summary>
     /// Rebuilds the shortcuts hint line below the prompt box. Each sentence is only included
     /// when its feature has not been used in the last <see cref="HintCooldown"/>. The
-    /// Ctrl+Enter hint is additionally gated on there being queued items that precede the
-    /// active prompt in the dispatch order. In QRB blocking state the hint area is taken
+    /// Steering and priority hints are additionally gated on there being a live steering
+    /// target or queued items that precede the active prompt. In QRB blocking state the hint area is taken
     /// over entirely to guide the user through responding to AI input.
     /// </summary>
     private void BuildShortcutsHint()
@@ -28480,11 +28980,21 @@ public partial class MainWindow : Window
             any = true;
         }
 
-        if (IsHintVisible(PromptHintFeature.CtrlEnterPrioritize) && IsCtrlEnterPrioritizeApplicable())
+        if (IsHintVisible(PromptHintFeature.CtrlEnterSteer) && HasSteerableTarget())
         {
             AddGap();
             inlines.Add(Bold("Ctrl")); inlines.Add(Normal("+"));
+            inlines.Add(Bold("Enter")); inlines.Add(Normal(" steers active work."));
+            any = true;
+        }
+
+        if (IsHintVisible(PromptHintFeature.CtrlShiftEnterPrioritize) && IsCtrlShiftEnterPrioritizeApplicable())
+        {
+            AddGap();
+            inlines.Add(Bold("Ctrl")); inlines.Add(Normal("+"));
+            inlines.Add(Bold("Shift")); inlines.Add(Normal("+"));
             inlines.Add(Bold("Enter")); inlines.Add(Normal(" moves this to the front of the queue."));
+            any = true;
         }
 
         if (IsHintVisible(PromptHintFeature.CtrlQAddQueue))
@@ -28515,11 +29025,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Returns true when Ctrl+Enter would have a meaningful effect — i.e., there are queue
+    /// Returns true when Ctrl+Shift+Enter would have a meaningful effect — i.e., there are queue
     /// items that would be dispatched before the current prompt (either on the Active Draft
     /// tab with a non-empty queue, or on a queued tab that isn't already first).
     /// </summary>
-    private bool IsCtrlEnterPrioritizeApplicable()
+    private bool IsCtrlShiftEnterPrioritizeApplicable()
     {
         if (_activeTabId is null)
             return _promptQueue.Count > 0;
@@ -43381,28 +43891,7 @@ public partial class MainWindow : Window
                     };
                     link.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "SubtleText");
                     link.ToolTip = MakeThemedToolTip("This prompt includes attachments. Click to view.");
-                    link.Click  += (_, _) =>
-                    {
-                        if (capturedAttachments.Count > 0)
-                        {
-                            if (capturedAttachments.Count == 1 && capturedAttachments[0].InboxMessageId is { } msgId)
-                            {
-                                var att0 = capturedAttachments[0];
-                                if (att0.ContentBlock != null)
-                                {
-                                    var excerptText = ExtractExcerptTextFromAttachment(att0.ContentBlock);
-                                    if (excerptText.Length > 0)
-                                        OpenOrFocusInboxMessageAndSelectText(msgId, excerptText);
-                                    else
-                                        OpenOrFocusInboxMessage(msgId);
-                                }
-                                else
-                                    OpenOrFocusInboxMessage(msgId);
-                            }
-                            else
-                                PromptAttachmentViewerWindow.Show(capturedAttachments, CanShowOwnedWindow() ? this : null, msgId => OpenOrFocusInboxMessage(msgId));
-                        }
-                    };
+                    link.Click += (_, _) => OpenPromptAttachments(capturedAttachments);
                     promptParagraph.Inlines.Add(link);
                 }
 
@@ -43598,6 +44087,34 @@ public partial class MainWindow : Window
             run.SetResourceReference(TextElement.ForegroundProperty, colorKey);
             inlines.Add(run);
         }
+    }
+
+    private void OpenPromptAttachments(IReadOnlyList<FollowUpAttachment> attachments)
+    {
+        if (attachments.Count == 0)
+            return;
+
+        if (attachments.Count == 1 && attachments[0].InboxMessageId is { } messageId)
+        {
+            var attachment = attachments[0];
+            if (attachment.ContentBlock is not null)
+            {
+                var excerptText = ExtractExcerptTextFromAttachment(attachment.ContentBlock);
+                if (excerptText.Length > 0)
+                {
+                    OpenOrFocusInboxMessageAndSelectText(messageId, excerptText);
+                    return;
+                }
+            }
+
+            OpenOrFocusInboxMessage(messageId);
+            return;
+        }
+
+        PromptAttachmentViewerWindow.Show(
+            attachments,
+            CanShowOwnedWindow() ? this : null,
+            messageId => OpenOrFocusInboxMessage(messageId));
     }
 
     /// <summary>
@@ -43879,7 +44396,7 @@ public partial class MainWindow : Window
             RenderPersistedHostNotice(view, notice);
     }
 
-    private static void RenderPersistedHostNotice(
+    private void RenderPersistedHostNotice(
         TranscriptTurnView view,
         TranscriptHostNoticeRecord notice)
     {
@@ -43889,6 +44406,21 @@ public partial class MainWindow : Window
             notice.Text,
             notice.OccurredAt);
         view.HostNotices.Add(entry);
+
+        if (SteeringTranscriptEntryFactory.TryDecodeHostNotice(notice.Text, out var providerPrompt))
+        {
+            var display = SteeringTranscriptEntryFactory.ParsePersistedPrompt(providerPrompt);
+            var paragraph = SteeringTranscriptEntryFactory.CreateParagraph(
+                display.Prompt,
+                display.Attachments,
+                display.AttachmentCount > 0 ? display.AttachmentCount : null,
+                HandleTranscriptLinkClick,
+                OpenPromptAttachments,
+                MakeThemedToolTip("This prompt includes attachments. Click to view."));
+            view.NarrativeSection.Blocks.Add(paragraph);
+            return;
+        }
+
         view.NarrativeSection.Blocks.Add(ProviderThrottleTranscriptBlockFactory.Create(entry));
     }
 
@@ -45120,6 +45652,10 @@ public partial class MainWindow : Window
     {
         if (_isClosing || _mainWindowClosingInProgress)
             return;
+
+        _coordinatorSteeringTurnActive = false;
+        foreach (var thread in _agentThreadRegistry.ThreadOrder)
+            thread.IsSteeringTurnActive = false;
 
         if (RetireDirectQuickReplyHandoffBlockers($"bridge-reset:{reset.Reason}") == 0)
             return;
@@ -49005,8 +49541,8 @@ public partial class MainWindow : Window
         }
 
         SetIsEnabledIfChanged(PromptTextBox, state.PromptEnabled);
-        SetIsEnabledIfChanged(RunButton, state.RunEnabled
-            || ((_isPromptRunning || IsLoopRunning) && _currentWorkspace is not null));
+        SetIsEnabledIfChanged(RunButton, !_steeringPromptInProgress &&
+            (state.RunEnabled || ((_isPromptRunning || IsLoopRunning) && _currentWorkspace is not null)));
         SetIsEnabledIfChanged(AbortButton, state.AbortEnabled);
         if (RunDoctorMenuItem is not null)
             SetIsEnabledIfChanged(RunDoctorMenuItem, state.RunDoctorEnabled);
@@ -58391,7 +58927,17 @@ public partial class MainWindow : Window
         if (tabId == "") PersistDraftFollowUp();
         UpdateFollowUpStrip();
 
-        var headers = stamped.Select(att =>
+        return BuildFollowUpPrompt(text, stamped);
+    }
+
+    private static string BuildFollowUpPrompt(
+        string text,
+        IReadOnlyList<FollowUpAttachment> attachments)
+    {
+        if (attachments.Count == 0)
+            return text;
+
+        var headers = attachments.Select(att =>
         {
             if (att.ImagePath != null)
                 return $"[Attached image: {att.ImagePath}]";
@@ -58409,7 +58955,7 @@ public partial class MainWindow : Window
 
         // When the user has any typed content/image attachments, prepend a one-liner so the AI
         // understands the structure it is receiving.
-        bool hasTypedBlocks = stamped.Any(a => a.ContentBlock != null || a.ImagePath != null || a.FileReferencePath != null);
+        bool hasTypedBlocks = attachments.Any(a => a.ContentBlock != null || a.ImagePath != null || a.FileReferencePath != null);
         const string AttachmentPreamble = "The user has attached the following context items. Please refer to them as needed.";
         var headerSection = string.Join("\n", headers);
         return (hasTypedBlocks ? AttachmentPreamble + "\n" + headerSection : headerSection) + "\n\n" + text;

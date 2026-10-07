@@ -78,12 +78,30 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public string? AssignedPlanTaskId { get; set; }
     public string? RequestedAgentHandle { get; set; }
     public string? WorkingDirectory { get; set; }
+    /// <summary>
+    /// Provider-owned session that is executing this agent's current turn.  This is
+    /// deliberately separate from the parent/coordinator session carried by bridge
+    /// lifecycle events and is the address used for direct mid-turn steering.
+    /// </summary>
+    public string? ProviderSessionId { get; set; }
+    /// <summary>
+    /// True only while the provider session has an in-flight request that can
+    /// accept immediate input. A retained session id alone is not sufficient:
+    /// immediate input against an idle session would start an unintended new turn.
+    /// </summary>
+    public bool IsSteeringTurnActive { get; set; }
     public bool? RosterIdentityVerified { get; set; }
     public string DisplayTitle =>
         !string.IsNullOrWhiteSpace(RequestedAgentHandle) && Title != AgentNameHumanizer.Humanize(RequestedAgentHandle)
             ? $"{AgentNameHumanizer.Humanize(RequestedAgentHandle)} (unverified)"
             : Title;
     public DateTimeOffset? LastObservedActivityAt { get; set; }
+    /// <summary>
+    /// Most recent activity emitted by this thread itself. Unlike
+    /// <see cref="LastObservedActivityAt"/>, this timestamp is never propagated from
+    /// descendants and can therefore be used to choose a default steering target.
+    /// </summary>
+    public DateTimeOffset? DirectLastActivityAt { get; set; }
     /// <summary>The provider retry deadline while this agent is rate limited.</summary>
     public DateTimeOffset? ThrottleRetryAt { get; set; }
     public bool IsPlaceholderThread { get; set; }

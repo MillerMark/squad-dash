@@ -22,6 +22,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private static readonly TimeSpan DefaultPromptTimeoutPollInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan DefaultBridgeHealthProbeTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultBackgroundCancelResponseTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultSteeringResponseTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan BridgeDeltaTraceInterval = TimeSpan.FromSeconds(1);
     private const string SessionResetEventType = "session_reset";
     private const int TracePreviewChars = 240;
@@ -38,6 +39,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private readonly Dictionary<string, PendingBridgeRequest> _pendingRequests = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PendingBackgroundCancelRequest> _pendingBackgroundCancels = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingBridgeHealthChecks = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TaskCompletionSource<SquadSdkSteerResult>> _pendingSteers = new(StringComparer.Ordinal);
     private readonly HashSet<string> _userAbortRequestIds = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _systemInterruptReasons = new(StringComparer.Ordinal);
     private readonly TimeSpan _promptInactivityTimeout;
@@ -268,6 +270,52 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         }
     }
 
+    /// <summary>
+    /// Delivers a user update to an already-running provider session. This control
+    /// path intentionally bypasses <see cref="_promptLock"/> so it can operate while
+    /// the original prompt owns that lock.
+    /// </summary>
+    public async Task<SquadSdkSteerResult> SteerAsync(string sessionId, string prompt) {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException("A live provider session is required.", nameof(sessionId));
+        if (string.IsNullOrWhiteSpace(prompt))
+            throw new ArgumentException("Steering prompt cannot be empty.", nameof(prompt));
+
+        ThrowIfDisposed();
+        var normalizedSessionId = sessionId.Trim();
+        var requestId = Guid.NewGuid().ToString("N");
+        var completion = new TaskCompletionSource<SquadSdkSteerResult>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_stateLock) {
+            if (_activeProcess is null || _activeProcessInput is null)
+                throw new InvalidOperationException("The Squad bridge is not running.");
+            _pendingSteers[requestId] = completion;
+        }
+
+        SquadDashTrace.Write(
+            "Bridge",
+            $"SteerAsync requested requestId={requestId} sessionId={normalizedSessionId} promptChars={prompt.Length} promptPreview=\"{BuildTracePreview(prompt)}\"");
+        try {
+            await SendBridgeRequestAsync(new SquadSdkSteerRequest(
+                    normalizedSessionId,
+                    prompt,
+                    requestId))
+                .ConfigureAwait(false);
+            var completed = await Task.WhenAny(
+                    completion.Task,
+                    Task.Delay(DefaultSteeringResponseTimeout))
+                .ConfigureAwait(false);
+            if (completed != completion.Task)
+                throw new TimeoutException("Timed out waiting for the active agent to accept the steering prompt.");
+            return await completion.Task.ConfigureAwait(false);
+        }
+        finally {
+            lock (_stateLock) {
+                _pendingSteers.Remove(requestId);
+            }
+        }
+    }
+
     private SquadSdkNamedAgentRoute? ResolveNamedAgentRoute(string targetAgentHandle) {
         var normalized = targetAgentHandle.Trim().TrimStart('@');
         return NamedAgentRoutes.FirstOrDefault(route =>
@@ -323,6 +371,10 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 $"handoffChars={namedAgentRequest.HandoffContext?.Length ?? 0} targetAgent={namedAgentRequest.TargetAgent} " +
                 $"cwd={namedAgentRequest.Cwd} sessionId={namedAgentRequest.SessionId ?? "(new)"} " +
                 $"profile={namedAgentRequest.AgentRoute?.ProfileAlias ?? "(coordinator-default)"} model={namedAgentRequest.Model ?? "(auto)"}",
+            SquadSdkSteerRequest steerRequest =>
+                $"Sent request type={steerRequest.Type} requestId={steerRequest.RequestId} " +
+                $"payloadChars={payload.Length} promptChars={steerRequest.Prompt.Length} " +
+                $"promptPreview=\"{BuildTracePreview(steerRequest.Prompt)}\" sessionId={steerRequest.SessionId}",
             SquadSdkRcPromptBroadcastRequest rcPromptRequest =>
                 $"Sent request type={rcPromptRequest.Type} payloadChars={payload.Length} textChars={rcPromptRequest.Text.Length} " +
                 $"textPreview=\"{BuildTracePreview(rcPromptRequest.Text)}\"",
@@ -1014,6 +1066,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         if (TryCompleteBridgeHealthCheck(evt))
             return;
 
+        if (TryCompleteSteer(evt))
+            return;
+
         var backgroundCancelHandled = TryCompleteBackgroundCancel(evt);
 
         var pendingRequest = ResolvePendingRequest(evt);
@@ -1072,6 +1127,50 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         return true;
     }
 
+    private bool TryCompleteSteer(SquadSdkEvent evt) {
+        var isSteerResult = string.Equals(evt.Type, "steer_result", StringComparison.Ordinal);
+        if (string.IsNullOrWhiteSpace(evt.RequestId))
+            // A steering result is control-plane traffic even if a malformed or
+            // late response no longer has a waiter. Never publish it as a prompt event.
+            return isSteerResult;
+
+        if (!isSteerResult && !string.Equals(evt.Type, "error", StringComparison.Ordinal))
+            return false;
+
+        TaskCompletionSource<SquadSdkSteerResult>? completion;
+        lock (_stateLock) {
+            _pendingSteers.TryGetValue(evt.RequestId, out completion);
+        }
+        if (completion is null) {
+            if (isSteerResult) {
+                SquadDashTrace.Write(
+                    "Bridge",
+                    $"Ignoring late steering result requestId={evt.RequestId} accepted={evt.Accepted?.ToString() ?? "(unknown)"}.");
+                return true;
+            }
+            return false;
+        }
+
+        if (isSteerResult) {
+            var accepted = evt.Accepted == true;
+            var result = new SquadSdkSteerResult(accepted, evt.SessionId, evt.Message);
+            if (accepted)
+                completion.TrySetResult(result);
+            else
+                completion.TrySetException(new InvalidOperationException(
+                    evt.Message ?? "The active agent did not accept the steering prompt."));
+            return true;
+        }
+
+        if (string.Equals(evt.Type, "error", StringComparison.Ordinal)) {
+            completion.TrySetException(new InvalidOperationException(
+                evt.Message ?? "The steering prompt could not be delivered."));
+            return true;
+        }
+
+        return false;
+    }
+
     private PendingBridgeRequest? ResolvePendingRequest(SquadSdkEvent evt) {
         lock (_stateLock) {
             if (!string.IsNullOrWhiteSpace(evt.RequestId))
@@ -1121,6 +1220,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         PendingBridgeRequest[] pendingRequests;
         PendingBackgroundCancelRequest[] pendingCancels;
         TaskCompletionSource<bool>[] pendingHealthChecks;
+        string[] pendingSteerIds;
+        TaskCompletionSource<SquadSdkSteerResult>[] pendingSteers;
         Task? outputReaderTask;
 
         lock (_stateLock) {
@@ -1133,6 +1234,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             _pendingBackgroundCancels.Clear();
             pendingHealthChecks = _pendingBridgeHealthChecks.Values.ToArray();
             _pendingBridgeHealthChecks.Clear();
+            pendingSteerIds = _pendingSteers.Keys.ToArray();
+            pendingSteers = _pendingSteers.Values.ToArray();
             outputReaderTask = _outputReaderTask;
             _activeProcess = null;
             _activeProcessGeneration = 0;
@@ -1147,18 +1250,25 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         foreach (var pendingHealthCheck in pendingHealthChecks)
             pendingHealthCheck.TrySetResult(false);
 
-        if (pendingRequests.Length == 0)
+        if (pendingRequests.Length == 0 && pendingSteers.Length == 0)
             return;
 
         SquadDashTrace.Write(
             "Bridge",
-            $"Bridge process exited with {pendingRequests.Length} pending request(s); waiting for stdout reader before failing them.");
-        _ = CompleteExitedProcessRequestsAsync(pendingRequestIds, pendingRequests, outputReaderTask);
+            $"Bridge process exited with {pendingRequests.Length} pending prompt request(s) and {pendingSteers.Length} pending steering request(s); waiting for stdout reader before failing them.");
+        _ = CompleteExitedProcessRequestsAsync(
+            pendingRequestIds,
+            pendingRequests,
+            pendingSteerIds,
+            pendingSteers,
+            outputReaderTask);
     }
 
     private async Task CompleteExitedProcessRequestsAsync(
         string[] pendingRequestIds,
         PendingBridgeRequest[] pendingRequests,
+        string[] pendingSteerIds,
+        TaskCompletionSource<SquadSdkSteerResult>[] pendingSteers,
         Task? outputReaderTask) {
         if (outputReaderTask is not null) {
             try {
@@ -1171,11 +1281,15 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         lock (_stateLock) {
             foreach (var requestId in pendingRequestIds)
                 _pendingRequests.Remove(requestId);
+            foreach (var requestId in pendingSteerIds)
+                _pendingSteers.Remove(requestId);
         }
 
         var message = BuildFailureMessage("The Squad SDK process exited before the prompt completed.");
         foreach (var pendingRequest in pendingRequests.Where(request => !request.Completion.Task.IsCompleted))
             pendingRequest.Completion.TrySetException(new InvalidOperationException(message));
+        foreach (var pendingSteer in pendingSteers.Where(request => !request.Task.IsCompleted))
+            pendingSteer.TrySetException(new InvalidOperationException(message));
     }
 
     private void EnqueueError(string text) {
@@ -1308,6 +1422,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         PendingBridgeRequest[] pendingRequests = [];
         PendingBackgroundCancelRequest[] pendingCancels;
         TaskCompletionSource<bool>[] pendingHealthChecks;
+        TaskCompletionSource<SquadSdkSteerResult>[] pendingSteers;
 
         lock (_stateLock) {
             processToKill = _activeProcess;
@@ -1323,6 +1438,8 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             _pendingBackgroundCancels.Clear();
             pendingHealthChecks = _pendingBridgeHealthChecks.Values.ToArray();
             _pendingBridgeHealthChecks.Clear();
+            pendingSteers = _pendingSteers.Values.ToArray();
+            _pendingSteers.Clear();
             _activeProcess = null;
             _activeProcessGeneration = 0;
             _activeProcessInput = null;
@@ -1334,6 +1451,10 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             pendingCancel.Completion.TrySetResult(false);
         foreach (var pendingHealthCheck in pendingHealthChecks)
             pendingHealthCheck.TrySetResult(false);
+        foreach (var pendingSteer in pendingSteers)
+            pendingSteer.TrySetException(
+                pendingPromptException ?? new InvalidOperationException(
+                    "The Squad bridge was reset before the steering prompt was accepted."));
 
         if (pendingPromptException is Exception promptException) {
             foreach (var pendingRequest in pendingRequests)
@@ -2073,6 +2194,17 @@ internal sealed record SquadSdkProviderConfiguration(
 internal sealed record SquadSdkAbortRequest(
     [property: JsonPropertyName("requestId")] string RequestId,
     [property: JsonPropertyName("type")] string Type = "abort");
+
+internal sealed record SquadSdkSteerRequest(
+    [property: JsonPropertyName("sessionId")] string SessionId,
+    [property: JsonPropertyName("prompt")] string Prompt,
+    [property: JsonPropertyName("requestId")] string RequestId,
+    [property: JsonPropertyName("type")] string Type = "steer");
+
+public sealed record SquadSdkSteerResult(
+    bool Accepted,
+    string? SessionId,
+    string? Message);
 
 internal sealed record SquadSdkHealthCheckRequest(
     [property: JsonPropertyName("requestId")] string RequestId,

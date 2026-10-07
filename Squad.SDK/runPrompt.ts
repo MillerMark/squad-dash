@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { SquadBridgeService, buildNamedAgentPrompt, type PlanDelegationGuard, type SquadRunHandlers, type SquadNamedAgentRequest, type SquadNamedAgentRoute, type SubagentLifecycleInfo, type ToolLifecycleEvent } from "./squadService.js";
+import { SteerRequestDispatcher, tryParseSteerRequest, type SteerRequest } from "./steeringProtocol.js";
 import { RemoteBridge, loadSubSquadsConfig, resolveSubSquad } from "@bradygaster/squad-sdk";
 import { resolveGlobalSquadPath, resolvePersonalSquadDir } from "@bradygaster/squad-sdk/resolution";
 import { resolvePersonalAgents } from "@bradygaster/squad-sdk/agents/personal";
@@ -193,7 +194,7 @@ type PersonalInitRequest = {
     requestId?: string;
 };
 
-type BridgeRequest = PromptRequest | DelegateRequest | NamedAgentRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | HealthCheckRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | RcAgentRosterBroadcastRequest | RcCommitBroadcastRequest | RcPromptBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
+type BridgeRequest = PromptRequest | DelegateRequest | NamedAgentRequest | SteerRequest | AbortRequest | CancelBackgroundTaskRequest | ShutdownRequest | HealthCheckRequest | RunLoopRequest | RunLoopStopRequest | RcStartRequest | RcStopRequest | RcStatusBroadcastRequest | RcAgentRosterBroadcastRequest | RcCommitBroadcastRequest | RcPromptBroadcastRequest | SubSquadsListRequest | SubSquadsActivateRequest | PersonalListRequest | PersonalInitRequest;
 
 let activeRemoteBridge: RemoteBridge | null = null;
 let activeTunnelProc: ReturnType<typeof spawn> | null = null;
@@ -334,6 +335,7 @@ function emitSubagentLifecycle(
         providerBaseUrl: subagent.providerBaseUrl,
         providerType: subagent.providerType,
         wireApi: subagent.wireApi,
+        providerSessionId: subagent.providerSessionId,
         totalToolCalls: subagent.totalToolCalls,
         totalTokens: subagent.totalTokens,
         durationMs: subagent.durationMs,
@@ -409,6 +411,9 @@ const bridge = new SquadBridgeService({
     },
     onSubagentStarted(sessionId, subagent) {
         emitSubagentLifecycle("subagent_started", sessionId, subagent);
+    },
+    onSubagentSessionReady(sessionId, subagent) {
+        emitSubagentLifecycle("subagent_session_ready", sessionId, subagent);
     },
     onSubagentCompleted(sessionId, subagent) {
         emitSubagentLifecycle("subagent_completed", sessionId, subagent);
@@ -720,6 +725,9 @@ function tryParseRequest(line: string): BridgeRequest | null {
                 sessionId: extractOptionalString(parsed.sessionId)
             };
         }
+
+        if (parsed.type === "steer")
+            return tryParseSteerRequest(parsed);
 
         if (parsed.type === "cancel_background_task") {
             return {
@@ -1190,6 +1198,17 @@ function buildNamedAgentRunHandlers(
     coordinatorSessionId: string | undefined
 ): SquadRunHandlers {
     return {
+        onSessionReady(session) {
+            emit({
+                type: "subagent_session_ready",
+                sessionId: coordinatorSessionId,
+                toolCallId,
+                agentId: agentHandle,
+                agentName: agentHandle,
+                agentDisplayName,
+                providerSessionId: session.sessionId
+            });
+        },
         onDelta(chunk) {
             emit({
                 type: "subagent_message_delta",
@@ -1777,6 +1796,9 @@ async function main() {
 
     let activePromptTask: Promise<void> | null = null;
     let activeLoopTask: Promise<void> | null = null;
+    const steerDispatcher = new SteerRequestDispatcher(
+        request => bridge.steerPrompt(request.sessionId, request.prompt, request.attachments),
+        emit);
 
     for await (const line of rl) {
         const request = tryParseRequest(line);
@@ -1806,6 +1828,11 @@ async function main() {
                     message: err instanceof Error ? err.message : String(err)
                 });
             }
+            continue;
+        }
+
+        if (request.type === "steer") {
+            steerDispatcher.dispatch(request);
             continue;
         }
 

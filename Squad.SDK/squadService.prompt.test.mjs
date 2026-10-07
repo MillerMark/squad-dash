@@ -535,11 +535,15 @@ test("named roster tool preserves max reasoning effort in delegated session conf
 test("named roster tool launches exact agent with its own provider profile", async () => {
     const configs = [];
     const started = [];
+    const sessionReady = [];
     const completed = [];
     let sessionNumber = 0;
     const service = new SquadBridgeService({
         onSubagentStarted(sessionId, agent) {
             started.push({ sessionId, agent });
+        },
+        onSubagentSessionReady(sessionId, agent) {
+            sessionReady.push({ sessionId, agent: { ...agent } });
         },
         onSubagentCompleted(sessionId, agent) {
             completed.push({ sessionId, agent });
@@ -602,7 +606,12 @@ test("named roster tool launches exact agent with its own provider profile", asy
     assert.equal(started[0].agent.providerBaseUrl, "https://api.openai.example/v1");
     assert.equal(started[0].agent.providerType, "openai");
     assert.equal(started[0].agent.wireApi, "responses");
+    assert.equal(started[0].agent.providerSessionId, undefined);
+    assert.equal(sessionReady[0].sessionId, "session-1");
+    assert.equal(sessionReady[0].agent.toolCallId, "tool-lyra");
+    assert.equal(sessionReady[0].agent.providerSessionId, "session-2");
     assert.equal(completed[0].agent.agentName, "lyra-morn");
+    assert.equal(completed[0].agent.providerSessionId, "session-2");
 });
 
 test("temporary task tool uses the separately assigned profile without limiting launches", async () => {
@@ -1661,6 +1670,127 @@ test("background task cancellation retries paired tool call id when agent id is 
 
     assert.equal(cancelled, true);
     assert.deepEqual(attempts, ["agent-1", "tool-call-1"]);
+});
+
+test("steerPrompt sends an immediate message with attachments during an active turn", async () => {
+    const sent = [];
+    let activityMarks = 0;
+    const service = new SquadBridgeService();
+    service.sessions.set("session-1", {
+        session: {
+            sessionId: "session-1",
+            sendMessage: async options => { sent.push(options); }
+        },
+        currentRequest: {
+            requestTreeActivityMonitor: {
+                markActivity() { activityMarks++; }
+            }
+        }
+    });
+
+    await service.steerPrompt(
+        " session-1 ",
+        "  Take the new constraint into account.  ",
+        [{ type: "file", path: "D:\\work\\notes.md", displayName: "Notes" }]);
+
+    assert.deepEqual(sent, [{
+        prompt: "Take the new constraint into account.",
+        attachments: [{ type: "file", path: "D:\\work\\notes.md", displayName: "Notes" }],
+        mode: "immediate"
+    }]);
+    assert.equal(activityMarks, 1);
+});
+
+test("Ollama-compatible custom-provider sessions use the same immediate steering path", async () => {
+    const runCompletion = Promise.withResolvers();
+    const sessionReady = Promise.withResolvers();
+    const sent = [];
+    let capturedConfig;
+    const provider = {
+        baseUrl: "http://127.0.0.1:11434/v1",
+        type: "openai",
+        wireApi: "completions"
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            capturedConfig = config;
+            return {
+                sessionId: "ollama-provider-session",
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => await runCompletion.promise,
+                sendMessage: async options => { sent.push(options); }
+            };
+        }
+    };
+
+    const run = service.runNamedAgent({
+        cwd: service.clientCwd,
+        selectedOption: "Inspect the local change.",
+        targetAgent: "rune",
+        agentRoute: {
+            handle: "rune",
+            displayName: "Rune",
+            provider
+        }
+    }, {
+        onSessionReady: session => sessionReady.resolve(session)
+    });
+
+    await sessionReady.promise;
+    assert.deepEqual(capturedConfig.provider, provider);
+    await service.steerPrompt("ollama-provider-session", "Preserve the public API.");
+    assert.deepEqual(sent, [{
+        prompt: "Preserve the public API.",
+        attachments: undefined,
+        mode: "immediate"
+    }]);
+
+    runCompletion.resolve({ content: "done" });
+    await run;
+});
+
+test("steerPrompt bypasses the running request rather than starting another request", async () => {
+    let immediateMessage;
+    const currentRequest = {
+        requestTreeActivityMonitor: { markActivity() {} }
+    };
+    const service = new SquadBridgeService();
+    service.sessions.set("session-1", {
+        session: {
+            sessionId: "session-1",
+            sendMessage: async options => { immediateMessage = options; }
+        },
+        currentRequest
+    });
+
+    await service.steerPrompt("session-1", "Change direction.");
+
+    assert.equal(service.sessions.get("session-1").currentRequest, currentRequest);
+    assert.deepEqual(immediateMessage, {
+        prompt: "Change direction.",
+        attachments: undefined,
+        mode: "immediate"
+    });
+});
+
+test("steerPrompt rejects unknown and inactive sessions", async () => {
+    const service = new SquadBridgeService();
+    service.sessions.set("idle-session", {
+        session: {
+            sessionId: "idle-session",
+            sendMessage: async () => assert.fail("inactive session must not receive steering")
+        }
+    });
+
+    await assert.rejects(
+        service.steerPrompt("missing-session", "Change direction."),
+        /No live Squad session is registered/);
+    await assert.rejects(
+        service.steerPrompt("idle-session", "Change direction."),
+        /does not have an active turn/);
 });
 
 test("background task cancellation retries remembered task name for tool call id", async () => {

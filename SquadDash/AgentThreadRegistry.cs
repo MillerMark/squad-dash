@@ -510,6 +510,8 @@ internal sealed class AgentThreadRegistry {
             thread.AgentDescription = evt.AgentDescription;
         if (!string.IsNullOrWhiteSpace(evt.WorkingDirectory))
             thread.WorkingDirectory = evt.WorkingDirectory.Trim();
+        if (!string.IsNullOrWhiteSpace(evt.ProviderSessionId))
+            thread.ProviderSessionId = evt.ProviderSessionId.Trim();
         TryApplyOriginMetadataFromParentToolCall(thread, evt.ParentToolCallId);
 
         if (!string.IsNullOrWhiteSpace(thread.ToolCallId) &&
@@ -555,6 +557,8 @@ internal sealed class AgentThreadRegistry {
         thread.CompletedAt ??= DateTimeOffset.Now;
         if (IsTerminalBackgroundStatus(thread.StatusText))
             thread.IsCurrentBackgroundRun = false;
+        if (IsTerminalBackgroundStatus(thread.StatusText))
+            thread.IsSteeringTurnActive = false;
         _syncThreadChip(thread);
         ParseAndApplyApprovalGroups(thread, rawResponse);
     }

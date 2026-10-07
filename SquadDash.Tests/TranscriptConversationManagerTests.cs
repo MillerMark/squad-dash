@@ -252,6 +252,69 @@ internal sealed class TranscriptConversationManagerTests {
         Assert.That(notice.Text, Is.EqualTo("Plan was not staged. Invalid transport envelope."));
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void PersistTranscriptTurnSnapshot_FinalizedTurnRetainsLateAcceptedSteering()
+    {
+        using var workspace = new TestWorkspace();
+        var thread = new TranscriptThreadState(
+            "coordinator",
+            TranscriptThreadKind.Coordinator,
+            "Squad",
+            DateTimeOffset.UtcNow);
+        var narrative = new Section();
+        thread.Document.Blocks.Add(narrative);
+        var turn = new TranscriptTurnView(
+            thread,
+            "original prompt",
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            narrative,
+            [narrative]);
+        var manager = MakeManager(
+            workspace: SessionWorkspace.Create(workspace.RootPath),
+            coordinatorThread: thread,
+            currentTurn: null);
+        var completedAt = DateTimeOffset.UtcNow.AddSeconds(-1);
+        var finalizedRecord = manager.BuildTranscriptTurnRecord(turn, completedAt) with
+        {
+            ResponseText = "Persisted final answer.",
+            ResponseSegments = [new TranscriptResponseSegmentRecord("Persisted final answer.") { Sequence = 1 }],
+        };
+        manager.ConversationState = manager.ConversationState with
+        {
+            Turns = [finalizedRecord],
+        };
+
+        var paragraph = SteeringTranscriptEntryFactory.CreateParagraph(
+            "Change direction.",
+            [],
+            historicalAttachmentCount: null,
+            openLink: null,
+            openAttachments: null,
+            attachmentToolTip: null);
+        SteeringTranscriptEntryFactory.Append(
+            turn,
+            "Change direction.",
+            paragraph,
+            DateTimeOffset.UtcNow,
+            sequence: 1);
+
+        manager.PersistTranscriptTurnSnapshot(thread, turn, "late-steering-test");
+
+        var persistedTurn = manager.ConversationState.Turns.Single();
+        var notice = persistedTurn.GetHostNotices().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(persistedTurn.CompletedAt, Is.EqualTo(completedAt));
+            Assert.That(persistedTurn.ResponseText, Is.EqualTo("Persisted final answer."));
+            Assert.That(persistedTurn.GetResponseSegments().Single().Text,
+                Is.EqualTo("Persisted final answer."));
+            Assert.That(
+                SteeringTranscriptEntryFactory.TryDecodeHostNotice(notice.Text, out var prompt),
+                Is.True);
+            Assert.That(prompt, Is.EqualTo("Change direction."));
+        });
+    }
+
     // ── ResetHistoryNavigation ────────────────────────────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]

@@ -267,6 +267,25 @@ export type SquadNamedAgentRequest = {
     temporaryAgentRoute?: SquadNamedAgentRoute;
 };
 
+export type SquadPromptAttachment = {
+    type: "file";
+    path: string;
+    displayName?: string;
+} | {
+    type: "directory";
+    path: string;
+    displayName?: string;
+} | {
+    type: "selection";
+    filePath: string;
+    displayName: string;
+    selection?: {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+    };
+    text?: string;
+};
+
 export type SessionReadyInfo = {
     sessionId: string;
     resumed: boolean;
@@ -362,6 +381,7 @@ export type SubagentLifecycleInfo = {
     providerBaseUrl?: string;
     providerType?: string;
     wireApi?: string;
+    providerSessionId?: string;
     totalToolCalls?: number;
     totalTokens?: number;
     durationMs?: number;
@@ -440,6 +460,7 @@ export type SquadBridgeHandlers = {
     onBackgroundTasksChanged?: (sessionId: string, tasks: BackgroundTaskSnapshot) => void;
     onTaskComplete?: (sessionId: string, summary?: string) => void;
     onSubagentStarted?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
+    onSubagentSessionReady?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
     onSubagentCompleted?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
     onSubagentFailed?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
     onSubagentThrottled?: (sessionId: string, subagent: SubagentLifecycleInfo) => void;
@@ -2799,6 +2820,32 @@ export class SquadBridgeService {
         return true;
     }
 
+    public async steerPrompt(
+        sessionId: string,
+        prompt: string,
+        attachments?: SquadPromptAttachment[]
+    ): Promise<void> {
+        const normalizedSessionId = sessionId.trim();
+        const trimmedPrompt = prompt.trim();
+        if (!normalizedSessionId)
+            throw new Error("Steering requires a non-empty sessionId.");
+        if (!trimmedPrompt)
+            throw new Error("Steering prompt cannot be empty.");
+
+        const state = this.sessions.get(normalizedSessionId);
+        if (!state)
+            throw new Error(`No live Squad session is registered for steering: ${normalizedSessionId}.`);
+        if (!state.currentRequest)
+            throw new Error(`Squad session ${normalizedSessionId} does not have an active turn to steer.`);
+
+        state.currentRequest.requestTreeActivityMonitor.markActivity();
+        await state.session.sendMessage({
+            prompt: trimmedPrompt,
+            attachments: attachments && attachments.length > 0 ? attachments : undefined,
+            mode: "immediate"
+        });
+    }
+
     public async cancelBackgroundTask(taskId: string, sessionId?: string): Promise<boolean> {
         const normalizedTaskId = taskId.trim();
         if (!normalizedTaskId)
@@ -2923,6 +2970,7 @@ export class SquadBridgeService {
             providerBaseUrl: subagent.providerBaseUrl ?? existing?.providerBaseUrl,
             providerType: subagent.providerType ?? existing?.providerType,
             wireApi: subagent.wireApi ?? existing?.wireApi,
+            providerSessionId: subagent.providerSessionId ?? existing?.providerSessionId,
             totalToolCalls: subagent.totalToolCalls ?? existing?.totalToolCalls,
             totalTokens: subagent.totalTokens ?? existing?.totalTokens,
             durationMs: subagent.durationMs ?? existing?.durationMs,
@@ -3342,6 +3390,9 @@ export class SquadBridgeService {
                         {
                             onSessionReady: session => {
                                 namedAgentSessionId = session.sessionId;
+                                this.bridgeHandlers.onSubagentSessionReady?.(
+                                    invocation.sessionId,
+                                    { ...lifecycle, providerSessionId: session.sessionId });
                             },
                             onThinking: text => {
                                 if (text.trim().length > 0)
@@ -3464,6 +3515,7 @@ export class SquadBridgeService {
                     });
                     this.bridgeHandlers.onSubagentThrottled?.(invocation.sessionId, {
                         ...lifecycle,
+                        providerSessionId: namedAgentSessionId,
                         error: message,
                         totalToolCalls,
                         totalTokens,
@@ -3485,6 +3537,7 @@ export class SquadBridgeService {
 
                     this.bridgeHandlers.onSubagentResumed?.(invocation.sessionId, {
                         ...lifecycle,
+                        providerSessionId: namedAgentSessionId,
                         totalToolCalls,
                         totalTokens,
                         durationMs: Date.now() - startedAt,
@@ -3519,6 +3572,7 @@ export class SquadBridgeService {
             }
             this.bridgeHandlers.onSubagentCompleted?.(invocation.sessionId, {
                 ...lifecycle,
+                providerSessionId: namedAgentSessionId,
                 totalToolCalls,
                 totalTokens,
                 durationMs: Date.now() - startedAt,
@@ -3544,6 +3598,7 @@ export class SquadBridgeService {
             const message = extractErrorMessage(error) ?? String(error);
             this.bridgeHandlers.onSubagentFailed?.(invocation.sessionId, {
                 ...lifecycle,
+                providerSessionId: namedAgentSessionId,
                 error: message,
                 totalToolCalls,
                 totalTokens,

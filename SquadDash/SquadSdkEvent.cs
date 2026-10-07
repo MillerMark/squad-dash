@@ -10,6 +10,7 @@ public sealed class SquadSdkEvent {
     public string? Type { get; set; }
     public string? RequestId { get; set; }
     public string? SessionId { get; set; }
+    public string? ProviderSessionId { get; set; }
     public string? TaskId { get; set; }
     public bool? SessionResumed { get; set; }
     public string? SessionReuseKind { get; set; }
@@ -61,6 +62,7 @@ public sealed class SquadSdkEvent {
     public string? OutputText { get; set; }
     public bool? Success { get; set; }
     public bool? Cancelled { get; set; }
+    public bool? Accepted { get; set; }
     public JsonElement Args { get; set; }
     public string? Message { get; set; }
     public string? Summary { get; set; }

@@ -42,7 +42,7 @@ internal sealed class PromptInteractionLogicTests {
     }
 
     [Test]
-    public void ResolveAction_CtrlEnterReturnsPrioritizeInQueue() {
+    public void ResolveAction_CtrlEnterReturnsSteerPrompt() {
         var action = PromptInputBehavior.ResolveAction(
             PromptInputKey.Enter,
             ctrlPressed: true,
@@ -50,16 +50,29 @@ internal sealed class PromptInteractionLogicTests {
             runButtonEnabled: true,
             isMultiLinePrompt: false);
 
-        Assert.That(action, Is.EqualTo(PromptInputAction.PrioritizeInQueue));
+        Assert.That(action, Is.EqualTo(PromptInputAction.SteerPrompt));
     }
 
     [Test]
-    public void ResolveAction_CtrlEnterPrioritizesEvenWhenRunIsDisabled() {
+    public void ResolveAction_CtrlEnterSteersEvenWhenRunIsDisabled() {
         var action = PromptInputBehavior.ResolveAction(
             PromptInputKey.Enter,
             ctrlPressed: true,
             shiftPressed: false,
             runButtonEnabled: false,
+            isMultiLinePrompt: false);
+
+        Assert.That(action, Is.EqualTo(PromptInputAction.SteerPrompt));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void ResolveAction_CtrlShiftEnterReturnsPrioritizeInQueue(bool runButtonEnabled) {
+        var action = PromptInputBehavior.ResolveAction(
+            PromptInputKey.Enter,
+            ctrlPressed: true,
+            shiftPressed: true,
+            runButtonEnabled: runButtonEnabled,
             isMultiLinePrompt: false);
 
         Assert.That(action, Is.EqualTo(PromptInputAction.PrioritizeInQueue));
@@ -337,11 +350,23 @@ internal sealed class PromptInteractionLogicTests {
     }
 
     [Test]
-    public void ResolveAction_IntelliSenseOpen_CtrlEnterStillPrioritizes() {
+    public void ResolveAction_IntelliSenseOpen_CtrlEnterStillSteers() {
         // Ctrl+Enter is not intercepted by the IntelliSense handler.
         var action = PromptInputBehavior.ResolveAction(
             PromptInputKey.Enter,
             ctrlPressed: true, shiftPressed: false,
+            runButtonEnabled: true, isMultiLinePrompt: false,
+            isIntelliSenseOpen: true);
+
+        Assert.That(action, Is.EqualTo(PromptInputAction.SteerPrompt));
+    }
+
+    [Test]
+    public void ResolveAction_IntelliSenseOpen_CtrlShiftEnterStillPrioritizes() {
+        // Ctrl+Shift+Enter is not intercepted by the IntelliSense handler.
+        var action = PromptInputBehavior.ResolveAction(
+            PromptInputKey.Enter,
+            ctrlPressed: true, shiftPressed: true,
             runButtonEnabled: true, isMultiLinePrompt: false,
             isIntelliSenseOpen: true);
 

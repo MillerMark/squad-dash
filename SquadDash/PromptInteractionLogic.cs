@@ -8,7 +8,8 @@ internal enum PromptHintFeature {
     ShiftEnterNewline,
     CtrlArrowHistory,
     PushToTalk,
-    CtrlEnterPrioritize,
+    CtrlEnterSteer,
+    CtrlShiftEnterPrioritize,
     CtrlQAddQueue,
     CtrlTabNavigation
 }
@@ -26,6 +27,7 @@ internal enum PromptInputKey {
 internal enum PromptInputAction {
     None,
     SubmitPrompt,
+    SteerPrompt,
     PrioritizeInQueue,
     NavigateHistoryPrevious,
     NavigateHistoryNext,
@@ -67,8 +69,11 @@ internal static class PromptInputBehavior {
         bool shiftPressed,
         bool runButtonEnabled,
         bool isMultiLinePrompt) {
-        if (key == PromptInputKey.Enter && ctrlPressed && !shiftPressed)
+        if (key == PromptInputKey.Enter && ctrlPressed && shiftPressed)
             return PromptInputAction.PrioritizeInQueue;
+
+        if (key == PromptInputKey.Enter && ctrlPressed)
+            return PromptInputAction.SteerPrompt;
 
         if (key == PromptInputKey.Enter && !ctrlPressed && !shiftPressed && runButtonEnabled)
             return PromptInputAction.SubmitPrompt;

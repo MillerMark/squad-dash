@@ -1135,6 +1135,69 @@ internal sealed class TranscriptConversationManager {
         }, $"PersistAgentThreadSnapshot:{thread.ThreadId}");
     }
 
+    /// <summary>
+    /// Persists a live transcript mutation against the exact turn object that received it.
+    /// The turn may have finalized while an asynchronous operation was awaiting an external
+    /// acknowledgement, so this deliberately does not rely only on <c>CurrentTurn</c>.
+    /// </summary>
+    internal void PersistTranscriptTurnSnapshot(
+        TranscriptThreadState thread,
+        TranscriptTurnView turn,
+        string reason) {
+        ArgumentNullException.ThrowIfNull(thread);
+        ArgumentNullException.ThrowIfNull(turn);
+        if (_getWorkspace() is null || turn.SuppressTranscript)
+            return;
+        if (!ReferenceEquals(turn.OwnerThread, thread))
+            throw new InvalidOperationException("The transcript turn does not belong to the target thread.");
+
+        var state = _conversationState;
+        if (thread.Kind == TranscriptThreadKind.Coordinator && !ReferenceEquals(_getCurrentTurn(), turn)) {
+            var existing = state.Turns.FirstOrDefault(candidate =>
+                candidate.StartedAt == turn.StartedAt.ToUniversalTime() &&
+                string.Equals(candidate.Prompt, turn.Prompt, StringComparison.Ordinal));
+            var snapshot = BuildTranscriptTurnRecordPreservingAgentReports(
+                turn,
+                existing?.CompletedAt ?? DateTimeOffset.UtcNow,
+                state.Turns);
+            // A finalized record is authoritative for response/tool content. Merge only the
+            // late host-owned notices so an ack race cannot regress already-saved output.
+            var record = existing is null
+                ? snapshot
+                : existing with { HostNotices = snapshot.HostNotices };
+            var turns = state.Turns
+                .Where(candidate => !IsSameTranscriptTurn(candidate, record))
+                .ToList();
+            turns.Add(record);
+            state = state with { Turns = turns };
+        }
+        else if (thread.Kind == TranscriptThreadKind.Agent && !ReferenceEquals(thread.CurrentTurn, turn)) {
+            var existing = thread.SavedTurns.FirstOrDefault(candidate =>
+                candidate.StartedAt == turn.StartedAt.ToUniversalTime() &&
+                string.Equals(candidate.Prompt, turn.Prompt, StringComparison.Ordinal));
+            var snapshot = BuildTranscriptTurnRecordPreservingAgentReports(
+                turn,
+                existing?.CompletedAt ?? DateTimeOffset.UtcNow,
+                thread.SavedTurns);
+            var record = existing is null
+                ? snapshot
+                : existing with { HostNotices = snapshot.HostNotices };
+            thread.SavedTurns.RemoveAll(candidate => IsSameTranscriptTurn(candidate, record));
+            thread.SavedTurns.Add(record);
+        }
+
+        CancelScheduledAgentThreadSnapshotPersist();
+        PersistConversationStateInBackground(state with {
+            SessionId = _currentSessionId,
+            SessionUpdatedAt = _currentSessionId is null
+                ? state.SessionUpdatedAt
+                : DateTimeOffset.UtcNow,
+            PromptDraft = _getPromptText(),
+            PromptHistory = _promptHistory.Select(entry => entry.Text).ToArray(),
+            Threads = BuildPersistedAgentThreadRecords(includeCurrentTurns: true)
+        }, $"PersistTranscriptTurnSnapshot:{reason}");
+    }
+
     internal void SchedulePersistAgentThreadSnapshot(TranscriptThreadState thread) {
         if (_getWorkspace() is null || !AgentThreadRegistry.HasPersistableThreadContent(thread))
             return;

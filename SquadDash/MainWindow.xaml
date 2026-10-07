@@ -707,7 +707,7 @@
                               Click="EditNewQueueToTailMenuItem_Click" />
                     <MenuItem Header="Move to _Front of Queue"
                               x:Name="EditMoveToFrontMenuItem"
-                              InputGestureText="Ctrl+Enter"
+                              InputGestureText="Ctrl+Shift+Enter"
                               Click="EditMoveToFrontMenuItem_Click" />
                     <MenuItem Header="_Pause Queue Drain"
                               x:Name="EditPauseQueueDrainMenuItem"

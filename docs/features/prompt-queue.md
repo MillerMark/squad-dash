@@ -60,18 +60,18 @@ Click any queue tab (or navigate to it with Ctrl+Tab) to open the prompt text fo
 
 ---
 
-## Prioritising a Queued Prompt: Ctrl+Enter
+## Prioritising a Queued Prompt: Ctrl+Shift+Enter
 
-Press **Ctrl+Enter** to move the currently viewed item to the front of the queue (position #1), so it dispatches next.
+Press **Ctrl+Shift+Enter** to move the currently viewed item to the front of the queue (position #1), so it dispatches next.
 
 - **On the Active Draft tab** — enqueues the current draft at the front of the queue, clears the text box, and queues it as #1. Only works when there are already other items in the queue.
 - **On a queued tab (#2, #3, …)** — moves that item to position #1. No-op if it is already first.
 
 After the move, a transient **"« Now at the front of the queue."** label appears on the tab for a few seconds confirming the reorder. The queue is renumbered automatically.
 
-The prompt bar also surfaces a hint — *"Ctrl+Enter moves this to the front of the queue."* — whenever the shortcut would have a meaningful effect.
+The prompt bar also surfaces a hint — *"Ctrl+Shift+Enter moves this to the front of the queue."* — whenever the shortcut would have a meaningful effect.
 
-![Screenshot: Priority feedback label after Ctrl+Enter](images/prompt-queue-priority-feedback.png)
+![Screenshot: Priority feedback label after Ctrl+Shift+Enter](images/prompt-queue-priority-feedback.png)
 > 📸 *Screenshot needed: A queue tab that has just been prioritised — show the "« Now at the front of the queue." transient label visible in the tab strip.*
 
 ---
@@ -95,7 +95,7 @@ The Send button also switches from **Queue** to **Send** — this ensures your r
 
 ### Editing while paused
 
-Queued items **remain in their tabs and are fully editable** while the queue is paused. You can click any tab, revise the text, and reorder with Ctrl+Enter before the queue resumes.
+Queued items **remain in their tabs and are fully editable** while the queue is paused. You can click any tab, revise the text, and reorder with Ctrl+Shift+Enter before the queue resumes.
 
 ### Resuming
 
@@ -136,8 +136,8 @@ See **[Voice Input](voice-input.md)** for details on the voice annotation.
 | Agent turn completes | First queued item dispatches automatically |
 | Agent outputs `[[AWAITING_INPUT]]` | Queue pauses; Send button switches to "Send"; resumes after user responds |
 | Edit a queued tab | Changes apply when that item dispatches |
-| Ctrl+Enter on Active Draft (queue non-empty) | Draft enqueued at front (#1); prompt box cleared |
-| Ctrl+Enter on queued tab | That item moved to front (#1); transient feedback label shown |
+| Ctrl+Shift+Enter on Active Draft (queue non-empty) | Draft enqueued at front (#1); prompt box cleared |
+| Ctrl+Shift+Enter on queued tab | That item moved to front (#1); transient feedback label shown |
 | Voice-dictated queued prompt | Tab shows clean text; annotation added after dispatch |
 | Shift held at startup | Queue auto-dispatch suppressed; items remain for manual review |
 

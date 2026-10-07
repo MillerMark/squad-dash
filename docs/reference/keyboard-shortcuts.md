@@ -143,7 +143,7 @@ See **[Fullscreen Transcript Mode](../features/fullscreen-transcript.md)** for f
 | **Ctrl+Delete** | Delete the active queue tab |
 | **Ctrl+Tab** | Cycle to the next queue tab (requires 2+ queued items) |
 | **Ctrl+Shift+Tab** | Cycle to the previous queue tab |
-| **Ctrl+Enter** | Move the active tab (or Active Draft) to the front of the queue (#1). No-op if already first. Shows a transient "« Now at the front of the queue." label. |
+| **Ctrl+Shift+Enter** | Move the active tab (or Active Draft) to the front of the queue (#1). No-op if already first. Shows a transient "« Now at the front of the queue." label. |
 
 ---
 
@@ -153,6 +153,7 @@ See **[Fullscreen Transcript Mode](../features/fullscreen-transcript.md)** for f
 |---|---|
 | **Enter** | Submit prompt |
 | **Shift+Enter** | Insert newline |
+| **Ctrl+Enter** | Steer active AI work. Sends directly when one target is available; opens the hierarchical single-target picker when several are active. |
 | **Ctrl+V** (clipboard image) | Intercept paste and attach image as **📷 Image** pill |
 | **Ctrl+Shift+V** | Attach clipboard text as a follow-up attachment (see **[Attaching Clipboard Text](../features/attach-clipboard-text.md)**) |
 | **Ctrl+B** | Wrap selected text in markdown bold (`**…**`) |

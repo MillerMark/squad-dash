@@ -724,6 +724,7 @@ internal sealed class BackgroundTaskPresenter {
 
     internal void ObserveBackgroundAgentActivity(TranscriptThreadState thread, string reason) {
         var observedAt = DateTimeOffset.Now;
+        thread.DirectLastActivityAt = observedAt;
         thread.LastObservedActivityAt = observedAt;
         PropagateActivityToAncestors(thread, observedAt);
         ScheduleAgentThreadFadeIfNeeded(thread);

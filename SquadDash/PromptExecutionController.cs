@@ -1393,7 +1393,7 @@ internal sealed class PromptExecutionController {
             () => {
                 _transcriptSink.AppendLine("## Queue Test Started", null);
                 _transcriptSink.AppendLine($"Enqueued **{queueEntries.Count}** sim item(s){(activeDraftEntry is not null ? " and set the active draft" : "")} — no real AI calls will be made.", null);
-                _transcriptSink.AppendLine("Each item uses its configured delay and fake response. Try **pause/resume** or **Ctrl+Enter** to prioritize.", null);
+                _transcriptSink.AppendLine("Each item uses its configured delay and fake response. Try **pause/resume** or **Ctrl+Shift+Enter** to prioritize.", null);
             });
     }
 

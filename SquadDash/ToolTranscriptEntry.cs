@@ -57,7 +57,22 @@ internal sealed record TranscriptHostNoticeEntry(
     string Text,
     DateTimeOffset OccurredAt) : ICopyable
 {
-    public string GetCopyText() => $"[SquadDash] {Text}";
+    public string GetCopyText()
+    {
+        if (SteeringTranscriptEntryFactory.TryDecodeHostNotice(Text, out var providerPrompt))
+        {
+            var display = SteeringTranscriptEntryFactory.ParsePersistedPrompt(providerPrompt);
+            var attachmentSummary = display.AttachmentCount switch
+            {
+                0 => string.Empty,
+                1 => "\n📎 1 attachment",
+                _ => $"\n📎 {display.AttachmentCount} attachments",
+            };
+            return $"{SteeringTranscriptEntryFactory.MarkerText}: {display.Prompt}{attachmentSummary}";
+        }
+
+        return $"[SquadDash] {Text}";
+    }
 }
 
 internal sealed class TranscriptThinkingBlockView : ICopyable {
