@@ -1682,6 +1682,7 @@ test("steerPrompt sends an immediate message with attachments during an active t
             sendMessage: async options => { sent.push(options); }
         },
         currentRequest: {
+            steeringTurnId: "turn-1",
             requestTreeActivityMonitor: {
                 markActivity() { activityMarks++; }
             }
@@ -1691,6 +1692,7 @@ test("steerPrompt sends an immediate message with attachments during an active t
     await service.steerPrompt(
         " session-1 ",
         "  Take the new constraint into account.  ",
+        " turn-1 ",
         [{ type: "file", path: "D:\\work\\notes.md", displayName: "Notes" }]);
 
     assert.deepEqual(sent, [{
@@ -1739,9 +1741,12 @@ test("Ollama-compatible custom-provider sessions use the same immediate steering
         onSessionReady: session => sessionReady.resolve(session)
     });
 
-    await sessionReady.promise;
+    const ready = await sessionReady.promise;
     assert.deepEqual(capturedConfig.provider, provider);
-    await service.steerPrompt("ollama-provider-session", "Preserve the public API.");
+    await service.steerPrompt(
+        "ollama-provider-session",
+        "Preserve the public API.",
+        ready.steeringTurnId);
     assert.deepEqual(sent, [{
         prompt: "Preserve the public API.",
         attachments: undefined,
@@ -1752,9 +1757,73 @@ test("Ollama-compatible custom-provider sessions use the same immediate steering
     await run;
 });
 
+test("Azure profile sessions preserve their provider binding when steered", async () => {
+    const runCompletion = Promise.withResolvers();
+    const sessionReady = Promise.withResolvers();
+    const sent = [];
+    let capturedConfig;
+    const provider = {
+        baseUrl: "https://squaddash-steering-test.openai.azure.com",
+        type: "azure",
+        wireApi: "responses",
+        apiKey: "azure-test-key"
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            capturedConfig = config;
+            return {
+                sessionId: "azure-provider-session",
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => await runCompletion.promise,
+                sendMessage: async options => { sent.push(options); }
+            };
+        }
+    };
+
+    const run = service.runNamedAgent({
+        cwd: service.clientCwd,
+        selectedOption: "Inspect the Azure-backed change.",
+        targetAgent: "lyra",
+        agentRoute: {
+            handle: "lyra",
+            displayName: "Lyra",
+            model: "gpt-4.1",
+            profileAlias: "Azure verification",
+            provider
+        }
+    }, {
+        onSessionReady: session => sessionReady.resolve(session)
+    });
+
+    const ready = await sessionReady.promise;
+    assert.equal(capturedConfig.model, "gpt-4.1");
+    assert.deepEqual(capturedConfig.provider, provider);
+    await service.steerPrompt(
+        "azure-provider-session",
+        "Return the exact verification token AZURE-STEER-VERIFIED.",
+        ready.steeringTurnId,
+        [{ type: "file", path: "D:\\work\\azure-steering-test.md", displayName: "Azure steering test" }]);
+    assert.deepEqual(sent, [{
+        prompt: "Return the exact verification token AZURE-STEER-VERIFIED.",
+        attachments: [{
+            type: "file",
+            path: "D:\\work\\azure-steering-test.md",
+            displayName: "Azure steering test"
+        }],
+        mode: "immediate"
+    }]);
+
+    runCompletion.resolve({ content: "AZURE-STEER-VERIFIED" });
+    await run;
+});
+
 test("steerPrompt bypasses the running request rather than starting another request", async () => {
     let immediateMessage;
     const currentRequest = {
+        steeringTurnId: "turn-1",
         requestTreeActivityMonitor: { markActivity() {} }
     };
     const service = new SquadBridgeService();
@@ -1766,7 +1835,7 @@ test("steerPrompt bypasses the running request rather than starting another requ
         currentRequest
     });
 
-    await service.steerPrompt("session-1", "Change direction.");
+    await service.steerPrompt("session-1", "Change direction.", "turn-1");
 
     assert.equal(service.sessions.get("session-1").currentRequest, currentRequest);
     assert.deepEqual(immediateMessage, {
@@ -1786,11 +1855,69 @@ test("steerPrompt rejects unknown and inactive sessions", async () => {
     });
 
     await assert.rejects(
-        service.steerPrompt("missing-session", "Change direction."),
+        service.steerPrompt("missing-session", "Change direction.", "turn-1"),
         /No live Squad session is registered/);
     await assert.rejects(
-        service.steerPrompt("idle-session", "Change direction."),
+        service.steerPrompt("idle-session", "Change direction.", "turn-1"),
         /does not have an active turn/);
+});
+
+test("steerPrompt rejects a stale turn token before sending to a reused session", async () => {
+    const completions = [Promise.withResolvers(), Promise.withResolvers()];
+    const firstReady = Promise.withResolvers();
+    const readyEvents = [];
+    const sent = [];
+    let sendIndex = 0;
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => ({
+            sessionId: "reused-session",
+            on() {},
+            getBackgroundTasks: async () => [],
+            sendAndWait: async () => await completions[sendIndex++].promise,
+            sendMessage: async options => { sent.push(options); }
+        })
+    };
+
+    const firstRun = service.runPrompt("First turn", {
+        onSessionReady: session => {
+            readyEvents.push(session);
+            firstReady.resolve(session);
+        }
+    }, { cwd: service.clientCwd });
+    const firstSession = await firstReady.promise;
+    const firstTurnId = firstSession.steeringTurnId;
+    completions[0].resolve({ content: "first done" });
+    await firstRun;
+
+    const secondReady = Promise.withResolvers();
+    const secondRun = service.runPrompt("Second turn", {
+        onSessionReady: session => {
+            readyEvents.push(session);
+            secondReady.resolve(session);
+        }
+    }, { cwd: service.clientCwd, sessionId: "reused-session" });
+    const secondSession = await secondReady.promise;
+
+    assert.notEqual(secondSession.steeringTurnId, firstTurnId);
+    await assert.rejects(
+        service.steerPrompt("reused-session", "Stale steer", firstTurnId),
+        /no longer running the selected turn/);
+    assert.deepEqual(sent, []);
+
+    await service.steerPrompt(
+        "reused-session",
+        "Current steer",
+        secondSession.steeringTurnId);
+    assert.deepEqual(sent, [{
+        prompt: "Current steer",
+        attachments: undefined,
+        mode: "immediate"
+    }]);
+
+    completions[1].resolve({ content: "second done" });
+    await secondRun;
 });
 
 test("background task cancellation retries remembered task name for tool call id", async () => {

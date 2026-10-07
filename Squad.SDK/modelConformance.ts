@@ -99,6 +99,7 @@ async function runPromptCheck(
             events.push({
                 type: "session_ready",
                 sessionId: session.sessionId,
+                steeringTurnId: session.steeringTurnId,
                 resumed: session.resumed,
                 sessionReuseKind: session.sessionReuseKind
             });

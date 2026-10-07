@@ -62,7 +62,7 @@ internal sealed class SteeringTranscriptEntryFactoryTests
         Assert.That(decoded, Is.EqualTo(providerPrompt));
         Assert.Multiple(() =>
         {
-            Assert.That(entry.GetCopyText(), Does.StartWith("↪️ Steering accepted: Use the new API."));
+            Assert.That(entry.GetCopyText(), Does.StartWith("↪️ Steering: Use the new API."));
             Assert.That(entry.GetCopyText(), Does.Contain("📎 1 attachment"));
             Assert.That(entry.GetCopyText(), Does.Not.Contain("[[squaddash-steering:v1]]"));
             Assert.That(entry.GetCopyText(), Does.Not.Contain("<attachment type="));
@@ -97,7 +97,7 @@ internal sealed class SteeringTranscriptEntryFactoryTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(text, Does.Contain("↪️ Steering accepted:"));
+            Assert.That(text, Does.Contain("↪️ Steering:"));
             Assert.That(text, Does.Contain("Follow the design."));
             Assert.That(text, Does.Contain("Preserve both providers."));
             Assert.That(text, Does.Contain("📎 1 attachment"));

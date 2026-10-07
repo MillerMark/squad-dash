@@ -748,8 +748,10 @@ internal sealed class SquadSdkProcessTests {
             await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
             Is.SameAs(promptStarted.Task));
 
-        var firstSteerTask = sut.SteerAsync(" provider-session-one ", "First correction");
-        var secondSteerTask = sut.SteerAsync("provider-session-two", "Second correction");
+        var firstSteerTask = sut.SteerAsync(
+            " provider-session-one ", " turn-one ", "First correction");
+        var secondSteerTask = sut.SteerAsync(
+            "provider-session-two", "turn-two", "Second correction");
         var results = await Task.WhenAll(firstSteerTask, secondSteerTask);
         await promptTask;
 
@@ -779,10 +781,14 @@ internal sealed class SquadSdkProcessTests {
                     Is.EqualTo("provider-session-one"));
                 Assert.That(steerRequests[0].GetProperty("prompt").GetString(),
                     Is.EqualTo("First correction"));
+                Assert.That(steerRequests[0].GetProperty("steeringTurnId").GetString(),
+                    Is.EqualTo("turn-one"));
                 Assert.That(steerRequests[1].GetProperty("sessionId").GetString(),
                     Is.EqualTo("provider-session-two"));
                 Assert.That(steerRequests[1].GetProperty("prompt").GetString(),
                     Is.EqualTo("Second correction"));
+                Assert.That(steerRequests[1].GetProperty("steeringTurnId").GetString(),
+                    Is.EqualTo("turn-two"));
                 Assert.That(steerRequestIds.All(requestId => !string.IsNullOrEmpty(requestId)), Is.True);
                 Assert.That(steerRequestIds.Distinct(StringComparer.Ordinal).ToArray(), Has.Length.EqualTo(2));
                 Assert.That(steerRequestIds, Does.Not.Contain(promptRequestId));
@@ -834,7 +840,7 @@ internal sealed class SquadSdkProcessTests {
             Is.SameAs(promptStarted.Task));
 
         var error = Assert.ThrowsAsync<InvalidOperationException>(async () =>
-            await sut.SteerAsync("provider-session", "Too late"));
+            await sut.SteerAsync("provider-session", "active-turn", "Too late"));
         await promptTask;
 
         Assert.Multiple(() => {
@@ -886,7 +892,7 @@ internal sealed class SquadSdkProcessTests {
             await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
             Is.SameAs(promptStarted.Task));
 
-        var result = await sut.SteerAsync("provider-session", "Change direction");
+        var result = await sut.SteerAsync("provider-session", "active-turn", "Change direction");
         await promptTask;
 
         Assert.Multiple(() => {
@@ -895,6 +901,103 @@ internal sealed class SquadSdkProcessTests {
             Assert.That(activePromptEvents, Does.Not.Contain("steer_result"),
                 "Late steering responses must stay isolated from the active prompt event stream.");
         });
+    }
+
+    [Test]
+    public async Task SteerAsync_DelayedAcknowledgementBeyondFormerAdmissionWindow_WaitsForCorrelatedResult() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo("""
+            $promptRequestId = $null
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    $promptRequestId = $request.requestId
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'steer') {
+                    Start-Sleep -Milliseconds 8250
+                    Write-Output ('{"type":"steer_result","requestId":"' + $request.requestId + '","sessionId":"' + $request.sessionId + '","accepted":true,"message":"accepted after provider delay"}')
+                    Write-Output ('{"type":"done","requestId":"' + $promptRequestId + '"}')
+                    continue
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            if (e.Type == "response_delta")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("keep working", _workspace.RootPath);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var stopwatch = Stopwatch.StartNew();
+        var result = await sut.SteerAsync(
+            "provider-session",
+            "active-turn",
+            "Change direction after the slow provider responds");
+        stopwatch.Stop();
+        await promptTask;
+
+        Assert.Multiple(() => {
+            Assert.That(stopwatch.Elapsed, Is.GreaterThanOrEqualTo(TimeSpan.FromSeconds(8)));
+            Assert.That(result, Is.EqualTo(new SquadSdkSteerResult(
+                true, "provider-session", "accepted after provider delay")));
+        });
+    }
+
+    [Test]
+    public async Task SteerAsync_ProcessExitsBeforeAcknowledgement_CompletesWithFailure() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo("""
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'steer') {
+                    break
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            if (e.Type == "response_delta")
+                promptStarted.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("keep working", _workspace.RootPath);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var steerTask = sut.SteerAsync("provider-session", "active-turn", "Change direction");
+
+        Assert.That(
+            await Task.WhenAny(steerTask, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(steerTask));
+        Assert.That(
+            async () => await steerTask,
+            Throws.TypeOf<InvalidOperationException>()
+                .With.Message.Contains("process exited"));
+        Assert.That(
+            async () => await promptTask,
+            Throws.TypeOf<InvalidOperationException>()
+                .With.Message.Contains("process exited"));
     }
 
     [Test]
@@ -1089,6 +1192,65 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public async Task DisposeAsync_PendingSteer_CompletesSteerImmediately() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var steerObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo("""
+            $promptRequestId = $null
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    $promptRequestId = $request.requestId
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'steer') {
+                    Write-Output ('{"type":"response_delta","requestId":"' + $promptRequestId + '","chunk":"steer-observed"}')
+                    continue
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            if (e.Type != "response_delta")
+                return;
+            if (e.Chunk == "waiting")
+                promptStarted.TrySetResult(true);
+            else if (e.Chunk == "steer-observed")
+                steerObserved.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("keep working", _workspace.RootPath);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var steerTask = sut.SteerAsync("provider-session", "active-turn", "Change direction");
+        Assert.That(
+            await Task.WhenAny(steerObserved.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(steerObserved.Task));
+        Assert.That(steerTask.IsCompleted, Is.False);
+
+        await sut.DisposeAsync();
+
+        Assert.That(
+            await Task.WhenAny(steerTask, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(steerTask));
+        Assert.That(
+            async () => await steerTask,
+            Throws.TypeOf<OperationCanceledException>()
+                .With.Message.Contains("disposed"));
+        Assert.That(
+            async () => await promptTask,
+            Throws.TypeOf<OperationCanceledException>()
+                .With.Message.Contains("disposed"));
+    }
+
+    [Test]
     public async Task ForceStopRunningWork_ActivePrompt_CompletesPromptImmediately() {
         var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var sut = new SquadSdkProcess(
@@ -1120,6 +1282,68 @@ internal sealed class SquadSdkProcessTests {
         Assert.That(
             await Task.WhenAny(promptTask, Task.Delay(TimeSpan.FromSeconds(5))),
             Is.SameAs(promptTask));
+        Assert.That(
+            async () => await promptTask,
+            Throws.TypeOf<OperationCanceledException>()
+                .With.Message.Contains("force-stopped"));
+
+        await sut.DisposeAsync();
+    }
+
+    [Test]
+    public async Task ForceStopRunningWork_PendingSteer_CompletesSteerImmediately() {
+        var promptStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var steerObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo("""
+            $promptRequestId = $null
+            while (($line = [Console]::In.ReadLine()) -ne $null) {
+                if ([string]::IsNullOrWhiteSpace($line)) {
+                    continue
+                }
+
+                $request = $line | ConvertFrom-Json
+                if ($request.type -eq 'prompt') {
+                    $promptRequestId = $request.requestId
+                    Write-Output ('{"type":"response_delta","requestId":"' + $request.requestId + '","chunk":"waiting"}')
+                    continue
+                }
+
+                if ($request.type -eq 'steer') {
+                    Write-Output ('{"type":"response_delta","requestId":"' + $promptRequestId + '","chunk":"steer-observed"}')
+                    continue
+                }
+            }
+            """));
+        sut.EventReceived += (_, e) => {
+            if (e.Type != "response_delta")
+                return;
+            if (e.Chunk == "waiting")
+                promptStarted.TrySetResult(true);
+            else if (e.Chunk == "steer-observed")
+                steerObserved.TrySetResult(true);
+        };
+
+        var promptTask = sut.RunPromptAsync("keep working", _workspace.RootPath);
+        Assert.That(
+            await Task.WhenAny(promptStarted.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(promptStarted.Task));
+
+        var steerTask = sut.SteerAsync("provider-session", "active-turn", "Change direction");
+        Assert.That(
+            await Task.WhenAny(steerObserved.Task, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(steerObserved.Task));
+        Assert.That(steerTask.IsCompleted, Is.False);
+
+        var result = sut.ForceStopRunningWork("unit-test");
+
+        Assert.That(result.HadActiveProcess, Is.True);
+        Assert.That(
+            await Task.WhenAny(steerTask, Task.Delay(TimeSpan.FromSeconds(5))),
+            Is.SameAs(steerTask));
+        Assert.That(
+            async () => await steerTask,
+            Throws.TypeOf<OperationCanceledException>()
+                .With.Message.Contains("force-stopped"));
         Assert.That(
             async () => await promptTask,
             Throws.TypeOf<OperationCanceledException>()

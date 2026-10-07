@@ -46,7 +46,7 @@ While one or more agents are in active provider turns, type an update and press 
 - With multiple targets, a themed picker shows the coordinator, named agents, and temporary agents as a hierarchy. Use **Up/Down** or **Tab/Shift+Tab** to move focus, **Space** to select one radio button, **Enter** to send, or **Esc** to cancel.
 - An owner waiting quietly for a child remains selectable while its own provider turn is still open. Finished or idle sessions are not offered.
 - Cancelling, losing the target, or a provider rejection leaves the draft and attachments unchanged. After acceptance, a steered queue item is removed so it cannot dispatch a second time.
-- After the provider session accepts the message, the target agent's transcript shows a **↪️ Steering accepted** entry containing the steering text and any attachments. Acceptance confirms that the runtime received the message; it does not claim that the model has already incorporated it.
+- After the provider session accepts the message, the target agent's transcript shows a **↪️ Steering** entry containing the steering text and any attachments. The entry's appearance confirms that the runtime accepted the message; it does not claim that the model has already incorporated it.
 
 Steering follows the active SDK session rather than a particular model provider. The same path is used for Copilot, Azure, Ollama and other OpenAI-compatible profiles, and for future profiles that use the same session interface.
 

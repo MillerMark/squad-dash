@@ -604,6 +604,7 @@ public partial class MainWindow : Window
     private readonly Queue<(string Text, Brush? Brush)> _deferredSystemLines = new();
     private string? _currentSessionState;
     private bool _coordinatorSteeringTurnActive;
+    private string? _coordinatorSteeringTurnId;
     private bool _steeringPromptInProgress;
     // _clearConfirmationPending, _universeSelectionPending moved to PromptExecutionController
     private readonly SquadCliAdapter _squadCliAdapter;
@@ -1677,6 +1678,7 @@ public partial class MainWindow : Window
                 else
                 {
                     _coordinatorSteeringTurnActive = false;
+                    _coordinatorSteeringTurnId = null;
                     CoordinatorThread.CompletedAt = DateTimeOffset.Now;
                     SyncQueuePauseLabel();
                     UpdateCompletedTimeFooters();
@@ -3092,12 +3094,7 @@ public partial class MainWindow : Window
         // The modal picker runs a nested dispatcher loop, so lifecycle events can make the
         // selected session ineligible while it is open. Resolve the same agent again and
         // never silently redirect the message to a different target.
-        var selectedTargetId = target.Id;
-        var selectedSessionId = target.SessionId;
-        target = BuildSteeringTargets().FirstOrDefault(candidate =>
-            candidate.CanSteer &&
-            string.Equals(candidate.Id, selectedTargetId, StringComparison.Ordinal) &&
-            string.Equals(candidate.SessionId, selectedSessionId, StringComparison.Ordinal));
+        target = SteeringTargetResolver.RevalidateSelection(target, BuildSteeringTargets());
         if (target is null)
         {
             MessageBox.Show(
@@ -3114,7 +3111,7 @@ public partial class MainWindow : Window
         // acknowledge after lifecycle handling has finalized CurrentTurn; the accepted
         // marker still belongs on the turn/session the user actually targeted.
         var targetTranscriptThread = ResolveSteeringTranscriptThread(target.Id);
-        var targetTranscriptTurn = targetTranscriptThread?.CurrentTurn;
+        var targetTranscriptTurn = target.TurnIdentity as TranscriptTurnView;
 
         var prompt = draft.RawText.Trim();
         if (draft.IsDictated)
@@ -3127,7 +3124,10 @@ public partial class MainWindow : Window
         SquadSdkSteerResult result;
         try
         {
-            result = await _bridge.SteerAsync(target.SessionId!, bridgePrompt);
+            result = await _bridge.SteerAsync(
+                target.SessionId!,
+                target.SteeringTurnId!,
+                bridgePrompt);
         }
         catch (Exception ex)
         {
@@ -3369,8 +3369,12 @@ public partial class MainWindow : Window
         if (!_coordinatorSteeringTurnActive && includedThreadIds.Count == 0)
             return Array.Empty<SteeringTargetCandidate>();
 
-        bool HasLiveDescendant(TranscriptThreadState possibleOwner) =>
-            liveThreads.Any(liveThread => IsDescendantOf(liveThread, possibleOwner));
+        TranscriptThreadState[] LiveDescendantsOf(TranscriptThreadState possibleOwner) =>
+            liveThreads.Where(liveThread => IsDescendantOf(liveThread, possibleOwner)).ToArray();
+
+        var coordinatorWaitingOnChild = SteeringTargetResolver.IsWaitingOnChild(
+            CoordinatorThread.DirectLastActivityAt,
+            liveThreads.Select(thread => thread.DirectLastActivityAt));
 
         var candidates = new List<SteeringTargetCandidate> {
             new(
@@ -3382,8 +3386,10 @@ public partial class MainWindow : Window
                 IsRunning: _coordinatorSteeringTurnActive,
                 DirectLastActivityAt: CoordinatorThread.DirectLastActivityAt,
                 ActiveToolCount: CoordinatorThread.CurrentTurn?.ToolEntries.Count(entry => !entry.IsCompleted) ?? 0,
-                IsWaitingOnChild: liveThreads.Length > 0,
-                StatusText: liveThreads.Length > 0 ? "Waiting on child work" : _currentSessionState)
+                IsWaitingOnChild: coordinatorWaitingOnChild,
+                StatusText: coordinatorWaitingOnChild ? "Waiting on child work" : _currentSessionState,
+                TurnIdentity: CoordinatorThread.CurrentTurn,
+                SteeringTurnId: _coordinatorSteeringTurnId)
         };
 
         for (var index = 0; index < threads.Length; index++)
@@ -3391,7 +3397,10 @@ public partial class MainWindow : Window
             var thread = threads[index];
             if (!includedThreadIds.Contains(thread.ThreadId))
                 continue;
-            var waitingOnChild = HasLiveDescendant(thread);
+            var liveDescendants = LiveDescendantsOf(thread);
+            var waitingOnChild = SteeringTargetResolver.IsWaitingOnChild(
+                thread.DirectLastActivityAt,
+                liveDescendants.Select(descendant => descendant.DirectLastActivityAt));
             candidates.Add(new SteeringTargetCandidate(
                 thread.ThreadId,
                 thread.DisplayTitle,
@@ -3405,7 +3414,9 @@ public partial class MainWindow : Window
                 DirectLastActivityAt: thread.DirectLastActivityAt,
                 ActiveToolCount: thread.CurrentTurn?.ToolEntries.Count(entry => !entry.IsCompleted) ?? 0,
                 IsWaitingOnChild: waitingOnChild,
-                StatusText: waitingOnChild ? "Waiting on child work" : thread.StatusText));
+                StatusText: waitingOnChild ? "Waiting on child work" : thread.StatusText,
+                TurnIdentity: thread.CurrentTurn,
+                SteeringTurnId: thread.SteeringTurnId));
         }
 
         return SteeringTargetResolver.OrderForDisplay(candidates);
@@ -6140,6 +6151,7 @@ public partial class MainWindow : Window
     {
         _isPromptRunning = false;
         _coordinatorSteeringTurnActive = false;
+        _coordinatorSteeringTurnId = null;
         SyncGateChangeActivity(isPromptRunning: false);
         ClearPendingPlanReviewCorrection(restoreCard: true);
         ClearPendingPlanTaskCorrection(restoreRecoverySurface: true);
@@ -6405,6 +6417,7 @@ public partial class MainWindow : Window
 
             case "done":
                 _coordinatorSteeringTurnActive = false;
+                _coordinatorSteeringTurnId = null;
                 _pec.ActiveToolName = null;
                 var doneCurrentTurn = CoordinatorThread.CurrentTurn;
                 FinalizeCurrentTurnResponse();
@@ -6820,7 +6833,10 @@ public partial class MainWindow : Window
         if (_currentWorkspace is null || string.IsNullOrWhiteSpace(evt.SessionId))
             return;
 
-        _coordinatorSteeringTurnActive = true;
+        _coordinatorSteeringTurnId = string.IsNullOrWhiteSpace(evt.SteeringTurnId)
+            ? null
+            : evt.SteeringTurnId.Trim();
+        _coordinatorSteeringTurnActive = !string.IsNullOrWhiteSpace(_coordinatorSteeringTurnId);
         CoordinatorThread.DirectLastActivityAt = DateTimeOffset.Now;
 
         var sessionChanged = !string.Equals(
@@ -6842,7 +6858,7 @@ public partial class MainWindow : Window
 
         SquadDashTrace.Write(
             "UI",
-            $"Session ready id={evt.SessionId} resumed={evt.SessionResumed?.ToString() ?? "(unknown)"} diagnostics={SessionResumeDiagnosticsPresentation.BuildSummary(evt) ?? "(none)"}");
+            $"Session ready id={evt.SessionId} steeringTurnId={_coordinatorSteeringTurnId ?? "(none)"} resumed={evt.SessionResumed?.ToString() ?? "(unknown)"} diagnostics={SessionResumeDiagnosticsPresentation.BuildSummary(evt) ?? "(none)"}");
     }
 
     private static bool IsCoordinatorDirectSteeringActivity(string? eventType) =>
@@ -6852,6 +6868,7 @@ public partial class MainWindow : Window
     private void HandleSessionReset(SquadSdkEvent evt)
     {
         _coordinatorSteeringTurnActive = false;
+        _coordinatorSteeringTurnId = null;
         var diagnostics = PromptContextDiagnosticsPresentation.BuildTraceSummary(
             _conversationManager.CapturePromptContextDiagnostics(),
             DateTimeOffset.UtcNow);
@@ -7039,7 +7056,11 @@ public partial class MainWindow : Window
         TryApplyAgentOriginFromParentSession(thread, evt);
         if (!string.IsNullOrWhiteSpace(evt.ProviderSessionId))
             thread.ProviderSessionId = evt.ProviderSessionId.Trim();
-        thread.IsSteeringTurnActive = !string.IsNullOrWhiteSpace(thread.ProviderSessionId);
+        thread.SteeringTurnId = string.IsNullOrWhiteSpace(evt.SteeringTurnId)
+            ? null
+            : evt.SteeringTurnId.Trim();
+        thread.IsSteeringTurnActive = !string.IsNullOrWhiteSpace(thread.ProviderSessionId) &&
+                                      !string.IsNullOrWhiteSpace(thread.SteeringTurnId);
         thread.IsCurrentBackgroundRun = true;
         thread.StatusText = string.IsNullOrWhiteSpace(thread.StatusText) ? "Running" : thread.StatusText;
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_session_ready");
@@ -7047,7 +7068,7 @@ public partial class MainWindow : Window
         _conversationManager.SchedulePersistAgentThreadSnapshot(thread);
         SquadDashTrace.Write(
             "UI",
-            $"Subagent steering session ready thread={thread.ThreadId} providerSession={thread.ProviderSessionId ?? "(none)"} parentSession={evt.SessionId ?? "(none)"}");
+            $"Subagent steering session ready thread={thread.ThreadId} providerSession={thread.ProviderSessionId ?? "(none)"} steeringTurnId={thread.SteeringTurnId ?? "(none)"} parentSession={evt.SessionId ?? "(none)"}");
     }
 
     private void TryApplyAgentOriginFromParentSession(
@@ -7431,6 +7452,7 @@ public partial class MainWindow : Window
         MaybeReactivateThread(thread);
         _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
         thread.IsSteeringTurnActive = false;
+        thread.SteeringTurnId = null;
         var observedAt = DateTimeOffset.Now;
         thread.ThrottleRetryAt = ProviderThrottlePresentation.ResolveRetryAt(
             evt.RetryAt,
@@ -45654,8 +45676,11 @@ public partial class MainWindow : Window
             return;
 
         _coordinatorSteeringTurnActive = false;
-        foreach (var thread in _agentThreadRegistry.ThreadOrder)
+        _coordinatorSteeringTurnId = null;
+        foreach (var thread in _agentThreadRegistry.ThreadOrder) {
             thread.IsSteeringTurnActive = false;
+            thread.SteeringTurnId = null;
+        }
 
         if (RetireDirectQuickReplyHandoffBlockers($"bridge-reset:{reset.Reason}") == 0)
             return;

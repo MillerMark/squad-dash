@@ -430,6 +430,7 @@ internal sealed class SquadSdkProcessSerializationTests {
             {
               "type": "session_ready",
               "sessionId": "session-456",
+              "steeringTurnId": "turn-789",
               "sessionResumed": true,
               "sessionReuseKind": "provider_resume",
               "sessionAcquireDurationMs": 912,
@@ -456,6 +457,7 @@ internal sealed class SquadSdkProcessSerializationTests {
         Assert.Multiple(() => {
             Assert.That(evt!.Type, Is.EqualTo("session_ready"));
             Assert.That(evt.SessionId, Is.EqualTo("session-456"));
+            Assert.That(evt.SteeringTurnId, Is.EqualTo("turn-789"));
             Assert.That(evt.SessionResumed, Is.True);
             Assert.That(evt.SessionReuseKind, Is.EqualTo("provider_resume"));
             Assert.That(evt.SessionAcquireDurationMs, Is.EqualTo(912));

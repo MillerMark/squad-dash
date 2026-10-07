@@ -19,12 +19,56 @@ internal sealed record SteeringTargetCandidate(
     DateTimeOffset? DirectLastActivityAt,
     int ActiveToolCount,
     bool IsWaitingOnChild,
-    string? StatusText = null) {
+    string? StatusText = null,
+    object? TurnIdentity = null,
+    string? SteeringTurnId = null) {
 
-    internal bool CanSteer => IsRunning && !string.IsNullOrWhiteSpace(SessionId);
+    internal bool CanSteer => IsRunning &&
+                              !string.IsNullOrWhiteSpace(SessionId) &&
+                              !string.IsNullOrWhiteSpace(SteeringTurnId);
 }
 
 internal static class SteeringTargetResolver {
+    /// <summary>
+    /// Re-resolves a picker selection without allowing a completed turn to be
+    /// silently replaced by newer work that happens to reuse the same session.
+    /// Turn identity is deliberately compared by reference rather than by timestamp.
+    /// </summary>
+    internal static SteeringTargetCandidate? RevalidateSelection(
+        SteeringTargetCandidate selected,
+        IEnumerable<SteeringTargetCandidate> currentCandidates) {
+        ArgumentNullException.ThrowIfNull(selected);
+        ArgumentNullException.ThrowIfNull(currentCandidates);
+        if (selected.TurnIdentity is null)
+            return null;
+
+        return currentCandidates.FirstOrDefault(candidate =>
+            candidate.CanSteer &&
+            string.Equals(candidate.Id, selected.Id, StringComparison.Ordinal) &&
+            string.Equals(candidate.SessionId, selected.SessionId, StringComparison.Ordinal) &&
+            string.Equals(candidate.SteeringTurnId, selected.SteeringTurnId, StringComparison.Ordinal) &&
+            ReferenceEquals(candidate.TurnIdentity, selected.TurnIdentity));
+    }
+
+    /// <summary>
+    /// An owner with live descendants is only considered to be waiting when it
+    /// has not emitted direct activity more recently than those descendants.
+    /// Missing activity data is treated conservatively as waiting.
+    /// </summary>
+    internal static bool IsWaitingOnChild(
+        DateTimeOffset? ownerDirectActivityAt,
+        IEnumerable<DateTimeOffset?> liveDescendantDirectActivity) {
+        ArgumentNullException.ThrowIfNull(liveDescendantDirectActivity);
+        var descendantActivity = liveDescendantDirectActivity.ToArray();
+        if (descendantActivity.Length == 0)
+            return false;
+        if (ownerDirectActivityAt is null || descendantActivity.Any(value => value is null))
+            return true;
+
+        var newestDescendantActivity = descendantActivity.Max()!.Value;
+        return ownerDirectActivityAt.Value <= newestDescendantActivity;
+    }
+
     /// <summary>
     /// Selects the agent most likely to be doing consequential work right now.
     /// Direct activity is used rather than request-tree activity, because child

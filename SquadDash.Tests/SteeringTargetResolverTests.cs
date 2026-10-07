@@ -62,6 +62,81 @@ internal sealed class SteeringTargetResolverTests {
     }
 
     [Test]
+    public void RevalidateSelection_SameAgentAndSessionButNewTurn_DoesNotRetarget() {
+        var selectedTurn = new object();
+        var replacementTurn = new object();
+        var selected = Candidate(
+            id: "agent",
+            sessionId: "reused-session",
+            turnIdentity: selectedTurn);
+        var replacement = Candidate(
+            id: "agent",
+            sessionId: "reused-session",
+            turnIdentity: replacementTurn);
+
+        var revalidated = SteeringTargetResolver.RevalidateSelection(selected, [replacement]);
+
+        Assert.That(revalidated, Is.Null);
+    }
+
+    [Test]
+    public void RevalidateSelection_ExactTurnIdentity_RemainsEligible() {
+        var turn = new object();
+        var selected = Candidate(
+            id: "agent",
+            sessionId: "session",
+            turnIdentity: turn);
+        var current = Candidate(
+            id: "agent",
+            sessionId: "session",
+            turnIdentity: turn);
+
+        var revalidated = SteeringTargetResolver.RevalidateSelection(selected, [current]);
+
+        Assert.That(revalidated, Is.SameAs(current));
+    }
+
+    [Test]
+    public void RevalidateSelection_SameUiTurnButBridgeTurnChanged_DoesNotRetarget() {
+        var turn = new object();
+        var selected = Candidate(
+            id: "agent",
+            sessionId: "reused-session",
+            turnIdentity: turn,
+            steeringTurnId: "old-provider-turn");
+        var replacement = Candidate(
+            id: "agent",
+            sessionId: "reused-session",
+            turnIdentity: turn,
+            steeringTurnId: "new-provider-turn");
+
+        var revalidated = SteeringTargetResolver.RevalidateSelection(selected, [replacement]);
+
+        Assert.That(revalidated, Is.Null);
+    }
+
+    [Test]
+    public void IsWaitingOnChild_OwnerWithNewerDirectActivity_IsNotWaiting() {
+        var waiting = SteeringTargetResolver.IsWaitingOnChild(
+            Baseline.AddSeconds(2),
+            [Baseline, Baseline.AddSeconds(1)]);
+
+        Assert.That(waiting, Is.False);
+    }
+
+    [Test]
+    public void IsWaitingOnChild_OwnerWithoutNewerDirectActivity_IsWaiting() {
+        Assert.Multiple(() => {
+            Assert.That(
+                SteeringTargetResolver.IsWaitingOnChild(Baseline, [Baseline.AddSeconds(1)]),
+                Is.True);
+            Assert.That(
+                SteeringTargetResolver.IsWaitingOnChild(Baseline, []),
+                Is.False);
+        });
+    }
+
+    [Test]
     public void OrderForDisplay_OrdersEachParentBeforeItsChildren() {
         var coordinator = Candidate(id: "coordinator", stableOrder: 30);
         var namedAgent = Candidate(
@@ -158,7 +233,9 @@ internal sealed class SteeringTargetResolverTests {
         bool isRunning = true,
         DateTimeOffset? directLastActivityAt = null,
         int activeToolCount = 0,
-        bool isWaitingOnChild = false) =>
+        bool isWaitingOnChild = false,
+        object? turnIdentity = null,
+        string? steeringTurnId = "provider-turn") =>
         new(
             Id: id,
             DisplayName: id,
@@ -168,5 +245,7 @@ internal sealed class SteeringTargetResolverTests {
             IsRunning: isRunning,
             DirectLastActivityAt: directLastActivityAt,
             ActiveToolCount: activeToolCount,
-            IsWaitingOnChild: isWaitingOnChild);
+            IsWaitingOnChild: isWaitingOnChild,
+            TurnIdentity: turnIdentity,
+            SteeringTurnId: steeringTurnId);
 }

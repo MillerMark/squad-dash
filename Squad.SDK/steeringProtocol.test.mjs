@@ -7,6 +7,7 @@ test("steer protocol parses all SDK-supported attachment forms", () => {
         type: "steer",
         requestId: " steer-1 ",
         sessionId: " session-1 ",
+        steeringTurnId: " turn-1 ",
         prompt: " Use these references. ",
         attachments: [
             { type: "file", path: " D:\\work\\notes.md ", displayName: " Notes " },
@@ -26,6 +27,7 @@ test("steer protocol parses all SDK-supported attachment forms", () => {
         type: "steer",
         requestId: "steer-1",
         sessionId: "session-1",
+        steeringTurnId: "turn-1",
         prompt: "Use these references.",
         attachments: [
             { type: "file", path: "D:\\work\\notes.md", displayName: "Notes" },
@@ -49,14 +51,29 @@ test("steer protocol rejects malformed requests and attachments", () => {
         type: "steer",
         requestId: "steer-1",
         sessionId: "session-1",
+        prompt: "Go"
+    }), null);
+    assert.equal(tryParseSteerRequest({
+        type: "steer",
+        requestId: "steer-1",
+        sessionId: "session-1",
+        steeringTurnId: "turn-1",
         prompt: "   "
     }), null);
     assert.equal(tryParseSteerRequest({
         type: "steer",
         requestId: "steer-1",
         sessionId: "session-1",
+        steeringTurnId: "turn-1",
         prompt: "Go",
         attachments: [{ type: "file", path: "" }]
+    }), null);
+    assert.equal(tryParseSteerRequest({
+        type: "steer",
+        requestId: "steer-1",
+        sessionId: "session-1",
+        steeringTurnId: "   ",
+        prompt: "Go"
     }), null);
     assert.equal(tryParsePromptAttachment({
         type: "selection",
@@ -79,6 +96,7 @@ test("a hung steer dispatch does not block a command for another session", async
         type: "steer",
         requestId: "steer-hung",
         sessionId: "provider-session",
+        steeringTurnId: "turn-1",
         prompt: "Change direction."
     };
 
@@ -118,6 +136,7 @@ test("steer dispatch reports late rejection as an isolated steer result", async 
         type: "steer",
         requestId: "steer-late",
         sessionId: "provider-session",
+        steeringTurnId: "turn-1",
         prompt: "Too late."
     });
 

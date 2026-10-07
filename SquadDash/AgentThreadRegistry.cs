@@ -557,8 +557,10 @@ internal sealed class AgentThreadRegistry {
         thread.CompletedAt ??= DateTimeOffset.Now;
         if (IsTerminalBackgroundStatus(thread.StatusText))
             thread.IsCurrentBackgroundRun = false;
-        if (IsTerminalBackgroundStatus(thread.StatusText))
+        if (IsTerminalBackgroundStatus(thread.StatusText)) {
             thread.IsSteeringTurnActive = false;
+            thread.SteeringTurnId = null;
+        }
         _syncThreadChip(thread);
         ParseAndApplyApprovalGroups(thread, rawResponse);
     }

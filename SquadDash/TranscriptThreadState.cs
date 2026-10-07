@@ -85,6 +85,12 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     /// </summary>
     public string? ProviderSessionId { get; set; }
     /// <summary>
+    /// Bridge-owned identity for the provider request that is currently accepting
+    /// immediate steering. Unlike a provider session id, this changes for every
+    /// turn, including when the provider session itself is reused.
+    /// </summary>
+    public string? SteeringTurnId { get; set; }
+    /// <summary>
     /// True only while the provider session has an in-flight request that can
     /// accept immediate input. A retained session id alone is not sufficient:
     /// immediate input against an idle session would start an unintended new turn.

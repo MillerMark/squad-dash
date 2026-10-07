@@ -12,7 +12,7 @@ namespace SquadDash;
 /// </summary>
 internal static class SteeringTranscriptEntryFactory
 {
-    internal const string MarkerText = "↪️ Steering accepted";
+    internal const string MarkerText = "↪️ Steering";
     private const string PersistencePrefix = "[[squaddash-steering:v1]]\n";
     private const string VoiceAnnotation = "\n(some or all of this prompt was dictated by voice)";
 

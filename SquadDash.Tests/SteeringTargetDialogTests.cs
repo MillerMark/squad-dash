@@ -106,7 +106,8 @@ internal sealed class SteeringTargetDialogTests {
             IsRunning: true,
             DirectLastActivityAt: DateTimeOffset.UtcNow,
             ActiveToolCount: 0,
-            IsWaitingOnChild: false);
+            IsWaitingOnChild: false,
+            SteeringTurnId: $"{id}-turn");
 
     private static Window CreateOwner() {
         var owner = new Window {

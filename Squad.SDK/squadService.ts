@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -288,6 +289,7 @@ export type SquadPromptAttachment = {
 
 export type SessionReadyInfo = {
     sessionId: string;
+    steeringTurnId: string;
     resumed: boolean;
     sessionReuseKind?: string;
     sessionAcquireDurationMs?: number;
@@ -382,6 +384,7 @@ export type SubagentLifecycleInfo = {
     providerType?: string;
     wireApi?: string;
     providerSessionId?: string;
+    steeringTurnId?: string;
     totalToolCalls?: number;
     totalTokens?: number;
     durationMs?: number;
@@ -487,6 +490,7 @@ type ActiveToolContext = Omit<
 type SquadSession = Awaited<ReturnType<SquadClient["createSession"]>>;
 
 type RequestContext = {
+    steeringTurnId: string;
     aborted: boolean;
     handlers: SquadRunHandlers;
     sawMessageDelta: boolean;
@@ -2707,6 +2711,7 @@ export class SquadBridgeService {
             () => state.session.abort?.());
 
         const requestContext: RequestContext = {
+            steeringTurnId: randomUUID(),
             aborted: false,
             handlers,
             sawMessageDelta: false,
@@ -2725,7 +2730,10 @@ export class SquadBridgeService {
 
         state.currentRequest = requestContext;
 
-        handlers.onSessionReady?.(this.buildSessionReadyInfo(state, sessionReady));
+        handlers.onSessionReady?.(this.buildSessionReadyInfo(
+            state,
+            sessionReady,
+            requestContext.steeringTurnId));
 
         if (state.backgroundTasks.agents.length > 0 || state.backgroundTasks.shells.length > 0) {
             this.bridgeHandlers.onBackgroundTasksChanged?.(
@@ -2823,22 +2831,31 @@ export class SquadBridgeService {
     public async steerPrompt(
         sessionId: string,
         prompt: string,
+        steeringTurnId: string,
         attachments?: SquadPromptAttachment[]
     ): Promise<void> {
         const normalizedSessionId = sessionId.trim();
         const trimmedPrompt = prompt.trim();
+        const normalizedSteeringTurnId = steeringTurnId.trim();
         if (!normalizedSessionId)
             throw new Error("Steering requires a non-empty sessionId.");
         if (!trimmedPrompt)
             throw new Error("Steering prompt cannot be empty.");
+        if (!normalizedSteeringTurnId)
+            throw new Error("Steering requires a non-empty steeringTurnId.");
 
         const state = this.sessions.get(normalizedSessionId);
         if (!state)
             throw new Error(`No live Squad session is registered for steering: ${normalizedSessionId}.`);
-        if (!state.currentRequest)
+        const currentRequest = state.currentRequest;
+        if (!currentRequest)
             throw new Error(`Squad session ${normalizedSessionId} does not have an active turn to steer.`);
+        if (currentRequest.steeringTurnId !== normalizedSteeringTurnId) {
+            throw new Error(
+                `Squad session ${normalizedSessionId} is no longer running the selected turn.`);
+        }
 
-        state.currentRequest.requestTreeActivityMonitor.markActivity();
+        currentRequest.requestTreeActivityMonitor.markActivity();
         await state.session.sendMessage({
             prompt: trimmedPrompt,
             attachments: attachments && attachments.length > 0 ? attachments : undefined,
@@ -3392,7 +3409,11 @@ export class SquadBridgeService {
                                 namedAgentSessionId = session.sessionId;
                                 this.bridgeHandlers.onSubagentSessionReady?.(
                                     invocation.sessionId,
-                                    { ...lifecycle, providerSessionId: session.sessionId });
+                                    {
+                                        ...lifecycle,
+                                        providerSessionId: session.sessionId,
+                                        steeringTurnId: session.steeringTurnId
+                                    });
                             },
                             onThinking: text => {
                                 if (text.trim().length > 0)
@@ -3922,10 +3943,12 @@ export class SquadBridgeService {
 
     private buildSessionReadyInfo(
         state: SessionState,
-        telemetry: SessionAcquireTelemetry
+        telemetry: SessionAcquireTelemetry,
+        steeringTurnId: string
     ): SessionReadyInfo {
         return {
             sessionId: state.session.sessionId,
+            steeringTurnId,
             resumed: telemetry.resumed,
             sessionReuseKind: telemetry.sessionReuseKind,
             sessionAcquireDurationMs: telemetry.sessionAcquireDurationMs,

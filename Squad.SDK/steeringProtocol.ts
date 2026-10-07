@@ -4,6 +4,7 @@ export type SteerRequest = {
     type: "steer";
     requestId: string;
     sessionId: string;
+    steeringTurnId: string;
     prompt: string;
     attachments?: SquadPromptAttachment[];
 };
@@ -140,8 +141,9 @@ export function tryParseSteerRequest(value: unknown): SteerRequest | null {
 
     const requestId = nonEmptyString(record.requestId);
     const sessionId = nonEmptyString(record.sessionId);
+    const steeringTurnId = nonEmptyString(record.steeringTurnId);
     const prompt = nonEmptyString(record.prompt);
-    if (!requestId || !sessionId || !prompt)
+    if (!requestId || !sessionId || !steeringTurnId || !prompt)
         return null;
 
     let attachments: SquadPromptAttachment[] | undefined;
@@ -158,6 +160,7 @@ export function tryParseSteerRequest(value: unknown): SteerRequest | null {
         type: "steer",
         requestId,
         sessionId,
+        steeringTurnId,
         prompt,
         ...(attachments && attachments.length > 0 ? { attachments } : {})
     };

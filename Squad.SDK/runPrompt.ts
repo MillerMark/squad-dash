@@ -336,6 +336,7 @@ function emitSubagentLifecycle(
         providerType: subagent.providerType,
         wireApi: subagent.wireApi,
         providerSessionId: subagent.providerSessionId,
+        steeringTurnId: subagent.steeringTurnId,
         totalToolCalls: subagent.totalToolCalls,
         totalTokens: subagent.totalTokens,
         durationMs: subagent.durationMs,
@@ -868,6 +869,7 @@ function buildRunHandlers(requestId: string | undefined, remoteBridge?: RemoteBr
                 type: "session_ready",
                 requestId,
                 sessionId: session.sessionId,
+                steeringTurnId: session.steeringTurnId,
                 sessionResumed: session.resumed,
                 sessionReuseKind: session.sessionReuseKind,
                 sessionAcquireDurationMs: session.sessionAcquireDurationMs,
@@ -1206,7 +1208,8 @@ function buildNamedAgentRunHandlers(
                 agentId: agentHandle,
                 agentName: agentHandle,
                 agentDisplayName,
-                providerSessionId: session.sessionId
+                providerSessionId: session.sessionId,
+                steeringTurnId: session.steeringTurnId
             });
         },
         onDelta(chunk) {
@@ -1797,7 +1800,11 @@ async function main() {
     let activePromptTask: Promise<void> | null = null;
     let activeLoopTask: Promise<void> | null = null;
     const steerDispatcher = new SteerRequestDispatcher(
-        request => bridge.steerPrompt(request.sessionId, request.prompt, request.attachments),
+        request => bridge.steerPrompt(
+            request.sessionId,
+            request.prompt,
+            request.steeringTurnId,
+            request.attachments),
         emit);
 
     for await (const line of rl) {

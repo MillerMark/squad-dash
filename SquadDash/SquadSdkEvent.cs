@@ -11,6 +11,7 @@ public sealed class SquadSdkEvent {
     public string? RequestId { get; set; }
     public string? SessionId { get; set; }
     public string? ProviderSessionId { get; set; }
+    public string? SteeringTurnId { get; set; }
     public string? TaskId { get; set; }
     public bool? SessionResumed { get; set; }
     public string? SessionReuseKind { get; set; }

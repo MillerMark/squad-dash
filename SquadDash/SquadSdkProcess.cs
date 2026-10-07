@@ -22,7 +22,6 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     private static readonly TimeSpan DefaultPromptTimeoutPollInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan DefaultBridgeHealthProbeTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DefaultBackgroundCancelResponseTimeout = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan DefaultSteeringResponseTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan BridgeDeltaTraceInterval = TimeSpan.FromSeconds(1);
     private const string SessionResetEventType = "session_reset";
     private const int TracePreviewChars = 240;
@@ -275,14 +274,20 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
     /// path intentionally bypasses <see cref="_promptLock"/> so it can operate while
     /// the original prompt owns that lock.
     /// </summary>
-    public async Task<SquadSdkSteerResult> SteerAsync(string sessionId, string prompt) {
+    public async Task<SquadSdkSteerResult> SteerAsync(
+        string sessionId,
+        string steeringTurnId,
+        string prompt) {
         if (string.IsNullOrWhiteSpace(sessionId))
             throw new ArgumentException("A live provider session is required.", nameof(sessionId));
+        if (string.IsNullOrWhiteSpace(steeringTurnId))
+            throw new ArgumentException("A live provider turn is required.", nameof(steeringTurnId));
         if (string.IsNullOrWhiteSpace(prompt))
             throw new ArgumentException("Steering prompt cannot be empty.", nameof(prompt));
 
         ThrowIfDisposed();
         var normalizedSessionId = sessionId.Trim();
+        var normalizedSteeringTurnId = steeringTurnId.Trim();
         var requestId = Guid.NewGuid().ToString("N");
         var completion = new TaskCompletionSource<SquadSdkSteerResult>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -294,19 +299,14 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
 
         SquadDashTrace.Write(
             "Bridge",
-            $"SteerAsync requested requestId={requestId} sessionId={normalizedSessionId} promptChars={prompt.Length} promptPreview=\"{BuildTracePreview(prompt)}\"");
+            $"SteerAsync requested requestId={requestId} sessionId={normalizedSessionId} steeringTurnId={normalizedSteeringTurnId} promptChars={prompt.Length} promptPreview=\"{BuildTracePreview(prompt)}\"");
         try {
             await SendBridgeRequestAsync(new SquadSdkSteerRequest(
                     normalizedSessionId,
+                    normalizedSteeringTurnId,
                     prompt,
                     requestId))
                 .ConfigureAwait(false);
-            var completed = await Task.WhenAny(
-                    completion.Task,
-                    Task.Delay(DefaultSteeringResponseTimeout))
-                .ConfigureAwait(false);
-            if (completed != completion.Task)
-                throw new TimeoutException("Timed out waiting for the active agent to accept the steering prompt.");
             return await completion.Task.ConfigureAwait(false);
         }
         finally {
@@ -2197,6 +2197,7 @@ internal sealed record SquadSdkAbortRequest(
 
 internal sealed record SquadSdkSteerRequest(
     [property: JsonPropertyName("sessionId")] string SessionId,
+    [property: JsonPropertyName("steeringTurnId")] string SteeringTurnId,
     [property: JsonPropertyName("prompt")] string Prompt,
     [property: JsonPropertyName("requestId")] string RequestId,
     [property: JsonPropertyName("type")] string Type = "steer");
