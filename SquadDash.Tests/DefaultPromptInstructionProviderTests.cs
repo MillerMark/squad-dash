@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Threading;
+
 namespace SquadDash.Tests;
 
 [TestFixture]
@@ -84,6 +87,11 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("`PLAN_REVISION_JSON` for a staged proposal"));
         Assert.That(instruction, Does.Contain("never run `squad upgrade --help`"));
     }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecomposePlanningSpecification_LiteralExampleRendersThroughSelectedPlanCopyAndFind() =>
+        MarkdownDetailAuthoringExampleAssertions.PlanningExampleUsesInspectorConsumers(
+            DecomposePlanningInstructions.LoadSpecification(), selectedPlan: true);
 
     [Test]
     public void DecomposePlanningSpecification_PreventsHumanOnlyTaskShellsBeforeValidation()
@@ -351,6 +359,40 @@ internal sealed class DefaultPromptInstructionProviderTests
                 "\"body\":\"Detail sections now remember your last choice.\\n\\n:::detail What is saved?\\n" +
                 "The app records whether each section was expanded or collapsed and restores that choice when you reopen the same content.\\n:::\""));
         });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void InboxInstruction_LiteralJsonExampleRendersThroughMessageCopyAndFind()
+    {
+        const string lead = "Detail sections now remember your last choice.";
+        const string label = "What is saved?";
+        const string body = "The app records whether each section was expanded or collapsed and restores that choice when you reopen the same content.";
+        var instruction = new DefaultPromptInstructionProvider().Get().InboxMessage;
+        var literalJson = instruction.Split('\n').Single(line => line.StartsWith("{\"subject\":", StringComparison.Ordinal)
+            && line.Contains(":::detail", StringComparison.Ordinal));
+        using var json = JsonDocument.Parse(literalJson);
+        var authored = json.RootElement.GetProperty("body").GetString()!;
+        Assert.That(authored, Is.EqualTo(lead + "\n\n:::detail " + label + "\n" + body + "\n:::"));
+        Assert.That(instruction, Does.Contain("```text\n" + authored + "\n```"));
+        using var workspace = new TestWorkspace();
+        var message = new InboxMessage { Id = "shipped-example", Body = authored };
+        var document = MarkdownFlowDocumentBuilder.BuildInbox(message.Body, detailState: new(
+            MarkdownDetailIdentity.ForInboxMessage(workspace.RootPath, message.Id),
+            new MarkdownDetailStateStore(workspace.GetPath("state.json"))));
+        try
+        {
+            var detail = MarkdownVisibleContent.Details(document).Single();
+            Assert.That(detail.Expander.IsExpanded, Is.False);
+            Assert.That(InboxMessageWindow.BuildMessageClipboardText(message, document),
+                Is.EqualTo(string.Join(Environment.NewLine, lead, "", label)));
+            Assert.That(InboxMessageWindow.FindTextInRange(document, body), Is.Null);
+            detail.Expander.IsExpanded = true;
+            Assert.That(InboxMessageWindow.BuildMessageClipboardText(message, document),
+                Is.EqualTo(string.Join(Environment.NewLine, lead, "", label, body)));
+            Assert.That(InboxMessageWindow.FindTextInRange(document, body)!.Part.Document, Is.SameAs(detail.Viewer.Document));
+            Assert.That(message.Body, Is.EqualTo(authored));
+        }
+        finally { MarkdownVisibleContent.Detach(document); }
     }
 
     [Test]

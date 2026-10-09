@@ -391,7 +391,7 @@ internal sealed class MarkdownDetailRenderingTests
                 detail.Expander.IsExpanded = false; // Detached old view must not save.
                 Assert.That(store.Load(current.Key!).IsExpanded, Is.True);
                 var reopened = new InboxMessageWindow(message, (_, _) => Task.FromResult(true),
-                    workspaceFolder: folder, detailStateStore: store);
+                    workspaceFolder: folder, detailStateStore: new MarkdownDetailStateStore(store.FilePath));
                 try { Assert.That(reopened.GetRenderedMessageText(), Does.Contain(Explanation)); }
                 finally { reopened.Close(); }
                 Assert.That(window.SelectAndScrollToText(Explanation), Is.True);
@@ -399,6 +399,14 @@ internal sealed class MarkdownDetailRenderingTests
                 Assert.That(current.Viewer.Selection.IsEmpty, Is.True);
                 Assert.That(window.SelectAndScrollToText(Explanation), Is.False);
                 Assert.That(window.GetRenderedMessageText(), Does.Not.Contain(Explanation));
+                var collapsedReopen = new InboxMessageWindow(message, (_, _) => Task.FromResult(true),
+                    workspaceFolder: folder, detailStateStore: new MarkdownDetailStateStore(store.FilePath));
+                try
+                {
+                    Assert.That(collapsedReopen.GetRenderedMessageText(), Does.Not.Contain(Explanation));
+                    Assert.That(collapsedReopen.SelectAndScrollToText(Explanation), Is.False);
+                }
+                finally { collapsedReopen.Close(); }
                 Assert.That(message.Body, Is.EqualTo(Labelled), "Rendered visibility never changes durable source.");
             }
             finally

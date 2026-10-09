@@ -1,8 +1,15 @@
+using System.Threading;
+
 namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class PlanningSpecialistInstructionsTests
 {
+    [Test, Apartment(ApartmentState.STA)]
+    public void LoadCharter_LiteralExampleRendersThroughSelectedTaskCopyAndFind() =>
+        MarkdownDetailAuthoringExampleAssertions.PlanningExampleUsesInspectorConsumers(
+            PlanningSpecialistInstructions.LoadCharter(), selectedPlan: false);
+
     [Test]
     public void LoadCharter_DefinesCreationRevisionAndNonImplementationContracts()
     {
