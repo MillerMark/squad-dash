@@ -57,9 +57,10 @@ internal static class MarkdownFlowDocumentBuilder {
     public static FlowDocument BuildInbox(
         string markdown,
         double baseFontSize = 0,
-        Action<string>? onLinkClicked = null) =>
+        Action<string>? onLinkClicked = null,
+        MarkdownDetailStateContext? detailState = null) =>
         BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true,
-            copyableCodeBlocks: true, onLinkClicked);
+            copyableCodeBlocks: true, onLinkClicked, detailState);
 
     /// <summary>
     /// Builds the Markdown subset supported inside a plan task description. The caller may move
@@ -69,9 +70,10 @@ internal static class MarkdownFlowDocumentBuilder {
     public static FlowDocument BuildPlanDescription(
         string markdown,
         double baseFontSize = 0,
-        Action<string>? onLinkClicked = null) =>
+        Action<string>? onLinkClicked = null,
+        MarkdownDetailStateContext? detailState = null) =>
         BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true,
-            copyableCodeBlocks: true, onLinkClicked);
+            copyableCodeBlocks: true, onLinkClicked, detailState);
 
     internal static bool TryGetHeadingLevel(Block block, out int level)
     {
@@ -119,7 +121,8 @@ internal static class MarkdownFlowDocumentBuilder {
         double baseFontSize,
         bool styleCodeIdentifiers,
         bool copyableCodeBlocks,
-        Action<string>? onLinkClicked) {
+        Action<string>? onLinkClicked,
+        MarkdownDetailStateContext? detailState = null) {
         blockLineRanges = new List<(int, int)>();
 
         if (baseFontSize <= 0)
@@ -143,11 +146,39 @@ internal static class MarkdownFlowDocumentBuilder {
         };
 
         var lines = Normalize(markdown).Split('\n');
+        var regions = MarkdownDetailParser.Parse(lines);
+        var regionStarts = regions.ToDictionary(region => region.StartLine);
+        var validRegions = regions.Where(region => region.Diagnostic is null).ToArray();
+        var keys = detailState?.Identity.GetSectionKeys(validRegions.Select(region =>
+            new MarkdownDetailSection(region.Label, region.Body)));
+        var sectionIndex = 0;
+        MarkdownVisibleContent.State(document).Diagnostics = regions.Where(region => region.Diagnostic is not null)
+            .Select(region => $"Line {region.StartLine + 1}: {region.Diagnostic}").ToArray();
+        foreach (var diagnostic in MarkdownVisibleContent.State(document).Diagnostics)
+            SquadDashTrace.Write("MarkdownDetail", diagnostic);
 
         for (var index = 0; index < lines.Length; index++) {
             var startIndex = index;
             var line = lines[index];
             var trimmed = line.Trim();
+
+            if (regionStarts.TryGetValue(index, out var region)) {
+                index = region.EndLine;
+                if (region.Diagnostic is not null) {
+                    document.Blocks.Add(new Paragraph(new Run(string.Join("\n",
+                        lines.Skip(startIndex).Take(index - startIndex + 1)))));
+                } else {
+                    var body = BuildWithMapCore(region.Body, out _, baseFontSize, styleCodeIdentifiers,
+                        copyableCodeBlocks, onLinkClicked);
+                    var detail = new MarkdownDetailView(document, body, region.Label,
+                        keys?[sectionIndex++], detailState);
+                    document.Blocks.Add(new BlockUIContainer(detail.Expander) {
+                        Tag = detail, Margin = new Thickness(0, 4, 0, 8)
+                    });
+                }
+                blockLineRanges.Add((startIndex, index));
+                continue;
+            }
 
             if (string.IsNullOrWhiteSpace(trimmed)) {
                 // Use a minimal spacer instead of a full-height empty paragraph.
@@ -197,6 +228,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 while (index + 1 < lines.Length) {
                     var nextRaw = lines[index + 1];
                     var next    = nextRaw.Trim();
+                    if (MarkdownDetailParser.IsMarker(next)) break;
                     if (next.StartsWith("- ", StringComparison.Ordinal) || next.StartsWith("* ", StringComparison.Ordinal)) {
                         // New sibling list item.
                         listItems.Add(currentItem.ToString());
@@ -232,6 +264,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 while (index + 1 < lines.Length) {
                     var nextRaw = lines[index + 1];
                     var next    = nextRaw.Trim();
+                    if (MarkdownDetailParser.IsMarker(next)) break;
                     if (IsOrderedListItem(next)) {
                         listItems.Add(currentItem.ToString());
                         var nextDotIdx = next.IndexOf(". ", StringComparison.Ordinal);
@@ -291,6 +324,7 @@ internal static class MarkdownFlowDocumentBuilder {
             blockLineRanges.Add((startIndex, index));
         }
 
+        MarkdownVisibleContent.Bind(document);
         return document;
     }
 
@@ -302,6 +336,7 @@ internal static class MarkdownFlowDocumentBuilder {
         trimmed.StartsWith("* ",  StringComparison.Ordinal) ||
         trimmed.StartsWith("> ",  StringComparison.Ordinal) ||
         trimmed.StartsWith("```", StringComparison.Ordinal) ||
+        MarkdownDetailParser.IsMarker(trimmed) ||
         IsHorizontalRule(trimmed)      ||
         IsOrderedListItem(trimmed);
 

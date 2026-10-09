@@ -9,6 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\SquadDash\MarkdownDetailParser.cs" Link="Source\MarkdownDetailParser.cs" />
+    <Compile Include="..\SquadDash\MarkdownDetailView.cs" Link="Source\MarkdownDetailView.cs" />
+    <Compile Include="..\SquadDash\MarkdownVisibleContent.cs" Link="Source\MarkdownVisibleContent.cs" />
     <Compile Include="..\SquadDash\MarkdownDetailIdentity.cs" Link="Source\MarkdownDetailIdentity.cs" />
     <Compile Include="..\SquadDash\MarkdownDetailStateStore.cs" Link="Source\MarkdownDetailStateStore.cs" />
     <Compile Include="..\SquadDash\PanelMenuItemSorter.cs" Link="Source\PanelMenuItemSorter.cs" />

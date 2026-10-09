@@ -60420,7 +60420,10 @@ public partial class MainWindow : Window
             addToChat:              msg => AttachInboxMessageFollowUp(msg),
             addToNewChat:           msg => { AddEmptyQueueSlot(); AttachInboxMessageFollowUp(msg); },
             openDecomposePlan:      OpenDecomposePlanAttachment,
-            addAsNote:              msg => AddNoteFromTextWithTitle(msg.Subject, msg.Body ?? string.Empty),
+            addAsNote:              msg => AddNoteFromTextWithTitle(msg.Subject,
+                                        _openInboxWindows.FirstOrDefault(window => window.MessageId == msg.Id)?.GetRenderedMessageText()
+                                        ?? InboxMessageWindow.BuildStoredMessageVisibleText(msg, _currentWorkspace?.FolderPath,
+                                            planId => _planStore?.Load(planId))),
             syncBorderVisibility:   visible => {
                                         if (InboxPanelBorder is null) return;
                                         InboxPanelBorder.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;

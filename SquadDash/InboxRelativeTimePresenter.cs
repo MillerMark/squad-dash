@@ -47,7 +47,8 @@ internal static class InboxRelativeTimePresenter
 
     private static IEnumerable<Run> EnumerateRuns(FlowDocument document)
     {
-        foreach (var block in document.Blocks)
+        foreach (var (child, _) in MarkdownVisibleContent.Documents(document, visibleOnly: false))
+        foreach (var block in child.Blocks)
             foreach (var run in EnumerateRuns(block))
                 yield return run;
     }
@@ -188,7 +189,8 @@ internal static class InboxCommitLinkPresenter
 
     private static IEnumerable<Run> EnumerateRuns(FlowDocument document)
     {
-        foreach (var block in document.Blocks)
+        foreach (var (child, _) in MarkdownVisibleContent.Documents(document, visibleOnly: false))
+        foreach (var block in child.Blocks)
             foreach (var run in EnumerateRuns(block))
                 yield return run;
     }
@@ -281,7 +283,8 @@ internal static class InboxPlanLinkPresenter
 
     private static IEnumerable<Run> EnumerateRuns(FlowDocument document)
     {
-        foreach (var block in document.Blocks)
+        foreach (var (child, _) in MarkdownVisibleContent.Documents(document, visibleOnly: false))
+        foreach (var block in child.Blocks)
             foreach (var run in EnumerateRuns(block))
                 yield return run;
     }

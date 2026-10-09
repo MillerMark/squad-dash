@@ -34,7 +34,8 @@ internal static class InboxApprovalChecklistPresenter
         var checklistLists = new HashSet<List>();
         var checklistParagraphs = new HashSet<Paragraph>();
         var attached = 0;
-        foreach (var (paragraph, parentList) in EnumerateParagraphs(document.Blocks).ToArray())
+        foreach (var (paragraph, parentList) in MarkdownVisibleContent.Documents(document, visibleOnly: false)
+                     .SelectMany(entry => EnumerateParagraphs(entry.Document.Blocks)).ToArray())
         {
             var text = MarkdownFlowDocumentBuilder.TryGetListItemSourceText(paragraph, out var sourceText)
                 ? sourceText.Trim()

@@ -8,6 +8,21 @@ namespace SquadDash;
 /// <summary>Builds the shared transcript/Inbox code-sample surface and copy affordance.</summary>
 internal static class CopyableCodeBlockBuilder
 {
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextBox, VisibleTextProvider> Providers = new();
+    private sealed record VisibleTextProvider(Func<string> Read);
+
+    internal static void SetVisibleTextProvider(TextBox textBox, Func<string> read)
+    {
+        Providers.Remove(textBox);
+        Providers.Add(textBox, new(read));
+    }
+
+    internal static string GetCopyText(TextBox textBox, bool selectionOnly)
+    {
+        var visible = Providers.TryGetValue(textBox, out var provider) ? provider.Read() : textBox.Text;
+        return visible.Length == 0 ? "" : selectionOnly && textBox.SelectionLength > 0 ? textBox.SelectedText : visible;
+    }
+
     internal static Block Build(string text, double baseFontSize)
     {
         var copyButtonSize = baseFontSize * 1.5;
@@ -39,7 +54,13 @@ internal static class CopyableCodeBlockBuilder
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
         };
-        copyButton.Click += (_, _) => TrySetClipboard(text);
+        copyButton.Click += (_, _) => TrySetClipboard(GetCopyText(textBox, selectionOnly: false));
+        DataObject.AddCopyingHandler(textBox, (_, e) =>
+        {
+            e.CancelCommand();
+            e.Handled = true;
+            TrySetClipboard(GetCopyText(textBox, selectionOnly: true));
+        });
 
         var copyButtonBackdrop = new Border
         {
@@ -61,8 +82,7 @@ internal static class CopyableCodeBlockBuilder
         stickyCopyHost.Children.Add(copyButton);
 
         var copyMenuItem = new MenuItem { Header = "Copy" };
-        copyMenuItem.Click += (_, _) => TrySetClipboard(
-            textBox.SelectionLength > 0 ? textBox.SelectedText : text);
+        copyMenuItem.Click += (_, _) => TrySetClipboard(GetCopyText(textBox, selectionOnly: true));
         var selectAllMenuItem = new MenuItem { Header = "Select All" };
         selectAllMenuItem.Click += (_, _) => textBox.SelectAll();
         var contextMenu = new ContextMenu();
@@ -81,6 +101,8 @@ internal static class CopyableCodeBlockBuilder
 
     private static bool TrySetClipboard(string text)
     {
+        if (string.IsNullOrEmpty(text))
+            return false;
         for (var attempt = 0; attempt < 3; attempt++)
         {
             try
@@ -88,11 +110,13 @@ internal static class CopyableCodeBlockBuilder
                 Clipboard.SetText(text);
                 return true;
             }
-            catch
+            catch (System.Runtime.InteropServices.ExternalException ex)
             {
+                SquadDashTrace.Write("Clipboard", $"Code copy clipboard contention (attempt {attempt + 1}): {ex.Message}");
                 Thread.Sleep(UiTimingConstants.ClipboardRetryBackoffUnitMs);
             }
         }
+        System.Media.SystemSounds.Exclamation.Play();
         return false;
     }
 }

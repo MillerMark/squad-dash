@@ -30,6 +30,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action<string, InboxMessage>? _attachSelectedTextToNewChat;
     private InboxMessage _message;
     private readonly FlowDocumentScrollViewer _bodyViewer;
+    private FlowDocument? _renderedBody;
+    private readonly MarkdownDetailStateStore _detailStateStore;
+    private readonly List<FlowDocumentScrollViewer> _detailCopyViewers = [];
+    private IDisposable? _selectionScope;
+    private int _findIndex = -1;
     private readonly WrapPanel _attachmentsPanel;
     private readonly WrapPanel _navigationActionsPanel;
     private readonly WrapPanel _actionsPanel;
@@ -84,9 +89,11 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Func<string, Plan?>? loadPlan = null,
         Action<string, PlanHumanReviewChecklistItem, bool>? onHumanReviewSelectionChanged = null,
         Func<string, string?>? resolveMessageFilePath = null,
-        Action<string>? openInboxMessage = null)
+        Action<string>? openInboxMessage = null,
+        MarkdownDetailStateStore? detailStateStore = null)
         : base(captionHeight: 28, resizeMode: ResizeMode.CanResize)
     {
+        _detailStateStore = detailStateStore ?? new MarkdownDetailStateStore();
         _lookupTask             = lookupTask;
         _attachSelectedTextToChat = attachSelectedTextToChat;
         _attachSelectedTextToNewChat = attachSelectedTextToNewChat;
@@ -184,9 +191,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         WindowChrome.SetIsHitTestVisibleInChrome(copyMessageBtn, true);
         copyMessageBtn.Click += (_, _) =>
         {
-            var clipboardText = BuildMessageClipboardText(_message);
-            if (!string.IsNullOrEmpty(clipboardText))
-                Clipboard.SetText(clipboardText);
+            TryCopyText(GetRenderedMessageText());
         };
         DockPanel.SetDock(copyMessageBtn, Dock.Right);
         headerDock.Children.Add(copyMessageBtn);
@@ -436,18 +441,71 @@ internal sealed class InboxMessageWindow : ChromedWindow
             }
         };
 
-        // Fix for code block copying: FlowDocument's default copy handler can skip
-        // Paragraph elements with backgrounds (code blocks). Intercept the copy event
-        // to extract plain text from the selection, preserving all content.
+        // Default serialization cannot traverse nested documents or exclude collapsed bodies.
         DataObject.AddCopyingHandler(_bodyViewer, OnFlowDocumentCopying);
+        _selectionScope = MarkdownVisibleContent.TrackSelections(_bodyViewer);
 
         _bodyViewer.PreviewMouseWheel += OnBodyViewerPreviewMouseWheel;
         Closed += (_, _) => _relativeTimeTimer?.Stop();
 
+        var findBar = new DockPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(8, 2, 8, 2) };
+        var closeFind = new Button { Content = "Close", Margin = new Thickness(6, 0, 0, 0) };
+        closeFind.Click += (_, _) => { findBar.Visibility = Visibility.Collapsed; _bodyViewer.Focus(); };
+        DockPanel.SetDock(closeFind, Dock.Right);
+        findBar.Children.Add(closeFind);
+        var findInput = new TextBox { ToolTip = "Find visible text (Enter for next match, Escape to close)" };
+        findInput.TextChanged += (_, _) => _findIndex = -1;
+        findInput.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                var matches = MarkdownVisibleContent.FindAll(_bodyViewer.Document, findInput.Text).ToArray();
+                if (matches.Length > 0)
+                {
+                    _findIndex = (_findIndex + 1) % matches.Length;
+                    ClearBodySelections();
+                    matches[_findIndex].Select(_bodyViewer);
+                    findInput.Focus();
+                }
+                findInput.ToolTip = matches.Length == 0 ? "No visible matches." : "Enter for next visible match.";
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                findBar.Visibility = Visibility.Collapsed;
+                _bodyViewer.Focus();
+                e.Handled = true;
+            }
+        };
+        findBar.Children.Add(findInput);
+        void ShowFind()
+        {
+            findBar.Visibility = Visibility.Visible;
+            findInput.Focus();
+            findInput.SelectAll();
+        }
+        CommandManager.AddPreviewExecutedHandler(this, (_, e) =>
+        {
+            if (e.Command != ApplicationCommands.Find) return;
+            ShowFind();
+            e.Handled = true;
+        });
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.F && Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                ShowFind();
+                e.Handled = true;
+            }
+        };
+        var bodyLayout = new DockPanel();
+        DockPanel.SetDock(findBar, Dock.Top);
+        bodyLayout.Children.Add(findBar);
+        bodyLayout.Children.Add(_bodyViewer);
         var bodyBorder = new Border
         {
             Margin = new Thickness(8, 6, 8, 8),
-            Child  = _bodyViewer,
+            Child  = bodyLayout,
         };
         bodyBorder.SetResourceReference(Border.BackgroundProperty, "InboxBodySurface");
         Grid.SetRow(bodyBorder, 4);
@@ -483,9 +541,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
                     attachMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     attachMenuItem.Click += (_, _) =>
                     {
-                        var sel = _bodyViewer.Selection;
-                        if (!sel.IsEmpty)
-                            _attachSelectedTextToChat(sel.Text, _message);
+                        var text = MarkdownVisibleContent.GetSelectedText(_bodyViewer);
+                        if (!string.IsNullOrEmpty(text))
+                            _attachSelectedTextToChat(text, _message);
                     };
                     contextMenu.Items.Add(attachMenuItem);
                 }
@@ -496,9 +554,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
                     addToNewChatMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                     addToNewChatMenuItem.Click += (_, _) =>
                     {
-                        var sel = _bodyViewer.Selection;
-                        if (!sel.IsEmpty)
-                            _attachSelectedTextToNewChat(sel.Text, _message);
+                        var text = MarkdownVisibleContent.GetSelectedText(_bodyViewer);
+                        if (!string.IsNullOrEmpty(text))
+                            _attachSelectedTextToNewChat(text, _message);
                     };
                     contextMenu.Items.Add(addToNewChatMenuItem);
                 }
@@ -507,18 +565,19 @@ internal sealed class InboxMessageWindow : ChromedWindow
                 copyMenuItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 copyMenuItem.Click += (_, _) =>
                 {
-                    var sel = _bodyViewer.Selection;
-                    if (!sel.IsEmpty)
-                        Clipboard.SetText(sel.Text);
+                    TryCopyText(MarkdownVisibleContent.GetSelectedText(_bodyViewer));
                 };
                 contextMenu.Items.Add(copyMenuItem);
 
                 _bodyViewer.ContextMenu = contextMenu;
                 _bodyViewer.ContextMenuOpening += (_, e) =>
                 {
-                    if (_bodyViewer.Selection.IsEmpty && !IsHyperlinkContextMenuSource(e.OriginalSource))
+                    if (string.IsNullOrEmpty(MarkdownVisibleContent.GetSelectedText(_bodyViewer)) &&
+                        !IsHyperlinkContextMenuSource(e.OriginalSource))
                         e.Handled = true;
                 };
+                foreach (var viewer in _detailCopyViewers)
+                    viewer.ContextMenu = contextMenu;
             }
 
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => _bodyViewer.Focus());
@@ -527,6 +586,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Closed += (_, _) =>
         {
             _isClosed = true;
+            DetachBodyDocument();
+            DataObject.RemoveCopyingHandler(_bodyViewer, OnFlowDocumentCopying);
             _preflightPollTimer?.Stop();
             _preflightPollTimer = null;
             DisposePlanThumbnailRenderer();
@@ -841,14 +902,37 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _relativeTimeTimer?.Stop();
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
         _bodyViewer.Document = doc;
+        _selectionScope = MarkdownVisibleContent.TrackSelections(_bodyViewer);
     }
 
     private FlowDocument BuildBodyDocument(InboxMessage message)
     {
+        DetachBodyDocument();
+        var document = BuildRenderedBodyDocument(message, _bodyFontSize, _workspaceFolder, _detailStateStore,
+            _loadPlan, OpenInlineBodyLink, _openCommit, _openDecomposePlan, _onHumanReviewSelectionChanged);
+        _renderedBody = document;
+        MarkdownVisibleContent.State(document).VisibilityChanged += OnDetailVisibilityChanged;
+        foreach (var (_, viewer) in MarkdownVisibleContent.Documents(document, visibleOnly: false))
+        {
+            if (viewer is null) continue;
+            DataObject.AddCopyingHandler(viewer, OnFlowDocumentCopying);
+            if (_bodyViewer?.ContextMenu is { } menu)
+                viewer.ContextMenu = menu;
+            _detailCopyViewers.Add(viewer);
+        }
+        AttachBodyLinkCopyMenus(document, _workspaceFolder);
+        return document;
+    }
+
+    private static FlowDocument BuildRenderedBodyDocument(
+        InboxMessage message, double fontSize, string? workspaceFolder, MarkdownDetailStateStore stateStore,
+        Func<string, Plan?>? loadPlan, Action<string>? onLinkClicked, Action<string>? openCommit,
+        Action<InboxAttachment>? openPlan, Action<string, PlanHumanReviewChecklistItem, bool>? onSelectionChanged)
+    {
         var body = message.Body ?? string.Empty;
         var binding = ManualTestKitApprovalBinding.Read(message);
         var planId = message.ResolvePlanGroupId();
-        var plan = string.IsNullOrWhiteSpace(planId) ? null : _loadPlan?.Invoke(planId);
+        var plan = string.IsNullOrWhiteSpace(planId) ? null : loadPlan?.Invoke(planId);
         var gateIds = DurableApprovalRequestManager.ReadState(message)?.ActiveGateIds
             ?? binding?.GateIds
             ?? [];
@@ -863,30 +947,87 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
         var document = MarkdownFlowDocumentBuilder.BuildInbox(
             body,
-            _bodyFontSize,
-            OpenInlineBodyLink);
-        InboxCommitLinkPresenter.Attach(document, _openCommit);
-        InboxPlanLinkPresenter.Attach(document, message, _openDecomposePlan);
+            fontSize,
+            onLinkClicked,
+            CreateDetailStateContext(message, workspaceFolder, stateStore));
+        InboxCommitLinkPresenter.Attach(document, openCommit);
+        InboxPlanLinkPresenter.Attach(document, message, openPlan);
 
-        if (plan is not null && _onHumanReviewSelectionChanged is not null)
+        if (plan is not null && onSelectionChanged is not null)
         {
             InboxApprovalChecklistPresenter.Attach(
                 document,
                 checklist,
-                (item, isChecked) => _onHumanReviewSelectionChanged(plan.PlanId, item, isChecked),
-                _bodyFontSize,
+                (item, isChecked) => onSelectionChanged(plan.PlanId, item, isChecked),
+                fontSize,
                 isEnabled: gates.All(gate => gate.Status == PlanGateStatus.AwaitingApproval));
         }
-
-        AttachBodyLinkCopyMenus(document, _workspaceFolder);
 
         return document;
     }
 
-    internal static string BuildMessageClipboardText(InboxMessage message) =>
-        !string.IsNullOrWhiteSpace(message.Body)
-            ? message.Body
-            : message.Subject;
+    internal string GetRenderedMessageText() => BuildMessageClipboardText(_message, _bodyViewer.Document);
+
+    internal static MarkdownDetailStateContext? CreateDetailStateContext(
+        InboxMessage message, string? workspaceFolder, MarkdownDetailStateStore store)
+    {
+        if (string.IsNullOrWhiteSpace(workspaceFolder))
+        {
+            SquadDashTrace.Write("MarkdownDetail", "Inbox has no workspace identity; detail state is view-local.");
+            return null;
+        }
+        return new(MarkdownDetailIdentity.ForInboxMessage(workspaceFolder, message.Id), store);
+    }
+
+    internal static string BuildMessageClipboardText(InboxMessage message, FlowDocument document) =>
+        !string.IsNullOrWhiteSpace(message.Body) ? MarkdownVisibleContent.GetText(document) : message.Subject;
+
+    internal static string BuildStoredMessageVisibleText(InboxMessage message, string? workspaceFolder,
+        Func<string, Plan?>? loadPlan = null, MarkdownDetailStateStore? detailStateStore = null)
+    {
+        var document = BuildRenderedBodyDocument(message, 14, workspaceFolder,
+            detailStateStore ?? new MarkdownDetailStateStore(), loadPlan, _ => { }, _ => { }, _ => { }, (_, _, _) => { });
+        DispatcherTimer? timer = null;
+        try
+        {
+            timer = InboxRelativeTimePresenter.Attach(document);
+            return BuildMessageClipboardText(message, document);
+        }
+        finally
+        {
+            timer?.Stop();
+            MarkdownVisibleContent.Detach(document);
+        }
+    }
+
+    private void ClearBodySelections()
+    {
+        var document = _bodyViewer.Document;
+        _bodyViewer.Selection?.Select(document.ContentStart, document.ContentStart);
+        MarkdownVisibleContent.ClearSelections(document);
+    }
+
+    private void OnDetailVisibilityChanged()
+    {
+        ClearBodySelections();
+        _findIndex = -1;
+    }
+
+    private void DetachBodyDocument()
+    {
+        _selectionScope?.Dispose();
+        _selectionScope = null;
+        foreach (var viewer in _detailCopyViewers)
+        {
+            DataObject.RemoveCopyingHandler(viewer, OnFlowDocumentCopying);
+            viewer.ContextMenu = null;
+        }
+        _detailCopyViewers.Clear();
+        if (_renderedBody is not null)
+            MarkdownVisibleContent.Detach(_renderedBody);
+        _renderedBody = null;
+        _findIndex = -1;
+    }
 
     internal static string BuildInboxDetailsClipboardText(string subject, string filePath) =>
         $"Subject: {subject}{Environment.NewLine}File: {filePath}";
@@ -903,7 +1044,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
             contextMenu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
             var copyItem = new MenuItem { Header = copyTarget.MenuLabel };
             copyItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-            copyItem.Click += (_, _) => Clipboard.SetText(copyTarget.ClipboardText);
+            copyItem.Click += (_, _) => TryCopyText(copyTarget.ClipboardText);
             contextMenu.Items.Add(copyItem);
             hyperlink.ContextMenu = contextMenu;
         }
@@ -923,7 +1064,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     private static IEnumerable<Hyperlink> EnumerateHyperlinks(FlowDocument document)
     {
-        foreach (var block in document.Blocks)
+        foreach (var (child, _) in MarkdownVisibleContent.Documents(document, visibleOnly: false))
+        foreach (var block in child.Blocks)
             foreach (var link in EnumerateHyperlinks(block))
                 yield return link;
     }
@@ -932,6 +1074,12 @@ internal sealed class InboxMessageWindow : ChromedWindow
     {
         switch (block)
         {
+            case BlockUIContainer container:
+                foreach (var text in MarkdownVisibleContent.TextBlocks(container.Child))
+                    foreach (var inline in text.Inlines)
+                        foreach (var link in EnumerateHyperlinks(inline))
+                            yield return link;
+                break;
             case Paragraph paragraph:
                 foreach (var inline in paragraph.Inlines)
                     foreach (var link in EnumerateHyperlinks(inline))
@@ -1099,30 +1247,31 @@ internal sealed class InboxMessageWindow : ChromedWindow
         return null;
     }
 
-    private static void OnFlowDocumentCopying(object sender, DataObjectCopyingEventArgs e)
+    private void OnFlowDocumentCopying(object sender, DataObjectCopyingEventArgs e)
+        => CopyVisibleSelection(_bodyViewer, e);
+
+    internal static void CopyVisibleSelection(FlowDocumentScrollViewer viewer, DataObjectCopyingEventArgs e,
+        Action<string>? setClipboard = null)
     {
-        if (sender is not FlowDocumentScrollViewer viewer)
-            return;
+        e.CancelCommand();
+        e.Handled = true;
+        TryCopyText(MarkdownVisibleContent.GetSelectedText(viewer), setClipboard);
+    }
 
-        var selection = viewer.Selection;
-        if (selection.IsEmpty)
-            return;
-
-        // Extract plain text from the selection. The default TextRange.Text property
-        // properly handles all inlines within the range, including those in Paragraphs
-        // with background colors (code blocks).
+    internal static bool TryCopyText(string text, Action<string>? setClipboard = null)
+    {
+        if (string.IsNullOrEmpty(text))
+            return false;
         try
         {
-            var plainText = selection.Text;
-            if (!string.IsNullOrEmpty(plainText))
-            {
-                Clipboard.SetText(plainText);
-                e.CancelCommand(); // Prevent the default copy operation
-            }
+            (setClipboard ?? Clipboard.SetText)(text);
+            return true;
         }
-        catch
+        catch (System.Runtime.InteropServices.ExternalException ex)
         {
-            // Clipboard contention — let default behavior proceed
+            SquadDashTrace.Write(TraceCategory.Inbox, $"Clipboard is busy; copy was cancelled: {ex.Message}");
+            System.Media.SystemSounds.Exclamation.Play();
+            return false;
         }
     }
 
@@ -1492,106 +1641,19 @@ internal sealed class InboxMessageWindow : ChromedWindow
             return false;
         }
 
-        var debugRange = new TextRange(doc.ContentStart, doc.ContentEnd);
-        var debugText  = debugRange.Text;
-        var excerptFound = debugText.Contains(excerptText, StringComparison.Ordinal);
-        SquadDashTrace.Write(TraceCategory.Inbox,
-            $"InboxMessageWindow.SelectAndScrollToText: docTextLen={debugText.Length} excerptFoundInDoc={excerptFound} — first 200 chars of doc: '{debugText[..Math.Min(200, debugText.Length)]}'");
-
-        var foundRange = FindTextInRange(doc.ContentStart, doc.ContentEnd, excerptText);
-        if (foundRange is not null)
-        {
-            SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: text found in document — setting selection");
-            _bodyViewer.Selection.Select(foundRange.Start, foundRange.End);
-            SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: selection applied — IsEmpty={_bodyViewer.Selection.IsEmpty} selText='{_bodyViewer.Selection.Text[..Math.Min(80, _bodyViewer.Selection.Text.Length)]}'");
-
-            _bodyViewer.Focus();
-            SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: focus set on _bodyViewer — calling BringIntoView on paragraph");
-            foundRange.Start.Paragraph?.BringIntoView();
-
-            var rect = foundRange.Start.GetCharacterRect(LogicalDirection.Forward);
-            if (!rect.IsEmpty)
-            {
-                SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: character rect found ({rect.X:F0},{rect.Y:F0}) — calling _bodyViewer.BringIntoView(rect)");
-                _bodyViewer.BringIntoView(rect);
-            }
-            else
-            {
-                SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: character rect is Empty — BringIntoView(rect) skipped");
-            }
-            SquadDashTrace.Write(TraceCategory.Inbox, "InboxMessageWindow.SelectAndScrollToText: scroll+select complete");
-            return true;
-        }
-        else
+        var match = FindTextInRange(doc, excerptText);
+        if (match is null)
         {
             SquadDashTrace.Write(TraceCategory.Inbox, $"InboxMessageWindow.SelectAndScrollToText: text NOT found in document via FindTextInRange — excerptText='{excerptText}'");
             return false;
         }
+        ClearBodySelections();
+        match.Select(_bodyViewer);
+        return true;
     }
 
-    /// <summary>
-    /// Searches for text within a FlowDocument range and returns the matching TextRange.
-    /// Works across inline formatting boundaries (bold, italic, mixed runs) by building
-    /// a flat character map over all text runs before searching.
-    /// Returns null if the text is not found.
-    /// </summary>
-    private static TextRange? FindTextInRange(TextPointer start, TextPointer end, string searchText)
-    {
-        if (string.IsNullOrEmpty(searchText))
-            return null;
-
-        // Collect all text runs with their start pointers.
-        var runs = new List<(TextPointer RunStart, string Text)>();
-        var current = start;
-        while (current is not null && current.CompareTo(end) < 0)
-        {
-            if (current.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text)
-            {
-                var text = current.GetTextInRun(LogicalDirection.Forward);
-                if (text.Length > 0)
-                    runs.Add((current, text));
-            }
-            current = current.GetNextContextPosition(LogicalDirection.Forward);
-        }
-
-        // Build a flat string and a parallel map from string-index → (runIndex, charOffset).
-        var sb     = new System.Text.StringBuilder();
-        var posMap = new List<(int RunIndex, int CharOffset)>();
-        for (int r = 0; r < runs.Count; r++)
-        {
-            var text = runs[r].Text;
-            for (int c = 0; c < text.Length; c++)
-            {
-                posMap.Add((r, c));
-                sb.Append(text[c]);
-            }
-        }
-
-        var fullText = sb.ToString();
-
-        // Try exact match first; fall back to case-insensitive.
-        int idx = fullText.IndexOf(searchText, StringComparison.Ordinal);
-        if (idx < 0)
-            idx = fullText.IndexOf(searchText, StringComparison.OrdinalIgnoreCase);
-
-        if (idx < 0)
-            return null;
-
-        int endCharIdx = idx + searchText.Length - 1;
-        if (idx >= posMap.Count || endCharIdx >= posMap.Count)
-            return null;
-
-        var (startRunIdx, startCharOff) = posMap[idx];
-        var (endRunIdx,   endCharOff)   = posMap[endCharIdx];
-
-        var matchStart = runs[startRunIdx].RunStart.GetPositionAtOffset(startCharOff);
-        var matchEnd   = runs[endRunIdx].RunStart.GetPositionAtOffset(endCharOff + 1);
-
-        if (matchStart is null || matchEnd is null)
-            return null;
-
-        return new TextRange(matchStart, matchEnd);
-    }
+    internal static MarkdownVisibleContent.Match? FindTextInRange(FlowDocument document, string searchText) =>
+        MarkdownVisibleContent.Find(document, searchText);
 
     // ── Approval update flow ─────────────────────────────────────────────────
 
@@ -1717,6 +1779,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _relativeTimeTimer?.Stop();
         _relativeTimeTimer = InboxRelativeTimePresenter.Attach(doc);
         _bodyViewer.Document = doc;
+        _selectionScope = MarkdownVisibleContent.TrackSelections(_bodyViewer);
         if (verticalOffset is { } offset)
         {
             Dispatcher.BeginInvoke(

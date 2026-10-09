@@ -60,7 +60,8 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
         });
 
     [Test]
-    public void BuildMessageClipboardText_CopiesTheCompleteBody()
+    public void BuildMessageClipboardText_CopiesRenderedBody() =>
+        WpfTestContext.Run(() =>
     {
         var message = new InboxMessage
         {
@@ -70,8 +71,9 @@ internal sealed class InboxMessageWindowApprovalUpdateTests
             Actions = [],
         };
 
-        Assert.That(InboxMessageWindow.BuildMessageClipboardText(message), Is.EqualTo("Message body.  \r\n"));
-    }
+        var document = MarkdownFlowDocumentBuilder.BuildInbox(message.Body);
+        Assert.That(InboxMessageWindow.BuildMessageClipboardText(message, document), Is.EqualTo("Message body." + Environment.NewLine));
+    });
 
     [Test]
     public void AttachBodyLinkCopyMenus_LabelsExistingFileAndTargetsItsAbsolutePath() =>
