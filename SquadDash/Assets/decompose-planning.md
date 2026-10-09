@@ -136,6 +136,10 @@ confirming the test exercises the full UI→service→file path."
 
 ## Plan detail budget
 
+Assume an expert developer reader. Lead with the actionable result, not introductory basics.
+Keep each task description a complete, self-contained execution contract; brevity must not make
+the outcome, constraints, integration responsibility, or completion evidence ambiguous.
+
 Calibrate detail to what the user must approve and what downstream agents must coordinate. Describe
 observable outcomes, constraints, verified integration points, cross-task contracts, meaningful risks,
 and falsifiable completion evidence. Leave local implementation choices to the assigned agent unless
@@ -211,7 +215,10 @@ not required. Use the exact property names below; do not substitute familiar sho
   whole plan: the user-visible outcome, architectural direction, and any non-negotiable cohesion
   constraint. Keep implementation detail in the relevant tasks. SquadDash injects this north star
   into every task, validation, verification, rework, and human-review turn, so write it to remain
-  useful outside the proposal conversation.
+  useful outside the proposal conversation. The existing plan-level summary/description surface may
+  also use the `:::detail` convention below for optional background. This is a narrow exception, not
+  permission for general presentation Markdown or a new JSON property. Keep the entire summary short,
+  with its actionable north star and all non-negotiable constraints outside optional detail.
 - `delivery`: optional; use `"inbox"` only when the user explicitly asks for the plan to be sent
   to their Inbox. Otherwise omit it or use `"transcript"`.
 - `tasks`: required array containing 1–25 task objects.
@@ -220,7 +227,7 @@ not required. Use the exact property names below; do not substitute familiar sho
   number or repeat the task ID; for example, use `Extract WorkspaceFileWatcherCoordinator`, not
   `Phase 1A`.
 - `tasks[].description`: self-contained implementation brief that does not rely on another task's prose.
-  This is the **only plan field that supports presentation Markdown**. Use short logical paragraphs, with
+  This is the **plan field that supports general presentation Markdown**. Use short logical paragraphs, with
   blank lines between distinct concerns. When a description has independently meaningful sections, use
   concise level-two headings such as `## Observable outcome`, `## Consumers`, `## Constraints`, or a
   task-specific heading such as `## Foundation boundaries`. Use bold, italics, inline code, lists, and
@@ -228,13 +235,44 @@ not required. Use the exact property names below; do not substitute familiar sho
   and block boundaries with `\n\n`; the Plan Visualizer renders the Markdown while its editor preserves the
   exact source text.
 
-  Markdown is scoped to `tasks[].description`. Do not add presentation Markdown to `groupTitle`, `summary`,
-  task titles, agent roles, outputs, inputs, proof requirements, approval gates, validations, or any other
+  General presentation Markdown is scoped to `tasks[].description`; only the approved `:::detail`
+  convention is additionally allowed in the existing plan `summary` value. Do not add presentation Markdown
+  to `groupTitle`, IDs, task titles, routing fields, agent roles, outputs, inputs, proof requirements, approval gates, validations, or any other
   plan property. In particular, do not wrap `contractExamples[].input` or `expectedBehavior` in backticks or
   Markdown fences: contract examples are structured fields and SquadDash renders them separately. Keep all
-  non-description fields as plain JSON strings unless that field's own protocol explicitly requires literal
+  non-description fields as plain JSON strings except for that narrow `summary` allowance or when that field's own protocol explicitly requires literal
   Markdown as domain content. Markdown syntax may appear elsewhere only when the syntax itself is the exact
   normative input being specified, not as presentation formatting.
+
+  **Optional background in task descriptions:** Put an opener `:::detail Optional label` on its own
+  line and balance it with a closing `:::` on its own line. The label is optional: a bare `:::detail`
+  uses the default label "More detail". Sections are initially collapsed and restore the reader's last
+  expanded/collapsed preference across reopen/restart. Nesting is unsupported; never put a detail block
+  inside another. Use this convention, not HTML `<details>`.
+
+  Collapsed bodies are omitted from rendered copy/export and find. Keep mandatory actions, safety
+  constraints, approval questions, approval markers (including `{{approval-check:requirement-id}}`),
+  and all information needed to decide or execute outside optional detail blocks. This is presentation,
+  not removal of task requirements from stored source or agent context. Optional basics or rationale
+  may be compressed into detail; requirements must remain in the expert fast path.
+
+  Task-description example - keep the execution contract outside optional basics:
+
+  ```text
+  Persist each section's last state without changing message schemas.
+
+  :::detail Why not window-local state?
+  A window-local value is discarded when the window closes, so it cannot restore the reader's choice after restart.
+  :::
+  ```
+
+  In the existing task `description` JSON string, preserve the same newlines with escaped `\n`
+  (this is a property excerpt, not a complete task or a new schema field):
+
+  ```json
+  "description": "Persist each section's last state without changing message schemas.\n\n:::detail Why not window-local state?\nA window-local value is discarded when the window closes, so it cannot restore the reader's choice after restart.\n:::"
+  ```
+
 - `tasks[].contractExamples`: optional list of compact examples that clarify or reinforce the intended
   design, reduce likely implementation drift, or materially define correctness. Include a grounded example
   whenever it would help the user approve the design or help an executing or verifying agent stay aligned;

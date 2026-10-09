@@ -58,8 +58,15 @@ internal sealed class DefaultPromptInstructionProviderTests
         Assert.That(instruction, Does.Contain("does **not** need a separate final"));
         Assert.That(instruction, Does.Contain("`tasks[].title`"));
         Assert.That(instruction, Does.Contain("\"title\": \"Introduce the search index abstraction\""));
-        Assert.That(instruction, Does.Contain("only plan field that supports presentation Markdown"));
+        Assert.That(instruction, Does.Contain("plan field that supports general presentation Markdown"));
         Assert.That(instruction, Does.Contain("Markdown is scoped to `tasks[].description`"));
+        Assert.That(instruction, Does.Contain("additionally allowed in the existing plan `summary` value"));
+        Assert.That(instruction, Does.Not.Contain("only plan field that supports presentation Markdown"));
+        Assert.That(instruction, Does.Contain("Assume an expert developer reader"));
+        Assert.That(instruction, Does.Contain(":::detail Why not window-local state?"));
+        Assert.That(instruction, Does.Contain("Nesting is unsupported"));
+        Assert.That(instruction, Does.Contain("across reopen/restart"));
+        Assert.That(instruction, Does.Contain("Collapsed bodies are omitted from rendered copy/export and find"));
         Assert.That(instruction, Does.Contain("## Observable outcome"));
         Assert.That(instruction, Does.Contain("do not wrap `contractExamples[].input` or `expectedBehavior`"));
         Assert.That(instruction, Does.Contain("non-description fields as plain JSON strings"));
@@ -318,6 +325,32 @@ internal sealed class DefaultPromptInstructionProviderTests
             if (Directory.Exists(configuredSquadFolder)) Directory.Delete(configuredSquadFolder, recursive: true);
             if (Directory.Exists(centralRoot)) Directory.Delete(centralRoot, recursive: true);
         }
+    }
+
+    [Test]
+    public void InboxInstruction_DescribesExpertFirstDetailWithoutHidingRequirements()
+    {
+        var instruction = new DefaultPromptInstructionProvider().Get().InboxMessage;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("Assume an expert developer reader"));
+            Assert.That(instruction, Does.Contain("Lead with the actionable result"));
+            Assert.That(instruction, Does.Contain("default label \"More detail\""));
+            Assert.That(instruction, Does.Contain("initially collapsed"));
+            Assert.That(instruction, Does.Contain("across reopen/restart"));
+            Assert.That(instruction, Does.Contain("Nesting is unsupported"));
+            Assert.That(instruction, Does.Contain("Collapsed bodies are omitted from rendered copy/export and find"));
+            Assert.That(instruction, Does.Contain("outside optional detail blocks, including in manual test kits"));
+            Assert.That(instruction, Does.Contain("not removal of task requirements from stored source or agent context"));
+            Assert.That(instruction, Does.Contain("Do not add schema fields"));
+            Assert.That(instruction, Does.Contain(
+                "Detail sections now remember your last choice.\n\n:::detail What is saved?\n" +
+                "The app records whether each section was expanded or collapsed and restores that choice when you reopen the same content.\n:::"));
+            Assert.That(instruction, Does.Contain(
+                "\"body\":\"Detail sections now remember your last choice.\\n\\n:::detail What is saved?\\n" +
+                "The app records whether each section was expanded or collapsed and restores that choice when you reopen the same content.\\n:::\""));
+        });
     }
 
     [Test]

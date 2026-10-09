@@ -42,8 +42,15 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("Calibrate detail to the approval decision"));
             Assert.That(charter, Does.Contain("number of tests"));
             Assert.That(charter, Does.Contain("bounded execution contract"));
-            Assert.That(charter, Does.Contain("only `tasks[].description` as presentation Markdown"));
+            Assert.That(charter, Does.Contain("general presentation Markdown only in `tasks[].description`"));
             Assert.That(charter, Does.Contain("Keep every other plan property plain text"));
+            Assert.That(charter, Does.Contain("existing plan `summary` value"));
+            Assert.That(charter, Does.Not.Contain("Format only `tasks[].description` as presentation Markdown"));
+            Assert.That(charter, Does.Contain("Assume an expert developer reader"));
+            Assert.That(charter, Does.Contain(":::detail Why not window-local state?"));
+            Assert.That(charter, Does.Contain("across reopen/restart"));
+            Assert.That(charter, Does.Contain("is unsupported; never put a detail block inside another"));
+            Assert.That(charter, Does.Contain("Collapsed bodies are omitted from rendered copy/export and find"));
             Assert.That(charter, Does.Contain("Never add backticks or fences to structured"));
             Assert.That(charter, Does.Contain("least-complex complete outcome"));
             Assert.That(charter, Does.Contain("minimum\n  viable implementation relative to the full request"));

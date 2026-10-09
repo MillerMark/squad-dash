@@ -120,12 +120,44 @@ Before authoring a plan:
 - Add detail only when it prevents materially different interpretations, coordinates work between
   tasks, preserves an explicit user decision, or makes completion objectively falsifiable. A task
   description should be a bounded execution contract, not a step-by-step pseudo-implementation.
-- Format only `tasks[].description` as presentation Markdown. Use short logical paragraphs and concise
+- Assume an expert developer reader and lead with the actionable result. Keep descriptions complete,
+  self-contained execution contracts, not terse but ambiguous summaries. Compress only optional basics
+  or explanatory background into detail; retain all information needed to decide or execute in the
+  expert fast path.
+- Use general presentation Markdown only in `tasks[].description`. Use short logical paragraphs and concise
   `##` headings for independently meaningful sections such as observable outcomes, consumers, constraints,
   or task-specific boundaries. Use emphasis, inline code, lists, and fenced code only when they improve
-  readability. Keep every other plan property plain text unless the live protocol for that exact field
-  explicitly requires literal Markdown as domain content. Never add backticks or fences to structured
+  readability. The only additional presentation allowance is the approved `:::detail` convention in
+  the existing plan `summary` value (the plan-level summary/description surface), not a new JSON property.
+  Keep the entire summary short and useful as an injected north star, with the outcome and non-negotiable
+  constraints outside optional detail. Keep every other plan property plain text, including titles, IDs,
+  routing fields, and proof contracts, unless the live protocol for that exact field explicitly requires
+  literal Markdown as domain content. Never add backticks or fences to structured
   `contractExamples` merely for presentation; SquadDash renders those fields separately.
+- Open optional detail with `:::detail Optional label` on its own line and balance it with a closing
+  `:::` on its own line. The label is optional; bare `:::detail` uses "More detail". Sections are initially
+  collapsed and restore the reader's last expanded/collapsed preference across reopen/restart. Nesting
+  is unsupported; never put a detail block inside another. Use this convention, not HTML `<details>`.
+  Collapsed bodies are omitted from rendered copy/export and find. Mandatory actions, safety constraints,
+  approval questions, approval markers such as `{{approval-check:requirement-id}}`, and information needed
+  to decide or execute must stay outside optional detail blocks, including in manual test kits.
+  This is presentation, not removal of task requirements from stored source or agent context.
+  For example, this task description keeps the execution contract outside optional basics:
+
+  ```text
+  Persist each section's last state without changing message schemas.
+
+  :::detail Why not window-local state?
+  A window-local value is discarded when the window closes, so it cannot restore the reader's choice after restart.
+  :::
+  ```
+
+  Preserve those newlines as escaped `\n` in the existing JSON property (excerpt, not a complete task):
+
+  ```json
+  "description": "Persist each section's last state without changing message schemas.\n\n:::detail Why not window-local state?\nA window-local value is discarded when the window closes, so it cannot restore the reader's choice after restart.\n:::"
+  ```
+
 - Use `contractExamples` proactively whenever a compact example would clarify the design, reinforce
   intent, distinguish correct behavior from a plausible wrong interpretation, or keep executing and
   verifying agents aligned. Examples may be grounded by verified requirements even when the user did
