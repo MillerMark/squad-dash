@@ -13,6 +13,15 @@ namespace SquadDash;
 /// </summary>
 internal static class MarkdownVisibleContent
 {
+    private static readonly DependencyProperty SemanticTextProperty = DependencyProperty.RegisterAttached(
+        "SemanticText", typeof(string), typeof(MarkdownVisibleContent), new PropertyMetadata(null));
+
+    internal static void SetSemanticText(DependencyObject element, string text) =>
+        element.SetValue(SemanticTextProperty, text);
+
+    private static string? GetSemanticText(DependencyObject element) =>
+        (string?)element.GetValue(SemanticTextProperty);
+
     internal sealed class DocumentState
     {
         internal IReadOnlyList<string> Diagnostics { get; set; } = [];
@@ -101,35 +110,11 @@ internal static class MarkdownVisibleContent
         {
             if (block is Paragraph paragraph)
             {
-                var text = new StringBuilder();
-                var positions = new List<TextPointer>();
-                var current = paragraph.ContentStart;
-                while (current is not null && current.CompareTo(paragraph.ContentEnd) < 0)
-                {
-                    if (current.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text)
-                    {
-                        var run = current.GetTextInRun(LogicalDirection.Forward);
-                        text.Append(run);
-                        for (var offset = 0; offset < run.Length; offset++)
-                            positions.Add(current.GetPositionAtOffset(offset)!);
-                    }
-                    else if (current.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.ElementStart &&
-                             current.GetAdjacentElement(LogicalDirection.Forward) is LineBreak)
-                    {
-                        text.Append('\n');
-                        positions.Add(current);
-                    }
-                    else if (current.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.EmbeddedElement &&
-                             current.GetAdjacentElement(LogicalDirection.Forward) is CheckBox check)
-                    {
-                        var label = System.Windows.Automation.AutomationProperties.GetName(check);
-                        var value = $"{(check.IsChecked == true ? "[x]" : "[ ]")} {label}";
-                        text.Append(value);
-                        positions.AddRange(Enumerable.Repeat(current, value.Length));
-                    }
-                    current = current.GetNextContextPosition(LogicalDirection.Forward);
-                }
-                yield return new(text.ToString(), document, paragraph.ContentStart, paragraph.ContentEnd, Positions: positions);
+                var marker = paragraph.Parent is ListItem item && ReferenceEquals(item.Blocks.FirstBlock, paragraph)
+                    ? GetSemanticText(item) : null;
+                var (text, positions) = ReadInlineText(paragraph.ContentStart, paragraph.ContentEnd,
+                    marker is null ? "" : marker + " ");
+                yield return new(text, document, paragraph.ContentStart, paragraph.ContentEnd, Positions: positions);
             }
             else if (block is BlockUIContainer { Tag: MarkdownDetailView detail } container)
             {
@@ -143,10 +128,54 @@ internal static class MarkdownVisibleContent
                 foreach (var code in CodeBoxes(ui.Child))
                     yield return new(code.Text, document, ui.ElementStart, ui.ElementEnd, code);
                 foreach (var text in TextBlocks(ui.Child))
-                    yield return new(new TextRange(text.ContentStart, text.ContentEnd).Text,
+                    yield return new(ReadInlineText(text.ContentStart, text.ContentEnd).Text,
                         document, ui.ElementStart, ui.ElementEnd, text);
             }
         }
+    }
+
+    private static (string Text, IReadOnlyList<TextPointer> Positions) ReadInlineText(
+        TextPointer start, TextPointer end, string prefix = "")
+    {
+        var text = new StringBuilder(prefix);
+        // WPF normalizes selection endpoints to insertion positions; markers share the first one.
+        var positions = new List<TextPointer>(Enumerable.Repeat(
+            start.GetInsertionPosition(LogicalDirection.Forward), prefix.Length));
+        var current = start;
+        while (current is not null && current.CompareTo(end) < 0)
+        {
+            if (current.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text)
+            {
+                var run = current.GetTextInRun(LogicalDirection.Forward);
+                text.Append(run);
+                for (var offset = 0; offset < run.Length; offset++)
+                    positions.Add(current.GetPositionAtOffset(offset)!);
+            }
+            else if (current.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.ElementStart &&
+                     current.GetAdjacentElement(LogicalDirection.Forward) is LineBreak)
+            {
+                text.Append('\n');
+                positions.Add(current);
+            }
+            else if (current.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.EmbeddedElement &&
+                     current.GetAdjacentElement(LogicalDirection.Forward) is DependencyObject embedded)
+            {
+                var value = GetSemanticText(embedded);
+                if (embedded is CheckBox check)
+                {
+                    var label = System.Windows.Automation.AutomationProperties.GetName(check);
+                    value = $"{(check.IsChecked == true ? "[x]" : "[ ]")} {label}";
+                }
+                if (value is not null)
+                {
+                    text.Append(value);
+                    // All UTF-16 units of a visual's semantic text map to its embedded-element slot.
+                    positions.AddRange(Enumerable.Repeat(current, value.Length));
+                }
+            }
+            current = current.GetNextContextPosition(LogicalDirection.Forward);
+        }
+        return (text.ToString(), positions);
     }
 
     internal static string GetText(FlowDocument document) =>

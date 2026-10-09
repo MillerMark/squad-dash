@@ -431,7 +431,9 @@ internal static class MarkdownFlowDocumentBuilder {
                 Tag = new ListItemMetadata(item),
             };
             AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked);
-            list.ListItems.Add(new ListItem(paragraph));
+            var listItem = new ListItem(paragraph);
+            MarkdownVisibleContent.SetSemanticText(listItem, "\u2022");
+            list.ListItems.Add(listItem);
         }
 
         return list;
@@ -477,7 +479,10 @@ internal static class MarkdownFlowDocumentBuilder {
                 Tag = new ListItemMetadata(item),
             };
             AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked);
-            list.ListItems.Add(new ListItem(paragraph));
+            var listItem = new ListItem(paragraph);
+            MarkdownVisibleContent.SetSemanticText(listItem,
+                ((long)startIndex + list.ListItems.Count).ToString(System.Globalization.CultureInfo.InvariantCulture) + ".");
+            list.ListItems.Add(listItem);
         }
         return list;
     }
@@ -790,6 +795,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 Fill    = brush,
                 Margin  = new Thickness(0, 0, 2, -1),
             };
+            MarkdownVisibleContent.SetSemanticText(ellipse, earliestEmoji);
             inlines.Add(new InlineUIContainer(ellipse));
 
             remaining = remaining[(earliestIdx + earliestEmoji.Length)..];

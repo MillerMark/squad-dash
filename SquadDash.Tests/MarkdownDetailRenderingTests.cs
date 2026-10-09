@@ -14,6 +14,110 @@ internal sealed class MarkdownDetailRenderingTests
     private const string Labelled = "Use the existing store.\n\n:::detail Why persist this?\nWindow-local state disappears when the app restarts.\n:::\n\nContinue with the implementation.";
     private const string Explanation = "Window-local state disappears when the app restarts.";
 
+    [TestCase("3. Prepare\n4. Execute", "3. Prepare", "4. Execute")]
+    [TestCase("- Prepare\n- Execute", "\u2022 Prepare", "\u2022 Execute")]
+    public void VisibleListMarkers_ProductionCopyFindAndSelectionRetainMarkers(
+        string source, string first, string second)
+    {
+        var document = MarkdownFlowDocumentBuilder.BuildInbox(source);
+        var message = new InboxMessage { Id = "list-markers", Body = source };
+        var viewer = new FlowDocumentScrollViewer { Document = document };
+        using var selections = MarkdownVisibleContent.TrackSelections(viewer);
+        Assert.That(InboxMessageWindow.BuildMessageClipboardText(message, document),
+            Is.EqualTo(first + Environment.NewLine + second));
+        var match = InboxMessageWindow.FindTextInRange(document, first);
+        Assert.That(match, Is.Not.Null);
+        match!.Select(viewer);
+        Assert.That(MarkdownVisibleContent.GetSelectedText(viewer), Is.EqualTo(first));
+        Assert.That(MarkdownVisibleContent.GetSelectionText(document,
+            new TextRange(document.ContentStart, document.ContentEnd)),
+            Is.EqualTo(first + Environment.NewLine + second));
+        MarkdownVisibleContent.Detach(document);
+    }
+
+    [TestCase("\U0001F534")]
+    [TestCase("\U0001F7E0")]
+    [TestCase("\U0001F7E1")]
+    [TestCase("\U0001F7E2")]
+    [TestCase("\U0001F535")]
+    [TestCase("\U0001F7E3")]
+    [TestCase("\u26AB")]
+    [TestCase("\u26AA")]
+    [TestCase("\U0001F7E4")]
+    public void CircleStatus_ProductionCopyFindAndSelectionRetainSemanticText(string symbol)
+    {
+        var phrase = symbol + " Ready";
+        var document = MarkdownFlowDocumentBuilder.BuildInbox(phrase);
+        var message = new InboxMessage { Id = "status", Body = phrase };
+        var viewer = new FlowDocumentScrollViewer { Document = document };
+        using var selections = MarkdownVisibleContent.TrackSelections(viewer);
+        Assert.That(InboxMessageWindow.BuildMessageClipboardText(message, document), Is.EqualTo(phrase));
+        foreach (var query in new[] { phrase, symbol, "Ready" })
+        {
+            var match = InboxMessageWindow.FindTextInRange(document, query);
+            Assert.That(match, Is.Not.Null);
+            match!.Select(viewer);
+            Assert.That(MarkdownVisibleContent.GetSelectedText(viewer), Is.EqualTo(query));
+        }
+        MarkdownVisibleContent.Detach(document);
+    }
+
+    [Test]
+    public void DetailStatusAndLists_ProductionCopyFindAndSelectionRespectExpansion()
+    {
+        const string phrase = "\U0001F7E2 Ready";
+        const string source = ":::detail Status\n" + phrase + "\n\n3. Prepare\n4. Execute\n\n- Finish\n:::";
+        var document = MarkdownFlowDocumentBuilder.BuildInbox(source);
+        var message = new InboxMessage { Id = "detail-status", Body = source };
+        var detail = MarkdownVisibleContent.Details(document).Single();
+        var viewer = new FlowDocumentScrollViewer { Document = document };
+        using var selections = MarkdownVisibleContent.TrackSelections(viewer);
+        foreach (var expanded in new[] { false, true, false })
+        {
+            detail.Expander.IsExpanded = expanded;
+            var copy = InboxMessageWindow.BuildMessageClipboardText(message, document);
+            var selectionCopy = MarkdownVisibleContent.GetSelectionText(document,
+                new TextRange(document.ContentStart, document.ContentEnd));
+            foreach (var query in new[] { phrase, "3. Prepare", "4. Execute", "\u2022 Finish" })
+            {
+                var match = InboxMessageWindow.FindTextInRange(document, query);
+                if (expanded)
+                {
+                    Assert.That(copy, Does.Contain(query));
+                    Assert.That(selectionCopy, Does.Contain(query));
+                    Assert.That(match, Is.Not.Null);
+                    Assert.That(match!.Part.Document, Is.SameAs(detail.Viewer.Document));
+                    match.Select(viewer);
+                    Assert.That(MarkdownVisibleContent.GetSelectedText(viewer), Is.EqualTo(query));
+                }
+                else
+                {
+                    Assert.That(copy, Is.EqualTo("Status"));
+                    Assert.That(selectionCopy, Is.EqualTo("Status"));
+                    Assert.That(match, Is.Null);
+                    Assert.That(MarkdownVisibleContent.GetSelectedText(viewer), Is.Empty);
+                }
+            }
+        }
+        Assert.That(message.Body, Is.EqualTo(source));
+        MarkdownVisibleContent.Detach(document);
+    }
+
+    [Test]
+    public void TableStatus_ProductionCopyAndFindRetainSemanticText()
+    {
+        const string phrase = "\U0001F7E2 Ready";
+        const string source = "| Status |\n| --- |\n| " + phrase + " |";
+        var document = MarkdownFlowDocumentBuilder.BuildInbox(source);
+        var message = new InboxMessage { Id = "table-status", Body = source };
+        Assert.That(InboxMessageWindow.BuildMessageClipboardText(message, document), Does.Contain(phrase));
+        var match = InboxMessageWindow.FindTextInRange(document, phrase);
+        Assert.That(match, Is.Not.Null);
+        Assert.That(match!.Part.Control, Is.TypeOf<TextBlock>());
+        Assert.DoesNotThrow(() => match.Select(new FlowDocumentScrollViewer { Document = document }));
+        MarkdownVisibleContent.Detach(document);
+    }
+
     [Test]
     public void LabelledDetail_CopySearchAndSelectionFollowExpansion()
     {
