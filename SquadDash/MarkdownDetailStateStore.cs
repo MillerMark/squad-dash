@@ -30,6 +30,8 @@ internal sealed record MarkdownDetailStateWriteResult(Exception? Error = null) {
 /// Invalid API arguments throw. Construction does not access storage. There is no bulk reset/pruning.
 /// </summary>
 internal sealed class MarkdownDetailStateStore {
+    internal sealed record Changed(string FilePath, string Key, bool IsExpanded);
+    internal static WeakEventBroker Changes { get; } = new();
     private readonly string _mutexName;
     public string FilePath { get; }
 
@@ -58,10 +60,13 @@ internal sealed class MarkdownDetailStateStore {
     /// <summary>Saves both expanded and collapsed transitions, merging only this key into current disk state.</summary>
     public MarkdownDetailStateWriteResult Save(string sectionKey, bool isExpanded) {
         ValidateKey(sectionKey);
-        return Mutate("Save", entries => {
+        var result = Mutate("Save", entries => {
             entries[sectionKey] = isExpanded;
             return true;
         });
+        if (result.Succeeded)
+            Changes.Publish(new Changed(FilePath, sectionKey, isExpanded));
+        return result;
     }
 
     /// <summary>Fixture cleanup may remove only an explicitly identified section, never a workspace or prefix.</summary>

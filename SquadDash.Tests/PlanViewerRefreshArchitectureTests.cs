@@ -40,7 +40,7 @@ internal sealed class PlanViewerRefreshArchitectureTests
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
         var methodStart = source.IndexOf("internal void RefreshPlan", StringComparison.Ordinal);
-        var nextMethod = source.IndexOf("private static ToolTip BuildTaskToolTip", methodStart, StringComparison.Ordinal);
+        var nextMethod = source.IndexOf("private ToolTip BuildTaskToolTip", methodStart, StringComparison.Ordinal);
 
         Assert.That(methodStart, Is.GreaterThanOrEqualTo(0));
         Assert.That(nextMethod, Is.GreaterThan(methodStart));

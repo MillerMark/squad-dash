@@ -112,6 +112,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private double _panVerticalOffset;
     private FlowDocument? _detailDocument;
     private FlowDocumentScrollViewer? _detailViewer;
+    private PlanDescriptionPresentation? _descriptionPresentation;
+    private PlanDescriptionDocumentSession? _descriptionSession;
+    private readonly List<FlowDocument> _descriptionPreviews = [];
+    private TextBox? _descriptionFindInput;
     private double _inspectorFontScale = 1.0;
     private WrapPanel? _inspectorToolbarPanel;
     private Func<string?>? _inspectorEditorSaveAction;
@@ -354,6 +358,18 @@ internal sealed class PlanViewerWindow : ChromedWindow
         PreviewMouseDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += (_, _) => _lastViewerInteractionUtc = DateTime.UtcNow;
         PreviewKeyDown += OnPlanViewerPreviewKeyDown;
+        CommandManager.AddPreviewExecutedHandler(this, (_, e) =>
+        {
+            if (e.Command != ApplicationCommands.Find || _isInspectorEditing) return;
+            ShowDescriptionFind();
+            e.Handled = true;
+        });
+        CommandManager.AddPreviewCanExecuteHandler(this, (_, e) =>
+        {
+            if (e.Command != ApplicationCommands.Find || _isInspectorEditing) return;
+            e.CanExecute = true;
+            e.Handled = true;
+        });
         PreviewKeyUp += OnGraphPanPreviewKeyUp;
         Deactivated += (_, _) => ReleaseGraphPan();
         PreviewGotKeyboardFocus += (_, e) =>
@@ -375,6 +391,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Closed += (_, _) =>
         {
             _isViewerClosed = true;
+            DetachDescriptionDocuments();
             ReleaseGraphPan();
             _viewportSaveTimer.Stop();
             _preflightPollTimer?.Stop();
@@ -781,6 +798,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
+        DetachDescriptionDocuments();
+        _descriptionPresentation = new PlanDescriptionPresentation(
+            _squadFolderPath is null ? null : System.IO.Path.GetDirectoryName(
+                System.IO.Path.TrimEndingDirectorySeparator(_squadFolderPath)),
+            durablePlan?.PlanId ?? plan.Group.GroupId,
+            durablePlan?.Tasks ?? PendingDecomposePlanAdapter.ToPlan(plan, plan.CreatedAt ?? DateTimeOffset.MinValue).Tasks,
+            Application.Current?.TryFindResource("FontSizeBody") is double bodyFontSize ? bodyFontSize : 12.0,
+            _onDescriptionLinkClicked, CreateTaskLink);
         EndGraphPan();
         _viewportReady = false;
         _viewportSaveTimer.Stop();
@@ -1476,26 +1501,26 @@ internal sealed class PlanViewerWindow : ChromedWindow
                             ? PlanRecoveryPresentationBuilder.BuildCommittedReviewLabel(
                                 PlanRecoveryPresentationBuilder.FormatStepLabel(
                                     interruptedTask.DisplayStepLabel,
-                                    interruptedTask.Title ?? interruptedTask.Description),
+                                    interruptedTask.Title ?? interruptedTask.TaskId),
                                 baselineCommit ?? durablePlan.InterruptionData?.LastCommit,
                                 evidence[^1].Commit)
                             : PlanRecoveryPresentationBuilder.BuildUnattributedReviewLabel(
                                 PlanRecoveryPresentationBuilder.FormatStepLabel(
                                     interruptedTask.DisplayStepLabel,
-                                    interruptedTask.Title ?? interruptedTask.Description),
+                                    interruptedTask.Title ?? interruptedTask.TaskId),
                                 baselineCommit));
                     var comparisonHint = interruptedReview?.ComparisonHint ??
                         (evidence.Count > 0
                             ? PlanRecoveryPresentationBuilder.CommittedReviewHint(
                                 PlanRecoveryPresentationBuilder.FormatStepLabel(
                                     interruptedTask.DisplayStepLabel,
-                                    interruptedTask.Title ?? interruptedTask.Description),
+                                    interruptedTask.Title ?? interruptedTask.TaskId),
                                 baselineCommit ?? durablePlan.InterruptionData?.LastCommit,
                                 evidence[^1].Commit)
                             : PlanRecoveryPresentationBuilder.UnattributedReviewHint(
                                 PlanRecoveryPresentationBuilder.FormatStepLabel(
                                     interruptedTask.DisplayStepLabel,
-                                    interruptedTask.Title ?? interruptedTask.Description),
+                                    interruptedTask.Title ?? interruptedTask.TaskId),
                                 baselineCommit));
                     var linkText = new TextBlock
                     {
@@ -1955,6 +1980,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         var inspectorGrid = new Grid();
         inspectorGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        inspectorGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         inspectorGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
         var toolbarPanel = new WrapPanel
@@ -1965,7 +1991,31 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Grid.SetRow(toolbarPanel, 0);
         inspectorGrid.Children.Add(toolbarPanel);
 
-        Grid.SetRow(detailViewer, 1);
+        _descriptionFindInput = new TextBox
+        {
+            Visibility = Visibility.Collapsed,
+            Margin = new Thickness(6, 0, 6, 4),
+            ToolTip = "Find visible text (Enter for next match, Escape to close)",
+        };
+        _descriptionFindInput.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                _descriptionFindInput.ToolTip = _descriptionSession?.FindNext(_descriptionFindInput.Text) == true
+                    ? "Enter for next visible match." : "No visible matches.";
+                _descriptionFindInput.Focus();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                _descriptionFindInput.Visibility = Visibility.Collapsed;
+                detailViewer.Focus();
+                e.Handled = true;
+            }
+        };
+        Grid.SetRow(_descriptionFindInput, 1);
+        inspectorGrid.Children.Add(_descriptionFindInput);
+        Grid.SetRow(detailViewer, 2);
         inspectorGrid.Children.Add(detailViewer);
 
         inspectorGrid.Margin = new Thickness(0, 0, 4, 0);
@@ -3171,7 +3221,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var nodeTitle = new TextBlock
             {
-                Text         = task.Title ?? task.Description,
+                Text         = task.Title ?? task.Id,
                 TextWrapping = TextWrapping.Wrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 MaxHeight    = 40,
@@ -3238,13 +3288,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
             var nodeDescription = new TextBlock
             {
-                Text         = task.Description,
                 TextWrapping = TextWrapping.Wrap,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin       = new Thickness(0, 5, 0, 0),
             };
             nodeDescription.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             nodeDescription.SetResourceReference(TextBlock.FontSizeProperty,   "FontSizeSmall");
+            BindTaskDescriptionPreview(task.Id, task.Description, nodeDescription);
             var content = new Grid();
             content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -5926,7 +5976,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         return fallback;
     }
 
-    private static ToolTip BuildTaskToolTip(DecomposedSubTask task, PlanTask? durableTask)
+    private ToolTip BuildTaskToolTip(DecomposedSubTask task, PlanTask? durableTask)
     {
         var panel = new StackPanel { MaxWidth = 560 };
 
@@ -5951,7 +6001,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         AddText(task.Title ?? task.Id, weight: FontWeights.Bold, margin: new Thickness(0, 0, 0, 5));
         if (!string.IsNullOrWhiteSpace(task.Description))
-            AddText(task.Description);
+            BindTaskDescriptionPreview(task.Id, task.Description, AddText(""));
 
         if (durableTask is not null)
             AddText($"Status: {durableTask.Status}", "SubtleText", FontWeights.SemiBold, new Thickness(0, 8, 0, 0));
@@ -5993,7 +6043,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         string TaskLabel(string id) => tasksById.TryGetValue(id, out var task)
-            ? $"{task.Title ?? task.Description} ({id})"
+            ? $"{task.Title ?? task.Id} ({id})"
             : id;
 
         AddText(validation.Title, weight: FontWeights.Bold, margin: new Thickness(0, 0, 0, 5));
@@ -6619,6 +6669,9 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_detailDocument is null)
             return;
 
+        _descriptionSession?.Dispose();
+        _descriptionSession = null;
+        MarkdownVisibleContent.Detach(_detailDocument);
         RestoreInspectorFontScale();
         _inspectorEditorSaveAction = null;
         _inspectorEditorStatus = null;
@@ -6670,12 +6723,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 }
 
                 if (!string.IsNullOrWhiteSpace(group.Summary))
-                {
-                    var summary = new Paragraph(new Run(group.Summary));
-                    summary.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-                    summary.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-                    _detailDocument.Blocks.Add(summary);
-                }
+                    _descriptionPresentation!.AppendPlanDescription(_detailDocument, group.Summary);
             }
             AppendActiveReviewNote();
             PrependInspectorToolbar();
@@ -6785,6 +6833,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void PrependInspectorToolbar()
     {
+        if (!_isInspectorEditing && _detailViewer is not null)
+            _descriptionSession = new PlanDescriptionDocumentSession(_detailViewer);
         if (_inspectorToolbarPanel is null) return;
         _inspectorToolbarPanel.Children.Clear();
 
@@ -6799,6 +6849,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             return button;
         }
 
+        if (!_isInspectorEditing)
+        {
+            AddButton("Copy details", () => PlanDescriptionDocumentSession.TryCopyText(
+                PlanDescriptionDocumentSession.GetCopyText(_detailDocument!)), "Copy visible inspector text");
+            AddButton("Find", ShowDescriptionFind, "Find visible inspector text (Ctrl+F)");
+        }
         if (_inspectorHistoryIndex > 0)
         {
             var backBtn = AddButton("← Back", NavigateBack, "Go back to the previously inspected element");
@@ -7675,7 +7731,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             AddSectionHeader(string.Equals(task.Status, PlanTaskStatus.Pending, StringComparison.Ordinal)
                 ? "Task Description"
                 : "Original Task Description");
-            AppendTaskDescription(task.Description, plan);
+            AppendTaskDescription(task.Description, task.TaskId);
         }
 
         if (task.ContractExamples is { Count: > 0 } contractExamples)
@@ -7937,7 +7993,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             {
                 var depPara = new Paragraph();
                 var depTask = plan?.Tasks?.FirstOrDefault(t => t.TaskId == depId);
-                var depTitle = depTask?.Title ?? depTask?.Description ?? depId;
+                var depTitle = depTask?.Title ?? depId;
                 if (depTask is not null)
                 {
                     depPara.Inlines.Add(CreateTaskLink(depTitle, depId));
@@ -8188,36 +8244,36 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
     }
 
-    private void AppendTaskDescription(string description, Plan? plan)
+    private void AppendTaskDescription(string description, string taskId)
     {
         if (_detailDocument is null) return;
+        _descriptionPresentation!.AppendTaskDescription(_detailDocument, taskId, description);
+    }
 
-        var bodyFontSize = Application.Current?.Resources["FontSizeBody"] is double fontSize
-            ? fontSize
-            : 12.0;
-        var rendered = MarkdownFlowDocumentBuilder.BuildPlanDescription(
-            description,
-            bodyFontSize,
-            _onDescriptionLinkClicked);
-        if (plan?.Tasks is { Count: > 0 } tasks)
-            PlanDescriptionTaskReferenceFormatter.Apply(rendered, tasks, CreateTaskLink);
+    private void BindTaskDescriptionPreview(string taskId, string description, TextBlock preview)
+    {
+        var document = _descriptionPresentation!.BuildTaskDescription(taskId, description);
+        _descriptionPreviews.Add(document);
+        void Refresh() => preview.Text = MarkdownVisibleContent.GetText(document);
+        MarkdownVisibleContent.State(document).VisibilityChanged += Refresh;
+        Refresh();
+    }
 
-        foreach (var block in rendered.Blocks.Cast<Block>().ToArray())
-        {
-            rendered.Blocks.Remove(block);
-            block.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
-            block.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-            if (MarkdownFlowDocumentBuilder.TryGetHeadingLevel(block, out var headingLevel))
-            {
-                block.SetResourceReference(TextElement.ForegroundProperty, "SectionHeader");
-                block.SetResourceReference(
-                    TextElement.FontSizeProperty,
-                    headingLevel <= 2 ? "FontSizeLargePlus" : "FontSizeLarge");
-                block.FontWeight = FontWeights.SemiBold;
-                block.Margin = new Thickness(0, headingLevel <= 2 ? 13 : 10, 0, 2);
-            }
-            _detailDocument.Blocks.Add(block);
-        }
+    private void DetachDescriptionDocuments()
+    {
+        _descriptionSession?.Dispose();
+        _descriptionSession = null;
+        if (_detailDocument is not null) MarkdownVisibleContent.Detach(_detailDocument);
+        foreach (var preview in _descriptionPreviews) MarkdownVisibleContent.Detach(preview);
+        _descriptionPreviews.Clear();
+    }
+
+    private void ShowDescriptionFind()
+    {
+        if (_isInspectorEditing || _descriptionFindInput is null) return;
+        _descriptionFindInput.Visibility = Visibility.Visible;
+        _descriptionFindInput.Focus();
+        _descriptionFindInput.SelectAll();
     }
 
     private Hyperlink CreateTaskLink(string taskTitle, string taskId)
@@ -8886,7 +8942,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(verdictList);
         }
 
-        PrependInspectorToolbar();
     }
 
     private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)
@@ -9670,13 +9725,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _detailDocument.Blocks.Add(verifyingTaskTitle);
 
             if (!string.IsNullOrWhiteSpace(currentVerifyingTask.Description))
-            {
-                var descriptionPara = new Paragraph(new Run(currentVerifyingTask.Description));
-                descriptionPara.SetResourceReference(TextElement.ForegroundProperty, "BodyText");
-                descriptionPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
-                descriptionPara.Margin = new Thickness(0, 0, 0, 6);
-                _detailDocument.Blocks.Add(descriptionPara);
-            }
+                AppendTaskDescription(currentVerifyingTask.Description, currentVerifyingTask.TaskId);
 
             if (!string.IsNullOrWhiteSpace(currentVerifyingTask.VerificationLevel))
             {
@@ -10845,6 +10894,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void OnPlanViewerPreviewKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F && Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && !_isInspectorEditing)
+        {
+            ShowDescriptionFind();
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Space && _graphScroll?.IsMouseOver == true &&
             !IsGraphTextInput(Keyboard.FocusedElement) && _taskCardDragState is null)
         {
