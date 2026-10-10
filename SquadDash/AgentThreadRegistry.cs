@@ -878,6 +878,12 @@ internal sealed class AgentThreadRegistry {
             thread.OriginParentToolCallId = parentToolCallId.Trim();
         if (!string.IsNullOrWhiteSpace(originThread.AssignedPlanTaskId))
             thread.AssignedPlanTaskId = originThread.AssignedPlanTaskId;
+        if (!string.IsNullOrWhiteSpace(originThread.PlanId))
+            thread.PlanId = originThread.PlanId;
+        if (!string.IsNullOrWhiteSpace(originThread.PlanWorkItemKind))
+            thread.PlanWorkItemKind = originThread.PlanWorkItemKind;
+        if (!string.IsNullOrWhiteSpace(originThread.PlanWorkItemId))
+            thread.PlanWorkItemId = originThread.PlanWorkItemId;
     }
 
     internal void TryApplyOriginMetadataFromParentToolCall(
@@ -921,6 +927,9 @@ internal sealed class AgentThreadRegistry {
                 OriginAgentDisplayName = record.OriginAgentDisplayName,
                 OriginParentToolCallId = record.OriginParentToolCallId,
                 AssignedPlanTaskId = record.AssignedPlanTaskId,
+                PlanId = record.PlanId,
+                PlanWorkItemKind = record.PlanWorkItemKind,
+                PlanWorkItemId = record.PlanWorkItemId,
                 RosterIdentityVerified = record.RosterIdentityVerified,
                 Prompt = record.Prompt,
                 LatestResponse = SanitizeResponseTextOrNull(record.LatestResponse),

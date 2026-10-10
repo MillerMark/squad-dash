@@ -671,6 +671,9 @@ internal sealed class WorkspaceConversationStore {
             ToolsSuppressedCount = toolsSuppressedCount,
             AgentReports        = turn.AgentReports is { Count: > 0 } ? turn.AgentReports : null,
             IsSystemInjected    = turn.IsSystemInjected,
+            PlanId              = NormalizeSingleLine(turn.PlanId),
+            PlanWorkItemKind    = NormalizeSingleLine(turn.PlanWorkItemKind),
+            PlanWorkItemId      = NormalizeSingleLine(turn.PlanWorkItemId),
         };
     }
 
@@ -743,7 +746,10 @@ internal sealed class WorkspaceConversationStore {
             thread.WasObservedAsBackgroundTask == true ? true : null,
             thread.RosterIdentityVerified,
             NormalizeSingleLine(thread.AssignedPlanTaskId),
-            NormalizeSingleLine(thread.CompletionFooterProfileAlias));
+            NormalizeSingleLine(thread.CompletionFooterProfileAlias),
+            NormalizeSingleLine(thread.PlanId),
+            NormalizeSingleLine(thread.PlanWorkItemKind),
+            NormalizeSingleLine(thread.PlanWorkItemId));
     }
 
     private static int? NormalizeSequence(int? sequence) {
@@ -1288,6 +1294,9 @@ internal sealed record TranscriptTurnRecord(
 
     public DateTimeOffset Timestamp => CompletedAt ?? StartedAt;
     public int? ToolsSuppressedCount { get; init; }
+    public string? PlanId { get; init; }
+    public string? PlanWorkItemKind { get; init; }
+    public string? PlanWorkItemId { get; init; }
     /// <summary>Agent reports to render as buttons immediately after this turn.</summary>
     public IReadOnlyList<AgentReportInfo>? AgentReports { get; init; }
 
@@ -1421,4 +1430,7 @@ internal sealed record TranscriptThreadRecord(
     bool? WasObservedAsBackgroundTask = null,
     bool? RosterIdentityVerified = null,
     string? AssignedPlanTaskId = null,
-    string? CompletionFooterProfileAlias = null);
+    string? CompletionFooterProfileAlias = null,
+    string? PlanId = null,
+    string? PlanWorkItemKind = null,
+    string? PlanWorkItemId = null);

@@ -240,6 +240,8 @@
                                     Orientation="Horizontal"
                                     Visibility="{Binding StatusVisibility}">
                             <local:ActivitySpinner Margin="0,0,4,0"
+                                                   Cursor="Hand"
+                                                   PreviewMouseLeftButtonUp="AgentActivitySpinner_PreviewMouseLeftButtonUp"
                                                    VerticalAlignment="Center" />
                             <TextBlock x:Name="StatusTextBlock"
                                        Text="{Binding StatusText}"
@@ -2918,6 +2920,7 @@
                     <local:ActivitySpinner x:Name="TranscriptTitleSpinner"
                                            DockPanel.Dock="Left"
                                            DataContext="{x:Null}"
+                                           Cursor="Hand"
                                            IsVisibleChanged="TranscriptTitleSpinner_IsVisibleChanged"
                                            local:TranscriptTitleSpinnerLayout.Title="{Binding ElementName=TranscriptTitleTextBlock}"
                                            VerticalAlignment="Center" />

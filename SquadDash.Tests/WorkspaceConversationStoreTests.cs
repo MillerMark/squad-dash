@@ -117,6 +117,11 @@ internal sealed class WorkspaceConversationStoreTests {
                                 5,
                                 startedAt.AddSeconds(30))
                         ])
+                    {
+                        PlanId = " PLAN-ROUNDTRIP ",
+                        PlanWorkItemKind = " implementation ",
+                        PlanWorkItemId = " TASK-ROUNDTRIP ",
+                    }
                 ],
                 RecentSessionIds: [" session-123 ", " session-456 ", "session-123"]));
 
@@ -159,6 +164,9 @@ internal sealed class WorkspaceConversationStoreTests {
                 Is.EqualTo(startedAt.AddSeconds(30).ToUniversalTime()));
             Assert.That(loaded.Turns[0].StartedAt, Is.EqualTo(startedAt.ToUniversalTime()));
             Assert.That(loaded.Turns[0].CompletedAt, Is.EqualTo(finishedAt.ToUniversalTime()));
+            Assert.That(loaded.Turns[0].PlanId, Is.EqualTo("PLAN-ROUNDTRIP"));
+            Assert.That(loaded.Turns[0].PlanWorkItemKind, Is.EqualTo("implementation"));
+            Assert.That(loaded.Turns[0].PlanWorkItemId, Is.EqualTo("TASK-ROUNDTRIP"));
             Assert.That(loaded.Turns[0].Tools, Has.Count.EqualTo(1));
             Assert.That(loaded.Turns[0].Tools[0].Descriptor.ToolName, Is.EqualTo("powershell"));
             Assert.That(loaded.Turns[0].Tools[0].Descriptor.Description, Is.EqualTo("Check git status"));

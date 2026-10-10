@@ -9,6 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\SquadDash\SystemSteeringPolicy.cs" Link="Source\SystemSteeringPolicy.cs" />
+    <Compile Include="..\SquadDash\WorkMetrics.cs" Link="Source\WorkMetrics.cs" />
     <Compile Include="..\SquadDash\PlanDescriptionPresentation.cs" Link="Source\PlanDescriptionPresentation.cs" />
     <Compile Include="..\SquadDash\PlanDescriptionDocumentSession.cs" Link="Source\PlanDescriptionDocumentSession.cs" />
     <Compile Include="..\SquadDash\MarkdownDetailParser.cs" Link="Source\MarkdownDetailParser.cs" />

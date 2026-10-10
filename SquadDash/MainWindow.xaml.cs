@@ -220,11 +220,14 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<AgentStatusCard> _inactiveAgentCards = [];
     private readonly DispatcherTimer _historyHintTimer;
     private readonly DispatcherTimer _toolSpinnerTimer;
+    private readonly DispatcherTimer _systemSteeringTimer;
     private readonly DispatcherTimer _promptHealthTimer;
     private readonly DispatcherTimer _statusPresentationTimer;
     private readonly DispatcherTimer _responseRenderTimer;
     private readonly DispatcherTimer _uiResponsivenessTimer;
     private readonly Stopwatch _sdkDeltaTraceStopwatch = Stopwatch.StartNew();
+    private readonly Dictionary<string, SystemSteeringState> _systemSteeringStates =
+        new(StringComparer.Ordinal);
     private DateTimeOffset _lastUiResponsivenessTick = DateTimeOffset.Now;
     private PromptExecutionController _pec = null!; // initialized in constructor after all services
     private AgentRosterController _agentRosterController = null!; // initialized in constructor before _pec
@@ -255,6 +258,16 @@ public partial class MainWindow : Window
     private int _pendingSubagentViewToolTraceCount;
     private readonly Stopwatch _subagentViewToolTraceStopwatch = Stopwatch.StartNew();
     private SquadRoutingDocumentAssessment? _currentRoutingAssessment;
+
+    private sealed class SystemSteeringState
+    {
+        internal DateTimeOffset EpochStartedAt { get; set; }
+        internal DateTimeOffset? LastWriteAt { get; set; }
+        internal bool FirstNoticeSent { get; set; }
+        internal int NextStrongNoticeMinute { get; set; } = SystemSteeringPolicy.FirstStrongNoticeMinute;
+        internal int ToolCountAtLastNotice { get; set; } = -1;
+        internal bool DeliveryPending { get; set; }
+    }
     private WorkspaceIssuePresentation? _startupIssue;
     private WorkspaceIssuePresentation? _runtimeIssue;
     private string? _dismissedWorkspaceIssueKey;
@@ -992,6 +1005,8 @@ public partial class MainWindow : Window
                 }
             });
         InitializeComponent();
+        TranscriptTitleSpinner.PreviewMouseLeftButtonUp +=
+            TranscriptTitleSpinner_PreviewMouseLeftButtonUp;
         // Dynamic dock-size providers must exist before a workspace layout is restored or a
         // side-zone visibility change requests its initial height allocation.
         LoopPanelBorder.MaximumUsefulSizeProvider = orientation =>
@@ -1352,6 +1367,17 @@ public partial class MainWindow : Window
                 HandleUiCallbackException("ToolSpinnerTimer.Tick", ex);
             }
         };
+
+        _systemSteeringTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(15),
+        };
+        _systemSteeringTimer.Tick += (_, _) =>
+        {
+            try { EvaluateSystemSteeringNotices(); }
+            catch (Exception ex) { HandleUiCallbackException("SystemSteeringTimer.Tick", ex, showDialog: false); }
+        };
+        _systemSteeringTimer.Start();
 
         _promptHealthTimer = new DispatcherTimer
         {
@@ -3259,6 +3285,234 @@ public partial class MainWindow : Window
                 "Transcript",
                 $"Could not append accepted steering marker target={target.DisplayName} targetId={target.Id}: {ex}");
         }
+    }
+
+    private void EvaluateSystemSteeringNotices()
+    {
+        var now = DateTimeOffset.Now;
+        var liveThreads = _agentThreadRegistry.ThreadOrder
+            .Where(thread => thread.Kind == TranscriptThreadKind.Agent &&
+                             thread.IsSteeringTurnActive &&
+                             thread.CurrentTurn is not null &&
+                             !string.IsNullOrWhiteSpace(thread.ProviderSessionId) &&
+                             !string.IsNullOrWhiteSpace(thread.SteeringTurnId))
+            .ToArray();
+        var liveKeys = liveThreads
+            .Select(thread => BuildSystemSteeringStateKey(thread, thread.CurrentTurn!))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var stale in _systemSteeringStates.Keys.Where(key => !liveKeys.Contains(key)).ToArray())
+            _systemSteeringStates.Remove(stale);
+
+        foreach (var thread in liveThreads)
+        {
+            if (thread.ThrottleRetryAt is { } retryAt && retryAt > now)
+                continue;
+            if (liveThreads.Any(candidate => !ReferenceEquals(candidate, thread) &&
+                                             IsDescendantOf(candidate, thread)))
+                continue;
+
+            var turn = thread.CurrentTurn!;
+            var key = BuildSystemSteeringStateKey(thread, turn);
+            if (!_systemSteeringStates.TryGetValue(key, out var state))
+            {
+                state = new SystemSteeringState { EpochStartedAt = turn.StartedAt };
+                _systemSteeringStates[key] = state;
+            }
+
+            var lastWrite = turn.ToolEntries
+                .Where(tool => tool.IsCompleted && tool.Success &&
+                               WorkToolClassifier.IsWrite(tool.Descriptor.ToolName))
+                .Select(tool => tool.FinishedAt ?? tool.StartedAt)
+                .DefaultIfEmpty()
+                .Max();
+            if (lastWrite != default &&
+                (state.LastWriteAt is null || lastWrite > state.LastWriteAt.Value))
+            {
+                state.LastWriteAt = lastWrite;
+                state.EpochStartedAt = lastWrite;
+                state.FirstNoticeSent = false;
+                state.NextStrongNoticeMinute = SystemSteeringPolicy.FirstStrongNoticeMinute;
+                state.ToolCountAtLastNotice = turn.ToolEntries.Count;
+                state.DeliveryPending = false;
+                SquadDashTrace.Write("SystemSteering",
+                    $"Write epoch reset thread={thread.ThreadId} at={lastWrite:O}.");
+                continue;
+            }
+
+            if (state.DeliveryPending)
+                continue;
+            var minutesSinceWrite = Math.Max(0, (int)Math.Floor((now - state.EpochStartedAt).TotalMinutes));
+            var decision = SystemSteeringPolicy.Decide(
+                minutesSinceWrite,
+                state.FirstNoticeSent,
+                state.NextStrongNoticeMinute,
+                turn.ToolEntries.Count,
+                state.ToolCountAtLastNotice);
+            if (decision == SystemSteeringDecision.Gentle)
+            {
+                _ = SendSystemSteeringNoticeAsync(thread, turn, state, minutesSinceWrite, decision);
+                continue;
+            }
+
+            if (decision != SystemSteeringDecision.Strong)
+                continue;
+
+            _ = SendSystemSteeringNoticeAsync(thread, turn, state, minutesSinceWrite, decision);
+        }
+    }
+
+    private async Task SendSystemSteeringNoticeAsync(
+        TranscriptThreadState thread,
+        TranscriptTurnView turn,
+        SystemSteeringState state,
+        int minutesSinceWrite,
+        SystemSteeringDecision decision)
+    {
+        state.DeliveryPending = true;
+        var strong = decision == SystemSteeringDecision.Strong;
+        var message = strong
+            ? $"Squad Dash still has not observed a successful workspace file-writing tool call in the last {minutesSinceWrite} minutes. " +
+              "Please stop any repetitive exploration, identify the smallest concrete next action, and continue. " +
+              "If the task legitimately requires research only, continue that research. " +
+              "This is a progress check, not a request to create or modify a file merely to reset the timer."
+            : "Squad Dash has not observed a successful workspace file-writing tool call in the last 15 minutes. " +
+              "You may be doing valid research. Please check whether you are making progress or repeating the same exploration, " +
+              "and adjust if needed. Continue your work. " +
+              "This is a progress check, not a request to create or modify a file merely to reset the timer.";
+        var providerSessionId = thread.ProviderSessionId;
+        var steeringTurnId = thread.SteeringTurnId;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(providerSessionId) ||
+                string.IsNullOrWhiteSpace(steeringTurnId) ||
+                !ReferenceEquals(thread.CurrentTurn, turn))
+                return;
+
+            var result = await _bridge.SteerAsync(providerSessionId, steeringTurnId, message);
+            if (!result.Accepted)
+            {
+                SquadDashTrace.Write("SystemSteering",
+                    $"Notice rejected thread={thread.ThreadId} minutes={minutesSinceWrite} message={result.Message ?? "(none)"}.");
+                return;
+            }
+
+            if (!ReferenceEquals(thread.CurrentTurn, turn))
+                return;
+            var writeArrivedDuringDelivery = turn.ToolEntries.Any(tool =>
+                tool.IsCompleted && tool.Success &&
+                WorkToolClassifier.IsWrite(tool.Descriptor.ToolName) &&
+                (tool.FinishedAt ?? tool.StartedAt) > state.EpochStartedAt);
+            if (writeArrivedDuringDelivery)
+                return;
+            state.FirstNoticeSent = true;
+            state.ToolCountAtLastNotice = turn.ToolEntries.Count;
+            if (strong)
+            {
+                state.NextStrongNoticeMinute = SystemSteeringPolicy.NextStrongMinute(
+                    state.NextStrongNoticeMinute,
+                    minutesSinceWrite);
+            }
+            var paragraph = SteeringTranscriptEntryFactory.CreateParagraph(
+                message,
+                [],
+                historicalAttachmentCount: null,
+                HandleTranscriptLinkClick,
+                openAttachments: null,
+                attachmentToolTip: null,
+                isSystem: true);
+            SteeringTranscriptEntryFactory.Append(
+                turn,
+                message,
+                paragraph,
+                DateTimeOffset.Now,
+                AllocateNarrativeSequence(turn),
+                isSystem: true);
+            _conversationManager.PersistTranscriptTurnSnapshot(thread, turn, "system-steering-accepted");
+            ScrollToEndIfAtBottom(thread);
+            SquadDashTrace.Write("SystemSteering",
+                $"Notice accepted thread={thread.ThreadId} minutes={minutesSinceWrite} strong={strong}.");
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("SystemSteering",
+                $"Notice delivery failed thread={thread.ThreadId} minutes={minutesSinceWrite}: {ex}");
+        }
+        finally
+        {
+            state.DeliveryPending = false;
+        }
+    }
+
+    private static string BuildSystemSteeringStateKey(
+        TranscriptThreadState thread,
+        TranscriptTurnView turn) => $"{thread.ThreadId}:{turn.StartedAt.UtcTicks}";
+
+    private void OpenWorkMetricsForThread(
+        TranscriptThreadState thread,
+        DateTimeOffset? turnStartedAt = null)
+    {
+        var displayName = thread.Kind == TranscriptThreadKind.Coordinator
+            ? "Coordinator"
+            : thread.DisplayTitle;
+        ShowWorkMetrics(
+            $"Work Metrics — {displayName}",
+            () => WorkMetricsBuilder.BuildRuns([thread], DateTimeOffset.Now)
+                .Where(run => turnStartedAt is null || run.StartedAt == turnStartedAt.Value)
+                .ToArray());
+    }
+
+    private void OpenWorkMetricsForPlanWorkItem(
+        string planId,
+        string workItemKind,
+        string workItemId)
+    {
+        var isTaskScope = string.Equals(workItemKind, "task", StringComparison.Ordinal);
+        var scopeLabel = isTaskScope ? "Task" : "Validation";
+        ShowWorkMetrics(
+            $"Work Metrics — {scopeLabel} {workItemId}",
+            () => WorkMetricsBuilder.BuildRuns(_agentThreadRegistry.ThreadOrder, DateTimeOffset.Now)
+                .Where(run =>
+                    string.Equals(run.PlanId, planId, StringComparison.Ordinal) &&
+                    string.Equals(run.WorkItemId, workItemId, StringComparison.Ordinal) &&
+                    (isTaskScope
+                        ? run.WorkItemKind is PlanWorkItemKinds.Implementation or PlanWorkItemKinds.Verification
+                        : string.Equals(run.WorkItemKind, workItemKind, StringComparison.Ordinal)))
+                .ToArray());
+    }
+
+    private void ShowWorkMetrics(
+        string title,
+        Func<IReadOnlyList<WorkMetricsRunSnapshot>> getRuns)
+    {
+        var window = new WorkMetricsWindow(title, getRuns)
+        {
+            Owner = CanShowOwnedWindow() ? this : null,
+        };
+        window.Show();
+    }
+
+    private void TranscriptTitleSpinner_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        var thread = _selectedTranscriptThread ?? CoordinatorThread;
+        OpenWorkMetricsForThread(thread, thread.CurrentTurn?.StartedAt);
+        e.Handled = true;
+    }
+
+    private void AgentActivitySpinner_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: AgentStatusCard card })
+            return;
+        var thread = card.IsLeadAgent
+            ? CoordinatorThread
+            : card.Threads
+                .OrderByDescending(candidate => candidate.IsCurrentBackgroundRun)
+                .ThenByDescending(candidate => candidate.LastObservedActivityAt ?? candidate.StartedAt)
+                .FirstOrDefault();
+        if (thread is null)
+            return;
+
+        OpenWorkMetricsForThread(thread, thread.CurrentTurn?.StartedAt);
+        e.Handled = true;
     }
 
     private SteeringDraftSnapshot CaptureSteeringDraft()
@@ -7026,6 +7280,7 @@ public partial class MainWindow : Window
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         TryApplyAgentOriginFromParentSession(thread, evt);
+        ApplyActivePlanWorkScope(thread);
         
         // Mark as inbox-launched if this agent was dispatched from an inbox action
         if (!string.IsNullOrWhiteSpace(evt.AgentName) && _inboxLaunchedAgentHandles.Contains(evt.AgentName))
@@ -7092,6 +7347,41 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(
             "Routing",
             $"Agent origin resolved from provider session child={thread.ThreadId} owner={owner.ThreadId} parentSession={evt.SessionId}");
+    }
+
+    private void ApplyActivePlanWorkScope(TranscriptThreadState thread)
+    {
+        var execution = _conversationManager.ConversationState.ActiveLoopExecution;
+        var planId = execution?.DecomposeGroupId ?? _activeDecomposeGroupId;
+        if (string.IsNullOrWhiteSpace(planId))
+            return;
+
+        string? itemId;
+        string kind;
+        if (execution?.ActiveValidationId is { Length: > 0 } validationId)
+        {
+            itemId = validationId;
+            kind = PlanWorkItemKinds.Validation;
+        }
+        else if (execution?.ActiveVerificationTaskId is { Length: > 0 } verificationTaskId)
+        {
+            itemId = verificationTaskId;
+            kind = PlanWorkItemKinds.Verification;
+        }
+        else
+        {
+            itemId = execution?.PlanExecutionAttempt?.TaskId ?? thread.AssignedPlanTaskId;
+            kind = PlanWorkItemKinds.Implementation;
+        }
+
+        if (string.IsNullOrWhiteSpace(itemId))
+            return;
+
+        thread.PlanId = planId;
+        thread.PlanWorkItemKind = kind;
+        thread.PlanWorkItemId = itemId;
+        if (!string.Equals(kind, PlanWorkItemKinds.Validation, StringComparison.Ordinal))
+            thread.AssignedPlanTaskId ??= itemId;
     }
 
     private void HandleSubagentMessageDelta(SquadSdkEvent evt)
@@ -14394,6 +14684,8 @@ public partial class MainWindow : Window
                 _ = OpenInterruptedTaskReviewAsync(current.PlanId, current.Revision),
             squadFolderPath: _currentWorkspace?.SquadFolderPath,
             onDescriptionLinkClicked: HandleTranscriptLinkClick,
+            onOpenWorkMetrics: (kind, workItemId) =>
+                OpenWorkMetricsForPlanWorkItem(groupId, kind, workItemId),
             isReadOnlyFixture: !allowDurableMutations)
         {
             Owner = CanShowOwnedWindow() ? this : null,
@@ -42079,21 +42371,50 @@ public partial class MainWindow : Window
             yield return entry.Thread;
     }
 
-    private Paragraph CreateCompletedTimeParagraph(string text, string? profileAlias = null)
+    private Paragraph CreateCompletedTimeParagraph(
+        string text,
+        TranscriptThreadState thread,
+        string? profileAlias = null)
     {
         var p = CreateTranscriptParagraph(bottomMargin: 0);
         p.Margin = new Thickness(0, 10, 0, 0);
-        var run = new Run(text) { FontSize = (double)Application.Current.Resources["FontSizeSmall"] };
+        PopulateCompletedTimeParagraph(p, text, thread, profileAlias);
+        return p;
+    }
+
+    private void PopulateCompletedTimeParagraph(
+        Paragraph paragraph,
+        string text,
+        TranscriptThreadState thread,
+        string? profileAlias)
+    {
+        paragraph.Inlines.Clear();
+        var run = new Run(text);
         run.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-        p.Inlines.Add(run);
+        run.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        paragraph.Inlines.Add(run);
         if (!string.IsNullOrEmpty(profileAlias))
         {
             var aliasRun = new Run($" \u00b7 using {profileAlias}");
             aliasRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
             aliasRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
-            p.Inlines.Add(aliasRun);
+            paragraph.Inlines.Add(aliasRun);
         }
-        return p;
+        var separator = new Run(" · ");
+        separator.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
+        separator.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        paragraph.Inlines.Add(separator);
+        var metrics = new Hyperlink(new Run("Work metrics"))
+        {
+            Cursor = Cursors.Hand,
+            ToolTip = MakeThemedToolTip("Open metrics for this completed turn"),
+        };
+        metrics.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+        metrics.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
+        metrics.Click += (_, _) => OpenWorkMetricsForThread(
+            thread,
+            thread.CurrentTurn?.StartedAt ?? thread.SavedTurns.LastOrDefault()?.StartedAt);
+        paragraph.Inlines.Add(metrics);
     }
 
     /// <summary>
@@ -42126,34 +42447,17 @@ public partial class MainWindow : Window
                 var text = $"Completed {StatusTimingPresentation.FormatRelativeTimestamp(thread.CompletedAt!.Value)}";
                 if (thread.CompletedTimeParagraph is null)
                 {
-                    var p = CreateCompletedTimeParagraph(text, thread.CompletionFooterProfileAlias);
+                    var p = CreateCompletedTimeParagraph(text, thread, thread.CompletionFooterProfileAlias);
                     thread.Document.Blocks.Add(p);
                     thread.CompletedTimeParagraph = p;
                 }
                 else
                 {
-                    if (thread.CompletedTimeParagraph.Inlines.FirstInline is Run timeRun)
-                        timeRun.Text = text;
-                    // Sync alias annotation: if alias changed (or was set after initial creation),
-                    // rebuild inlines after the timestamp run.
-                    var existingAlias = thread.CompletedTimeParagraph.Inlines.Count > 1
-                        ? (thread.CompletedTimeParagraph.Inlines.Skip(1).FirstOrDefault() as Run)?.Text
-                        : null;
-                    var expectedAlias = string.IsNullOrEmpty(thread.CompletionFooterProfileAlias)
-                        ? null
-                        : $" \u00b7 using {thread.CompletionFooterProfileAlias}";
-                    if (existingAlias != expectedAlias)
-                    {
-                        while (thread.CompletedTimeParagraph.Inlines.Count > 1)
-                            thread.CompletedTimeParagraph.Inlines.Remove(thread.CompletedTimeParagraph.Inlines.LastInline!);
-                        if (!string.IsNullOrEmpty(thread.CompletionFooterProfileAlias))
-                        {
-                            var aliasRun = new Run($" \u00b7 using {thread.CompletionFooterProfileAlias}");
-                            aliasRun.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
-                            aliasRun.SetResourceReference(TextElement.FontSizeProperty, "FontSizeSmall");
-                            thread.CompletedTimeParagraph.Inlines.Add(aliasRun);
-                        }
-                    }
+                    PopulateCompletedTimeParagraph(
+                        thread.CompletedTimeParagraph,
+                        text,
+                        thread,
+                        thread.CompletionFooterProfileAlias);
                     if (!ReferenceEquals(thread.Document.Blocks.LastBlock, thread.CompletedTimeParagraph))
                     {
                         thread.Document.Blocks.Remove(thread.CompletedTimeParagraph);
@@ -42662,6 +42966,12 @@ public partial class MainWindow : Window
         titleBlock.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         thread.SpinnerActivity.AccentSource = agent;
         var titleRow = TranscriptTitleSpinnerLayout.CreateSecondaryTitleRow(titleBlock, thread.SpinnerActivity, out var titleSpinner);
+        titleSpinner.Cursor = Cursors.Hand;
+        titleSpinner.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            OpenWorkMetricsForThread(thread, thread.CurrentTurn?.StartedAt);
+            e.Handled = true;
+        };
         titleBlock.ToolTip = BuildSecondaryTranscriptInfoTooltip(agent, thread, initialBaseText, null);
         titleBlock.PreviewMouseRightButtonUp += (_, e) =>
         {
@@ -44648,7 +44958,10 @@ public partial class MainWindow : Window
             notice.OccurredAt);
         view.HostNotices.Add(entry);
 
-        if (SteeringTranscriptEntryFactory.TryDecodeHostNotice(notice.Text, out var providerPrompt))
+        if (SteeringTranscriptEntryFactory.TryDecodeHostNotice(
+                notice.Text,
+                out var providerPrompt,
+                out var isSystemSteering))
         {
             var display = SteeringTranscriptEntryFactory.ParsePersistedPrompt(providerPrompt);
             var paragraph = SteeringTranscriptEntryFactory.CreateParagraph(
@@ -44657,7 +44970,8 @@ public partial class MainWindow : Window
                 display.AttachmentCount > 0 ? display.AttachmentCount : null,
                 HandleTranscriptLinkClick,
                 OpenPromptAttachments,
-                MakeThemedToolTip("This prompt includes attachments. Click to view."));
+                MakeThemedToolTip("This prompt includes attachments. Click to view."),
+                isSystemSteering);
             view.NarrativeSection.Blocks.Add(paragraph);
             return;
         }
@@ -48309,6 +48623,7 @@ public partial class MainWindow : Window
         {
             Text = ToolSpinnerFrames[_toolSpinnerFrame],
             Width = 24,
+            Cursor = Cursors.Hand,
             FontFamily = new FontFamily("Segoe UI Symbol"),
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center
@@ -48397,6 +48712,18 @@ public partial class MainWindow : Window
             messageTextBlock,
             detailTextBox,
             transcriptButton);
+        iconTextBlock.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            var targetThread = !string.IsNullOrWhiteSpace(entry.TranscriptThreadId)
+                ? _agentThreadRegistry.ThreadOrder.FirstOrDefault(thread =>
+                    string.Equals(thread.ThreadId, entry.TranscriptThreadId, StringComparison.Ordinal))
+                : null;
+            var targetStartedAt = targetThread is null
+                ? entry.Turn.StartedAt
+                : targetThread.CurrentTurn?.StartedAt ?? targetThread.SavedTurns.LastOrDefault()?.StartedAt;
+            OpenWorkMetricsForThread(targetThread ?? entry.Turn.OwnerThread, targetStartedAt);
+            e.Handled = true;
+        };
         block.Turn.ToolEntries.Add(entry);
         block.ToolEntries.Add(entry);
 
@@ -49186,6 +49513,7 @@ public partial class MainWindow : Window
         TranscriptSnapshotImage.Source = null;
         _snapshotThread = null;
         _agentThreadRegistry.ClearAll();
+        _systemSteeringStates.Clear();
         _backgroundTaskPresenter.ClearState();
         DismissCodeHealthBanner();
         _routingIssueQuickReplyEntry = null;
@@ -51011,6 +51339,7 @@ public partial class MainWindow : Window
             StopPttCtrlPollTimer();
             _promptHealthTimer.Stop();
             _statusPresentationTimer.Stop();
+            _systemSteeringTimer.Stop();
             _responseRenderTimer.Stop();
             _uiResponsivenessTimer.Stop();
             _teamRefreshDebounceTimer.Stop();

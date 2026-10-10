@@ -77,6 +77,12 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public string? OriginParentToolCallId { get; set; }
     internal TranscriptThreadState? OriginThread { get; set; }
     public string? AssignedPlanTaskId { get; set; }
+    /// <summary>Durable plan owning this individual agent run, when any.</summary>
+    public string? PlanId { get; set; }
+    /// <summary>Exact host work-item kind: implementation, verification, or validation.</summary>
+    public string? PlanWorkItemKind { get; set; }
+    /// <summary>Task id for implementation/verification, or validation id for a shield run.</summary>
+    public string? PlanWorkItemId { get; set; }
     public string? RequestedAgentHandle { get; set; }
     public string? WorkingDirectory { get; set; }
     /// <summary>

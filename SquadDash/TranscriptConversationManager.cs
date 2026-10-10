@@ -1682,6 +1682,9 @@ internal sealed class TranscriptConversationManager {
             hostNotices) {
             AgentReports     = turn.AgentReports.Count > 0 ? turn.AgentReports.ToArray() : null,
             IsSystemInjected = turn.IsSystemInjected,
+            PlanId           = turn.PlanId,
+            PlanWorkItemKind = turn.PlanWorkItemKind,
+            PlanWorkItemId   = turn.PlanWorkItemId,
         };
     }
 
@@ -1783,7 +1786,10 @@ internal sealed class TranscriptConversationManager {
             thread.WasObservedAsBackgroundTask ? true : null,
             thread.RosterIdentityVerified,
             thread.AssignedPlanTaskId,
-            string.IsNullOrEmpty(thread.CompletionFooterProfileAlias) ? null : thread.CompletionFooterProfileAlias);
+            string.IsNullOrEmpty(thread.CompletionFooterProfileAlias) ? null : thread.CompletionFooterProfileAlias,
+            thread.PlanId,
+            thread.PlanWorkItemKind,
+            thread.PlanWorkItemId);
     }
 
     internal IReadOnlyList<TranscriptThreadRecord> BuildPersistedAgentThreadRecords(bool includeCurrentTurns) {

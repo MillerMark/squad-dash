@@ -31,6 +31,9 @@ internal sealed class TranscriptTurnView {
         HostNotices = new List<TranscriptHostNoticeEntry>();
         AgentReports = new List<AgentReportInfo>();
         NextNarrativeSequence = 1;
+        PlanId = ownerThread.PlanId;
+        PlanWorkItemKind = ownerThread.PlanWorkItemKind;
+        PlanWorkItemId = ownerThread.PlanWorkItemId;
     }
 
     public TranscriptThreadState OwnerThread { get; }
@@ -38,6 +41,9 @@ internal sealed class TranscriptTurnView {
     public bool IsSystemInjected { get; set; }
     public bool SuppressTranscript { get; set; }
     public DateTimeOffset StartedAt { get; }
+    public string? PlanId { get; }
+    public string? PlanWorkItemKind { get; }
+    public string? PlanWorkItemId { get; }
     public Section NarrativeSection { get; }
     public IReadOnlyList<Block> TopLevelBlocks { get; }
     public StringBuilder ResponseTextBuilder { get; }
@@ -59,7 +65,7 @@ internal sealed record TranscriptHostNoticeEntry(
 {
     public string GetCopyText()
     {
-        if (SteeringTranscriptEntryFactory.TryDecodeHostNotice(Text, out var providerPrompt))
+        if (SteeringTranscriptEntryFactory.TryDecodeHostNotice(Text, out var providerPrompt, out var isSystem))
         {
             var display = SteeringTranscriptEntryFactory.ParsePersistedPrompt(providerPrompt);
             var attachmentSummary = display.AttachmentCount switch
@@ -68,7 +74,10 @@ internal sealed record TranscriptHostNoticeEntry(
                 1 => "\n📎 1 attachment",
                 _ => $"\n📎 {display.AttachmentCount} attachments",
             };
-            return $"{SteeringTranscriptEntryFactory.MarkerText}: {display.Prompt}{attachmentSummary}";
+            var marker = isSystem
+                ? SteeringTranscriptEntryFactory.SystemMarkerText
+                : SteeringTranscriptEntryFactory.MarkerText;
+            return $"{marker}: {display.Prompt}{attachmentSummary}";
         }
 
         return $"[SquadDash] {Text}";

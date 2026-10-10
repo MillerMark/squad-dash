@@ -13,7 +13,9 @@ namespace SquadDash;
 internal static class SteeringTranscriptEntryFactory
 {
     internal const string MarkerText = "↪️ Steering";
+    internal const string SystemMarkerText = "↪️ System steering";
     private const string PersistencePrefix = "[[squaddash-steering:v1]]\n";
+    private const string SystemPersistencePrefix = "[[squaddash-system-steering:v1]]\n";
     private const string VoiceAnnotation = "\n(some or all of this prompt was dictated by voice)";
 
     internal sealed record PersistedDisplay(
@@ -21,18 +23,33 @@ internal static class SteeringTranscriptEntryFactory
         IReadOnlyList<FollowUpAttachment> Attachments,
         int AttachmentCount);
 
-    internal static string EncodeHostNotice(string providerPrompt) =>
-        PersistencePrefix + providerPrompt;
+    internal static string EncodeHostNotice(string providerPrompt, bool isSystem = false) =>
+        (isSystem ? SystemPersistencePrefix : PersistencePrefix) + providerPrompt;
 
     internal static bool TryDecodeHostNotice(string text, out string providerPrompt)
+        => TryDecodeHostNotice(text, out providerPrompt, out _);
+
+    internal static bool TryDecodeHostNotice(
+        string text,
+        out string providerPrompt,
+        out bool isSystem)
     {
+        if (text.StartsWith(SystemPersistencePrefix, StringComparison.Ordinal))
+        {
+            providerPrompt = text[SystemPersistencePrefix.Length..];
+            isSystem = true;
+            return true;
+        }
+
         if (text.StartsWith(PersistencePrefix, StringComparison.Ordinal))
         {
             providerPrompt = text[PersistencePrefix.Length..];
+            isSystem = false;
             return true;
         }
 
         providerPrompt = string.Empty;
+        isSystem = false;
         return false;
     }
 
@@ -41,14 +58,15 @@ internal static class SteeringTranscriptEntryFactory
         string providerPrompt,
         Paragraph paragraph,
         DateTimeOffset occurredAt,
-        int sequence)
+        int sequence,
+        bool isSystem = false)
     {
         ArgumentNullException.ThrowIfNull(turn);
         ArgumentNullException.ThrowIfNull(paragraph);
 
         var entry = new TranscriptHostNoticeEntry(
             sequence,
-            EncodeHostNotice(providerPrompt),
+            EncodeHostNotice(providerPrompt, isSystem),
             occurredAt);
 
         // The caller captures the addressed turn before awaiting the SDK ack. Appending to
@@ -66,7 +84,8 @@ internal static class SteeringTranscriptEntryFactory
         int? historicalAttachmentCount,
         Action<string>? openLink,
         Action<IReadOnlyList<FollowUpAttachment>>? openAttachments,
-        object? attachmentToolTip)
+        object? attachmentToolTip,
+        bool isSystem = false)
     {
         ArgumentNullException.ThrowIfNull(prompt);
         ArgumentNullException.ThrowIfNull(attachments);
@@ -75,7 +94,7 @@ internal static class SteeringTranscriptEntryFactory
         var promptBody = hasDictation ? prompt[..^VoiceAnnotation.Length] : prompt;
         var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 8) };
 
-        var prefix = new Run(MarkerText + ": ") { FontWeight = FontWeights.SemiBold };
+        var prefix = new Run((isSystem ? SystemMarkerText : MarkerText) + ": ") { FontWeight = FontWeights.SemiBold };
         prefix.SetResourceReference(TextElement.ForegroundProperty, "UserPromptPrefixText");
         paragraph.Inlines.Add(prefix);
         AppendPromptBodyInlines(

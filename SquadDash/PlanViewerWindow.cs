@@ -74,6 +74,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
     private readonly Func<IReadOnlyList<RosterAgent>>? _getAssignableAgents;
     private readonly Action<string>? _onDescriptionLinkClicked;
+    private readonly Action<string, string>? _onOpenWorkMetrics;
     private PttTextBoxAttachment? _pttAttachment;
     private System.Windows.Threading.DispatcherTimer? _preflightPollTimer;
     private PlanViewerLiveSyncHandler? _liveSyncHandler;
@@ -275,6 +276,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         double lineThicknessMultiplier = 1.0,
         string? squadFolderPath = null,
         Action<string>? onDescriptionLinkClicked = null,
+        Action<string, string>? onOpenWorkMetrics = null,
         bool isReadOnlyFixture = false)
         : base(
             captionHeight: CloseButtonHeight,
@@ -333,6 +335,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _getSettings = getSettings;
         _getAssignableAgents = getAssignableAgents;
         _onDescriptionLinkClicked = onDescriptionLinkClicked;
+        _onOpenWorkMetrics = onOpenWorkMetrics;
         _squadFolderPath = squadFolderPath;
         _viewportStore = new PlanVisualizerViewportStore(squadFolderPath);
         _viewportGroupId = plan.Group.GroupId;
@@ -3266,6 +3269,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
                 Grid.SetColumn(spinner, spinnerOnRight ? 2 : 0);
                 _taskSpinnersById[task.Id] = spinner;
+                if (_onOpenWorkMetrics is not null)
+                {
+                    spinner.Cursor = Cursors.Hand;
+                    spinner.PreviewMouseLeftButtonUp += (_, e) =>
+                    {
+                        _onOpenWorkMetrics("task", task.Id);
+                        e.Handled = true;
+                    };
+                }
                 titleRow.Children.Add(spinner);
                 if (PlanTaskActivityPresentation.KeepsSpinnerContinuouslyActive(activityState))
                     spinner.SetContinuousActive(true);
@@ -5962,6 +5974,15 @@ internal sealed class PlanViewerWindow : ChromedWindow
             spinner.SetResourceReference(ActivitySpinner.FontSizeProperty, "FontSizeSmall");
             spinner.SetContinuousActive(true);
             _validationSpinnersById[validationId] = spinner;
+            if (_onOpenWorkMetrics is not null)
+            {
+                spinner.Cursor = Cursors.Hand;
+                spinner.PreviewMouseLeftButtonUp += (_, e) =>
+                {
+                    _onOpenWorkMetrics(PlanWorkItemKinds.Validation, validationId);
+                    e.Handled = true;
+                };
+            }
             grid.Children.Add(spinner);
         }
         return grid;
@@ -7808,6 +7829,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
             _recoveryAssessmentTaskIds.Contains(task.TaskId) ||
                 (_isRecoveryAssessmentActive?.Invoke(task.TaskId) ?? false),
             ResolveTaskCorrectionActivity(task.TaskId) == PlanTaskCorrectionActivityState.Running));
+        AppendWorkMetricsLink("task", task.TaskId);
 
         // 5. Completion Summary. Legacy prose is deliberately one
         // bullet; sentence boundaries are not completion-item boundaries.
@@ -8432,6 +8454,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
         statusPara.Margin = new Thickness(0, 0, 0, 4);
         _detailDocument.Blocks.Add(statusPara);
+        AppendWorkMetricsLink(PlanWorkItemKinds.Validation, validation.ValidationId);
 
         var hasResultView = string.Equals(validation.Status, "passed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(validation.Status, "failed", StringComparison.OrdinalIgnoreCase);
@@ -8606,6 +8629,24 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         // Before Task IDs
         AddTaskIdList("Starts Before These:", validation.BeforeTaskIds, plan);
+    }
+
+    private void AppendWorkMetricsLink(string workItemKind, string workItemId)
+    {
+        if (_detailDocument is null || _onOpenWorkMetrics is null)
+            return;
+
+        var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 12) };
+        var link = new Hyperlink(new Run("Open work metrics"))
+        {
+            Cursor = Cursors.Hand,
+            ToolTip = ToolTipHelper.MakeThemedToolTip("View live and historical agent runs for this work item"),
+        };
+        link.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
+        link.Click += (_, _) => _onOpenWorkMetrics(workItemKind, workItemId);
+        paragraph.Inlines.Add(link);
+        paragraph.SetResourceReference(TextElement.FontSizeProperty, "FontSizeBody");
+        _detailDocument.Blocks.Add(paragraph);
     }
 
     private FrameworkElement BuildStandardInlineIcon(double opacity)
