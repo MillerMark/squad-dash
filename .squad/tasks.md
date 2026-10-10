@@ -1,3 +1,191 @@
+﻿<!-- decompose-group: DETAIL-20261009 | branch: feature/collapsible-markdown-detail | revision: a359481df7ea52e6 -->
+**[DETAIL-20261009] Collapsible Markdown Detail**
+> Keep rendered Markdown concise for expert readers while allowing optional explanations in themed, initially collapsed detail sections. Share rendering and durable section state across Inbox and Plan Visualizer descriptions, including the inspector, and exclude collapsed bodies from copy/export and in-document find without changing stored content schemas.
+
+- [x] **[DETAIL-20261009-001]** Persist stable Markdown section state
+  (SquadDash status: Completed by SquadDash — commit 20d22ccfb1ae5122dc85c322c2e9a44c881094ee: Step 1 delivers durable Markdown detail section identity and an application-global persistence store with safe-write and failure reporting; no production UI integration (reserved for Steps 2-3).)
+  Group: DETAIL-20261009 | Branch: feature/collapsible-markdown-detail | Priority: high
+  description: ## Observable outcome
+
+The application can save and restore each detail section's last expanded or collapsed state using a separate application-global store. An unseen section resolves to collapsed; a previously expanded section restores expanded. Persistence survives process replacement rather than depending on window lifetime or static memory.
+
+## Identity and consumers
+
+Provide the state and identity contract consumed by `InboxMessageWindow.BuildBodyDocument` in task 002 and `PlanViewerWindow` description rendering in task 003. Follow the application-data location, synchronization, and safe-write conventions established by `SquadDash\ApplicationSettingsStore.cs`; its production constructor uses `SquadDashPaths.AppData`.
+
+Identity must distinguish normalized workspace, logical content kind and durable entity ID, description field, and section. It must not contain a view/window/session identifier, theme, font size, or process-random hash. The same plan/task field viewed in the visualizer and inspector uses the same identity. Independent messages and tasks must not share state merely because their labels or bodies match.
+
+Use a deterministic section fingerprint of normalized label and body, with a deterministic occurrence discriminator for identical sections. Normalize line endings consistently. Unchanged sections retain identity across rebuilds and insertion of unrelated sections; editing a section's label or body intentionally creates an unseen, collapsed section. Identical duplicate occurrences remain distinct by occurrence order. Record the exact key format and normalization rules for consumers and tests.
+
+## Reliability boundaries
+
+Persist both true and false transitions. Prevent concurrent windows or processes from losing unrelated entries, and prevent stale view initialization from overwriting saved state. Do not store Markdown bodies in this store. Missing storage is a normal first-use condition; corrupt data and failed writes must be reported through existing diagnostic/error conventions, preserve recoverable data, and never masquerade as successful persistence. Rendering must remain available after a reported storage failure.
+
+No changes to InboxMessage, InboxMessageParser, InboxStore, or plan JSON schemas; no migration of authored content. Keep any cleanup facility bounded to explicitly identified entries so the later review fixture cannot erase real preferences.
+
+## Evidence and handoff
+
+Include focused persistence tests for fresh-store defaults, both saved states through fresh store instances, key stability/isolation, duplicate sections, and safe failure behavior. Publish the actual API, storage location, key rules, and failure-reporting contract. Tasks 002 and 003 own production UI integration; this task must not claim their completion.
+
+For source tasks, establish the relevant baseline before editing. The verified application build is `$env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR="C:\Program Files\dotnet\sdk\10.0.400-preview.0.26322.102\"; dotnet build SquadDash\SquadDash.csproj -p:EnableRunSlotDeployment=false`. Do not additionally set MSBuildExtensionsPath. Existing NUnit execution is `dotnet test SquadDash.Tests\SquadDash.Tests.csproj`.
+  contractExamples: [{"exampleId":"restore-without-surface-identity","title":"One section retains state across views","input":"Save expanded for a section of one task description. Rebuild that same description in another Plan Visualizer view, then recreate the store after process exit.","expectedBehavior":"Both consumers resolve the same section key and restore expanded. Saving collapsed subsequently restores collapsed. A different task with identical Markdown has an independent key."}]
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"arjun-sen","role":"Own durable section identity and persistence","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [x] **[DETAIL-20261009-004]** Teach expert-first detail authoring
+  (SquadDash status: Completed by SquadDash — commit 0bd56289783ba3256d7d024452fb133ae2a68cf1: Shipped expert-first planning and Inbox detail authoring guidance across all three production instruction sources, with both normative examples and no schema or approval-requirement changes.)
+  Group: DETAIL-20261009 | Branch: feature/collapsible-markdown-detail | Priority: mid
+  description: ## Observable outcome
+
+New planning and Inbox authoring prompts explicitly assume an expert developer reader, lead with the actionable result, and show how optional background can be compressed into a `:::detail` section. Both plan-building guidance and Inbox-message guidance contain their own concrete example; descriptions remain complete execution contracts rather than terse but ambiguous summaries.
+
+## Production sources and ownership
+
+Mira owns the shipped instructional prose in `SquadDash\Assets\decompose-planning.md`, `SquadDash\Assets\planning-specialist-charter.md`, and the `InboxMessage` instruction text in `SquadDash\DefaultPromptInstructionProvider.cs`. Updating instructional string content in the provider belongs to this documentation deliverable; do not change its runtime behavior. Verify how the shipped assets reach effective prompts and update directly related documentation or source-level instruction assertions where needed.
+
+Do not edit the immutable hashed host-instruction snapshots supplied for this planning turn or regenerate them by hand. No required `.squad` configuration edits are delegated implicitly to Malik. Preserve existing schema, routing, manual-test-kit, and approval requirements.
+
+## Authoring contract
+
+Explain optional labels, the More detail default, initially collapsed state with restoration of user preferences, balanced delimiters, and unsupported nesting. Explain that collapsed bodies are omitted from rendered copy/export and find. Keep mandatory actions, safety constraints, approval questions, approval markers, and information needed to decide or execute outside optional detail blocks. This is presentation, not removal of task requirements from stored source or agent context.
+
+The current planning protocol restricts presentation Markdown to task descriptions, while this feature also enables the existing plan-level summary/description surface. Make only the narrow future instruction adjustment needed to permit the approved detail convention in that existing value; do not introduce a new TASKS_JSON property or generally allow formatting in titles, IDs, proof contracts, or routing fields. Keep the plan summary short and useful as an injected north star.
+
+Show an exact marker example in task-description guidance and a separate Inbox body example, including correct newline escaping when embedded in JSON. Avoid claiming HTML details syntax or nested blocks are supported. Task 005 will exercise the resulting examples through parser and effective-prompt coverage.
+  contractExamples: [{"exampleId":"task-description-example","title":"Keep the execution contract outside optional basics","input":"Persist each section\u0027s last state without changing message schemas.\n\n:::detail Why not window-local state?\nA window-local value is discarded when the window closes, so it cannot restore the reader\u0027s choice after restart.\n:::","expectedBehavior":"Planning guidance presents this as a task-description example: the required outcome remains in the expert fast path and the explanatory background is optional detail.","language":"markdown"},{"exampleId":"inbox-body-example","title":"Separate the result from explanatory background","input":"Detail sections now remember your last choice.\n\n:::detail What is saved?\nThe app records whether each section was expanded or collapsed and restores that choice when you reopen the same content.\n:::","expectedBehavior":"Inbox authoring guidance includes this concrete body example and explains how to preserve its newlines inside the existing message JSON body string without adding schema fields.","language":"markdown"}]
+  dependsOn: (none)
+  agentAssignments: [{"agentHandle":"mira-quill","role":"Own shipped planning and Inbox authoring guidance","allowGenericChildren":true}]
+  parallelEligible: true
+  agentRoutingMode: assigned
+  executionMode: implementation
+
+- [x] **[DETAIL-20261009-002]** Render detail blocks and integrate Inbox
+  (SquadDash status: Completed by SquadDash — commit b1a5cd5cbce893d37407797e52876c8789216ace: Step 3 rework: the shared visible-content projection now losslessly recovers visible list markers and circle status-symbol text for Inbox copy/export/find without any raw-body fallback, correcting the sole verification finding while preserving all previously accepted detail rendering and integration behavior.)
+  Group: DETAIL-20261009 | Branch: feature/collapsible-markdown-detail | Priority: high
+  description: ## Observable outcome
+
+Inbox Markdown recognizes a standalone `:::detail <label>` opening line and standalone `:::` closing line. Each valid section renders as a `BlockUIContainer` containing an Expander using `ThemedExpanderStyle`, with its body rendered through the shared builder into a nested FlowDocument. Omitted or whitespace-only labels become `More detail`; an empty body is valid. Unseen sections start collapsed, while existing sections restore task 001's saved state. No author-controlled initial expansion option is introduced.
+
+## Parser and compatibility
+
+Implement at `SquadDash\MarkdownFlowDocumentBuilder.cs`, in `BuildWithMapCore`, preserving the shared `BuildInbox` and `BuildPlanDescription` paths. Keep ordinary Markdown behavior and source-line mapping intact. Recognize detail delimiters outside supported code fences; literal markers in code samples do not open or close detail sections. Preserve existing links, lists, tables, headings, copyable code blocks, typography, and callbacks inside valid detail bodies.
+
+V1 rejects nesting rather than flattening it into working nested controls. An affected nested or unbalanced region degrades to literal source text, including its markers, with a non-fatal diagnostic. It must not swallow trailing content, create a partial outer expander, or crash. A stray closing marker is likewise visible literal text with a diagnostic. Unaffected valid regions remain usable. Mirror the parse/validate/degrade approach of `SquadDash\ManualTestKitApprovalBinding.cs`, not its unrelated approval binding schema.
+
+## Visible-content contract
+
+Provide one reusable state-aware traversal/projection contract for rendered copy/export and in-document find. A collapsed body's text is absent; an expanded body's text is available in document order. The visible header remains available. Recompute or invalidate results on toggle so cached search hits and previously selected hidden text cannot leak collapsed bodies. Nested FlowDocuments require explicit traversal and correct selection ownership: default TextRange traversal is not an adequate implementation.
+
+Wire Inbox whole-message copying through `BuildMessageClipboardText` and its Copy message button as well as `OnFlowDocumentCopying`; inventory every body-consuming copy/export route and remove raw-body bypasses for rendered-content operations. Apply the same visibility rule to `FindTextInRange`, `SelectAndScrollToText`, and any existing in-document find route. Expanded content must remain genuinely copyable/searchable, not disappear permanently because it lives in a BlockUIContainer. Never fall back to unfiltered copying after a clipboard error; surface contention consistently.
+
+## Persistence and production integration
+
+`InboxMessageWindow.BuildBodyDocument` supplies message identity and task 001's state capability. Save user toggles, restore before exposing the view, preserve state through `RebuildDocument` and theme/font changes, and detach obsolete handlers. Preserve the existing approval-checklist, link attachment, and body-link-copy behavior when content is inside nested documents. Do not put approval state into the detail store.
+
+Do not mutate message bodies or change InboxMessage/InboxMessageParser/InboxStore schemas. Source editing, durable storage, and execution context retain complete authored Markdown; collapsed exclusion applies to user-facing rendered copy/export and in-document search, not destructive filtering of the source of truth. Task 003 consumes the same projection and state contracts for plans.
+
+## Evidence
+
+Add focused parser and Inbox integration regressions, including the normative examples, and retain baseline Markdown coverage. Record the production copy/search routes covered and the behavior of exported formats that actually exist; do not invent a new export UI. Build with the verified resolver-only command from task 001. Live WPF interaction is reserved for the final fixture-backed human gate.
+  contractExamples: [{"exampleId":"labelled-detail","title":"Expert fast path with optional explanation","input":"Use the existing store.\n\n:::detail Why persist this?\nWindow-local state disappears when the app restarts.\n:::\n\nContinue with the implementation.","expectedBehavior":"On first view, the lead and continuation remain visible around a collapsed header reading Why persist this?. Its body appears only after expansion. Collapsed copy/export/find excludes the body; expanded copy/export/find includes it.","language":"markdown"},{"exampleId":"default-label","title":"Missing label uses the standard header","input":":::detail\nSupporting explanation.\n:::","expectedBehavior":"Render an initially collapsed section headed More detail, unless a saved state already exists for this section.","language":"markdown"},{"exampleId":"reject-nesting","title":"Nested sections degrade without losing text","input":"Before.\n:::detail Outer\nOuter explanation.\n:::detail Inner\nInner explanation.\n:::\n:::\nAfter.","expectedBehavior":"Preserve the entire nested region and its markers as literal visible text with a non-fatal diagnostic. Create no expander for that malformed region. Preserve Before. and After.","language":"markdown"},{"exampleId":"literal-marker-in-code","title":"Code samples do not create disclosure controls","input":"\u0060\u0060\u0060text\n:::detail Example\nLiteral sample.\n:::\n\u0060\u0060\u0060","expectedBehavior":"Render one ordinary code block containing the marker text, without a detail expander or malformed-detail warning.","language":"markdown"}]
+  dependsOn: DETAIL-20261009-001
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own shared detail rendering and Inbox integration","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [x] **[DETAIL-20261009-003]** Integrate Plan Visualizer and inspector details
+  (SquadDash status: Completed by SquadDash — commit fa2555bf397c82c3b45acfa6a84f6995aacf71b9: Step 4 integrated collapsible Markdown detail rendering, durable section state, and visibility-aware copy/find into the Plan Visualizer and its inspector for both plan-level and task descriptions, reusing Step 1's global store and Step 3's shared renderer and visible-content projection without changing stored schemas or plan revision/dirty/approval/execution behavior.)
+  Group: DETAIL-20261009 | Branch: feature/collapsible-markdown-detail | Priority: high
+  description: ## Observable outcome
+
+The Plan Visualizer presents collapsible detail sections in plan-level and task descriptions, including the inspector after selecting a plan or task. The same section restores its last state across selection changes, window recreation, application restart, and alternate views of that logical field. First-time sections remain collapsed.
+
+## Verified integration gaps
+
+In `SquadDash\PlanViewerWindow.cs`, `AppendTaskDescription` calls `BuildPlanDescription`, formats task references, and moves blocks into `_detailDocument`. Preserve that behavior while supplying durable content identity and task 002's state-aware rendering context. The selected plan currently displays `group.Summary` through `new Paragraph(new Run(group.Summary))`; route this existing plan-level description value through shared detail-aware rendering instead of inventing a new description field. Cover staged and durable task/plan selection paths.
+
+The graph's `nodeDescription` currently uses raw task text in a TextBlock. Ensure plan description presentations do not expose raw delimiters or collapsed bodies. Where a description is rendered interactively in the visualizer, use the same detail behavior and identity; compact non-interactive previews use the visible-content projection and do not duplicate hidden text. Preserve graph selection, dragging, zooming, and inspector navigation.
+
+## Cross-task contracts
+
+Consume task 001's global store and task 002's renderer and visible-content traversal, with the same entity/field/section key for visualizer and inspector views. Do not create a plan-specific persistence store or substitute a view-local state dictionary. Preserve identity when a staged plan becomes durable and when rendering changes due to theme, font, or selection. Preserve task-reference links, heading resources, normal code-copy controls, and nested-document callbacks.
+
+Inventory and wire plan description copy/export and existing in-document find consumers so collapsed bodies are excluded and expanded bodies remain accessible. Preserve complete raw Markdown in editing, approval revision calculation, durable storage, and executor context. Changing display state must never dirty a plan, alter its revision, approve a gate, or start execution.
+
+## Evidence
+
+Add focused regressions around actual selected-plan and selected-task rendering, state-context propagation, source round-trip preservation, and copy/search consumers. Existing landing points include `SquadDash.Tests\PlanDescriptionMarkdownRoundTripTests.cs` and `SquadDash.Tests\MarkdownFlowDocumentBuilderTests.cs`. Publish the actual plan-level and task-level presentation paths for Vesper's cross-surface tests and the manual fixture. Build with the resolver-only command from task 001; do not claim headless tests prove live interaction.
+  dependsOn: DETAIL-20261009-002
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own visualizer and inspector integration","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [x] **[DETAIL-20261009-005]** Protect cross-surface detail behavior with NUnit
+  (SquadDash status: Completed by SquadDash — commit 97cbad9a046dcb3efaddd9b12a57981c613d6d48: Added 15 new cross-consumer NUnit cases (12 in MarkdownDetailCrossSurfaceTests.cs plus 3 shipped-instruction-example cases) protecting collapsible Markdown detail behavior across Inbox, Plan Visualizer, and inspector surfaces; 7476/7476 tests pass and the app build is clean.)
+  Group: DETAIL-20261009 | Branch: feature/collapsible-markdown-detail | Priority: high
+  description: ## Observable outcome
+
+The NUnit suite detects integration regressions where a correct standalone parser or store is bypassed by Inbox, Plan Visualizer, or inspector consumers. This task produces specialist-owned regression coverage, not a redundant final test-running task. Reuse producer evidence and existing STA patterns in `MarkdownFlowDocumentBuilderTests`; add the smallest sufficient cross-consumer cases rather than duplicating every local test.
+
+## Required behavior coverage
+
+Cover balanced/unbalanced markers, empty sections, omitted labels, multiple sections, first-use collapse, nested rejection with literal preservation, and code-fence shielding. Exercise actual visible-content consumers for collapsed exclusion and expanded inclusion in copy/export and find, including whole-message copying, selection that crosses a detail boundary, stale selection/search after collapse, and nested-document match ownership. A test of an unused projection helper alone is insufficient.
+
+Use isolated storage and fresh instances to establish stable keys and save/restore of both states across Inbox, visualizer, and inspector integration inputs. Cover same logical description across views, unrelated documents with identical text, duplicate sections, rebuilds, and staged-to-durable plan identity. Exercise both selected-task and selected-plan description paths and preserve raw Markdown through plan parse/edit/storage round trips.
+
+Exercise the shipped authoring examples as literal inputs and check effective prompt text through existing instruction test seams, including `DefaultPromptInstructionProviderTests` and relevant built-in instruction tests. Keep tests deterministic and independent of real user state.
+
+## Boundaries and completion
+
+This task owns test changes and fixtures used by tests. Missing production behavior must be reported against its producing task rather than hidden behind test-only implementations, skipped cases, or permissive assertions. Record specific consumer coverage and any remaining live-WPF boundary. Do not claim process-level store tests establish an actual application restart or that object-tree assertions prove visible interaction.
+
+Run `dotnet test SquadDash.Tests\SquadDash.Tests.csproj`; use focused existing filters while developing and report existing failures separately from introduced failures. Confirm the assembled application builds with only `$env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR="C:\Program Files\dotnet\sdk\10.0.400-preview.0.26322.102\"` set for resolver configuration, followed by `dotnet build SquadDash\SquadDash.csproj -p:EnableRunSlotDeployment=false`. Do not additionally set MSBuildExtensionsPath.
+  dependsOn: DETAIL-20261009-003, DETAIL-20261009-004
+  agentAssignments: [{"agentHandle":"vesper-knox","role":"Own cross-consumer NUnit regression coverage","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+- [ ] **[DETAIL-20261009-006]** Prepare reproducible detail approval fixtures
+  Group: DETAIL-20261009 | Branch: feature/collapsible-markdown-detail | Priority: high
+  description: ## Observable outcome
+
+The reviewer can reach safe, deterministic sample Inbox, plan-level, and task-level descriptions and perform one concise approval procedure covering the final gate's seven behavioral checks. This task must create useful review material, not merely write instructions. The fixture exercises production rendering, copy/find, and the real global detail-state path.
+
+## Fixture access and safety
+
+Use this workspace's Developer → Simulation convention, supported by `SimulationInboxFixtureBuilder`, `SimulationPlanFixtureBuilder`, and `SimulationSessionManager`. Existing Inbox fixtures are display-only and simulation sessions are in memory; do not assume they prove restart persistence. Provide a reproducible detail fixture whose logical message/plan/task/section identities remain unchanged when the fixture is reopened after a real app restart. Separate initial reset from reopen: reopening must not reseed expansion state or generate new content IDs. Persist only the real detail preferences needed for this proof, with fixture-scoped keys; never start plan execution, change branches, approve unrelated gates, or mutate real Inbox/plan content.
+
+Include labelled and unlabelled detail sections, unique body-only search/copy probe text, visible surrounding text, and plan/task descriptions reachable by selecting their normal visualizer targets. Provide an expanded-restart probe and a separately user-collapsed restart probe so one restart can exercise both states. The collapsed probe must have been expanded and then collapsed; merely leaving an unseen section closed is not evidence that false was persisted. Ensure the visualizer's own description presentation and its inspector are both reachable.
+
+If an existing find path is not directly exposed by a surface, supply a minimal fixture action that invokes the actual production in-document search path and exposes its result; do not substitute source-string search or invent unsupported keyboard shortcuts. Establish the actual menu labels, selection actions, copy routes, and safe tested-build launch path before authoring the procedure. Building with EnableRunSlotDeployment=false does not itself make the running app the tested build.
+
+## One self-contained approval procedure
+
+Produce one manual-test-kit source message for SquadDash to absorb into the durable approval Inbox message. It must contain all Setup, Open, Observe, and Cleanup actions, grouped chronologically by shared workflow rather than repeated once per checkbox. State the exact navigation and sample names produced by this task. Keep first-view observations before any interaction that changes state, perform copy/find probes while collapsed, and then prepare both restart probes before restarting once.
+
+Place these seven markers, each exactly once and on its own line immediately after its corresponding observation: `{{approval-check:detail-inbox-toggle}}`, `{{approval-check:detail-first-view-collapsed}}`, `{{approval-check:detail-plan-toggle}}`, `{{approval-check:detail-expanded-restart}}`, `{{approval-check:detail-collapsed-restart}}`, `{{approval-check:detail-copy-exclusion}}`, and `{{approval-check:detail-find-exclusion}}`. Repeat a behavioral probe at the applicable content locations without combining different behaviors into one checkbox. Keep all required actions and approval markers outside collapsible detail sections.
+
+Any text the reviewer must copy, type, paste, or submit belongs alone in a fenced text or appropriate-language block immediately after its introducing action. At the exact action needing a prepared file or folder, include a descriptive `[Open label](app://open-path:...)` link. Resolve relative link targets from `D:\Drive\Source\SquadDash-public`, not a session/config/cache directory, and verify each target exists. Use absolute targets for artifacts outside that root. Publish exact artifact locations in the fixture output; no placeholder paths or commands may survive into the delivered procedure.
+
+Cleanup removes only this fixture's content and detail-state keys after observations, preserving real preferences. Include one short failure instruction asking for the failed check and observed result. Do not require a separate runbook, another Inbox message, linked instructions, or an agent launch. Use INBOX_MESSAGE_JSON_FILE if the supported inline transport would be fragile. Do not forge the host-owned manual-test-kit approval binding; SquadDash binds the stable proof IDs to the gate.
+
+## AI evidence boundary
+
+Prove fixture construction, stable identities, restart-safe reopening, scoped cleanup, target resolution, production-path wiring, and complete marker coverage with available commands/tests and `ManualTestKitApprovalBinding` validation. Deliver the procedure through the supported Inbox output contract. Do not perform or attest the human gate's live observations. There is one final human checkpoint after this task, with seven checks and no additional implementation scheduled after approval.
+  dependsOn: DETAIL-20261009-005
+  agentAssignments: [{"agentHandle":"lyra-morn","role":"Own interactive fixtures and approval preparation","allowGenericChildren":true}]
+  agentRoutingMode: assigned
+  executionMode: implementation
+  verificationLevel: enhanced
+
+
 <!-- decompose-group: SQUADCLI-20260826 | branch: upgrade/squad-cli-0-12-compat | revision: 3f0c2db8b77b06be -->
 **[SQUADCLI-20260826] Upgrade SquadDash to Squad CLI 0.12**
 > Upgrade SquadDash from Squad CLI 0.10-era assumptions to 0.12-compatible behavior across SDK bridge, CLI resolution, model catalog refresh, update detection, and workspace upgrade dry-run, while preserving explicit fallback behavior for older CLI installs where required.
