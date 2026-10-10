@@ -402,6 +402,10 @@ public partial class MainWindow : Window
     private string? _simulatedInboxSessionId;
     private LoopSimulationSurfaceAdapter? _loopSimulationSurfaceAdapter;
     private string? _simulatedLoopSessionId;
+    private readonly SemaphoreSlim _detailFixtureLifecycleGate = new(1, 1);
+    private DetailReviewFixtureSession? _detailFixtureSession;
+    private Plan? _detailFixturePlan;
+    private readonly Dictionary<string, InboxMessage> _detailFixtureInboxMessages = new(StringComparer.Ordinal);
 
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
@@ -13842,7 +13846,10 @@ public partial class MainWindow : Window
         card.BeginAnimation(UIElement.OpacityProperty, highlight);
     }
 
-    private void OpenDecomposePlanViewer(PendingDecomposePlan plan, Plan? durablePlan = null)
+    private void OpenDecomposePlanViewer(
+        PendingDecomposePlan plan,
+        Plan? durablePlan = null,
+        bool allowDurableMutations = true)
     {
         var groupId = plan.Group.GroupId;
         PendingDecomposePlan? livePlan = null;
@@ -13850,7 +13857,7 @@ public partial class MainWindow : Window
         {
             var candidate = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
                 .Load(groupId);
-            if (candidate is not null && durablePlan is null)
+            if (allowDurableMutations && candidate is not null && durablePlan is null)
             {
                 // Transcript links retain the proposal revision they originally rendered. Once an
                 // edit advances that revision, opening the old link must still show/reuse the live
@@ -13858,7 +13865,8 @@ public partial class MainWindow : Window
                 plan = candidate;
                 livePlan = candidate;
             }
-            else if (candidate is not null &&
+            else if (allowDurableMutations &&
+                     candidate is not null &&
                      string.Equals(candidate.Revision, plan.Revision, StringComparison.Ordinal))
             {
                 livePlan = candidate;
@@ -13886,7 +13894,7 @@ public partial class MainWindow : Window
 
         // Auto-resolve the durable plan when not supplied by the caller (e.g. inbox link).
         // Without it the gate-editing controls (lock buttons, onGatesChanged) are suppressed.
-        if (durablePlan is null && _planStore is not null)
+        if (allowDurableMutations && durablePlan is null && _planStore is not null)
         {
             var storedPlan = _planStore.Load(groupId);
             if (storedPlan is not null &&
@@ -13899,11 +13907,17 @@ public partial class MainWindow : Window
             // Never enable lifecycle or gate editing against a graph from another revision.
             durablePlan = null;
         }
+        if (!allowDurableMutations)
+        {
+            // Fixture/read-only routes must never expose durable callbacks from caller-supplied state.
+            durablePlan = null;
+            livePlan = null;
+        }
 
         // The three visualization fixtures are an explicit, non-persistent approval-gate
         // playground. Give the viewer a durable-shaped in-memory model so every stop control is
         // interactive, but never publish it to PlanStore/tasks.md or expose execution actions.
-        if (durablePlan is null && isInteractiveVisualizationFixture)
+        if (allowDurableMutations && durablePlan is null && isInteractiveVisualizationFixture)
         {
             durablePlan = string.Equals(
                 groupId,
@@ -13921,7 +13935,7 @@ public partial class MainWindow : Window
         // Synthesise a staged Plan so the viewer receives a non-null durablePlan and enables
         // its approval-stop controls.
         var isPendingPlanEdit = false;
-        if (durablePlan is null && livePlan is not null && !isInteractiveVisualizationFixture)
+        if (allowDurableMutations && durablePlan is null && livePlan is not null && !isInteractiveVisualizationFixture)
         {
             durablePlan = PendingDecomposePlanAdapter.ToPlan(livePlan, livePlan.CreatedAt ?? DateTimeOffset.UtcNow);
             isPendingPlanEdit = true;
@@ -13939,11 +13953,11 @@ public partial class MainWindow : Window
             : livePlan ?? plan;
         var activeBranch = _currentWorkspace is null ? null : ReadGitBranch(_currentWorkspace.FolderPath);
         Func<DecomposePlanActionDefinition, Task<bool>>? applyAction =
-            livePlan is not null
+            allowDurableMutations && livePlan is not null
                 ? ApplyFromViewerAsync
                 : null;
         PlanViewerWindow? win = null;
-        Action<Plan>? onGatesChanged = durablePlan is not null &&
+        Action<Plan>? onGatesChanged = allowDurableMutations && durablePlan is not null &&
                                        !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
             ? isPendingPlanEdit
                 ? gatedPlan =>
@@ -13985,13 +13999,13 @@ public partial class MainWindow : Window
                       win?.RefreshPlan(PendingDecomposePlanAdapter.FromPlan(planToPublish), planToPublish);
                   }
             : null;
-        Action<Plan>? onStartPlan = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Approved
+        Action<Plan>? onStartPlan = allowDurableMutations && durablePlan?.LifecycleStatus == PlanLifecycleStatus.Approved
             ? p => _ = QueueOrStartDurablePlanAsync(p)
             : null;
         var isSafelyResumable = durablePlan is not null &&
                                 PlanRecoveryResumePolicy.IsSafelyResumable(durablePlan);
-        Action<Plan>? onResumePlan = durablePlan is not null &&
-                                    !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
+        Action<Plan>? onResumePlan = allowDurableMutations && durablePlan is not null &&
+                                     !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
             ? p =>
               {
                   var current = _planStore?.Load(p.PlanId) ?? p;
@@ -14028,7 +14042,7 @@ public partial class MainWindow : Window
                   }
               }
             : null;
-        Action<Plan>? onPausePlan = durablePlan is not null &&
+        Action<Plan>? onPausePlan = allowDurableMutations && durablePlan is not null &&
                                      !PlanLifecycleStatus.IsTerminal(durablePlan.LifecycleStatus)
             ? p =>
               {
@@ -14114,11 +14128,13 @@ public partial class MainWindow : Window
                 : null;
         var interruptedPrimaryActionLabel = interruptedRecoveryAction?.Label;
         var interruptedPrimaryActionHint = interruptedRecoveryAction?.Hint;
-        Action<Plan>? onEndPlan = durablePlan is not null &&
+        Action<Plan>? onEndPlan = allowDurableMutations && durablePlan is not null &&
                                   PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan)
             ? EndInterruptedPlan
             : null;
-        Action<Plan>? onContinueInterruptedTask =
+        Action<Plan>? onContinueInterruptedTask = !allowDurableMutations
+            ? null
+            :
             interruptedRecoveryActionSet?.Actions.FirstOrDefault(action =>
                 action.Kind == PlanRecoverySurfaceActionKind.ContinueWorking) is { } continueAction
                 ? current =>
@@ -14141,7 +14157,8 @@ public partial class MainWindow : Window
                     _ = RetryDecomposeTaskAsync(PendingDecomposePlanAdapter.FromPlan(current), currentTaskId);
             }
             : null;
-        Action<Plan>? onReplanRemainingWork = durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
+        Action<Plan>? onReplanRemainingWork = allowDurableMutations &&
+                                              durablePlan?.LifecycleStatus == PlanLifecycleStatus.Interrupted &&
                                               !string.IsNullOrWhiteSpace(interruptedTaskId)
             ? current =>
             {
@@ -14154,7 +14171,7 @@ public partial class MainWindow : Window
         // Keep gate action callbacks stable for the lifetime of an open viewer. Its durable
         // plan can refresh from Awaiting -> Approved -> Awaiting without recreating the window;
         // each handler reloads current state before deciding whether the action is still valid.
-        Action<Plan, string>? onApproveGate = durablePlan is not null
+        Action<Plan, string>? onApproveGate = allowDurableMutations && durablePlan is not null
             ? (p, gateId) =>
               {
                   var gate = p.ApprovalGates.FirstOrDefault(g =>
@@ -14162,7 +14179,7 @@ public partial class MainWindow : Window
                   if (gate is not null) ApproveCurrentPlan(p, gate.GateId);
               }
             : null;
-        Action<Plan, string>? onUnapproveGate = durablePlan is not null
+        Action<Plan, string>? onUnapproveGate = allowDurableMutations && durablePlan is not null
             ? (p, gateId) =>
               {
                   _ = UnapproveCurrentPlanAsync(p, gateId);
@@ -14281,7 +14298,7 @@ public partial class MainWindow : Window
                        else store.Save(review);
                    }
                 : null;
-        Action<Dictionary<string, double>>? saveLayoutNudges = _currentWorkspace is not null
+        Action<Dictionary<string, double>>? saveLayoutNudges = allowDurableMutations && _currentWorkspace is not null
             ? nudges => new PlanVisualizerLayoutStore(_currentWorkspace.SquadFolderPath).Save(groupId, nudges)
             : null;
         win = new PlanViewerWindow(
@@ -14364,25 +14381,31 @@ public partial class MainWindow : Window
             requestAiReview: requestAiReview,
             saveReviewState: saveReviewState,
             saveLayoutNudges: saveLayoutNudges,
-            onFixValidation: (current, validationId) =>
-                _ = FixFailedPlanValidationAsync(current.PlanId, validationId),
-            onReviewValidation: (current, validationId) =>
-                OpenPlanValidationDetails(current.PlanId, validationId),
+            onFixValidation: allowDurableMutations
+                ? (current, validationId) => _ = FixFailedPlanValidationAsync(current.PlanId, validationId)
+                : null,
+            onReviewValidation: allowDurableMutations
+                ? (current, validationId) => OpenPlanValidationDetails(current.PlanId, validationId)
+                : null,
             getSettings: () => _settingsSnapshot,
             getAssignableAgents: GetAssignablePlanAgentsForViewer,
             resolveInterruptedActionSet: ResolveInterruptedActionSet,
             onOpenInterruptedChanges: current =>
                 _ = OpenInterruptedTaskReviewAsync(current.PlanId, current.Revision),
             squadFolderPath: _currentWorkspace?.SquadFolderPath,
-            onDescriptionLinkClicked: HandleTranscriptLinkClick)
+            onDescriptionLinkClicked: HandleTranscriptLinkClick,
+            isReadOnlyFixture: !allowDurableMutations)
         {
             Owner = CanShowOwnedWindow() ? this : null,
         };
         _openPlanViewerWindows.Add((groupId, win));
         win.Closed += (_, _) => _openPlanViewerWindows.RemoveAll(e =>
             ReferenceEquals(e.Window, win));
-        win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"PlanViewer:{groupId}", win);
-        win.RestoreWindowGeometry(FloatingWindowPositionStore.Shared);
+        if (allowDurableMutations)
+        {
+            win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"PlanViewer:{groupId}", win);
+            win.RestoreWindowGeometry(FloatingWindowPositionStore.Shared);
+        }
         win.Show();
         if (_currentWorkspace is not null)
         {
@@ -24406,6 +24429,11 @@ public partial class MainWindow : Window
     {
         if (_currentWorkspace is null || string.IsNullOrWhiteSpace(groupId))
             return;
+        if (string.Equals(groupId, SimulationPlanFixtureBuilder.DetailReviewPlanId, StringComparison.Ordinal))
+        {
+            OpenDetailFixturePlanByGroupId(groupId);
+            return;
+        }
 
         Plan? durablePlan = string.Equals(groupId, DeveloperApprovalSimulator.PlanId, StringComparison.Ordinal)
             ? _developerApprovalSimulator?.CurrentPlan
@@ -31998,33 +32026,30 @@ public partial class MainWindow : Window
 
     private void EnsureSimulationSessionManager()
     {
-        if (_simulationSessionManager is not null)
-            return;
+        _simulationSessionManager ??= new SimulationSessionManager();
 
-        _simulationSessionManager = new SimulationSessionManager();
-
-        if (_plansPanelController is not null)
+        if (_plansPanelController is not null && _planSimulationSurfaceAdapter is null)
         {
             _planSimulationSurfaceAdapter = new PlanSimulationSurfaceAdapter(
                 _plansPanelController, Dispatcher);
             _simulationSessionManager.RegisterAdapter(_planSimulationSurfaceAdapter);
         }
 
-        if (_notesPanel is not null)
+        if (_notesPanel is not null && _notesSimulationSurfaceAdapter is null)
         {
             _notesSimulationSurfaceAdapter = new NotesSimulationSurfaceAdapter(
                 _notesPanel, Dispatcher);
             _simulationSessionManager.RegisterAdapter(_notesSimulationSurfaceAdapter);
         }
 
-        if (_tasksPanelController is not null)
+        if (_tasksPanelController is not null && _tasksSimulationSurfaceAdapter is null)
         {
             _tasksSimulationSurfaceAdapter = new TasksSimulationSurfaceAdapter(
                 _tasksPanelController, Dispatcher);
             _simulationSessionManager.RegisterAdapter(_tasksSimulationSurfaceAdapter);
         }
 
-        if (_approvalPanel is not null)
+        if (_approvalPanel is not null && _approvalsSimulationSurfaceAdapter is null)
         {
             _approvalsSimulationSurfaceAdapter = new ApprovalsSimulationSurfaceAdapter(
                 _approvalPanel, Dispatcher);
@@ -32032,13 +32057,14 @@ public partial class MainWindow : Window
             _approvalPanel.IsSimulatedItem = id => _approvalsSimulationSurfaceAdapter.IsSimulatedItem(id);
         }
 
-        if (_inboxPanel is not null)
+        if (_inboxPanel is not null && _inboxSimulationSurfaceAdapter is null)
         {
             _inboxSimulationSurfaceAdapter = new InboxSimulationSurfaceAdapter(
                 _inboxPanel, Dispatcher);
             _simulationSessionManager.RegisterAdapter(_inboxSimulationSurfaceAdapter);
         }
 
+        if (_loopSimulationSurfaceAdapter is null)
         {
             _loopSimulationSurfaceAdapter = new LoopSimulationSurfaceAdapter(
                 applyState: state =>
@@ -35421,6 +35447,194 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(ClearValidationStatesSimulation_Click), ex); }
     }
+
+    private async void ResetAndOpenDetailFixtures_Click(object sender, RoutedEventArgs e)
+    {
+        try { await OpenDetailFixturesAsync(resetDetailState: true); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ResetAndOpenDetailFixtures_Click), ex); }
+    }
+
+    private async void ReopenDetailFixtures_Click(object sender, RoutedEventArgs e)
+    {
+        try { await OpenDetailFixturesAsync(resetDetailState: false); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(ReopenDetailFixtures_Click), ex); }
+    }
+
+    private void FindInDetailFixtures_Click(object sender, RoutedEventArgs e)
+    {
+        try { FindInDetailFixtures(); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(FindInDetailFixtures_Click), ex); }
+    }
+
+    private async void CleanUpDetailFixtures_Click(object sender, RoutedEventArgs e)
+    {
+        try { await CleanUpDetailFixturesAsync(removeState: true); }
+        catch (Exception ex) { HandleUiCallbackException(nameof(CleanUpDetailFixtures_Click), ex); }
+    }
+
+    private async Task OpenDetailFixturesAsync(bool resetDetailState)
+    {
+        if (_currentWorkspace is null)
+            throw new InvalidOperationException("Open a workspace before running detail fixtures.");
+
+        await _detailFixtureLifecycleGate.WaitAsync();
+        try
+        {
+            EnsureInboxPanelCreated();
+            EnsurePlansPanelCreated();
+            EnsureSimulationSessionManager();
+            if (_simulationSessionManager is null || _inboxPanel is null || _plansPanelController is null)
+                throw new InvalidOperationException("Simulation fixtures are not available.");
+
+            await CleanUpDetailFixturesCoreAsync(removeState: false);
+
+            _detailFixtureSession = new DetailReviewFixtureSession(
+                _currentWorkspace.FolderPath,
+                _simulationSessionManager);
+            var fixture = await _detailFixtureSession.OpenAsync(resetDetailState);
+            _detailFixturePlan = fixture.Plan;
+            _detailFixtureInboxMessages[fixture.InboxMessage.Id] = fixture.InboxMessage;
+
+            OpenOrFocusDetailFixtureInboxMessage(fixture.InboxMessage);
+            OpenDetailFixturePlanWindow(fixture.Plan);
+        }
+        finally
+        {
+            _detailFixtureLifecycleGate.Release();
+        }
+    }
+
+    private void FindInDetailFixtures()
+    {
+        var inboxWindow = _openInboxWindows.FirstOrDefault(window =>
+            string.Equals(window.MessageId, SimulationInboxFixtureBuilder.DetailReviewMessageId, StringComparison.Ordinal));
+        if (inboxWindow is null && _detailFixtureInboxMessages.TryGetValue(
+                SimulationInboxFixtureBuilder.DetailReviewMessageId, out var detailMessage))
+        {
+            OpenOrFocusDetailFixtureInboxMessage(detailMessage);
+            inboxWindow = _openInboxWindows.FirstOrDefault(window =>
+                string.Equals(window.MessageId, detailMessage.Id, StringComparison.Ordinal));
+        }
+
+        var planWindow = FindOpenDetailFixturePlanWindow();
+        if (planWindow is null && _detailFixturePlan is not null)
+        {
+            OpenDetailFixturePlanWindow(_detailFixturePlan);
+            planWindow = FindOpenDetailFixturePlanWindow();
+        }
+
+        if (inboxWindow is null || planWindow is null)
+            throw new InvalidOperationException("Open detail fixtures before running find.");
+
+        var selectedTaskId = planWindow.GetSelectedInspectorTaskIdForHostAction();
+
+        var inboxVisible = CountInboxFixtureHits(inboxWindow, SimulationInboxFixtureBuilder.DetailReviewBodyVisibleBeforeToken);
+        var inboxLabelled = CountInboxFixtureHits(inboxWindow, SimulationInboxFixtureBuilder.DetailReviewExpandedBodyToken);
+        var inboxUnlabelled = CountInboxFixtureHits(inboxWindow, SimulationInboxFixtureBuilder.DetailReviewCollapsedBodyToken);
+
+        planWindow.SelectPlanDescriptionForHostAction();
+        var planVisible = planWindow.ProbeVisibleInspectorMatchesForHostAction(
+            SimulationPlanFixtureBuilder.DetailReviewPlanVisibleBeforeToken);
+        var planLabelled = planWindow.ProbeVisibleInspectorMatchesForHostAction(
+            SimulationPlanFixtureBuilder.DetailReviewPlanExpandedBodyToken);
+        var planUnlabelled = planWindow.ProbeVisibleInspectorMatchesForHostAction(
+            SimulationPlanFixtureBuilder.DetailReviewPlanCollapsedBodyToken);
+
+        if (!planWindow.SelectTaskDescriptionForHostAction(SimulationPlanFixtureBuilder.DetailReviewTaskId))
+            throw new InvalidOperationException("Detail review task fixture is unavailable.");
+        var taskVisible = planWindow.ProbeVisibleInspectorMatchesForHostAction(
+            SimulationPlanFixtureBuilder.DetailReviewTaskVisibleBeforeToken);
+        var taskLabelled = planWindow.ProbeVisibleInspectorMatchesForHostAction(
+            SimulationPlanFixtureBuilder.DetailReviewTaskExpandedBodyToken);
+        var taskUnlabelled = planWindow.ProbeVisibleInspectorMatchesForHostAction(
+            SimulationPlanFixtureBuilder.DetailReviewTaskCollapsedBodyToken);
+
+        if (!string.IsNullOrWhiteSpace(selectedTaskId) &&
+            !planWindow.SelectTaskDescriptionForHostAction(selectedTaskId))
+            planWindow.SelectPlanDescriptionForHostAction();
+        else if (string.IsNullOrWhiteSpace(selectedTaskId))
+            planWindow.SelectPlanDescriptionForHostAction();
+
+        var message =
+            "Production search probes:\n" +
+            $"Inbox tokens: visible='{SimulationInboxFixtureBuilder.DetailReviewBodyVisibleBeforeToken}', " +
+            $"labelled='{SimulationInboxFixtureBuilder.DetailReviewExpandedBodyToken}', " +
+            $"unlabelled='{SimulationInboxFixtureBuilder.DetailReviewCollapsedBodyToken}'\n" +
+            $"Plan tokens: visible='{SimulationPlanFixtureBuilder.DetailReviewPlanVisibleBeforeToken}', " +
+            $"labelled='{SimulationPlanFixtureBuilder.DetailReviewPlanExpandedBodyToken}', " +
+            $"unlabelled='{SimulationPlanFixtureBuilder.DetailReviewPlanCollapsedBodyToken}'\n" +
+            $"Task tokens: visible='{SimulationPlanFixtureBuilder.DetailReviewTaskVisibleBeforeToken}', " +
+            $"labelled='{SimulationPlanFixtureBuilder.DetailReviewTaskExpandedBodyToken}', " +
+            $"unlabelled='{SimulationPlanFixtureBuilder.DetailReviewTaskCollapsedBodyToken}'\n\n" +
+            $"Inbox: visible={inboxVisible}, labelled={inboxLabelled}, unlabelled={inboxUnlabelled}\n" +
+            $"Plan: visible={planVisible}, labelled={planLabelled}, unlabelled={planUnlabelled}\n" +
+            $"Task: visible={taskVisible}, labelled={taskLabelled}, unlabelled={taskUnlabelled}";
+        MessageBox.Show(this, message, "Detail fixture production search", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private async Task CleanUpDetailFixturesAsync(bool removeState)
+    {
+        await _detailFixtureLifecycleGate.WaitAsync();
+        try
+        {
+            await CleanUpDetailFixturesCoreAsync(removeState);
+        }
+        finally
+        {
+            _detailFixtureLifecycleGate.Release();
+        }
+    }
+
+    private async Task CleanUpDetailFixturesCoreAsync(bool removeState)
+    {
+        var inboxWindow = _openInboxWindows.FirstOrDefault(window =>
+            string.Equals(window.MessageId, SimulationInboxFixtureBuilder.DetailReviewMessageId, StringComparison.Ordinal));
+        inboxWindow?.Close();
+        CloseDetailFixturePlanWindow();
+
+        var cleanupSession = _detailFixtureSession;
+        if (removeState && cleanupSession is null && _currentWorkspace is not null)
+        {
+            EnsureSimulationSessionManager();
+            if (_simulationSessionManager is null)
+                throw new InvalidOperationException("Simulation fixtures are not available.");
+            cleanupSession = new DetailReviewFixtureSession(
+                _currentWorkspace.FolderPath,
+                _simulationSessionManager);
+        }
+        if (cleanupSession is not null)
+            await cleanupSession.CleanupAsync(removeState);
+
+        _detailFixtureSession = null;
+        _detailFixtureInboxMessages.Clear();
+        _detailFixturePlan = null;
+    }
+
+    private void OpenDetailFixturePlanWindow(Plan plan)
+    {
+        OpenDecomposePlanViewer(
+            PendingDecomposePlanAdapter.FromPlan(plan),
+            durablePlan: null,
+            allowDurableMutations: false);
+        FindOpenDetailFixturePlanWindow()?.SelectPlanDescriptionForHostAction();
+    }
+
+    private PlanViewerWindow? FindOpenDetailFixturePlanWindow() =>
+        _openPlanViewerWindows.FirstOrDefault(entry =>
+            string.Equals(entry.GroupId, SimulationPlanFixtureBuilder.DetailReviewPlanId, StringComparison.Ordinal)).Window;
+
+    private void CloseDetailFixturePlanWindow()
+    {
+        var fixtureWindows = _openPlanViewerWindows
+            .Where(entry => string.Equals(entry.GroupId, SimulationPlanFixtureBuilder.DetailReviewPlanId, StringComparison.Ordinal))
+            .Select(entry => entry.Window)
+            .ToArray();
+        foreach (var window in fixtureWindows)
+            window.Close();
+    }
+
+    private static int CountInboxFixtureHits(InboxMessageWindow inboxWindow, string token) =>
+        inboxWindow.CountVisibleBodyMatches(token) > 0 ? 1 : 0;
 
     private void StartValidationStateSimulation()
     {
@@ -39806,6 +40020,8 @@ public partial class MainWindow : Window
                 "SquadDash could not save the current prompt queue. The current workspace remains open so no queued work is lost.");
             return;
         }
+
+        await CleanUpDetailFixturesAsync(removeState: false);
 
         var openWsSw = Stopwatch.StartNew();
 
@@ -50978,11 +51194,19 @@ public partial class MainWindow : Window
 
             // Safety-net: save positions for any inbox windows still open.
             foreach (var inboxWin in _openInboxWindows)
+            {
+                if (HasActiveDetailFixtureMessage(inboxWin.MessageId))
+                    continue;
                 FloatingWindowPositionStore.Shared.Save($"InboxMessage:{inboxWin.MessageId}", inboxWin);
+            }
 
             // Safety-net: save positions for any plan viewer windows still open.
             foreach (var (gid, planWin) in _openPlanViewerWindows)
+            {
+                if (string.Equals(gid, SimulationPlanFixtureBuilder.DetailReviewPlanId, StringComparison.Ordinal))
+                    continue;
                 FloatingWindowPositionStore.Shared.Save($"PlanViewer:{gid}", planWin);
+            }
 
             if (_restartPending && !userCloseRequested && DeferPendingRestartIfBlocked("window-closing"))
             {
@@ -51158,7 +51382,7 @@ public partial class MainWindow : Window
             {
                 var openIds = _openInboxWindows
                     .Select(w => w.MessageId)
-                    .Where(id => !string.IsNullOrEmpty(id))
+                    .Where(id => !string.IsNullOrEmpty(id) && !HasActiveDetailFixtureMessage(id))
                     .ToList();
                 var inboxState = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
                 _docsPanelState = inboxState with
@@ -51172,7 +51396,8 @@ public partial class MainWindow : Window
             // Persist open plan viewer IDs.
             var openPlanGroupIds = _openPlanViewerWindows
                 .Select(entry => entry.GroupId)
-                .Where(id => !string.IsNullOrEmpty(id))
+                .Where(id => !string.IsNullOrEmpty(id) &&
+                    !string.Equals(id, SimulationPlanFixtureBuilder.DetailReviewPlanId, StringComparison.Ordinal))
                 .ToList();
             var planViewerState = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
             _docsPanelState = planViewerState with
@@ -57731,8 +57956,43 @@ public partial class MainWindow : Window
         if (_activeTabId is null) PersistDraftFollowUp();
     }
 
+    private void OpenOrFocusInboxMessage(InboxMessage message, Action? onMarkedRead = null)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        if (string.Equals(message.Id, SimulationInboxFixtureBuilder.DetailReviewMessageId, StringComparison.Ordinal))
+        {
+            OpenOrFocusDetailFixtureInboxMessage(message);
+            return;
+        }
+        OpenOrFocusInboxMessage(message.Id, onMarkedRead);
+    }
+
+    private void OpenOrFocusDetailFixtureInboxMessage(InboxMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        var existing = _openInboxWindows.FirstOrDefault(w => w.MessageId == message.Id);
+        if (existing is not null)
+        {
+            if (existing.WindowState == WindowState.Minimized)
+                existing.WindowState = WindowState.Normal;
+            existing.Activate();
+            NativeMethods.TryActivateWindow(new System.Windows.Interop.WindowInteropHelper(existing).Handle);
+            existing.PulseAttention();
+            return;
+        }
+
+        ShowInboxMessageWindow(message, onMarkedRead: null, readOnlyFixture: true);
+    }
+
     private async void OpenOrFocusInboxMessage(string messageId, Action? onMarkedRead = null)
     {
+        if (string.Equals(messageId, SimulationInboxFixtureBuilder.DetailReviewMessageId, StringComparison.Ordinal) &&
+            _detailFixtureInboxMessages.TryGetValue(messageId, out var fixtureDetailMessage))
+        {
+            OpenOrFocusDetailFixtureInboxMessage(fixtureDetailMessage);
+            return;
+        }
+
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: messageId={messageId} openWindowCount={_openInboxWindows.Count}");
         if (!TryPrepareRecoveryInboxMessageForUse(messageId, out var preparedMessage))
         {
@@ -57764,7 +58024,10 @@ public partial class MainWindow : Window
             existing.PulseAttention();
             return;
         }
-        var msg = preparedMessage ?? _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId);
+
+        var msg = preparedMessage
+            ?? _inboxStore?.LoadAll().FirstOrDefault(m => m.Id == messageId)
+            ?? (_detailFixtureInboxMessages.TryGetValue(messageId, out var fixtureMessage) ? fixtureMessage : null);
         if (msg is null)
         {
             SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: message not found — refreshing list for msgId={messageId}");
@@ -57774,37 +58037,72 @@ public partial class MainWindow : Window
             ReconcileOpenInboxWindows(refreshed);
             return;
         }
+
+        ShowInboxMessageWindow(msg, onMarkedRead);
+    }
+
+    private void ShowInboxMessageWindow(InboxMessage msg, Action? onMarkedRead, bool readOnlyFixture = false)
+    {
+        var messageId = msg.Id;
         SquadDashTrace.Write(TraceCategory.Inbox, $"OpenOrFocusInboxMessage: creating new InboxMessageWindow for msgId={messageId}");
+        Func<InboxAction, InboxMessage, Task<bool>> actionDispatcher = readOnlyFixture
+            ? static (_, _) => Task.FromResult(false)
+            : DispatchInboxAction;
         var win = new InboxMessageWindow(
-            msg, 
-            DispatchInboxAction, 
+            msg,
+            actionDispatcher,
             LookupTaskById,
-            attachSelectedTextToChat: AttachInboxMessageSelectedTextFollowUp,
-            attachSelectedTextToNewChat: (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
-            onMarkedRead: onMarkedRead,
-            onMarkedUnread: () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
-            onRepliedInChat: () => ReplyInChatFromInboxMessage(msg),
-            initialFontSize:   _inboxFontSize,
-            onFontSizeChanged: size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
-            openDecomposePlan: OpenDecomposePlanAttachment,
-            openCommit: sha => _ = OpenCommitWithRemoteCheckAsync(sha),
-            openPlanByGroupId: OpenInboxPlanViewerByGroupId,
+            attachSelectedTextToChat: readOnlyFixture ? null : AttachInboxMessageSelectedTextFollowUp,
+            attachSelectedTextToNewChat: readOnlyFixture
+                ? null
+                : (text, msg2) => { AddEmptyQueueSlot(); AttachInboxMessageSelectedTextFollowUp(text, msg2); },
+            onMarkedRead: readOnlyFixture ? null : onMarkedRead,
+            onMarkedUnread: readOnlyFixture ? null : () => { _inboxStore?.MarkUnread(messageId); _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []); },
+            onRepliedInChat: readOnlyFixture ? null : () => ReplyInChatFromInboxMessage(msg),
+            initialFontSize: _inboxFontSize,
+            onFontSizeChanged: readOnlyFixture
+                ? null
+                : size => { _inboxFontSize = size; _settingsManager.Replace(_settingsStore.SaveInboxFontSize(size)); },
+            openDecomposePlan: readOnlyFixture ? null : OpenDecomposePlanAttachment,
+            openCommit: readOnlyFixture ? null : sha => _ = OpenCommitWithRemoteCheckAsync(sha),
+            openPlanByGroupId: readOnlyFixture
+                ? groupId => OpenDetailFixturePlanByGroupId(groupId)
+                : OpenInboxPlanViewerByGroupId,
             resolvePlanGroupForThumbnail: ResolveInboxPlanGroupForThumbnail,
             resolveLayoutNudgesForThumbnail: ResolveLayoutNudgesForThumbnail,
             isPlanExecuted: IsPlanExecuted,
             resolveAgentAvatar: ResolveAgentAvatarForPlanViewer,
             workspaceFolder: _currentWorkspace?.FolderPath,
-            loadPlan: planId => _planStore?.Load(planId),
-            onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection,
-            resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id),
-            openInboxMessage: id => OpenOrFocusInboxMessage(id));
+            loadPlan: readOnlyFixture ? null : planId => _planStore?.Load(planId),
+            onHumanReviewSelectionChanged: readOnlyFixture ? null : RecordHumanReviewChecklistSelection,
+            resolveMessageFilePath: readOnlyFixture ? null : id => _inboxStore?.GetMessageFilePath(id),
+            openInboxMessage: readOnlyFixture ? null : id => OpenOrFocusInboxMessage(id));
         win.Owner = CanShowOwnedWindow() ? this : null;
         _openInboxWindows.Add(win);
-        win.Closed    += (_, _) => _openInboxWindows.Remove(win);
-        win.Closed    += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
+        win.Closed += (_, _) => _openInboxWindows.Remove(win);
+        if (!readOnlyFixture)
+            win.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save($"InboxMessage:{win.MessageId}", win);
         win.Activated += (_, _) => _inboxPanel?.SelectMessageById(messageId);
-        FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
+        if (!readOnlyFixture)
+            FloatingWindowPositionStore.Shared.TryRestore($"InboxMessage:{messageId}", win);
         win.Show();
+    }
+
+    private bool IsDetailFixtureMessageId(string messageId) =>
+        string.Equals(messageId, SimulationInboxFixtureBuilder.DetailReviewMessageId, StringComparison.Ordinal);
+
+    private bool HasActiveDetailFixtureMessage(string messageId) =>
+        IsDetailFixtureMessageId(messageId) &&
+        _detailFixtureSession?.SessionId is not null &&
+        _detailFixtureInboxMessages.ContainsKey(messageId);
+
+    private void OpenDetailFixturePlanByGroupId(string groupId, Plan? fallbackPlan = null)
+    {
+        if (!string.Equals(groupId, SimulationPlanFixtureBuilder.DetailReviewPlanId, StringComparison.Ordinal))
+            return;
+        var fixturePlan = _detailFixturePlan ?? fallbackPlan;
+        if (fixturePlan is not null)
+            OpenDetailFixturePlanWindow(fixturePlan);
     }
 
     /// <summary>
@@ -57927,6 +58225,8 @@ public partial class MainWindow : Window
             messages.Select(m => m.Id), StringComparer.Ordinal);
         foreach (var win in _openInboxWindows.ToList())
         {
+            if (HasActiveDetailFixtureMessage(win.MessageId))
+                continue;
             if (!existingIds.Contains(win.MessageId))
             {
                 SquadDashTrace.Write(TraceCategory.Inbox,
@@ -59077,6 +59377,12 @@ public partial class MainWindow : Window
         UpdateMainGridSideMargins();
         if (!_plansPanelVisible) return;
 
+        EnsurePlansPanelCreated();
+    }
+
+    private void EnsurePlansPanelCreated()
+    {
+        if (PlansPanelBorder is null) return;
         var workspacePath = _currentWorkspace?.FolderPath;
         if (workspacePath is null) return;
 
@@ -59124,7 +59430,8 @@ public partial class MainWindow : Window
                     if (_planStore is null)
                         throw new InvalidOperationException("The plan store is not available.");
                     return _planStore.RenameDisplayTitle(plan.PlanId, newTitle);
-                });
+                },
+                isSimulationOverlayPlanId: planId => _planSimulationSurfaceAdapter?.IsSimulatedPlan(planId) == true);
 
             if (PlansPanelBorder is { } ppb)
                 ppb.MaximumUsefulSizeProvider = orientation => orientation switch
@@ -59377,6 +59684,11 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (string.Equals(plan.PlanId, SimulationPlanFixtureBuilder.DetailReviewPlanId, StringComparison.Ordinal))
+            {
+                OpenDetailFixturePlanByGroupId(plan.PlanId, plan);
+                return;
+            }
             // The Plans panel is a durable-plan surface. A pending Inbox proposal can legitimately
             // have the same plan ID while representing a different revision, so never substitute
             // it here. Inbox and transcript proposal links open their own pending snapshots.
@@ -60409,13 +60721,33 @@ public partial class MainWindow : Window
             viewerMetaLabel:        InboxViewerMetaLabel!,
             viewerAttachmentsPanel: InboxViewerAttachmentsPanel!,
             viewerBody:             InboxViewerBody!,
-            markRead:               id => _inboxStore?.MarkRead(id),
-            markUnread:             id => _inboxStore?.MarkUnread(id),
-            archive:                id => _inboxStore?.Archive(id),
-            delete:                 id => _inboxStore?.Delete(id),
+            markRead:               id =>
+            {
+                if (_inboxSimulationSurfaceAdapter?.IsSimulatedMessage(id) == true)
+                    return;
+                _inboxStore?.MarkRead(id);
+            },
+            markUnread:             id =>
+            {
+                if (_inboxSimulationSurfaceAdapter?.IsSimulatedMessage(id) == true)
+                    return;
+                _inboxStore?.MarkUnread(id);
+            },
+            archive:                id =>
+            {
+                if (_inboxSimulationSurfaceAdapter?.IsSimulatedMessage(id) == true)
+                    return;
+                _inboxStore?.Archive(id);
+            },
+            delete:                 id =>
+            {
+                if (_inboxSimulationSurfaceAdapter?.IsSimulatedMessage(id) == true)
+                    return;
+                _inboxStore?.Delete(id);
+            },
             viewerActionsPanel:     InboxViewerActionsPanel!,
             onActionClicked:        DispatchInboxAction,
-            openMessageWindow:      (msg, onMarkedRead) => OpenOrFocusInboxMessage(msg.Id, onMarkedRead),
+            openMessageWindow:      (msg, onMarkedRead) => OpenOrFocusInboxMessage(msg, onMarkedRead),
             lookupTask:             LookupTaskById,
             addToChat:              msg => AttachInboxMessageFollowUp(msg),
             addToNewChat:           msg => { AddEmptyQueueSlot(); AttachInboxMessageFollowUp(msg); },

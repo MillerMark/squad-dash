@@ -968,6 +968,12 @@ internal sealed class InboxMessageWindow : ChromedWindow
 
     internal string GetRenderedMessageText() => BuildMessageClipboardText(_message, _bodyViewer.Document);
 
+    internal int CountVisibleBodyMatches(string query)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+        return FindTextInRange(_bodyViewer.Document, query) is null ? 0 : 1;
+    }
+
     internal static MarkdownDetailStateContext? CreateDetailStateContext(
         InboxMessage message, string? workspaceFolder, MarkdownDetailStateStore store)
     {

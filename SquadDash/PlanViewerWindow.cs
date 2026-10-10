@@ -98,6 +98,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly string? _squadFolderPath;
     private readonly string _viewportGroupId;
     private readonly bool _canPersistViewport;
+    private readonly bool _isReadOnlyFixture;
     private readonly PlanVisualizerViewportState? _initialViewport;
     private readonly System.Windows.Threading.DispatcherTimer _viewportSaveTimer;
     private PlanVisualizerViewportState _viewportState;
@@ -273,7 +274,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<Plan>? onOpenInterruptedChanges = null,
         double lineThicknessMultiplier = 1.0,
         string? squadFolderPath = null,
-        Action<string>? onDescriptionLinkClicked = null)
+        Action<string>? onDescriptionLinkClicked = null,
+        bool isReadOnlyFixture = false)
         : base(
             captionHeight: CloseButtonHeight,
             resizeMode: ResizeMode.CanResize,
@@ -334,9 +336,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _squadFolderPath = squadFolderPath;
         _viewportStore = new PlanVisualizerViewportStore(squadFolderPath);
         _viewportGroupId = plan.Group.GroupId;
-        _canPersistViewport = squadFolderPath is not null;
-        _initialViewport = _viewportStore.Load(_viewportGroupId);
-        _zoomFactor = _initialViewport?.Zoom ?? _viewportStore.LoadDefaultZoom();
+        _isReadOnlyFixture = isReadOnlyFixture;
+        _canPersistViewport = squadFolderPath is not null && !isReadOnlyFixture;
+        _initialViewport = isReadOnlyFixture ? null : _viewportStore.Load(_viewportGroupId);
+        _zoomFactor = isReadOnlyFixture ? 1.0 : _initialViewport?.Zoom ?? _viewportStore.LoadDefaultZoom();
         _viewportState = _initialViewport ?? new PlanVisualizerViewportState(_zoomFactor, 0, 0);
         _viewportSaveTimer = new System.Windows.Threading.DispatcherTimer
         {
@@ -512,7 +515,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void RestoreInspectorFontScale()
     {
-        _inspectorFontScale = _viewportStore.LoadInspectorFontScale();
+        _inspectorFontScale = _isReadOnlyFixture ? 1.0 : _viewportStore.LoadInspectorFontScale();
         ApplyInspectorFontScale();
     }
 
@@ -543,7 +546,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         ApplyInspectorFontScale();
         try
         {
-            _viewportStore.SaveInspectorFontScale(_inspectorFontScale);
+            if (!_isReadOnlyFixture)
+                _viewportStore.SaveInspectorFontScale(_inspectorFontScale);
         }
         catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
         {
@@ -582,7 +586,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             QueueGraphViewportSave();
             try
             {
-                _viewportStore.SaveDefaultZoom(zoom);
+                if (!_isReadOnlyFixture)
+                    _viewportStore.SaveDefaultZoom(zoom);
             }
             catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
             {
@@ -3376,7 +3381,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Padding         = new Thickness(11, 8, 11, 8),
                 CornerRadius    = new CornerRadius(7),
                 BorderThickness = new Thickness(1.25),
-                ToolTip         = "Click to inspect",
+                ToolTip         = _isReadOnlyFixture ? BuildTaskToolTip(task, durableTask) : "Click to inspect",
                 Child           = nodeLayout,
             };
             border.SetResourceReference(Border.BackgroundProperty,  "CardSurface");
@@ -7099,6 +7104,43 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     internal void SetActionStatus(string title, string message) =>
         ShowActionStatus(title, message);
+
+    internal void SelectPlanDescriptionForHostAction()
+    {
+        _isInspectorEditing = false;
+        _selectedElement = null;
+        ClearSelectionVisual();
+        RefreshDetailPanel();
+    }
+
+    internal bool SelectTaskDescriptionForHostAction(string taskId)
+    {
+        if (string.IsNullOrWhiteSpace(taskId))
+            return false;
+        var hasTask = _durablePlan?.Tasks.Any(task =>
+                          string.Equals(task.TaskId, taskId, StringComparison.Ordinal))
+                      ?? _plan?.Group.Tasks.Any(task =>
+                          string.Equals(task.Id, taskId, StringComparison.Ordinal))
+                      ?? false;
+        if (!hasTask)
+            return false;
+        SelectElement("task", taskId);
+        return true;
+    }
+
+    internal int ProbeVisibleInspectorMatchesForHostAction(string query)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(query);
+        if (_detailDocument is null || _descriptionSession is null)
+            throw new InvalidOperationException("Inspector document is not ready for search probing.");
+        _descriptionSession.FindNext(query);
+        return PlanDescriptionDocumentSession.FindAll(_detailDocument, query).Count;
+    }
+
+    internal string? GetSelectedInspectorTaskIdForHostAction() =>
+        string.Equals(_selectedElement?.Kind, "task", StringComparison.Ordinal)
+            ? _selectedElement!.Id
+            : null;
 
     private void ClearActionStatus()
     {

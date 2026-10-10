@@ -30,6 +30,7 @@ internal sealed class PlansPanelController
     private readonly Action<Plan>? _addToNewChat;
     private readonly Action<Plan>? _revisePlan;
     private readonly Func<Plan, string, Plan>? _renamePlan;
+    private readonly Func<string, bool>? _isSimulationOverlayPlanId;
     private readonly Action<bool>? _syncBorderVisibility;
     private readonly Action<bool>? _setMenuChecked;
     private readonly Action?       _persistVisibility;
@@ -77,7 +78,8 @@ internal sealed class PlansPanelController
         Func<bool>?   isPromptRunning      = null,
         Func<Plan, string>? getPlanFilePath = null,
         Action<Plan>? revisePlan = null,
-        Func<Plan, string, Plan>? renamePlan = null)
+        Func<Plan, string, Plan>? renamePlan = null,
+        Func<string, bool>? isSimulationOverlayPlanId = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
@@ -96,6 +98,7 @@ internal sealed class PlansPanelController
         _addToNewChat         = addToNewChat;
         _revisePlan           = revisePlan;
         _renamePlan           = renamePlan;
+        _isSimulationOverlayPlanId = isSimulationOverlayPlanId;
         _syncBorderVisibility = syncBorderVisibility;
         _setMenuChecked       = setMenuChecked;
         _persistVisibility    = persistVisibility;
@@ -110,7 +113,11 @@ internal sealed class PlansPanelController
 
     internal void Refresh(IReadOnlyList<Plan> plans)
     {
-        _currentPlans = [.. plans];
+        var overlays = _currentPlans
+            .Where(plan => _isSimulationOverlayPlanId?.Invoke(plan.PlanId) == true)
+            .ToArray();
+        _currentPlans = [.. plans.Where(plan => !overlays.Any(overlay =>
+            string.Equals(overlay.PlanId, plan.PlanId, StringComparison.Ordinal))), .. overlays];
         RemoveObsoleteTransientStatuses();
         if (_activeRenamePlanId is not null &&
             !_currentPlans.Any(plan => string.Equals(plan.PlanId, _activeRenamePlanId, StringComparison.Ordinal)))
@@ -388,6 +395,7 @@ internal sealed class PlansPanelController
     private Border BuildRow(Plan plan)
     {
         var isUpdated = _updatedPlanIds.Contains(plan.PlanId);
+        var isSimulationOverlay = _isSimulationOverlayPlanId?.Invoke(plan.PlanId) == true;
         var row = new Border
         {
             Background = Brushes.Transparent,
@@ -577,7 +585,7 @@ internal sealed class PlansPanelController
         };
         menu.Items.Add(openItem);
 
-        if (_renamePlan is not null)
+        if (!isSimulationOverlay && _renamePlan is not null)
         {
             var renameItem = new MenuItem { Header = "Rename" };
             renameItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
@@ -585,7 +593,7 @@ internal sealed class PlansPanelController
             menu.Items.Add(renameItem);
         }
 
-        if (_revisePlan is not null)
+        if (!isSimulationOverlay && _revisePlan is not null)
         {
             var reviseItem = new MenuItem
             {
@@ -598,7 +606,7 @@ internal sealed class PlansPanelController
             menu.Items.Add(reviseItem);
         }
 
-        if (_attachFollowUp is not null || _addToNewChat is not null)
+        if (!isSimulationOverlay && (_attachFollowUp is not null || _addToNewChat is not null))
         {
             var sep1 = new Separator();
             sep1.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
@@ -619,7 +627,9 @@ internal sealed class PlansPanelController
             }
         }
 
-        if (plan.LifecycleStatus == PlanLifecycleStatus.Approved && _startPlan is not null)
+        if (!isSimulationOverlay &&
+            plan.LifecycleStatus == PlanLifecycleStatus.Approved &&
+            _startPlan is not null)
         {
             var startItem = new MenuItem { Header = "Start Plan" };
             startItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
@@ -627,8 +637,9 @@ internal sealed class PlansPanelController
             menu.Items.Add(startItem);
         }
 
-        if (plan.LifecycleStatus is PlanLifecycleStatus.Interrupted or
-            PlanLifecycleStatus.WaitingForCleanWorktree)
+        if (!isSimulationOverlay &&
+            plan.LifecycleStatus is (PlanLifecycleStatus.Interrupted or
+                                     PlanLifecycleStatus.WaitingForCleanWorktree))
         {
             if (PlanRecoveryResumePolicy.IsSafelyResumable(plan) && _startPlan is not null)
             {
@@ -663,7 +674,8 @@ internal sealed class PlansPanelController
             }
         }
 
-        if (plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval) &&
+        if (!isSimulationOverlay &&
+            plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval) &&
             _approveGate is not null)
         {
             var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
@@ -682,7 +694,7 @@ internal sealed class PlansPanelController
             menu.Items.Add(approveItem);
         }
 
-        if (plan.LifecycleStatus == PlanLifecycleStatus.Executing)
+        if (!isSimulationOverlay && plan.LifecycleStatus == PlanLifecycleStatus.Executing)
         {
             if (_pausePlan is not null)
             {
@@ -710,7 +722,8 @@ internal sealed class PlansPanelController
             }
         }
 
-        if (plan.LifecycleStatus != PlanLifecycleStatus.Archived &&
+        if (!isSimulationOverlay &&
+            plan.LifecycleStatus != PlanLifecycleStatus.Archived &&
             plan.LifecycleStatus is not (PlanLifecycleStatus.Executing or PlanLifecycleStatus.AwaitingApproval) &&
             _archivePlan is not null)
         {
@@ -725,7 +738,7 @@ internal sealed class PlansPanelController
             menu.Items.Add(archiveItem);
         }
 
-        if (_getPlanFilePath is not null)
+        if (!isSimulationOverlay && _getPlanFilePath is not null)
         {
             var sep2 = new Separator();
             sep2.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
@@ -755,6 +768,8 @@ internal sealed class PlansPanelController
 
     private void BeginInlineRename(Grid titleRow, TextBlock titleBlock, Plan plan)
     {
+        if (_isSimulationOverlayPlanId?.Invoke(plan.PlanId) == true)
+            return;
         if (_activeRenamePlanId is not null)
             return;
         _activeRenamePlanId = plan.PlanId;

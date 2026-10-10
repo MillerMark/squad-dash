@@ -143,7 +143,9 @@ internal sealed class PlanViewerNavigationArchitectureTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(constructor.IndexOf("_zoomFactor = _initialViewport?.Zoom", StringComparison.Ordinal),
+            Assert.That(constructor, Does.Contain(
+                "_zoomFactor = isReadOnlyFixture ? 1.0 : _initialViewport?.Zoom ?? _viewportStore.LoadDefaultZoom();"));
+            Assert.That(constructor.IndexOf("_zoomFactor = ", StringComparison.Ordinal),
                 Is.GreaterThanOrEqualTo(0).And.LessThan(
                     constructor.IndexOf("BuildContent(plan, durablePlan);", StringComparison.Ordinal)));
             Assert.That(source, Does.Contain("LayoutTransform     = new ScaleTransform(_zoomFactor, _zoomFactor)"));

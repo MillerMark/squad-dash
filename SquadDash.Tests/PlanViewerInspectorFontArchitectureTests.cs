@@ -24,7 +24,8 @@ internal sealed class PlanViewerInspectorFontArchitectureTests
                 .And.Contain("PlanVisualizerViewportStore.MinimumInspectorFontScale")
                 .And.Contain("PlanVisualizerViewportStore.MaximumInspectorFontScale"));
             Assert.That(handler, Does.Match(
-                @"_inspectorFontScale = scale;\s+ApplyInspectorFontScale\(\);\s+try\s+\{\s+_viewportStore.SaveInspectorFontScale\(_inspectorFontScale\);"));
+                @"_inspectorFontScale = scale;\s+ApplyInspectorFontScale\(\);\s+try\s+\{\s+if \(!_isReadOnlyFixture\)\s+_viewportStore.SaveInspectorFontScale\(_inspectorFontScale\);"),
+                "Normal viewers persist the applied scale; approval fixtures must not change global preferences.");
             Assert.That(handler, Does.Not.Contain("SetFontSizeScale")
                 .And.Not.Contain("SaveDefaultZoom")
                 .And.Not.Contain("_zoomFactor")
@@ -59,7 +60,7 @@ internal sealed class PlanViewerInspectorFontArchitectureTests
     }
 
     [Test]
-    public void EveryInspectorViewerConstruction_RestoresGlobalScaleBeforeAttachingContent()
+    public void EveryInspectorViewerConstruction_RestoresGlobalScaleExceptReadOnlyFixtures()
     {
         var source = ReadViewer();
         var build = Method(source, "private void BuildContent(",
@@ -76,8 +77,8 @@ internal sealed class PlanViewerInspectorFontArchitectureTests
             Assert.That(build.IndexOf("RestoreInspectorFontScale();", StringComparison.Ordinal),
                 Is.LessThan(build.IndexOf("_contentHolder.Child = root;", StringComparison.Ordinal)));
             Assert.That(restore, Does.Match(
-                @"_inspectorFontScale = _viewportStore.LoadInspectorFontScale\(\);\s+ApplyInspectorFontScale\(\);"),
-                "Reload from shared storage, not a per-window or per-plan cached default.");
+                @"_inspectorFontScale = _isReadOnlyFixture \? 1.0 : _viewportStore.LoadInspectorFontScale\(\);\s+ApplyInspectorFontScale\(\);"),
+                "Normal viewers reload shared storage; fixtures use a deterministic scale without changing it.");
         });
     }
 

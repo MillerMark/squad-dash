@@ -82,4 +82,7 @@ internal sealed class PlanSimulationSurfaceAdapter : ISimulationSurfaceAdapter
     }
 
     public bool Contains(string artifactId) => _overlaid.ContainsKey(artifactId);
+
+    internal bool IsSimulatedPlan(string planId) =>
+        _overlaid.Values.Any(entry => string.Equals(entry.Plan.PlanId, planId, StringComparison.Ordinal));
 }

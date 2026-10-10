@@ -9,6 +9,13 @@ namespace SquadDash;
 /// </summary>
 internal static class SimulationInboxFixtureBuilder
 {
+    internal const string DetailReviewMessageId = "sim-inbox-detail-review";
+    internal const string DetailReviewSubject = "Detail review: Inbox";
+    internal const string DetailReviewBodyVisibleBeforeToken = "DETAIL-INBOX-VISIBLE-BEFORE";
+    internal const string DetailReviewBodyVisibleAfterToken = "DETAIL-INBOX-VISIBLE-AFTER";
+    internal const string DetailReviewExpandedBodyToken = "DETAIL-INBOX-BODY";
+    internal const string DetailReviewCollapsedBodyToken = "DETAIL-INBOX-COLLAPSED";
+
     /// <summary>
     /// Builds a simulated high-priority message from a code-review agent.
     /// </summary>
@@ -65,5 +72,26 @@ internal static class SimulationInboxFixtureBuilder
         Attachments = [],
         Actions = [],
         Priority = "low"
+    };
+
+    internal static InboxMessage BuildDetailReviewMessage() => new()
+    {
+        Id = DetailReviewMessageId,
+        Subject = DetailReviewSubject,
+        From = "fixture-probe",
+        Timestamp = DateTimeOffset.UtcNow,
+        Read = false,
+        Body = "Detail fixture baseline for Inbox rendering.\n" +
+               $"{DetailReviewBodyVisibleBeforeToken}\n\n" +
+               ":::detail Expanded restart probe\n" +
+               $"{DetailReviewExpandedBodyToken}\n" +
+               ":::\n\n" +
+               ":::detail\n" +
+               $"{DetailReviewCollapsedBodyToken}\n" +
+               ":::\n\n" +
+               $"{DetailReviewBodyVisibleAfterToken}",
+        Attachments = [],
+        Actions = [],
+        Priority = "mid"
     };
 }

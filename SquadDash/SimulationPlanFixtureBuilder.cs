@@ -10,6 +10,18 @@ namespace SquadDash;
 internal static class SimulationPlanFixtureBuilder
 {
     internal const string ValidationShieldGalleryPlanId = "VALIDATION-SHIELD-GALLERY-20260804";
+    internal const string DetailReviewPlanId = "sim-plan-detail-review";
+    internal const string DetailReviewTaskId = "sim-task-detail-review";
+    internal const string DetailReviewPlanName = "Detail review: Plan";
+    internal const string DetailReviewTaskName = "Detail review: Task";
+    internal const string DetailReviewPlanVisibleBeforeToken = "DETAIL-PLAN-VISIBLE-BEFORE";
+    internal const string DetailReviewPlanVisibleAfterToken = "DETAIL-PLAN-VISIBLE-AFTER";
+    internal const string DetailReviewPlanExpandedBodyToken = "DETAIL-PLAN-BODY";
+    internal const string DetailReviewPlanCollapsedBodyToken = "DETAIL-PLAN-COLLAPSED";
+    internal const string DetailReviewTaskVisibleBeforeToken = "DETAIL-TASK-VISIBLE-BEFORE";
+    internal const string DetailReviewTaskVisibleAfterToken = "DETAIL-TASK-VISIBLE-AFTER";
+    internal const string DetailReviewTaskExpandedBodyToken = "DETAIL-TASK-BODY";
+    internal const string DetailReviewTaskCollapsedBodyToken = "DETAIL-TASK-COLLAPSED";
 
     /// <summary>
     /// Builds a representative demo plan with tasks in various states
@@ -215,5 +227,46 @@ internal static class SimulationPlanFixtureBuilder
             Timestamps = new PlanTimestamps(CreatedAt: now),
             Validations = validations,
         };
+    }
+
+    internal static Plan BuildDetailReviewPlan()
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new Plan(
+            PlanId: DetailReviewPlanId,
+            Revision: "sim-rev-detail-review",
+            Source: PlanSource.Manual,
+            LifecycleStatus: PlanLifecycleStatus.Approved,
+            Title: DetailReviewPlanName,
+            Branch: "(fixture)",
+            Summary: $"{DetailReviewPlanVisibleBeforeToken}\n\n" +
+                     ":::detail Expanded restart probe\n" +
+                     $"{DetailReviewPlanExpandedBodyToken}\n" +
+                     ":::\n\n" +
+                     ":::detail\n" +
+                     $"{DetailReviewPlanCollapsedBodyToken}\n" +
+                     ":::\n\n" +
+                     $"{DetailReviewPlanVisibleAfterToken}",
+            Tasks:
+            [
+                new PlanTask(
+                    TaskId: DetailReviewTaskId,
+                    Title: DetailReviewTaskName,
+                    Description: $"{DetailReviewTaskVisibleBeforeToken}\n\n" +
+                                 ":::detail Expanded restart probe\n" +
+                                 $"{DetailReviewTaskExpandedBodyToken}\n" +
+                                 ":::\n\n" +
+                                 ":::detail\n" +
+                                 $"{DetailReviewTaskCollapsedBodyToken}\n" +
+                                 ":::\n\n" +
+                                 $"{DetailReviewTaskVisibleAfterToken}",
+                    DependsOn: [],
+                    Priority: "medium",
+                    Status: PlanTaskStatus.Pending)
+            ],
+            ApprovalGates: [],
+            Progress: new PlanProgress(CompletedCount: 0, TotalCount: 1),
+            Timestamps: new PlanTimestamps(CreatedAt: now),
+            Validations: []);
     }
 }

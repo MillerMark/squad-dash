@@ -657,7 +657,9 @@
     <Compile Include="..\SquadDash\ISimulationSurfaceAdapter.cs" Link="Source\ISimulationSurfaceAdapter.cs" />
     <Compile Include="..\SquadDash\SimulationSideEffectBarrier.cs" Link="Source\SimulationSideEffectBarrier.cs" />
     <Compile Include="..\SquadDash\SimulationSessionManager.cs" Link="Source\SimulationSessionManager.cs" />
+    <Compile Include="..\SquadDash\DetailReviewFixtureSession.cs" Link="Source\DetailReviewFixtureSession.cs" />
     <Compile Include="..\SquadDash\PlanSimulationSurfaceAdapter.cs" Link="Source\PlanSimulationSurfaceAdapter.cs" />
+    <Compile Include="..\SquadDash\SimulationInboxFixtureBuilder.cs" Link="Source\SimulationInboxFixtureBuilder.cs" />
     <Compile Include="..\SquadDash\SimulationPlanFixtureBuilder.cs" Link="Source\SimulationPlanFixtureBuilder.cs" />
     <Compile Include="..\SquadDash\NotesSimulationSurfaceAdapter.cs" Link="Source\NotesSimulationSurfaceAdapter.cs" />
     <Compile Include="..\SquadDash\SimulationNotesFixtureBuilder.cs" Link="Source\SimulationNotesFixtureBuilder.cs" />

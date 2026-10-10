@@ -1004,6 +1004,15 @@
                                           Click="ClearValidationStatesSimulation_Click" />
                             </MenuItem>
                             <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
+                            <MenuItem Header="Reset and open detail fixtures"
+                                      Click="ResetAndOpenDetailFixtures_Click" />
+                            <MenuItem Header="Reopen detail fixtures"
+                                      Click="ReopenDetailFixtures_Click" />
+                            <MenuItem Header="Find in detail fixtures"
+                                      Click="FindInDetailFixtures_Click" />
+                            <MenuItem Header="Clean up detail fixtures"
+                                      Click="CleanUpDetailFixtures_Click" />
+                            <Separator Style="{StaticResource ThemedMenuSeparatorStyle}" />
                             <MenuItem Header="_Clear response-card previews"
                                       Click="ClearPlanResponseCardPreviews_Click" />
                         </MenuItem>
