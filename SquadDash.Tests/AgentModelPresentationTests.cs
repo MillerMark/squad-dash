@@ -1,5 +1,6 @@
 using System.IO;
 using System.Threading;
+using System.Xml.Linq;
 
 namespace SquadDash.Tests;
 
@@ -69,14 +70,60 @@ internal sealed class AgentModelPresentationTests {
         });
     }
 
+    [TestCase("Squad")]
+    [TestCase("@lyra-morn")]
+    [Apartment(ApartmentState.STA)]
+    public void GetOverrideHandle_LeadAgentWithNullThread_ResolvesCoordinator(string cardHandle) {
+        var handle = AgentModelPresentation.GetOverrideHandle(thread: null, agentCardHandle: cardHandle, isLeadAgent: true);
+        Assert.That(handle, Is.EqualTo("coordinator"));
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void GetOverrideHandle_LeadAgentWithAgentThread_ResolvesCoordinator() {
+        var thread = new TranscriptThreadState("lead-thread", TranscriptThreadKind.Agent, "Squad", DateTimeOffset.Now) {
+            RequestedAgentHandle = "squad",
+            AgentCardKey = "Squad"
+        };
+        Assert.That(AgentModelPresentation.GetOverrideHandle(thread, "Squad", isLeadAgent: true),
+            Is.EqualTo("coordinator"));
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void GetOverrideHandle_CoordinatorThreadIgnoresStaleIdentity_ResolvesCoordinator() {
+        var thread = new TranscriptThreadState("coord-thread", TranscriptThreadKind.Coordinator, "Stale Name", DateTimeOffset.Now) {
+            RequestedAgentHandle = "@lyra-morn",
+            AgentCardKey = "lyra-morn",
+            AgentName = "Lyra Morn"
+        };
+
+        var handle = AgentModelPresentation.GetOverrideHandle(thread, agentCardHandle: "rai");
+        Assert.That(handle, Is.EqualTo("coordinator"));
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void GetOverrideHandle_NamedCardWithNullThread_UsesNormalizedCardHandle() {
+        var handle = AgentModelPresentation.GetOverrideHandle(thread: null, agentCardHandle: " @LyRa-MoRn ");
+        Assert.That(handle, Is.EqualTo("lyra-morn"));
+    }
+
+    [TestCase(" @CoOrDiNaToR ", ModelProfileCategory.Coordinator)]
+    [TestCase(" RAI ", ModelProfileCategory.RAI)]
+    [TestCase(" Scribe ", ModelProfileCategory.Scribe)]
+    [TestCase(" RaLpH ", ModelProfileCategory.Ralph)]
+    [TestCase(" Fact-Checker ", ModelProfileCategory.FactChecker)]
+    [TestCase(" @LyRa-MoRn ", ModelProfileCategory.SpawnedNamedAgents)]
+    [Apartment(ApartmentState.STA)]
+    public void GetProfileCategory_NormalizesCoordinatorBuiltinsAndNamedHandles(string handle, string expectedCategory) {
+        var category = AgentModelPresentation.GetProfileCategory(handle);
+        Assert.That(category, Is.EqualTo(expectedCategory));
+    }
+
     [Test]
     public void MainAgentTitleUsesAgentTooltip_NotCoordinatorDefault() {
-        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
-        while (directory is not null &&
-               !File.Exists(Path.Combine(directory.FullName, "SquadDash", "MainWindow.xaml.cs")))
-            directory = directory.Parent;
-        Assert.That(directory, Is.Not.Null);
-        var source = File.ReadAllText(Path.Combine(directory!.FullName, "SquadDash", "MainWindow.xaml.cs"));
+        var source = ReadSource("MainWindow.xaml.cs");
         var start = source.IndexOf("private void UpdateTranscriptThreadBadge(", StringComparison.Ordinal);
         var end = source.IndexOf("private void UpdateTransientTranscriptFooters(", start, StringComparison.Ordinal);
         var method = source[start..end];
@@ -99,7 +146,96 @@ internal sealed class AgentModelPresentationTests {
             Assert.That(tooltip, Does.Contain("ResolveThreadModelProfile(thread, handle, category)"));
             Assert.That(tooltip, Does.Contain("resolution.Profile?.Alias"));
             Assert.That(tooltip, Does.Not.Contain("This run:").And.Not.Contain("Next launch:"));
-            Assert.That(source, Does.Contain("AgentModelPresentation.GetOverrideHandle(thread, agent?.AccentStorageKey)"));
+            Assert.That(source, Does.Contain("AgentModelPresentation.GetOverrideHandle(thread, agent?.AccentStorageKey, agent?.IsLeadAgent == true)"));
         });
+    }
+
+    [Test]
+    public void PrimaryTitleModelOverrideMenu_TargetsDisplayedThreadThroughSharedFactory() {
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var title = XDocument.Parse(ReadSource("MainWindow.xaml")).Descendants()
+            .Single(element => (string?)element.Attribute(x + "Name") == "TranscriptTitleTextBlock");
+        var source = ReadSource("MainWindow.xaml.cs");
+        var handler = SourceRegion(source,
+            "private void TranscriptTitleTextBlock_PreviewMouseRightButtonUp(",
+            "private ContextMenu? CreateAgentModelOverrideContextMenu(");
+        var factory = SourceRegion(source,
+            "private ContextMenu? CreateAgentModelOverrideContextMenu(", "private void OpenAgentModelOverrideDialog(");
+        var accentMenu = SourceRegion(source,
+            "private ContextMenu CreateAgentAccentContextMenu(", "// Model Override");
+        var accentOverride = SourceRegion(source,
+            "// Model Override", "if (primaryThread is not null &&");
+
+        Assert.Multiple(() => {
+            Assert.That((string?)title.Attribute("PreviewMouseRightButtonUp"),
+                Is.EqualTo("TranscriptTitleTextBlock_PreviewMouseRightButtonUp"));
+            Assert.That(handler, Does.Contain("_pendingPrimaryTranscriptVisualThread ?? _selectedTranscriptThread ?? CoordinatorThread"));
+            Assert.That(handler, Does.Contain("thread.Kind == TranscriptThreadKind.Coordinator ? _leadAgent : FindAgentCardForThread(thread)"));
+            Assert.That(handler, Does.Contain("CreateAgentModelOverrideContextMenu(agent, thread)"));
+            Assert.That(handler, Does.Contain("menu.PlacementTarget = TranscriptTitleTextBlock"));
+            Assert.That(handler, Does.Contain("menu.IsOpen = true"));
+            Assert.That(factory, Does.Contain("GetThreadModelOverrideHandle(thread, agent)"));
+            Assert.That(factory, Does.Contain("MakeItem(\"Model Override\\u2026\")"));
+            Assert.That(factory, Does.Contain("OpenAgentModelOverrideDialog(thread, handle, agent)"));
+            Assert.That(accentMenu, Does.Contain("GetPrimaryThread(agentCard)"));
+            Assert.That(accentOverride, Does.Contain("GetThreadModelOverrideHandle(primaryThread, agentCard)"));
+            Assert.That(accentOverride, Does.Contain("OpenAgentModelOverrideDialog(primaryThread, overrideHandle, agentCard)"));
+        });
+    }
+
+    [Test]
+    public void CoordinatorDialogTooltipAndSdk_UseCoordinatorCategoryAndPersistedOverride() {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var dialog = SourceRegion(source,
+            "private void OpenAgentModelOverrideDialog(", "private string? ResolveEffectiveProfileAliasWithoutOverride(");
+        var effective = SourceRegion(source,
+            "private string? ResolveEffectiveProfileAliasWithoutOverride(", "private string? ResolveRouteProfileAlias(");
+        var category = SourceRegion(source,
+            "private static string ResolveNamedAgentProfileCategory(", "private static string? StripUrlScheme(");
+        var tooltip = SourceRegion(source,
+            "private string BuildCoordinatorTooltipText(", "private void TranscriptTitleTextBlock_PreviewMouseRightButtonUp(");
+        var active = SourceRegion(source,
+            "private ModelProfile? ResolveActiveProfile(", "private Plan? ResolveLatestPendingRevisionPreview(");
+        var apply = SourceRegion(source,
+            "private bool ApplyBridgeModelSettings(", "private void RestartBridgeForSettingsWhenIdle(");
+        var request = SourceRegion(ReadSource("SquadSdkProcess.cs"),
+            "private async Task RunPromptOnceAsync(", "private async Task RunBridgeRequestOnceAsync");
+
+        Assert.Multiple(() => {
+            Assert.That(dialog, Does.Contain("ResolveEffectiveProfileAliasWithoutOverride(agentHandle)"));
+            Assert.That(dialog, Does.Contain("if (agentHandle == \"coordinator\")"));
+            Assert.That(dialog, Does.Contain("ApplyBridgeModelSettings(_settingsStore.Load(), \"coordinator-model-override\")"));
+            Assert.That(dialog, Does.Contain("else").And.Contain("RefreshBridgeNamedAgentRoutes()"));
+            Assert.That(effective, Does.Contain("ResolveNamedAgentProfileCategory(agentHandle)"));
+            Assert.That(effective, Does.Contain("ModelProfileResolver.ResolveWithReason(profiles, assignments, null, category)"));
+            Assert.That(category, Does.Contain("AgentModelPresentation.GetProfileCategory(handle)"));
+            Assert.That(tooltip, Does.Contain("ResolveThreadModelProfile(CoordinatorThread, \"coordinator\", ModelProfileCategory.Coordinator)"));
+            Assert.That(tooltip, Does.Not.Contain("GetDefaultProfile()"));
+            Assert.That(active, Does.Contain("agentHandle: \"coordinator\""));
+            Assert.That(active, Does.Contain("agentCategory: ModelProfileCategory.Coordinator"));
+            Assert.That(active, Does.Contain("agentOverrides: profileStore.GetAgentOverrides()"));
+            Assert.That(apply, Does.Contain("currentActiveProfile = ResolveActiveProfile(snapshot)"));
+            Assert.That(apply, Does.Contain("_bridge.ActiveProfile = currentActiveProfile"));
+            Assert.That(apply, Does.Contain("DetachCurrentSessionForModelSettingsChange(reason)"));
+            Assert.That(apply, Does.Contain("RestartBridgeForSettingsWhenIdle(reason)"));
+            Assert.That(request, Does.Contain("Model: ResolveRequestModel(ActiveProfile?.Model ?? CopilotDefaultModel)"));
+            Assert.That(request, Does.Contain("ProfileId: ActiveProfile?.Id"));
+        });
+    }
+
+    private static string SourceRegion(string source, string startMarker, string endMarker) {
+        var start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0), startMarker);
+        var end = source.IndexOf(endMarker, start, StringComparison.Ordinal);
+        Assert.That(end, Is.GreaterThan(start), endMarker);
+        return source[start..end];
+    }
+
+    private static string ReadSource(string name) {
+        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "SquadDash", name)))
+            directory = directory.Parent;
+        Assert.That(directory, Is.Not.Null);
+        return File.ReadAllText(Path.Combine(directory!.FullName, "SquadDash", name));
     }
 }

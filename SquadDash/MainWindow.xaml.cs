@@ -30975,9 +30975,7 @@ public partial class MainWindow : Window
             menu.Items.Add(openCharterItem);
 
         // Model Override — immediately after Open Charter, before the section separator
-        var overrideHandle = primaryThread is not null
-            ? GetThreadModelOverrideHandle(primaryThread, agentCard)
-            : NormalizeQuickReplyAgentHandle(agentCard.AccentStorageKey);
+        var overrideHandle = GetThreadModelOverrideHandle(primaryThread, agentCard);
         if (!string.IsNullOrWhiteSpace(overrideHandle))
         {
             var modelOverrideItem = MakeItem("Model Override\u2026");
@@ -43404,17 +43402,41 @@ public partial class MainWindow : Window
             sb.AppendLine();
             sb.Append(relativeTime);
         }
-        var coordinatorAlias = _modelProfileStore.GetDefaultProfile()?.Alias;
+        var resolution = ResolveThreadModelProfile(CoordinatorThread, "coordinator", ModelProfileCategory.Coordinator);
+        var coordinatorAlias = resolution.Profile?.Alias;
         if (!string.IsNullOrEmpty(coordinatorAlias))
         {
             sb.AppendLine();
             sb.AppendLine();
             sb.Append($"Using: {coordinatorAlias}");
+            if (resolution.Reason == ModelProfileResolutionReason.Override)
+                sb.Append(" (override)");
         }
         return sb.ToString();
     }
 
-    private ContextMenu? CreateAgentModelOverrideContextMenu(AgentStatusCard agent, TranscriptThreadState thread)
+    private void TranscriptTitleTextBlock_PreviewMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            var thread = _pendingPrimaryTranscriptVisualThread ?? _selectedTranscriptThread ?? CoordinatorThread;
+            var agent = thread.Kind == TranscriptThreadKind.Coordinator ? _leadAgent : FindAgentCardForThread(thread);
+            var menu = CreateAgentModelOverrideContextMenu(agent, thread);
+            if (menu is null)
+                return;
+
+            menu.PlacementTarget = TranscriptTitleTextBlock;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(TranscriptTitleTextBlock_PreviewMouseRightButtonUp), ex);
+        }
+    }
+
+    private ContextMenu? CreateAgentModelOverrideContextMenu(AgentStatusCard? agent, TranscriptThreadState thread)
     {
         var handle = GetThreadModelOverrideHandle(thread, agent);
         if (string.IsNullOrWhiteSpace(handle))
@@ -43442,7 +43464,10 @@ public partial class MainWindow : Window
 
         if (dialog.ShowDialog() == true)
         {
-            RefreshBridgeNamedAgentRoutes();
+            if (agentHandle == "coordinator")
+                ApplyBridgeModelSettings(_settingsStore.Load(), "coordinator-model-override");
+            else
+                RefreshBridgeNamedAgentRoutes();
             if (thread is not null)
             {
                 RefreshSecondaryTranscriptTitle(thread);
@@ -43476,8 +43501,8 @@ public partial class MainWindow : Window
             ?.ProfileAlias;
     }
 
-    private static string? GetThreadModelOverrideHandle(TranscriptThreadState thread, AgentStatusCard? agent) =>
-        AgentModelPresentation.GetOverrideHandle(thread, agent?.AccentStorageKey);
+    private static string? GetThreadModelOverrideHandle(TranscriptThreadState? thread, AgentStatusCard? agent) =>
+        AgentModelPresentation.GetOverrideHandle(thread, agent?.AccentStorageKey, agent?.IsLeadAgent == true);
 
     private static string? GetThreadModelProfileCategory(TranscriptThreadState thread, string? handle)
     {
@@ -49242,14 +49267,8 @@ public partial class MainWindow : Window
         return routes;
     }
 
-    private static string ResolveNamedAgentProfileCategory(string handle) => handle.ToLowerInvariant() switch
-    {
-        "rai" => ModelProfileCategory.RAI,
-        "scribe" => ModelProfileCategory.Scribe,
-        "ralph" => ModelProfileCategory.Ralph,
-        "fact-checker" => ModelProfileCategory.FactChecker,
-        _ => ModelProfileCategory.SpawnedNamedAgents
-    };
+    private static string ResolveNamedAgentProfileCategory(string handle) =>
+        AgentModelPresentation.GetProfileCategory(handle);
 
     private static string? StripUrlScheme(string? url)
     {
@@ -52871,8 +52890,9 @@ public partial class MainWindow : Window
         return ModelProfileResolver.Resolve(
             profiles,
             assignments,
-            perAgentOverrideProfileId: null,
-            agentCategory: ModelProfileCategory.Coordinator);
+            agentHandle: "coordinator",
+            agentCategory: ModelProfileCategory.Coordinator,
+            agentOverrides: profileStore.GetAgentOverrides());
     }
 
     private Plan? ResolveLatestPendingRevisionPreview(

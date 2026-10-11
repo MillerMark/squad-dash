@@ -796,6 +796,7 @@ internal sealed class TranscriptTitleSpinnerTests
         row.Elements().Where(element => (string?)element.Attribute(x + "Name") is not
             ("TranscriptTitleSpinner" or "TranscriptTitleTextBlock")).Remove();
         row.Descendants().Attributes("IsVisibleChanged").Remove();
+        row.Descendants().Attributes("PreviewMouseRightButtonUp").Remove();
         // Load the production XAML against the linked production types in the test assembly.
         XNamespace testLocal = $"clr-namespace:SquadDash;assembly={typeof(ActivitySpinner).Assembly.GetName().Name}";
         row.SetAttributeValue("xmlns", row.Name.NamespaceName);

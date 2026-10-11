@@ -2926,6 +2926,7 @@
                                            VerticalAlignment="Center" />
                     <TextBlock x:Name="TranscriptTitleTextBlock"
                                DockPanel.Dock="Left"
+                               PreviewMouseRightButtonUp="TranscriptTitleTextBlock_PreviewMouseRightButtonUp"
                                HorizontalAlignment="Left"
                                VerticalAlignment="Center"
                                Text="Transcript"

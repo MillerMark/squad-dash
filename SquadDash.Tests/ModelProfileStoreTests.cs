@@ -264,6 +264,109 @@ internal sealed class ModelProfileStoreTests {
     }
 
     [Test]
+    public void CoordinatorAndNamedOverrides_SaveReloadClear_PersistsAndStaysIsolated() {
+        using var workspace = new TestWorkspace();
+        var settingsPath = workspace.GetPath("settings", "settings.json");
+        var store = new ApplicationSettingsStore(settingsPath);
+        var profileStore = new ModelProfileStore(store);
+        var copilot = new ModelProfile("copilot", "Copilot", "copilot", null, "coordinator-model", null, IsDefault: true);
+        var astra = new ModelProfile("astra", "GPT 6 Astra", "copilot", null, "gpt-6-astra", null);
+        profileStore.SaveProfiles([copilot, astra]);
+        profileStore.SaveCategoryAssignments(new Dictionary<string, string> {
+            [ModelProfileCategory.Coordinator] = copilot.Id,
+            [ModelProfileCategory.SpawnedNamedAgents] = astra.Id
+        });
+        var handle = AgentModelPresentation.GetOverrideHandle(null, "Squad", isLeadAgent: true)!;
+        profileStore.SaveAgentOverride(handle, astra.Id);
+        profileStore.SaveAgentOverride("lyra-morn", copilot.Id);
+
+        var reloaded = new ModelProfileStore(new ApplicationSettingsStore(settingsPath));
+        var resolution = ModelProfileResolver.ResolveWithReason(
+            reloaded.GetProfiles(), reloaded.GetCategoryAssignments(), handle,
+            AgentModelPresentation.GetProfileCategory(handle), reloaded.GetAgentOverrides());
+        Assert.Multiple(() => {
+            Assert.That(handle, Is.EqualTo("coordinator"));
+            Assert.That(reloaded.GetAgentOverrides()["coordinator"], Is.EqualTo(astra.Id));
+            Assert.That(reloaded.GetAgentOverrides().ContainsKey("squad"), Is.False);
+            Assert.That(reloaded.GetAgentOverrides()["lyra-morn"], Is.EqualTo(copilot.Id));
+            Assert.That(resolution.Profile?.Model, Is.EqualTo(astra.Model));
+            Assert.That(resolution.Reason, Is.EqualTo(ModelProfileResolutionReason.Override));
+        });
+
+        reloaded.ClearAgentOverride(handle);
+
+        var afterClear = new ModelProfileStore(new ApplicationSettingsStore(settingsPath));
+        resolution = ModelProfileResolver.ResolveWithReason(
+            afterClear.GetProfiles(), afterClear.GetCategoryAssignments(), handle,
+            AgentModelPresentation.GetProfileCategory(handle), afterClear.GetAgentOverrides());
+        var named = ModelProfileResolver.ResolveWithReason(
+            afterClear.GetProfiles(), afterClear.GetCategoryAssignments(), "lyra-morn",
+            ModelProfileCategory.SpawnedNamedAgents, afterClear.GetAgentOverrides());
+        Assert.Multiple(() => {
+            Assert.That(afterClear.GetAgentOverrides().ContainsKey("coordinator"), Is.False);
+            Assert.That(resolution.Profile?.Alias, Is.EqualTo("Copilot"));
+            Assert.That(resolution.Reason, Is.EqualTo(ModelProfileResolutionReason.CategoryAssignment));
+            Assert.That(named.Profile?.Id, Is.EqualTo(copilot.Id));
+            Assert.That(named.Reason, Is.EqualTo(ModelProfileResolutionReason.Override));
+        });
+    }
+
+    [Test]
+    public void Resolver_UsesCoordinatorAssignmentAndSpawnedAssignment_WhenNoOverrides() {
+        var copilot = new ModelProfile("copilot", "Copilot Coordinator", "copilot", null, "coordinator-model", null);
+        var astra = new ModelProfile("astra", "GPT 6 Astra", "copilot", null, "gpt-6-astra", null, IsDefault: true);
+        var profiles = new[] { copilot, astra };
+        var assignments = new Dictionary<string, string> {
+            [ModelProfileCategory.Coordinator] = copilot.Id,
+            [ModelProfileCategory.SpawnedNamedAgents] = astra.Id
+        };
+
+        var coordinator = ModelProfileResolver.ResolveWithReason(
+            profiles,
+            assignments,
+            agentHandle: "coordinator",
+            agentCategory: ModelProfileCategory.Coordinator,
+            agentOverrides: new Dictionary<string, string>());
+        var spawned = ModelProfileResolver.ResolveWithReason(
+            profiles,
+            assignments,
+            agentHandle: "lyra-morn",
+            agentCategory: ModelProfileCategory.SpawnedNamedAgents,
+            agentOverrides: new Dictionary<string, string>());
+
+        Assert.Multiple(() => {
+            Assert.That(coordinator.Profile?.Alias, Is.EqualTo(copilot.Alias));
+            Assert.That(coordinator.Reason, Is.EqualTo(ModelProfileResolutionReason.CategoryAssignment));
+            Assert.That(spawned.Profile?.Alias, Is.EqualTo(astra.Alias));
+            Assert.That(spawned.Reason, Is.EqualTo(ModelProfileResolutionReason.CategoryAssignment));
+        });
+    }
+
+    [TestCase("coordinator", ModelProfileCategory.Coordinator, ModelProfileCategory.SpawnedNamedAgents)]
+    [TestCase("lyra-morn", ModelProfileCategory.SpawnedNamedAgents, ModelProfileCategory.Coordinator)]
+    public void Resolver_FallsBackToDefault_WhenOwnCategoryAssignmentMissing(
+        string handle, string category, string otherCategory) {
+        var copilot = new ModelProfile("copilot", "Copilot Coordinator", "copilot", null, "coordinator-model", null, IsDefault: true);
+        var astra = new ModelProfile("astra", "GPT 6 Astra", "copilot", null, "gpt-6-astra", null);
+        var profiles = new[] { copilot, astra };
+        var assignments = new Dictionary<string, string> {
+            [otherCategory] = astra.Id
+        };
+
+        var spawned = ModelProfileResolver.ResolveWithReason(
+            profiles,
+            assignments,
+            agentHandle: handle,
+            agentCategory: category,
+            agentOverrides: new Dictionary<string, string>());
+
+        Assert.Multiple(() => {
+            Assert.That(spawned.Profile?.Alias, Is.EqualTo(copilot.Alias));
+            Assert.That(spawned.Reason, Is.EqualTo(ModelProfileResolutionReason.Default));
+        });
+    }
+
+    [Test]
     public void LegacyMigration_AnthropicProvider_ProducesAnthropicProfile() {
         using var workspace = new TestWorkspace();
         var settingsPath = workspace.GetPath("settings", "settings.json");
