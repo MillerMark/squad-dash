@@ -108,8 +108,9 @@ internal sealed record DecomposedAgentAssignment(
     [property: JsonPropertyName("allowGenericChildren")]
                                                   bool AllowGenericChildren = true);
 
+[JsonConverter(typeof(DecomposedSubTaskJsonConverter))]
 internal sealed record DecomposedSubTask(
-    [property: JsonPropertyName("id")]          string Id,
+    [property: JsonPropertyName("taskId")]      string Id,
     [property: JsonPropertyName("description")] string Description,
     [property: JsonPropertyName("dependsOn")]   IReadOnlyList<string> DependsOn,
     [property: JsonPropertyName("priority")]    string Priority,

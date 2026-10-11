@@ -28,9 +28,11 @@ internal static class StagedPlanRevisionProposalParser
             return false;
         }
         if (!StructuredJsonBlockParser.TryExtractObject<StagedPlanRevisionProposalPayload>(
-                text, Marker, out var extraction) || extraction is null)
+                text, Marker, out var extraction, out var parseError) || extraction is null)
         {
-            error = "The STAGED_PLAN_REVISION_JSON object was missing or was not valid JSON.";
+            error = string.IsNullOrWhiteSpace(parseError)
+                ? "The STAGED_PLAN_REVISION_JSON object was missing or was not valid JSON."
+                : $"The STAGED_PLAN_REVISION_JSON object was invalid: {parseError}";
             return false;
         }
 
@@ -50,6 +52,13 @@ internal static class StagedPlanRevisionProposalParser
         if (payload.Operations.Any(operation => operation is null))
         {
             error = "operations cannot contain null entries.";
+            return false;
+        }
+        if (payload.Operations.FirstOrDefault(operation =>
+                string.Equals(operation.Op?.Trim(), "addTask", StringComparison.Ordinal) &&
+                operation.Task is not null && string.IsNullOrWhiteSpace(operation.Task.Id)) is not null)
+        {
+            error = "addTask.task.taskId is required. Use taskId for new tasks; legacy id is accepted only for compatibility.";
             return false;
         }
         if (payload.Operations.Any(operation =>
@@ -109,7 +118,8 @@ internal static class StagedPlanRevisionProposalParser
             operations require a target and a patch containing only changed fields. Text-edit operations
             require path, non-empty oldText that occurs exactly once, and
             newText; prefer them over replacing a long description or assertion array. Add operations require the complete task,
-            approvalGate, or validation. Remove operations require targetId. Keep groupId and
+            approvalGate, or validation. New tasks must use taskId as their identifier; do not emit id.
+            Remove operations require targetId. Keep groupId and
             baseRevision unchanged and do not use reopenTask.
             """;
     }

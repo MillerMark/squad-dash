@@ -261,9 +261,11 @@ internal static class PlanRevisionApplier
         var merged = projected.Select(gate =>
         {
             var current = existing.FirstOrDefault(candidate => string.Equals(candidate.GateId, gate.GateId, StringComparison.Ordinal));
-            if (gate.AfterTaskIds.Any(reopenedTaskIds.Contains))
+            if (current is null ||
+                !SameGateDefinition(current, gate) ||
+                gate.AfterTaskIds.Any(reopenedTaskIds.Contains))
                 return gate;
-            return current is not null && current.Status != PlanGateStatus.Pending ? current : gate;
+            return current.Status != PlanGateStatus.Pending ? current : gate;
         }).ToList();
         merged.AddRange(existing.Where(gate =>
             gate.Status != PlanGateStatus.Pending &&
@@ -281,9 +283,11 @@ internal static class PlanRevisionApplier
         var merged = projected.Select(node =>
         {
             var current = existing.FirstOrDefault(candidate => string.Equals(candidate.ValidationId, node.ValidationId, StringComparison.Ordinal));
-            if (node.AfterTaskIds.Any(reopenedTaskIds.Contains))
+            if (current is null ||
+                !SameValidationDefinition(current, node) ||
+                node.AfterTaskIds.Any(reopenedTaskIds.Contains))
                 return node;
-            return current is not null && current.Status != PlanValidationStatus.Pending ? current : node;
+            return current.Status != PlanValidationStatus.Pending ? current : node;
         }).ToList();
         merged.AddRange(existing.Where(node =>
             node.Status != PlanValidationStatus.Pending &&
@@ -291,6 +295,27 @@ internal static class PlanRevisionApplier
             !node.AfterTaskIds.Any(reopenedTaskIds.Contains)));
         return merged;
     }
+
+    private static bool SameGateDefinition(PlanApprovalGate left, PlanApprovalGate right) =>
+        string.Equals(left.Message, right.Message, StringComparison.Ordinal) &&
+        Same(left.AfterTaskIds, right.AfterTaskIds) &&
+        Same(left.BeforeTaskIds, right.BeforeTaskIds) &&
+        Same(left.ProofRequirements, right.ProofRequirements) &&
+        left.AfterTaskIdsSpecified == right.AfterTaskIdsSpecified &&
+        left.BeforeTaskIdsSpecified == right.BeforeTaskIdsSpecified &&
+        string.Equals(left.Question, right.Question, StringComparison.Ordinal) &&
+        string.Equals(left.PresentationAnchor, right.PresentationAnchor, StringComparison.Ordinal);
+
+    private static bool SameValidationDefinition(PlanValidationNode left, PlanValidationNode right) =>
+        string.Equals(left.Title, right.Title, StringComparison.Ordinal) &&
+        string.Equals(left.Description, right.Description, StringComparison.Ordinal) &&
+        Same(left.AfterTaskIds, right.AfterTaskIds) &&
+        Same(left.BeforeTaskIds, right.BeforeTaskIds) &&
+        Same(left.Assertions, right.Assertions) &&
+        Same(left.OutputIds, right.OutputIds) &&
+        string.Equals(left.Mode, right.Mode, StringComparison.Ordinal) &&
+        Same(left.Commands, right.Commands) &&
+        left.RevalidateAtCompletion == right.RevalidateAtCompletion;
 
     private static bool Same<T>(T left, T right) =>
         string.Equals(JsonSerializer.Serialize(left, JsonOptions), JsonSerializer.Serialize(right, JsonOptions), StringComparison.Ordinal);

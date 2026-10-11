@@ -30,7 +30,7 @@ one turn. Preserve the human approval boundary — do **not** implement in the s
 
 Emit `TASKS_JSON:` followed by one JSON object containing `groupId`, `groupTitle`, `branch`,
 `summary`, and 1–25 `tasks`. It may also contain optional `approvalGates`, `validations`, and
-`delivery` fields. Each task contains `id`, `title`, `description`, `dependsOn`, `priority`, an explicit
+`delivery` fields. Each task contains `taskId`, `title`, `description`, `dependsOn`, `priority`, an explicit
 `agentRoutingMode`, an explicit `executionMode` (`implementation` or `verification`), and an optional
 `verificationLevel` (`lightweight`, `standard`, or `enhanced`).
 Choose a useful new-branch name in `branch`. Each task must leave the build usable, and every
@@ -222,7 +222,7 @@ not required. Use the exact property names below; do not substitute familiar sho
 - `delivery`: optional; use `"inbox"` only when the user explicitly asks for the plan to be sent
   to their Inbox. Otherwise omit it or use `"transcript"`.
 - `tasks`: required array containing 1–25 task objects.
-- `tasks[].id`: exactly `{groupId}-NNN`, with a three-digit suffix.
+- `tasks[].taskId`: exactly `{groupId}-NNN`, with a three-digit suffix.
 - `tasks[].title`: concise, action-oriented, human-readable task name. Do not use only a phase
   number or repeat the task ID; for example, use `Extract WorkspaceFileWatcherCoordinator`, not
   `Phase 1A`.
@@ -554,7 +554,7 @@ TASKS_JSON:
   "delivery": "transcript",
   "tasks": [
     {
-      "id": "SEARCH-20260725-001",
+      "taskId": "SEARCH-20260725-001",
       "title": "Introduce the search index abstraction",
       "description": "Introduce ISearchIndex and InMemorySearchIndex so that document indexing has a testable seam.\n\n## Observable outcome\n\nUnit tests pass proving the in-memory implementation indexes and queries documents.\n\n## Consumers\n\nTask 002 will call ISearchIndex from the existing indexing path.",
       "dependsOn": [],
@@ -565,7 +565,7 @@ TASKS_JSON:
       "genericAgentReason": "No active roster specialist covers the new search abstraction."
     },
     {
-      "id": "SEARCH-20260725-002",
+      "taskId": "SEARCH-20260725-002",
       "title": "Move document indexing behind ISearchIndex",
       "description": "Replace the direct indexing call in DocumentIndexer.IndexAll with ISearchIndex.Add, and add integration tests proving existing indexing behavior is preserved.\n\n## Observable outcome\n\nThe integration test suite passes and DocumentIndexer no longer references the old IndexWriter directly.\n\n## Consumers\n\nSearchPanel.Query, wired in task 003, will read from ISearchIndex.",
       "contractExamples": [
@@ -586,7 +586,7 @@ TASKS_JSON:
       "genericAgentReason": "No active roster specialist covers search indexing."
     },
     {
-      "id": "SEARCH-20260725-003",
+      "taskId": "SEARCH-20260725-003",
       "title": "Migrate the search UI to ISearchIndex",
       "description": "Update SearchPanel to call ISearchIndex.Query, remove the superseded direct indexing path, and add or update the focused SearchIntegration coverage in the same task.\n\n## Observable outcome\n\nTyping a query in the search panel returns matching documents from the ISearchIndex-backed path, proven by `dotnet test --filter SearchIntegration` exercising SearchPanel → ISearchIndex → InMemorySearchIndex → document results.\n\n## Consumers\n\nThe production search panel and its focused integration coverage consume the completed path.",
       "dependsOn": ["SEARCH-20260725-002"],
@@ -675,6 +675,16 @@ For a targeted correction, emit one compact delta instead of repeating the compl
         "mode": "audit",
         "revalidateAtCompletion": true
       }
+    },
+    {
+      "op": "addTask",
+      "task": {
+        "taskId": "GROUP-YYYYMMDD-004",
+        "title": "Add the follow-up capability",
+        "description": "Complete task contract required for an add operation.",
+        "dependsOn": ["GROUP-YYYYMMDD-003"],
+        "priority": "high"
+      }
     }
   ]
 }
@@ -686,7 +696,8 @@ Allowed operations are `updatePlan`, `editPlanText`, `updateTask`, `editTaskText
 `removeValidation`. Update operations require `targetId` except
 `updatePlan`, plus a `patch` containing only changed fields. Array-valued fields in a patch replace
 the complete array; they are not appended. Add operations require one complete `task`,
-`approvalGate`, or `validation` object. Remove operations require `targetId`. Do not use
+`approvalGate`, or `validation` object. A new task uses `taskId` as its identifier; do not emit `id`.
+Remove operations require `targetId`. Do not use
 `reopenTask`: an unapproved proposal has no execution history to reopen.
 
 For an existing outlined entity, use its short revision-local `targetRef` (`T1`, `T2`, `G1`,

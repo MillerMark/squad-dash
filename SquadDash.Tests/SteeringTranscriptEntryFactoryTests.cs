@@ -10,6 +10,24 @@ internal sealed class SteeringTranscriptEntryFactoryTests
     private static readonly DateTimeOffset Now =
         new(2026, 10, 7, 14, 30, 0, TimeSpan.Zero);
 
+    [Test]
+    public void ProviderPrompt_AddsExactVisibleAcknowledgementInstructionWithoutChangingUserPrompt()
+    {
+        const string userPrompt = "Use the Azure adapter and retain the existing tests.";
+
+        var providerPrompt = SteeringPromptBuilder.AddVisibleAcknowledgementInstruction(userPrompt);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(providerPrompt, Does.StartWith(userPrompt + "\n\n"));
+            Assert.That(providerPrompt, Does.Contain(
+                "At your next model opportunity, write a brief visible response to the user—not internal reasoning—" +
+                "acknowledging this steering and explaining in one or two sentences how it will affect your approach, " +
+                "then continue working. If the steering does not change your approach, briefly explain why in that visible response."));
+            Assert.That(providerPrompt, Does.EndWith("</SquadDash steering acknowledgement instruction>"));
+        });
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void Append_WhenTurnFinalizesDuringAcknowledgement_AppendsToCapturedTargetOnly()
     {

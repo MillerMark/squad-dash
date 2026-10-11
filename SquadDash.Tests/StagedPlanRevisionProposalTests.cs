@@ -34,6 +34,75 @@ internal sealed class StagedPlanRevisionProposalTests
         });
     }
 
+    [Test]
+    public void Parser_AcceptsLegacyAddedTaskIdAlias()
+    {
+        var pending = MakePending();
+        var text = $$$"""
+            STAGED_PLAN_REVISION_JSON:
+            {
+              "groupId": "{{{pending.Group.GroupId}}}",
+              "baseRevision": "{{{pending.Revision}}}",
+              "summary": "Add a follow-up task",
+              "operations": [{
+                "op": "addTask",
+                "task": {
+                  "id": "{{{Id("005")}}}",
+                  "title": "Follow up",
+                  "description": "Complete the follow-up work.",
+                  "dependsOn": [],
+                  "priority": "high"
+                }
+              }]
+            }
+            """;
+
+        var parsed = StagedPlanRevisionProposalParser.TryParse(text, out var proposal, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(proposal!.Operations.Single().Task!.Id, Is.EqualTo(Id("005")));
+        });
+    }
+
+    [Test]
+    public void ParserAndApplier_AcceptMultipleCanonicalAddedTaskIds()
+    {
+        var pending = MakePending();
+        var text = $$$"""
+            STAGED_PLAN_REVISION_JSON:
+            {
+              "groupId": "{{{pending.Group.GroupId}}}",
+              "baseRevision": "{{{pending.Revision}}}",
+              "summary": "Add two follow-up tasks",
+              "operations": [
+                { "op": "addTask", "task": {
+                  "taskId": "{{{Id("005")}}}", "title": "First follow-up",
+                  "description": "Complete the first follow-up.", "dependsOn": [], "priority": "high"
+                }},
+                { "op": "addTask", "task": {
+                  "taskId": "{{{Id("006")}}}", "title": "Second follow-up",
+                  "description": "Complete the second follow-up.", "dependsOn": ["{{{Id("005")}}}"], "priority": "high"
+                }}
+              ]
+            }
+            """;
+
+        var parsed = StagedPlanRevisionProposalParser.TryParse(text, out var proposal, out var error);
+        var result = parsed
+            ? StagedPlanRevisionApplier.Apply(pending, proposal!)
+            : new StagedPlanRevisionResult(StagedPlanRevisionOutcome.Invalid, Error: error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Applied), result.Error);
+            Assert.That(result.RevisedGroup!.Tasks.Select(task => task.Id),
+                Does.Contain(Id("005")).And.Contain(Id("006")));
+        });
+    }
+
     [TestCase("")]
     [TestCase("STAGED_PLAN_REVISION_JSON: {}")]
     public void Parser_RejectsMissingRequiredContent(string text)

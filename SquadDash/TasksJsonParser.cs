@@ -194,7 +194,7 @@ internal static class TasksJsonParser
         {
             if (string.IsNullOrWhiteSpace(task.Id))
             {
-                return Fail("missing-task-id", "a task has a null or empty id");
+                return Fail("missing-task-id", "a task has a null or empty taskId");
             }
 
             var m = TaskIdPattern.Match(task.Id);

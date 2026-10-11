@@ -112,6 +112,93 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void Apply_ChangedApprovedGateDefinition_ResetsItToPending()
+    {
+        var plan = MakePlanWithTerminalGateAndValidation();
+        var source = PendingDecomposePlanAdapter.FromPlan(plan).Group;
+        var proposal = source with
+        {
+            ApprovalGates = source.ApprovalGates!.Select(gate => gate with
+            {
+                Message = "Review the revised production boundary",
+                BeforeTaskIds = ["REVISION-20260806-003"],
+            }).ToArray(),
+        };
+
+        var result = PlanRevisionApplier.Apply(plan, proposal, plan.Revision, DateTimeOffset.UtcNow);
+        var revised = result.UpdatedPlan!.ApprovalGates.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied), result.Error);
+            Assert.That(revised.Message, Is.EqualTo("Review the revised production boundary"));
+            Assert.That(revised.Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(revised.ResolvedAt, Is.Null);
+            Assert.That(revised.ResolvedBy, Is.Null);
+            Assert.That(revised.ResolutionNote, Is.Null);
+        });
+    }
+
+    [Test]
+    public void Apply_ChangedFailedValidationDefinition_ResetsItToPending()
+    {
+        var plan = MakePlanWithTerminalGateAndValidation();
+        var source = PendingDecomposePlanAdapter.FromPlan(plan).Group;
+        var proposal = source with
+        {
+            Validations = source.Validations!.Select(validation => validation with
+            {
+                Title = "Revised production and commissioning boundary",
+                AfterTaskIds = ["REVISION-20260806-001", "REVISION-20260806-002"],
+            }).ToArray(),
+        };
+
+        var result = PlanRevisionApplier.Apply(plan, proposal, plan.Revision, DateTimeOffset.UtcNow);
+        var revised = result.UpdatedPlan!.Validations!.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied), result.Error);
+            Assert.That(revised.Title, Is.EqualTo("Revised production and commissioning boundary"));
+            Assert.That(revised.Status, Is.EqualTo(PlanValidationStatus.Pending));
+            Assert.That(revised.StartedAt, Is.Null);
+            Assert.That(revised.CompletedAt, Is.Null);
+            Assert.That(revised.ValidatedCommit, Is.Null);
+            Assert.That(revised.Summary, Is.Null);
+            Assert.That(revised.Evidence, Is.Null);
+        });
+    }
+
+    [Test]
+    public void Apply_UnchangedTerminalGateAndValidation_PreservesTheirRuntimeHistory()
+    {
+        var plan = MakePlanWithTerminalGateAndValidation();
+        var source = PendingDecomposePlanAdapter.FromPlan(plan).Group;
+        var proposal = source with
+        {
+            Tasks = source.Tasks.Select(task => task.Id.EndsWith("003", StringComparison.Ordinal)
+                ? task with { Description = "Revised downstream implementation" }
+                : task).ToArray(),
+        };
+
+        var result = PlanRevisionApplier.Apply(plan, proposal, plan.Revision, DateTimeOffset.UtcNow);
+        var gate = result.UpdatedPlan!.ApprovalGates.Single();
+        var validation = result.UpdatedPlan.Validations!.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied), result.Error);
+            Assert.That(gate.Status, Is.EqualTo(PlanGateStatus.Approved));
+            Assert.That(gate.ResolvedBy, Is.EqualTo("Mark"));
+            Assert.That(gate.ResolutionNote, Is.EqualTo("Approved original boundary"));
+            Assert.That(validation.Status, Is.EqualTo(PlanValidationStatus.Failed));
+            Assert.That(validation.ValidatedCommit, Is.EqualTo("abc123"));
+            Assert.That(validation.Summary, Is.EqualTo("Original validation failed"));
+            Assert.That(validation.Evidence, Is.EqualTo(new[] { "original evidence" }));
+        });
+    }
+
+    [Test]
     public void Apply_AfterExecutionStarts_PreservesExistingLabelsAndOrigins()
     {
         var original = MakePlan();
@@ -464,6 +551,113 @@ internal sealed class PlanRevisionWorkflowTests
             Assert.That(proposal.Operations![0].Op, Is.EqualTo("reopenTask"));
             Assert.That(proposal.Operations[0].TargetId, Is.EqualTo("REVISION-20260806-002"));
             Assert.That(proposal.RevisedPlan, Is.Null);
+        });
+    }
+
+    [TestCase("taskId")]
+    [TestCase("id")]
+    public void ProposalParser_AcceptsCanonicalAndLegacyAddedTaskIdentity(string identityProperty)
+    {
+        var identity = "REVISION-20260806-010";
+        var text = $$"""
+            PLAN_REVISION_JSON:
+            {
+              "planId": "REVISION-20260806",
+              "baseRevision": "base-1",
+              "summary": "Add a follow-up task",
+              "operations": [{
+                "op": "addTask",
+                "task": {
+                  "{{identityProperty}}": "{{identity}}",
+                  "title": "Follow up",
+                  "description": "Complete the follow-up work.",
+                  "dependsOn": [],
+                  "priority": "high"
+                }
+              }]
+            }
+            """;
+
+        var parsed = PlanRevisionProposalParser.TryParse(text, out var proposal, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(proposal!.Operations!.Single().Task!.Id, Is.EqualTo(identity));
+        });
+    }
+
+    [Test]
+    public void ProposalParser_ReportsConflictingTaskIdentityForRepair()
+    {
+        var text = """
+            PLAN_REVISION_JSON:
+            {
+              "planId": "REVISION-20260806",
+              "baseRevision": "base-1",
+              "summary": "Add a follow-up task",
+              "operations": [{
+                "op": "addTask",
+                "task": {
+                  "taskId": "REVISION-20260806-010",
+                  "id": "REVISION-20260806-011",
+                  "description": "Complete the follow-up work.",
+                  "dependsOn": [],
+                  "priority": "high"
+                }
+              }]
+            }
+            """;
+
+        var parsed = PlanRevisionProposalParser.TryParse(text, out _, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(error, Does.Contain("conflicting taskId"));
+            Assert.That(error, Does.Contain("legacy id"));
+        });
+    }
+
+    [Test]
+    public void ProposalParser_ReportsMissingAddedTaskIdentityForRepair()
+    {
+        var text = """
+            PLAN_REVISION_JSON:
+            {
+              "planId": "REVISION-20260806",
+              "baseRevision": "base-1",
+              "summary": "Add a follow-up task",
+              "operations": [{
+                "op": "addTask",
+                "task": {
+                  "description": "Complete the follow-up work.",
+                  "dependsOn": [],
+                  "priority": "high"
+                }
+              }]
+            }
+            """;
+
+        var parsed = PlanRevisionProposalParser.TryParse(text, out _, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(error, Does.Contain("taskId is required"));
+        });
+    }
+
+    [Test]
+    public void DecomposedTaskSerialization_WritesOnlyCanonicalTaskId()
+    {
+        var json = JsonSerializer.Serialize(new DecomposedSubTask(
+            "REVISION-20260806-010", "Complete the follow-up work.", [], "high"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(json, Does.Contain("\"taskId\":\"REVISION-20260806-010\""));
+            Assert.That(json, Does.Not.Contain("\"id\":"));
         });
     }
 
@@ -895,6 +1089,66 @@ internal sealed class PlanRevisionWorkflowTests
         return PendingDecomposePlanAdapter.ToPlan(
             new PendingDecomposePlan(revision, group),
             new DateTimeOffset(2026, 8, 6, 12, 0, 0, TimeSpan.Zero));
+    }
+
+    private static Plan MakePlanWithTerminalGateAndValidation()
+    {
+        var group = MakeGroup() with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    "REVISION-20260806-GATE-001",
+                    "Review the original boundary",
+                    ["REVISION-20260806-001"],
+                    ["REVISION-20260806-002"],
+                    Question: "Is the original boundary acceptable?"),
+            ],
+            Validations =
+            [
+                new DecomposedValidationNode(
+                    "REVISION-20260806-VAL-001",
+                    "Original boundary validation",
+                    "Validate the original boundary.",
+                    ["REVISION-20260806-001"],
+                    ["REVISION-20260806-003"],
+                    ["The original boundary is valid."],
+                    [],
+                    "evidence",
+                    null,
+                    true),
+            ],
+        };
+        var revision = PendingDecomposePlanStore.ComputeRevision(group);
+        var timestamp = new DateTimeOffset(2026, 8, 6, 12, 0, 0, TimeSpan.Zero);
+        var plan = PendingDecomposePlanAdapter.ToPlan(new PendingDecomposePlan(revision, group), timestamp);
+
+        return plan with
+        {
+            ApprovalGates =
+            [
+                plan.ApprovalGates.Single() with
+                {
+                    Status = PlanGateStatus.Approved,
+                    RequestedAt = timestamp.AddMinutes(1),
+                    ResolvedAt = timestamp.AddMinutes(2),
+                    ResolutionNote = "Approved original boundary",
+                    ResolvedBy = "Mark",
+                },
+            ],
+            Validations =
+            [
+                plan.Validations!.Single() with
+                {
+                    Status = PlanValidationStatus.Failed,
+                    StartedAt = timestamp.AddMinutes(3),
+                    CompletedAt = timestamp.AddMinutes(4),
+                    ValidatedCommit = "abc123",
+                    Summary = "Original validation failed",
+                    Evidence = ["original evidence"],
+                },
+            ],
+        };
     }
 
     private static DecomposedTaskGroup MakeGroup() => new(

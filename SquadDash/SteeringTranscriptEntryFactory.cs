@@ -5,6 +5,23 @@ using System.Windows.Input;
 
 namespace SquadDash;
 
+internal static class SteeringPromptBuilder
+{
+    internal const string VisibleAcknowledgementInstruction =
+        "At your next model opportunity, write a brief visible response to the user—not internal reasoning—" +
+        "acknowledging this steering and explaining in one or two sentences how it will affect your approach, " +
+        "then continue working. If the steering does not change your approach, briefly explain why in that visible response.";
+
+    internal static string AddVisibleAcknowledgementInstruction(string providerPrompt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerPrompt);
+        return providerPrompt.TrimEnd() +
+               "\n\n<SquadDash steering acknowledgement instruction>\n" +
+               VisibleAcknowledgementInstruction +
+               "\n</SquadDash steering acknowledgement instruction>";
+    }
+}
+
 /// <summary>
 /// Renders and persists host-owned feedback for a steering message accepted by the
 /// provider runtime. The entry deliberately says "accepted" rather than implying

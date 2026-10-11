@@ -24,9 +24,17 @@ internal static class StructuredJsonBlockParser
     internal static bool TryExtractObject<T>(
         string? text,
         string marker,
-        out StructuredJsonBlockExtraction<T>? extraction)
+        out StructuredJsonBlockExtraction<T>? extraction) =>
+        TryExtractObject(text, marker, out extraction, out _);
+
+    internal static bool TryExtractObject<T>(
+        string? text,
+        string marker,
+        out StructuredJsonBlockExtraction<T>? extraction,
+        out string? parseError)
     {
         extraction = null;
+        parseError = null;
 
         if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(marker))
             return false;
@@ -60,8 +68,9 @@ internal static class StructuredJsonBlockParser
                 braceEnd);
             return true;
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            parseError = ex.Message;
             return false;
         }
     }

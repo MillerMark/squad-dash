@@ -75,9 +75,11 @@ internal static class PlanRevisionProposalParser
         }
 
         if (!StructuredJsonBlockParser.TryExtractObject<PlanRevisionProposalPayload>(
-                text, Marker, out var extraction) || extraction is null)
+                text, Marker, out var extraction, out var parseError) || extraction is null)
         {
-            error = "The PLAN_REVISION_JSON object was missing or was not valid JSON.";
+            error = string.IsNullOrWhiteSpace(parseError)
+                ? "The PLAN_REVISION_JSON object was missing or was not valid JSON."
+                : $"The PLAN_REVISION_JSON object was invalid: {parseError}";
             return false;
         }
 
@@ -92,6 +94,18 @@ internal static class PlanRevisionProposalParser
         if (payload.Operations is not { Count: > 0 })
         {
             error = "operations must contain at least one delta operation. Do not return revisedPlan.";
+            return false;
+        }
+        if (payload.Operations.Any(operation => operation is null))
+        {
+            error = "operations cannot contain null entries.";
+            return false;
+        }
+        if (payload.Operations.FirstOrDefault(operation =>
+                string.Equals(operation.Op?.Trim(), "addTask", StringComparison.Ordinal) &&
+                operation.Task is not null && string.IsNullOrWhiteSpace(operation.Task.Id)) is not null)
+        {
+            error = "addTask.task.taskId is required. Use taskId for new tasks; legacy id is accepted only for compatibility.";
             return false;
         }
 
@@ -150,8 +164,9 @@ internal static class PlanRevisionProposalParser
             targetId and a patch containing only changed fields. Text-edit operations require a JSON
             pointer path, non-empty oldText that occurs exactly once, and newText; prefer them over
             replacing a long description or assertion array.
-            Add operations require the complete task, approvalGate, or validation being added. Remove and reopen
-            operations require targetId. Keep planId and baseRevision unchanged.
+            Add operations require the complete task, approvalGate, or validation being added. New tasks must
+            use taskId as their identifier; do not emit id. Remove and reopen operations require targetId.
+            Keep planId and baseRevision unchanged.
             """;
     }
 }
@@ -266,6 +281,7 @@ internal static class PlanRevisionPromptInjection
               "operations": [
                 { "op": "reopenTask", "targetId": "completed task ID whose specification must change" },
                 { "op": "updateTask", "targetId": "task ID", "patch": { "priority": "high" } },
+                { "op": "addTask", "task": { "taskId": "PLAN-YYYYMMDD-010", "title": "New step", "description": "Complete task contract", "dependsOn": [], "priority": "high" } },
                 { "op": "editTaskText", "targetId": "task ID", "path": "/description", "oldText": "exact existing clause", "newText": "replacement clause" },
                 { "op": "editValidationText", "targetId": "validation ID", "path": "/assertions/0", "oldText": "exact existing clause", "newText": "replacement clause" }
               ]
@@ -279,7 +295,8 @@ internal static class PlanRevisionPromptInjection
             JSON Pointer `path`, non-empty `oldText` that occurs exactly once at that path, and `newText`.
             Prefer a text edit for a clause-level correction within a long string or string array instead of
             replacing the complete property. Add operations require one complete `task`,
-            `approvalGate`, or `validation`. Remove and reopen operations require `targetId`. Never return `revisedPlan`
+            `approvalGate`, or `validation`. A new task uses `taskId` as its identifier; do not emit `id`.
+            Remove and reopen operations require `targetId`. Never return `revisedPlan`
             or copy unaffected definitions. A completed task can change only when preceded by a reopenTask operation;
             its accepted execution history remains preserved. Update downstream pending tasks and validations when the new
             contract affects them. The response creates a proposal only: a human must approve it before SquadDash changes

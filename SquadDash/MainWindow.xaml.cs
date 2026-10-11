@@ -3151,6 +3151,10 @@ public partial class MainWindow : Window
         // messages, plans, and notes) that has no lossless SDK attachment shape. Use the
         // same provider-neutral prompt blocks as ordinary sends so none are silently lost.
         var bridgePrompt = BuildFollowUpPrompt(prompt, draft.Attachments);
+        // This host-only instruction asks the model—not the transport—to visibly confirm
+        // how it incorporated the steer. Keep bridgePrompt unchanged for transcript display
+        // and persistence so the implementation detail never appears as user-authored text.
+        var steeringProviderPrompt = SteeringPromptBuilder.AddVisibleAcknowledgementInstruction(bridgePrompt);
 
         SquadSdkSteerResult result;
         try
@@ -3158,7 +3162,7 @@ public partial class MainWindow : Window
             result = await _bridge.SteerAsync(
                 target.SessionId!,
                 target.SteeringTurnId!,
-                bridgePrompt);
+                steeringProviderPrompt);
         }
         catch (Exception ex)
         {
@@ -3218,7 +3222,7 @@ public partial class MainWindow : Window
 
         SquadDashTrace.Write(
             "UI",
-            $"Steering accepted target={target.DisplayName} targetId={target.Id} session={target.SessionId} draftConsumed={consumed} chars={bridgePrompt.Length} attachments={draft.Attachments.Count}");
+            $"Steering accepted target={target.DisplayName} targetId={target.Id} session={target.SessionId} draftConsumed={consumed} chars={steeringProviderPrompt.Length} attachments={draft.Attachments.Count}");
         if (!consumed)
         {
             MessageBox.Show(
