@@ -130,6 +130,97 @@ internal sealed class ToolTranscriptFormatterTests {
         Assert.That(ToolTranscriptFormatter.ResolveToolIconKey(tool), Is.EqualTo("ToolIcon_create"));
     }
 
+    [TestCase("Get-Content x")]
+    [TestCase("Get-Content x -Raw")]
+    [TestCase("Get-Content x -TotalCount 10")]
+    [TestCase("Get-Content x -Tail 10")]
+    [TestCase("Get-Content x -Head 10")]
+    [TestCase("Get-Content x -Wait")]
+    [TestCase("Get-Content x -Tail 10 -Wait")]
+    [TestCase("gc x")]
+    [TestCase("cat x")]
+    [TestCase("type x")]
+    [TestCase("  gEt-CoNtEnT x  ")]
+    [TestCase("GC x; CAT y; TYPE z")]
+    [TestCase("[System.IO.File]::ReadAllText('x')")]
+    [TestCase("[System.IO.File]::ReadAllLines('x')")]
+    [TestCase("[System.IO.File]::ReadAllBytes('x')")]
+    [TestCase("[System.IO.File]::readalltext('x')")]
+    [TestCase("Import-Csv x")]
+    [TestCase("Import-Clixml x")]
+    [TestCase("IMPORT-CLIXML x")]
+    [TestCase("(Get-Content \"x\" -Raw).Substring(0,7000)")]
+    [TestCase("Get-Content x | ConvertFrom-Json | Select-Object name")]
+    [TestCase("Write-Output 'start'; Get-Content x; Get-Date")]
+    public void ClassifyPowerShellFileIconKey_ReadsUseViewIcon(string command) {
+        Assert.That(ToolTranscriptFormatter.ClassifyPowerShellFileIconKey(command),
+            Is.EqualTo("ToolIcon_view"));
+    }
+
+    [TestCase("Set-Content x 'text'")]
+    [TestCase("Add-Content x 'text'")]
+    [TestCase("'text' | Out-File x")]
+    [TestCase("'text' | Tee-Object x")]
+    [TestCase("Get-Process | Export-Csv x")]
+    [TestCase("Get-Process | Export-Clixml x")]
+    [TestCase("New-Item x -ItemType File")]
+    [TestCase("Set-Item x 'text'")]
+    [TestCase("Clear-Content x")]
+    [TestCase("sEt-CoNtEnT x 'text'")]
+    [TestCase("[System.IO.File]::WriteAllText('x', 'text')")]
+    [TestCase("[System.IO.File]::WriteAllLines('x', @('text'))")]
+    [TestCase("[System.IO.File]::WriteAllBytes('x', [byte[]]@(1))")]
+    [TestCase("[System.IO.File]::AppendAllText('x', 'text')")]
+    [TestCase("[System.IO.File]::AppendAllLines('x', @('text'))")]
+    [TestCase("[System.IO.File]::appendalltext('x', 'text')")]
+    [TestCase("Write-Output 'text' > x")]
+    [TestCase("Write-Output 'text' >> x")]
+    [TestCase("Get-Process 2> x")]
+    [TestCase("Get-Process *> x")]
+    [TestCase("Get-Process 2>> x")]
+    [TestCase("Get-Process *>> x")]
+    [TestCase("Get-Content a | Set-Content b")]
+    [TestCase("Get-Content a > b")]
+    [TestCase("Get-Content a -Wait >> b")]
+    [TestCase("Get-Content a; Add-Content b 'text'")]
+    [TestCase("Set-Content b 'text'; Get-Content a")]
+    public void ClassifyPowerShellFileIconKey_WritesTakePrecedence(string command) {
+        Assert.That(ToolTranscriptFormatter.ClassifyPowerShellFileIconKey(command),
+            Is.EqualTo("ToolIcon_edit"));
+    }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase(" \t\r\n ")]
+    [TestCase("Select-String -Path x -Pattern error")]
+    [TestCase("findstr error x")]
+    [TestCase("Get-Process")]
+    [TestCase("dotnet build")]
+    [TestCase("Get-Date; Write-Output 'hello'")]
+    [TestCase("if (2 -gt 1 -and 3 -ge 2) { Write-Output 'yes' }")]
+    [TestCase("Get-ContentMetadata x")]
+    [TestCase("CustomGet-Content x")]
+    [TestCase("Get-Content-Wrapper x")]
+    [TestCase("Set-ContentMetadata x")]
+    [TestCase("CustomSet-Content x")]
+    [TestCase("Set-Content-Wrapper x")]
+    [TestCase("WriteAllTextAsync x")]
+    [TestCase("ReadAllTextAsync x")]
+    [TestCase("my_ReadAllLines x")]
+    [TestCase("my_WriteAllLines x")]
+    [TestCase("gci x")]
+    [TestCase("Get-Item catalog.txt")]
+    [TestCase("Get-TypeData")]
+    [TestCase("sc query service")]
+    [TestCase("ac x")]
+    public void ClassifyPowerShellFileIconKey_UnmatchedCommandsKeepShellIcon(string? command) {
+        Assert.Multiple(() => {
+            Assert.That(ToolTranscriptFormatter.ClassifyPowerShellFileIconKey(command), Is.Null);
+            Assert.That(ToolTranscriptFormatter.ResolveToolIconKey("powershell"),
+                Is.EqualTo("ToolIcon_powershell"));
+        });
+    }
+
     [Test]
     public void CapturedArguments_PreferActualOutputWithKnownLineLocations() {
         var descriptor = new ToolTranscriptDescriptor("edit", Path: "src/file.cs");

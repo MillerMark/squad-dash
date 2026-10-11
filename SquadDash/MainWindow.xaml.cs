@@ -48849,6 +48849,24 @@ public partial class MainWindow : Window
     private void RenderToolMessage(ToolTranscriptEntry entry)
     {
         var iconKey = ToolTranscriptFormatter.ResolveToolIconKey(entry.Descriptor.ToolName);
+        if (entry.Descriptor.ToolName.Trim() == "powershell" && entry.ArgsJson is { } argsJsonForFileIcon)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(argsJsonForFileIcon);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                    doc.RootElement.TryGetProperty("command", out var commandEl) &&
+                    commandEl.ValueKind == JsonValueKind.String &&
+                    ToolTranscriptFormatter.ClassifyPowerShellFileIconKey(commandEl.GetString()) is { } fileIconKey)
+                {
+                    iconKey = fileIconKey;
+                }
+            }
+            catch (JsonException ex)
+            {
+                SquadDashTrace.Write("ToolTranscript", $"PowerShell file icon arguments could not be parsed: {ex.Message}");
+            }
+        }
         if (entry.Descriptor.ToolName.Trim() == "read_powershell" && entry.ArgsJson is { } argsJsonForIcon)
         {
             try

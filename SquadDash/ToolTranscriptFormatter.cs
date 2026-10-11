@@ -19,6 +19,12 @@ internal static class ToolTranscriptFormatter {
     private static readonly Regex SystemNotificationRegex = new(
         @"<system_notification>\s*.*?\s*</system_notification>\s*",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    private static readonly Regex PowerShellFileWriteRegex = new(
+        @"(?<![\w-])(?:Set-Content|Add-Content|Out-File|Tee-Object|Export-Csv|Export-Clixml|New-Item|Set-Item|Clear-Content|WriteAllText|WriteAllLines|WriteAllBytes|AppendAllText|AppendAllLines)(?![\w-])",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex PowerShellFileReadRegex = new(
+        @"(?<![\w-])(?:Get-Content|gc|cat|type|ReadAllText|ReadAllLines|ReadAllBytes|Import-Csv|Import-Clixml)(?![\w-])",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public static string GetToolEmoji(ToolTranscriptDescriptor descriptor) {
         var toolName = NormalizePresentationToolName(descriptor.ToolName.Trim());
@@ -85,6 +91,17 @@ internal static class ToolTranscriptFormatter {
         return string.IsNullOrWhiteSpace(normalizedToolName)
             ? "ToolIcon_default"
             : $"ToolIcon_{normalizedToolName}";
+    }
+
+    internal static string? ClassifyPowerShellFileIconKey(string? command) {
+        if (string.IsNullOrWhiteSpace(command))
+            return null;
+
+        // A pipeline or multi-statement command that reads and writes is still a write.
+        if (command.Contains('>') || PowerShellFileWriteRegex.IsMatch(command))
+            return "ToolIcon_edit";
+
+        return PowerShellFileReadRegex.IsMatch(command) ? "ToolIcon_view" : null;
     }
 
     internal static SpinnerActivityKind ClassifyToolActivityKind(string? toolName) {
