@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Xml.Linq;
 
@@ -161,6 +162,8 @@ internal sealed class AgentModelPresentationTests {
             "private ContextMenu? CreateAgentModelOverrideContextMenu(");
         var factory = SourceRegion(source,
             "private ContextMenu? CreateAgentModelOverrideContextMenu(", "private void OpenAgentModelOverrideDialog(");
+        var secondaryHandler = SourceRegion(source,
+            "titleBlock.PreviewMouseRightButtonUp +=", "var navUp = CreateSecondaryNavButton(");
         var accentMenu = SourceRegion(source,
             "private ContextMenu CreateAgentAccentContextMenu(", "// Model Override");
         var accentOverride = SourceRegion(source,
@@ -174,12 +177,62 @@ internal sealed class AgentModelPresentationTests {
             Assert.That(handler, Does.Contain("CreateAgentModelOverrideContextMenu(agent, thread)"));
             Assert.That(handler, Does.Contain("menu.PlacementTarget = TranscriptTitleTextBlock"));
             Assert.That(handler, Does.Contain("menu.IsOpen = true"));
+            Assert.That(secondaryHandler, Does.Contain("CreateAgentModelOverrideContextMenu(agent, thread)"));
+            Assert.That(secondaryHandler, Does.Contain("menu.PlacementTarget = titleBlock"));
+            Assert.That(secondaryHandler, Does.Contain("menu.IsOpen = true"));
             Assert.That(factory, Does.Contain("GetThreadModelOverrideHandle(thread, agent)"));
             Assert.That(factory, Does.Contain("MakeItem(\"Model Override\\u2026\")"));
             Assert.That(factory, Does.Contain("OpenAgentModelOverrideDialog(thread, handle, agent)"));
             Assert.That(accentMenu, Does.Contain("GetPrimaryThread(agentCard)"));
             Assert.That(accentOverride, Does.Contain("GetThreadModelOverrideHandle(primaryThread, agentCard)"));
             Assert.That(accentOverride, Does.Contain("OpenAgentModelOverrideDialog(primaryThread, overrideHandle, agentCard)"));
+        });
+    }
+
+    [TestCase(
+        "private ContextMenu? CreateAgentModelOverrideContextMenu(",
+        "private void OpenAgentModelOverrideDialog(", "item", "thread")]
+    [TestCase(
+        "private ContextMenu CreateAgentAccentContextMenu(",
+        "if (primaryThread is not null &&", "modelOverrideItem", "metricsThread")]
+    public void WorkMetricsMenuItem_FollowsModelOverrideAndLaunchesThreadCurrentTurn(
+        string startMarker, string endMarker, string overrideItem, string threadVariable) {
+        var menu = SourceRegion(ReadSource("MainWindow.xaml.cs"), startMarker, endMarker);
+        var additions = Regex.Matches(menu, @"menu\.Items\.Add\(([^;]+)\);")
+            .Select(match => match.Groups[1].Value)
+            .ToArray();
+
+        Assert.Multiple(() => {
+            Assert.That(menu, Does.Contain("MakeItem(\"Model Override\\u2026\")"));
+            Assert.That(menu, Does.Contain("var workMetricsItem = MakeItem(\"Work Metrics\u2026\");"));
+            Assert.That(additions.TakeLast(2), Is.EqualTo(new[] { overrideItem, "workMetricsItem" }),
+                "Work Metrics must be the next menu item after Model Override, without a separator.");
+            Assert.That(menu, Does.Contain(
+                $"workMetricsItem.Click += (_, _) => OpenWorkMetricsForThread({threadVariable}, {threadVariable}.CurrentTurn?.StartedAt);"),
+                "Resolve the current turn at click time; null keeps the existing all-thread-runs scope.");
+        });
+    }
+
+    [Test]
+    public void AccentWorkMetrics_PrefersPrimaryThreadThenSpinnerFallbackAndOmitsUnresolvedScope() {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var menu = SourceRegion(source,
+            "private ContextMenu CreateAgentAccentContextMenu(", "if (primaryThread is not null &&");
+        var fallback = SourceRegion(menu, "var metricsThread =", "if (metricsThread is not null)");
+        var guardedItem = SourceRegion(menu, "if (metricsThread is not null)", "menu.Items.Add(workMetricsItem);");
+
+        Assert.Multiple(() => {
+            Assert.That(menu, Does.Contain("var primaryThread = GetPrimaryThread(agentCard);"));
+            Assert.That(fallback, Does.Match(
+                @"primaryThread \?\? \(agentCard\.IsLeadAgent\s*\? CoordinatorThread\s*: agentCard\.Threads"));
+            Assert.That(fallback, Does.Match(
+                @"\.OrderByDescending\(candidate => candidate\.IsCurrentBackgroundRun\)\s*" +
+                @"\.ThenByDescending\(candidate => candidate\.LastObservedActivityAt \?\? candidate\.StartedAt\)\s*" +
+                @"\.FirstOrDefault\(\)"));
+            Assert.That(guardedItem, Does.Match(
+                "if \\(metricsThread is not null\\)\\s*\\{\\s*var workMetricsItem = MakeItem\\(\"Work Metrics\u2026\"\\);"));
+            Assert.That(guardedItem, Does.Contain(
+                "OpenWorkMetricsForThread(metricsThread, metricsThread.CurrentTurn?.StartedAt)"));
         });
     }
 

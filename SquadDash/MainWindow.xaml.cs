@@ -30983,6 +30983,19 @@ public partial class MainWindow : Window
             menu.Items.Add(modelOverrideItem);
         }
 
+        var metricsThread = primaryThread ?? (agentCard.IsLeadAgent
+            ? CoordinatorThread
+            : agentCard.Threads
+                .OrderByDescending(candidate => candidate.IsCurrentBackgroundRun)
+                .ThenByDescending(candidate => candidate.LastObservedActivityAt ?? candidate.StartedAt)
+                .FirstOrDefault());
+        if (metricsThread is not null)
+        {
+            var workMetricsItem = MakeItem("Work Metrics…");
+            workMetricsItem.Click += (_, _) => OpenWorkMetricsForThread(metricsThread, metricsThread.CurrentTurn?.StartedAt);
+            menu.Items.Add(workMetricsItem);
+        }
+
         if (primaryThread is not null && _backgroundTaskPresenter.IsThreadStalledForDisplay(primaryThread, now))
         {
             var abortTarget = _backgroundTaskPresenter.TryResolveAbortTarget(primaryThread, allowSingleFallback: false);
@@ -43446,6 +43459,9 @@ public partial class MainWindow : Window
         var item = MakeItem("Model Override\u2026");
         item.Click += (_, _) => OpenAgentModelOverrideDialog(thread, handle, agent);
         menu.Items.Add(item);
+        var workMetricsItem = MakeItem("Work Metrics…");
+        workMetricsItem.Click += (_, _) => OpenWorkMetricsForThread(thread, thread.CurrentTurn?.StartedAt);
+        menu.Items.Add(workMetricsItem);
         return menu;
     }
 
