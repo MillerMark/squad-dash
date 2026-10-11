@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -13,11 +14,13 @@ internal sealed class WorkMetricsWindow : ChromedWindow
 {
     private const string All = "All";
     private readonly Func<IReadOnlyList<WorkMetricsRunSnapshot>> _getRuns;
-    private readonly ComboBox _phaseFilter;
-    private readonly ComboBox _agentFilter;
-    private readonly ComboBox _runFilter;
-    private readonly ComboBox _statusFilter;
-    private readonly TextBlock _summary;
+    private readonly StackPanel _phaseFilter;
+    private readonly StackPanel _agentFilter;
+    private readonly StackPanel _runFilter;
+    private readonly StackPanel _statusFilter;
+    private readonly Grid _summary;
+    private readonly TextBlock[] _summaryValues;
+    private readonly TextBlock _emptySummary;
     private readonly StackPanel _runRows;
     private readonly DispatcherTimer _refreshTimer;
     private bool _updatingFilters;
@@ -41,39 +44,69 @@ internal sealed class WorkMetricsWindow : ChromedWindow
         var root = new Grid { Margin = new Thickness(16, 12, 16, 16) };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var filters = new Grid();
+        _phaseFilter = AddFilter(filters, "Phase");
+        _agentFilter = AddFilter(filters, "Agent");
+        _runFilter = AddFilter(filters, "Run");
+        _statusFilter = AddFilter(filters, "Status");
+        var filterScroll = new ScrollViewer
+        {
+            Content = filters,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Margin = new Thickness(0, 0, 0, 12),
+        };
+        filterScroll.SetResourceReference(Control.StyleProperty, "RosterScrollViewerStyle");
+        filterScroll.SetBinding(MaxHeightProperty, new Binding(nameof(ActualHeight))
+        {
+            Source = root,
+            Converter = new FractionConverter(),
+            ConverterParameter = "0.25",
+        });
+        root.Children.Add(filterScroll);
+
+        var summaryHost = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+        _summary = new Grid();
+        _summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _summary.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var labels = new[] { "Runs", "Agents", "Child runs", "Tool calls", "Reads", "Searches", "Writes", "Read/search %", "Captured files" };
+        _summaryValues = new TextBlock[labels.Length];
+        for (var row = 0; row < labels.Length; row++)
+        {
+            _summary.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var label = BuildSummaryText(labels[row]);
+            label.HorizontalAlignment = HorizontalAlignment.Left;
+            var value = BuildSummaryText(string.Empty);
+            value.HorizontalAlignment = HorizontalAlignment.Right;
+            value.TextAlignment = TextAlignment.Right;
+            value.Margin = new Thickness(16, 0, 0, 0);
+            Grid.SetRow(label, row);
+            Grid.SetRow(value, row);
+            Grid.SetColumn(value, 1);
+            _summary.Children.Add(label);
+            _summary.Children.Add(value);
+            _summaryValues[row] = value;
+        }
+        _emptySummary = BuildSummaryText("No work metrics match these filters.");
+        _emptySummary.Visibility = Visibility.Collapsed;
+        summaryHost.Children.Add(_summary);
+        summaryHost.Children.Add(_emptySummary);
+        Grid.SetRow(summaryHost, 1);
+        root.Children.Add(summaryHost);
 
         var description = new TextBlock
         {
             Text = "Counts come directly from stored tool events. Unknown tool names remain Other; command text is never inferred.",
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 10),
+            Margin = new Thickness(0, 10, 0, 0),
         };
         description.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         description.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        Grid.SetRow(description, 3);
         root.Children.Add(description);
-
-        var filters = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
-        _phaseFilter = AddFilter(filters, "Phase");
-        _agentFilter = AddFilter(filters, "Agent");
-        _runFilter = AddFilter(filters, "Run");
-        _statusFilter = AddFilter(filters, "Status");
-        foreach (var filter in new[] { _phaseFilter, _agentFilter, _runFilter, _statusFilter })
-            filter.SelectionChanged += (_, _) => { if (!_updatingFilters) Refresh(); };
-        Grid.SetRow(filters, 1);
-        root.Children.Add(filters);
-
-        _summary = new TextBlock
-        {
-            TextWrapping = TextWrapping.Wrap,
-            FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 0, 0, 10),
-        };
-        _summary.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelTitle");
-        _summary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
-        Grid.SetRow(_summary, 2);
-        root.Children.Add(_summary);
 
         _runRows = new StackPanel { Orientation = Orientation.Vertical };
         var scroll = new ScrollViewer
@@ -83,7 +116,7 @@ internal sealed class WorkMetricsWindow : ChromedWindow
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
         scroll.SetResourceReference(Control.StyleProperty, "RosterScrollViewerStyle");
-        Grid.SetRow(scroll, 3);
+        Grid.SetRow(scroll, 2);
         root.Children.Add(scroll);
 
         ApplyOuterBorder(titleText: title).Child = root;
@@ -98,18 +131,27 @@ internal sealed class WorkMetricsWindow : ChromedWindow
         Closed += (_, _) => _refreshTimer.Stop();
     }
 
-    private ComboBox AddFilter(Panel parent, string label)
+    private static StackPanel AddFilter(Grid parent, string label)
     {
         var group = new StackPanel { Margin = new Thickness(0, 0, 12, 0) };
         var caption = new TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 3) };
         caption.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         caption.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-        var combo = new ComboBox { MinWidth = 130, Height = 30 };
-        combo.SetResourceReference(Control.StyleProperty, "ThemedComboBoxStyle");
+        var options = new StackPanel { Name = label + "Filter" };
         group.Children.Add(caption);
-        group.Children.Add(combo);
+        group.Children.Add(options);
+        Grid.SetColumn(group, parent.ColumnDefinitions.Count);
+        parent.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 130 });
         parent.Children.Add(group);
-        return combo;
+        return options;
+    }
+
+    private static TextBlock BuildSummaryText(string text)
+    {
+        var block = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
+        block.SetResourceReference(TextBlock.ForegroundProperty, "ActivePanelTitle");
+        block.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+        return block;
     }
 
     private void RefreshFilters()
@@ -121,7 +163,7 @@ internal sealed class WorkMetricsWindow : ChromedWindow
             ReplaceItems(_phaseFilter, runs.Select(run => DisplayPhase(run.WorkItemKind)));
             ReplaceItems(_agentFilter, runs.Select(run => run.AgentName));
             ReplaceItems(_runFilter, runs.Select(BuildRunFilterLabel));
-            ReplaceItems(_statusFilter, new[] { "Live", "Completed" });
+            ReplaceItems(_statusFilter, new[] { "Live", "Completed" }, sort: false);
         }
         finally
         {
@@ -129,16 +171,40 @@ internal sealed class WorkMetricsWindow : ChromedWindow
         }
     }
 
-    private static void ReplaceItems(ComboBox combo, IEnumerable<string> values)
+    private void ReplaceItems(StackPanel group, IEnumerable<string> values, bool sort = true)
     {
-        var selected = combo.SelectedItem as string ?? All;
-        var items = new[] { All }.Concat(values
+        var selected = SelectedValue(group);
+        var options = values
             .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)).ToArray();
-        combo.ItemsSource = items;
-        combo.SelectedItem = items.Contains(selected, StringComparer.OrdinalIgnoreCase) ? selected : All;
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        var items = new[] { All }.Concat(sort
+            ? options.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            : options).ToArray();
+        // Keep the existing controls (and keyboard focus) through unchanged timer ticks.
+        if (group.Children.OfType<RadioButton>().Select(radio => (string)radio.Tag).SequenceEqual(items))
+            return;
+
+        selected = items.FirstOrDefault(value => string.Equals(value, selected, StringComparison.OrdinalIgnoreCase)) ?? All;
+        group.Children.Clear();
+        foreach (var item in items)
+        {
+            var radio = new RadioButton
+            {
+                Content = new TextBlock { Text = item },
+                Tag = item,
+                GroupName = group.Name,
+                Margin = new Thickness(0, 2, 0, 2),
+                IsChecked = item == selected,
+            };
+            radio.SetResourceReference(Control.StyleProperty, "ThemedRadioButtonStyle");
+            radio.SetResourceReference(Control.ForegroundProperty, "LabelText");
+            radio.Checked += (_, _) => { if (!_updatingFilters) Refresh(); };
+            group.Children.Add(radio);
+        }
     }
+
+    private static string SelectedValue(StackPanel group) =>
+        group.Children.OfType<RadioButton>().FirstOrDefault(radio => radio.IsChecked == true)?.Tag as string ?? All;
 
     private void Refresh()
     {
@@ -156,13 +222,15 @@ internal sealed class WorkMetricsWindow : ChromedWindow
             .Count();
         var childRunCount = runs.Count(run => !string.IsNullOrWhiteSpace(run.ParentRunId));
         var readSearchPct = calls == 0 ? 0 : (reads + searches) * 100.0 / calls;
-        _summary.Text = runs.Length == 0
-            ? "No work metrics match these filters."
-            : $"{runs.Length} run{(runs.Length == 1 ? string.Empty : "s")} · " +
-              $"{agentCount} agent{(agentCount == 1 ? string.Empty : "s")} · {childRunCount} child runs · " +
-              $"{calls:N0} tool calls · " +
-              $"{reads:N0} reads · {searches:N0} searches · {writes:N0} writes · " +
-              $"{readSearchPct:0.#}% read/search · {files:N0} captured files";
+        _summary.Visibility = runs.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _emptySummary.Visibility = runs.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var summaryValues = new[]
+        {
+            $"{runs.Length:N0}", $"{agentCount:N0}", $"{childRunCount:N0}", $"{calls:N0}",
+            $"{reads:N0}", $"{searches:N0}", $"{writes:N0}", $"{readSearchPct:0.#}%", $"{files:N0}",
+        };
+        for (var row = 0; row < summaryValues.Length; row++)
+            _summaryValues[row].Text = summaryValues[row];
 
         _runRows.Children.Clear();
         foreach (var run in runs.OrderByDescending(run => run.IsLive).ThenBy(run => run.StartedAt))
@@ -171,10 +239,10 @@ internal sealed class WorkMetricsWindow : ChromedWindow
 
     private IEnumerable<WorkMetricsRunSnapshot> ApplyFilters(IEnumerable<WorkMetricsRunSnapshot> runs)
     {
-        var phase = _phaseFilter.SelectedItem as string ?? All;
-        var agent = _agentFilter.SelectedItem as string ?? All;
-        var runLabel = _runFilter.SelectedItem as string ?? All;
-        var status = _statusFilter.SelectedItem as string ?? All;
+        var phase = SelectedValue(_phaseFilter);
+        var agent = SelectedValue(_agentFilter);
+        var runLabel = SelectedValue(_runFilter);
+        var status = SelectedValue(_statusFilter);
         return runs.Where(run =>
             (phase == All || string.Equals(DisplayPhase(run.WorkItemKind), phase, StringComparison.OrdinalIgnoreCase)) &&
             (agent == All || string.Equals(run.AgentName, agent, StringComparison.OrdinalIgnoreCase)) &&
