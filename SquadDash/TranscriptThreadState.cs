@@ -13,7 +13,7 @@ internal enum TranscriptThreadKind {
     Agent
 }
 
-internal record PromptEntry(Paragraph Paragraph, DateTimeOffset Timestamp);
+internal record PromptEntry(Paragraph Paragraph, DateTimeOffset Timestamp, string? Title = null);
 
 internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     private string _title;

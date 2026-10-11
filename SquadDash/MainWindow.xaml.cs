@@ -43540,8 +43540,7 @@ public partial class MainWindow : Window
         var displayName = AbbreviateAgentName(
             AgentThreadRegistry.ResolveSecondaryTranscriptDisplayName(entry.Thread, entry.Agent.Name));
 
-        // Prefer a report_intent tool entry (bottommost visible, mirroring coordinator behaviour)
-        // over the thread-level LatestIntent so the timestamp reflects the actual tool call.
+        // Prefer the visible prompt or intent over the thread-level LatestIntent.
         var (scannedIntent, intentTimestamp) = ScanAgentReportIntent(entry);
         string baseText;
         string relativeTime;
@@ -43623,86 +43622,8 @@ public partial class MainWindow : Window
 
         try
         {
-            var scrollViewer = _transcriptScrollViewer;
-            var viewportHeight = scrollViewer.ViewportHeight;
-
-            // Strategy: scan coordinator report_intent entries by visual position and
-            // pick the bottommost one that is at least partially visible on screen.
-            //
-            // "Start at the last line in view and scan backwards" — among all visible
-            // report_intent entries, the one with the largest viewport-relative Y
-            // (i.e. closest to the bottom of the viewport) is the one that reflects the
-            // current reading context, whether the user:
-            //   • scrolled normally to the bottom (prompt is above viewport top, intent
-            //     is lower in the same turn — both are visible)
-            //   • used Ctrl+PgUp to jump to an older turn (that turn fills most of the
-            //     screen; later turns' intents are below the viewport bottom and are
-            //     therefore invisible, so we correctly find the jumped-to turn's intent)
-            //
-            // Using visual position avoids the timestamp-window approximation that
-            // broke down whenever the active prompt happened to land below the viewport
-            // top reference used by the old approach.
-            string? foundIntent    = null;
-            double  bestY          = double.MinValue;
-            DateTimeOffset? foundTimestamp = null;
-            string? aboveIntent    = null;   // fallback: best entry above viewport
-            double  bestAboveBottom = double.MinValue; // largest entryBottom ≤ 0
-            DateTimeOffset? aboveTimestamp = null;
-
-            foreach (var toolEntry in _agentThreadRegistry.ToolEntries.Values)
-            {
-                if (toolEntry.Turn.OwnerThread != CoordinatorThread) continue;
-                if (toolEntry.Descriptor.ToolName != "report_intent") continue;
-
-                try
-                {
-                    // Determine the element to measure against the viewport.
-                    // When the individual tool row (toolEntry.Expander) is inside a collapsed
-                    // ThinkingBlock, IsVisible is false — but the ThinkingBlock's own Expander
-                    // header IS visible and sits at the correct vertical position.  Use that
-                    // instead so collapsed tooling groups don't hide the intent from the scan.
-                    FrameworkElement measureTarget;
-                    if (toolEntry.Expander.IsVisible)
-                    {
-                        measureTarget = toolEntry.Expander;
-                    }
-                    else if (toolEntry.ThinkingBlock?.Expander is { } tbExp && tbExp.IsVisible)
-                    {
-                        measureTarget = tbExp;
-                    }
-                    else
-                    {
-                        continue; // truly not in the visual tree
-                    }
-
-                    var pos = measureTarget.TranslatePoint(new Point(0, 0), scrollViewer);
-                    var entryBottom = pos.Y + measureTarget.ActualHeight;
-
-                    // At least partially on screen: top is above viewport bottom AND
-                    // bottom is below viewport top.
-                    if (pos.Y < viewportHeight && entryBottom > 0)
-                    {
-                        if (pos.Y > bestY)
-                        {
-                            bestY           = pos.Y;
-                            foundIntent     = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
-                            foundTimestamp  = toolEntry.StartedAt;
-                        }
-                    }
-                    else if (entryBottom <= 0 && entryBottom > bestAboveBottom)
-                    {
-                        // Entry is above the viewport — track the closest one to the top edge
-                        // as a fallback for when nothing is visible.
-                        bestAboveBottom = entryBottom;
-                        aboveIntent     = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
-                        aboveTimestamp  = toolEntry.StartedAt;
-                    }
-                }
-                catch { }
-            }
-
-            var displayIntent    = foundIntent    ?? aboveIntent;
-            var displayTimestamp = foundTimestamp ?? aboveTimestamp;
+            var (displayIntent, displayTimestamp) = TranscriptTitleContextScanner.Scan(
+                CoordinatorThread, _agentThreadRegistry.ToolEntries.Values, _transcriptScrollViewer);
             if (!string.IsNullOrWhiteSpace(displayIntent))
             {
                 var relTime = displayTimestamp.HasValue ? FormatRelativeTime(displayTimestamp.Value) : null;
@@ -43750,10 +43671,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Scans <see cref="_agentThreadRegistry"/> for <c>report_intent</c> tool entries that
-    /// belong to the given secondary-transcript entry's thread and returns the
-    /// bottommost-visible one's intent text and timestamp.  Mirrors the coordinator's visual
-    /// scan so the header reflects what the user is currently reading.
+    /// Returns the bottommost visible prompt or intent and its timestamp for this thread.
     /// </summary>
     private (string? Intent, DateTimeOffset? Timestamp) ScanAgentReportIntent(SecondaryTranscriptEntry entry)
     {
@@ -43762,72 +43680,8 @@ public partial class MainWindow : Window
             ? entry.TranscriptBox.Template?.FindName("PART_ContentHost", entry.TranscriptBox) as ScrollViewer
             : null;
 
-        string?         foundIntent      = null;
-        DateTimeOffset? foundTimestamp   = null;
-        double          bestY            = double.MinValue;
-        string?         aboveIntent      = null;
-        DateTimeOffset? aboveTimestamp   = null;
-        double          bestAboveBottom  = double.MinValue;
-
-        foreach (var toolEntry in _agentThreadRegistry.ToolEntries.Values)
-        {
-            if (toolEntry.Turn.OwnerThread != entry.Thread) continue;
-            if (toolEntry.Descriptor.ToolName != "report_intent") continue;
-
-            try
-            {
-                // Same collapsed-group handling as the coordinator scan:
-                // fall back to the ThinkingBlock header position when the row is hidden
-                // inside a collapsed tooling group.
-                FrameworkElement measureTarget;
-                if (toolEntry.Expander.IsVisible)
-                {
-                    measureTarget = toolEntry.Expander;
-                }
-                else if (toolEntry.ThinkingBlock?.Expander is { } tbExp && tbExp.IsVisible)
-                {
-                    measureTarget = tbExp;
-                }
-                else
-                {
-                    continue;
-                }
-
-                if (scrollViewer is not null)
-                {
-                    var pos = measureTarget.TranslatePoint(new Point(0, 0), scrollViewer);
-                    var entryBottom = pos.Y + measureTarget.ActualHeight;
-                    // At least partially on screen.
-                    if (pos.Y < scrollViewer.ViewportHeight && entryBottom > 0)
-                    {
-                        if (pos.Y > bestY)
-                        {
-                            bestY          = pos.Y;
-                            foundIntent    = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
-                            foundTimestamp = toolEntry.StartedAt;
-                        }
-                    }
-                    else if (entryBottom <= 0 && entryBottom > bestAboveBottom)
-                    {
-                        bestAboveBottom = entryBottom;
-                        aboveIntent     = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
-                        aboveTimestamp  = toolEntry.StartedAt;
-                    }
-                }
-                else
-                {
-                    // Scroll viewer not yet available — fall back to most recent by timestamp.
-                    if (!foundTimestamp.HasValue || toolEntry.StartedAt > foundTimestamp.Value)
-                    {
-                        foundIntent = toolEntry.Descriptor.DisplayText ?? toolEntry.Descriptor.Intent;
-                        foundTimestamp = toolEntry.StartedAt;
-                    }
-                }
-            }
-            catch { }
-        }
-
-        return (foundIntent ?? aboveIntent, foundTimestamp ?? aboveTimestamp);
+        return TranscriptTitleContextScanner.Scan(
+            entry.Thread, _agentThreadRegistry.ToolEntries.Values, scrollViewer);
     }
 
     private void RestartAgentIntentDebounce(TranscriptThreadState thread)
@@ -44460,8 +44314,14 @@ public partial class MainWindow : Window
             }
             thread.Document.Blocks.Add(promptParagraph);
             topLevelBlocks.Add(promptParagraph);
-            thread.PromptParagraphs.Add(new PromptEntry(promptParagraph, startedAt));
+            thread.PromptParagraphs.Add(new PromptEntry(promptParagraph, startedAt,
+                promptIsSystemInjected || suppressTranscript || string.IsNullOrWhiteSpace(promptBody)
+                    ? null : NotesStore.DeriveTitle(promptBody)));
             RefreshSecondaryTranscriptTitle(thread);
+            if (thread.Kind == TranscriptThreadKind.Coordinator)
+                RestartCoordinatorIntentDebounce();
+            else
+                RestartAgentIntentDebounce(thread);
             if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
                 SyncPromptNavButtons();
         }
