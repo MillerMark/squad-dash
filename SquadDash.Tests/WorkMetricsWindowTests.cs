@@ -61,6 +61,107 @@ internal sealed class WorkMetricsWindowTests
         });
     }
 
+    [TestCase("Dark")]
+    [TestCase("Light")]
+    public void SingleOption_ShowsBoldThemedText_AndLeavesMetricsUnfiltered(string theme)
+    {
+        WithWindow((window, runs) =>
+        {
+            runs.RemoveRange(1, 2);
+            Refresh(window);
+            var expectedLabels = new[] { "Implementation", "Alpha", RunLabel(runs[0]) };
+            for (var index = 0; index < 3; index++)
+            {
+                var field = FilterFields[index];
+                var group = Field<StackPanel>(window, field);
+                Assert.That(group.Children.Count, Is.EqualTo(1));
+                Assert.That(Radios(window, field), Is.Empty);
+                var text = (TextBlock)group.Children[0];
+                Assert.That(text.Text, Is.EqualTo(expectedLabels[index]));
+                Assert.That(text.FontWeight, Is.EqualTo(FontWeights.Bold));
+                Assert.That(text.Foreground, Is.SameAs(window.FindResource("LabelText")));
+                Assert.That(text.FontSize, Is.EqualTo(window.FindResource("FontSizeBody")));
+                Assert.That(text.Focusable, Is.False);
+                Assert.That(Selected(window, field), Is.EqualTo("All"));
+            }
+            AssertFiltered(window, runs, "r1");
+            Assert.That(Values(window)[0].Text, Is.EqualTo("1"));
+            Assert.That(Values(window)[3].Text, Is.EqualTo("10"));
+            Assert.That(Options(window, "_statusFilter"), Is.EqualTo(new[] { "All", "Live", "Completed" }));
+
+            runs.Add(Run("same", "alpha", PlanWorkItemKinds.Implementation, false, 1));
+            runs.Add(Run("blank", " ", PlanWorkItemKinds.Implementation, true, 2));
+            Refresh(window);
+            var agentGroup = Field<StackPanel>(window, "_agentFilter");
+            var agentText = (TextBlock)agentGroup.Children[0];
+            Assert.That(agentGroup.Children.Count, Is.EqualTo(1));
+            Assert.That(agentText.Text, Is.EqualTo("Alpha"));
+            Assert.That(Selected(window, "_agentFilter"), Is.EqualTo("All"));
+            AssertFiltered(window, runs, "r1", "same", "blank");
+            Assert.That(Values(window)[0].Text, Is.EqualTo("3"));
+            Assert.That(Values(window)[3].Text, Is.EqualTo("30"));
+            Assert.That(Values(window)[7].Text, Is.EqualTo("60%"));
+            for (var tick = 0; tick < 3; tick++)
+                Refresh(window);
+            Assert.That(agentGroup.Children[0], Is.SameAs(agentText));
+
+            window.Resources["FontSizeBody"] = 18.0;
+            window.UpdateLayout();
+            var checkedRadio = Radios(window, "_statusFilter").Single(radio => radio.IsChecked == true);
+            Assert.That(agentText.FontSize, Is.EqualTo(18.0));
+            Assert.That(agentText.FontSize, Is.EqualTo(((TextBlock)checkedRadio.Content).FontSize));
+        }, theme: theme);
+    }
+
+    [Test]
+    public void Refresh_SwitchesBetweenSingleTextAndRadios_WhenOptionSetsChange()
+    {
+        WithWindow((window, runs) =>
+        {
+            Select(window, "_agentFilter", "Alpha");
+            runs.RemoveRange(1, 2);
+            Refresh(window);
+            var group = Field<StackPanel>(window, "_agentFilter");
+            var originalText = (TextBlock)group.Children[0];
+            Assert.That(Selected(window, "_agentFilter"), Is.EqualTo("All"));
+
+            runs[0] = runs[0] with { AgentName = "Delta" };
+            Refresh(window);
+            Assert.That(group.Children.Count, Is.EqualTo(1));
+            Assert.That(group.Children[0], Is.Not.SameAs(originalText));
+            Assert.That(((TextBlock)group.Children[0]).Text, Is.EqualTo("Delta"));
+
+            runs.Add(Run("new", "Gamma", PlanWorkItemKinds.Implementation, true, 5));
+            Refresh(window);
+            Assert.That(group.Children.OfType<TextBlock>(), Is.Empty);
+            Assert.That(Options(window, "_agentFilter"), Is.EqualTo(new[] { "All", "Delta", "Gamma" }));
+            Assert.That(Selected(window, "_agentFilter"), Is.EqualTo("All"));
+            Select(window, "_agentFilter", "Gamma");
+            AssertFiltered(window, runs, "new");
+
+            runs.RemoveAt(0);
+            Refresh(window);
+            Assert.That(Radios(window, "_agentFilter"), Is.Empty);
+            Assert.That(((TextBlock)group.Children[0]).Text, Is.EqualTo("Gamma"));
+            Assert.That(Selected(window, "_agentFilter"), Is.EqualTo("All"));
+            AssertFiltered(window, runs, "new");
+
+            runs.Clear();
+            Refresh(window);
+            Assert.That(group.Children.OfType<TextBlock>(), Is.Empty);
+            Assert.That(Options(window, "_agentFilter"), Is.EqualTo(new[] { "All" }));
+            Assert.That(Selected(window, "_agentFilter"), Is.EqualTo("All"));
+            Assert.That(Field<TextBlock>(window, "_emptySummary").Visibility, Is.EqualTo(Visibility.Visible));
+            runs.Add(Run("return", "Gamma", PlanWorkItemKinds.Validation, true, 6));
+            Refresh(window);
+            Assert.That(group.Children.Count, Is.EqualTo(1));
+            Assert.That(Radios(window, "_agentFilter"), Is.Empty);
+            Assert.That(((TextBlock)group.Children[0]).Text, Is.EqualTo("Gamma"));
+            AssertFiltered(window, runs, "return");
+            Assert.That(Field<TextBlock>(window, "_emptySummary").Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+    }
+
     [Test]
     public void RunAndCombinedSelections_AreIndependent_AndEmptyStateRecovers()
     {
@@ -193,7 +294,7 @@ internal sealed class WorkMetricsWindowTests
     }
 
     [Test]
-    public void Summary_HasNineRows_FormattedWeightedTotals_AndRightAlignedValues()
+    public void Summary_HasNineRows_FormattedWeightedTotals_AndCompactLeftAlignedValues()
     {
         WithWindow((window, runs) =>
         {
@@ -210,6 +311,8 @@ internal sealed class WorkMetricsWindowTests
             var summary = Field<Grid>(window, "_summary");
             Assert.That(summary.RowDefinitions.Count, Is.EqualTo(9));
             Assert.That(summary.ColumnDefinitions.Count, Is.EqualTo(2));
+            Assert.That(summary.ColumnDefinitions.All(column => column.Width.IsAuto), Is.True);
+            Assert.That(summary.HorizontalAlignment, Is.EqualTo(HorizontalAlignment.Left));
             Assert.That(summary.Children.OfType<TextBlock>().Where(text => Grid.GetColumn(text) == 0).Select(text => text.Text),
                 Is.EqualTo(new[] { "Runs", "Agents", "Child runs", "Tool calls", "Reads", "Searches", "Writes", "Read/search %", "Captured files" }));
             Assert.That(Values(window).Select(text => text.Text), Is.EqualTo(new[]
@@ -217,13 +320,22 @@ internal sealed class WorkMetricsWindowTests
                 "2", "1", "1", 1003.ToString("N0"), 601.ToString("N0"), 101.ToString("N0"), 201.ToString("N0"),
                 (70200.0 / 1003).ToString("0.#") + "%", 1202.ToString("N0"),
             }));
+            window.UpdateLayout();
+            var labels = summary.Children.OfType<TextBlock>().Where(text => Grid.GetColumn(text) == 0).ToArray();
+            Assert.That(summary.ColumnDefinitions[0].ActualWidth,
+                Is.EqualTo(labels.Max(label => label.ActualWidth)).Within(0.1));
+            Assert.That(summary.ActualWidth, Is.LessThan(((Grid)summary.Parent).ActualWidth));
             for (var row = 0; row < 9; row++)
             {
                 var value = Values(window)[row];
                 Assert.That(Grid.GetRow(value), Is.EqualTo(row));
                 Assert.That(Grid.GetColumn(value), Is.EqualTo(1));
-                Assert.That(value.HorizontalAlignment, Is.EqualTo(HorizontalAlignment.Right));
-                Assert.That(value.TextAlignment, Is.EqualTo(TextAlignment.Right));
+                Assert.That(value.HorizontalAlignment, Is.EqualTo(HorizontalAlignment.Left));
+                Assert.That(value.TextAlignment, Is.EqualTo(TextAlignment.Left));
+                Assert.That(value.Margin, Is.EqualTo(new Thickness(12, 0, 0, 0)));
+                Assert.That(value.TranslatePoint(new Point(), summary).X,
+                    Is.EqualTo(summary.ColumnDefinitions[0].ActualWidth + 12).Within(0.1));
+                Assert.That(labels[row].TranslatePoint(new Point(), summary).X, Is.EqualTo(0).Within(0.1));
             }
             runs.Clear();
             runs.Add(Run("zero", "Zero", PlanWorkItemKinds.Unscoped, false, 0) with
@@ -232,6 +344,32 @@ internal sealed class WorkMetricsWindowTests
             });
             Refresh(window);
             Assert.That(Values(window)[7].Text, Is.EqualTo("0%"));
+        });
+    }
+
+    [Test]
+    public void Summary_LabelsHaveNonemptyThemedTooltips_ValuesHaveNone()
+    {
+        WithWindow((window, _) =>
+        {
+            var summary = Field<Grid>(window, "_summary");
+            var labels = summary.Children.OfType<TextBlock>().Where(text => Grid.GetColumn(text) == 0).ToArray();
+            Assert.That(labels.Length, Is.EqualTo(9));
+            foreach (var label in labels)
+            {
+                Assert.That(label.ToolTip, Is.TypeOf<ToolTip>(), label.Text);
+                var tooltip = (ToolTip)label.ToolTip;
+                Assert.That(tooltip.Content, Is.TypeOf<TextBlock>(), label.Text);
+                Assert.That(((TextBlock)tooltip.Content).Text, Is.Not.Null.And.Not.Empty, label.Text);
+                tooltip.Resources = window.Resources;
+                Assert.That(tooltip.Background, Is.SameAs(window.FindResource("InputSurface")), label.Text);
+                Assert.That(tooltip.BorderBrush, Is.SameAs(window.FindResource("InputBorder")), label.Text);
+                Assert.That(((TextBlock)tooltip.Content).Foreground, Is.SameAs(window.FindResource("ToolTipForeground")), label.Text);
+            }
+            var filesTooltip = (ToolTip)labels.Single(label => label.Text == "Captured files").ToolTip;
+            Assert.That(((TextBlock)filesTooltip.Content).Text, Does.Contain("each run's distinct files"));
+            Assert.That(((TextBlock)filesTooltip.Content).Text, Does.Contain("same file can count again"));
+            Assert.That(Values(window).All(value => value.ToolTip is null), Is.True);
         });
     }
 
@@ -335,7 +473,9 @@ internal sealed class WorkMetricsWindowTests
     private static RadioButton[] Radios(WorkMetricsWindow window, string field) =>
         Field<StackPanel>(window, field).Children.OfType<RadioButton>().ToArray();
     private static string[] Options(WorkMetricsWindow window, string field) => Radios(window, field).Select(radio => (string)radio.Tag).ToArray();
-    private static string Selected(WorkMetricsWindow window, string field) => (string)Radios(window, field).Single(radio => radio.IsChecked == true).Tag;
+    private static string Selected(WorkMetricsWindow window, string field) =>
+        (string)typeof(WorkMetricsWindow).GetMethod("SelectedValue", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [Field<StackPanel>(window, field)])!;
     private static void Select(WorkMetricsWindow window, string field, string value) =>
         Radios(window, field).Single(radio => (string)radio.Tag == value).IsChecked = true;
     private static TextBlock[] Values(WorkMetricsWindow window) => Field<TextBlock[]>(window, "_summaryValues");

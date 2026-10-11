@@ -69,20 +69,31 @@ internal sealed class WorkMetricsWindow : ChromedWindow
         root.Children.Add(filterScroll);
 
         var summaryHost = new Grid { Margin = new Thickness(0, 0, 0, 10) };
-        _summary = new Grid();
-        _summary.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _summary = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
         _summary.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var labels = new[] { "Runs", "Agents", "Child runs", "Tool calls", "Reads", "Searches", "Writes", "Read/search %", "Captured files" };
+        _summary.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        (string Label, string ToolTip)[] labels =
+        {
+            ("Runs", "The number of agent runs (transcript turns) included in these metrics."),
+            ("Agents", "The number of distinct agent names in these runs, ignoring letter case."),
+            ("Child runs", "Runs with a recorded parent reference, indicating sub-agent or delegated work."),
+            ("Tool calls", "Total recorded tool calls across these runs, including failed and in-progress calls."),
+            ("Reads", "Tool calls classified by name as reading files, content, or agent and session information."),
+            ("Searches", "Tool calls classified by name as searches, such as grep, glob, or web search."),
+            ("Writes", "Tool calls classified by name as file creation or editing, regardless of success."),
+            ("Read/search %", "The percentage of all recorded tool calls classified as reads or searches."),
+            ("Captured files", "Sum of each run's distinct files with captured edits from successful, completed tool calls; the same file can count again in another run."),
+        };
         _summaryValues = new TextBlock[labels.Length];
         for (var row = 0; row < labels.Length; row++)
         {
             _summary.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var label = BuildSummaryText(labels[row]);
+            var label = BuildSummaryText(labels[row].Label);
+            label.ToolTip = ToolTipHelper.MakeThemedToolTip(labels[row].ToolTip);
             label.HorizontalAlignment = HorizontalAlignment.Left;
             var value = BuildSummaryText(string.Empty);
-            value.HorizontalAlignment = HorizontalAlignment.Right;
-            value.TextAlignment = TextAlignment.Right;
-            value.Margin = new Thickness(16, 0, 0, 0);
+            value.HorizontalAlignment = HorizontalAlignment.Left;
+            value.Margin = new Thickness(12, 0, 0, 0);
             Grid.SetRow(label, row);
             Grid.SetRow(value, row);
             Grid.SetColumn(value, 1);
@@ -181,11 +192,26 @@ internal sealed class WorkMetricsWindow : ChromedWindow
             ? options.OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
             : options).ToArray();
         // Keep the existing controls (and keyboard focus) through unchanged timer ticks.
-        if (group.Children.OfType<RadioButton>().Select(radio => (string)radio.Tag).SequenceEqual(items))
+        if (group.Tag is string[] previousItems && previousItems.SequenceEqual(items))
             return;
 
         selected = items.FirstOrDefault(value => string.Equals(value, selected, StringComparison.OrdinalIgnoreCase)) ?? All;
         group.Children.Clear();
+        group.Tag = items;
+        if (items.Length == 2)
+        {
+            var text = new TextBlock
+            {
+                Text = items[1],
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 2, 0, 2),
+            };
+            text.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            text.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            group.Children.Add(text);
+            return;
+        }
+
         foreach (var item in items)
         {
             var radio = new RadioButton
