@@ -838,6 +838,34 @@ export function normalizeAssistantResponseContent(content: string | undefined): 
         : content;
 }
 
+const SystemNotificationRegex = /<system_notification>\s*[\s\S]*?<\/system_notification>/gi;
+
+function stripSystemNotifications(content: string | undefined): string {
+    if (!content)
+        return "";
+
+    return content
+        .replace(SystemNotificationRegex, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trimEnd();
+}
+
+function hasVisibleAssistantResponseContent(content: string | undefined): boolean {
+    return stripSystemNotifications(content).trim().length > 0;
+}
+
+function combineCachedVisibleResponseWithHiddenFinal(
+    cachedContent: string | undefined,
+    finalContent: string | undefined
+): string | undefined {
+    if (!cachedContent)
+        return finalContent || undefined;
+    if (!finalContent)
+        return cachedContent;
+
+    return `${cachedContent}\n\n${finalContent}`;
+}
+
 /**
  * Reconciles incremental message text with the authoritative message returned by
  * sendAndWait. Compaction and multi-turn provider flows can leave the streamed
@@ -2938,10 +2966,13 @@ export class SquadBridgeService {
                 return "";
             }
 
-            const finalContent =
-                extractAssistantMessageContent(finalMessage) ||
+            const returnedFinalContent = extractAssistantMessageContent(finalMessage);
+            const cachedVisibleContent =
                 requestContext.lastAssistantMessageContent ||
                 state.lastAssistantMessageContent;
+            const finalContent = hasVisibleAssistantResponseContent(returnedFinalContent)
+                ? returnedFinalContent
+                : combineCachedVisibleResponseWithHiddenFinal(cachedVisibleContent, returnedFinalContent);
             const finalSplit = splitLocalThinkFinalContent(finalContent ?? "");
             this.emitFallbackFinalRequestReasoning(
                 requestContext,
@@ -4592,9 +4623,12 @@ export class SquadBridgeService {
                 getEventStringValue(event, "messageId"));
 
             if (content) {
-                state.lastAssistantMessageContent = responseContent;
-                if (request)
-                    request.lastAssistantMessageContent = responseContent;
+                const visibleResponseContent = stripSystemNotifications(responseContent);
+                if (visibleResponseContent.trim().length > 0) {
+                    state.lastAssistantMessageContent = visibleResponseContent;
+                    if (request)
+                        request.lastAssistantMessageContent = visibleResponseContent;
+                }
             }
         });
 

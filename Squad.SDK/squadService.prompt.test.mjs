@@ -1429,6 +1429,85 @@ test("reconciles stale streamed progress with the authoritative final response",
     assert.equal(reconcileStreamedAndFinalResponse(streamed, final), final);
 });
 
+test("runPrompt preserves cached visible response when final message is system notification only", async () => {
+    const listeners = new Map();
+    const deltas = [];
+    const hiddenNotification =
+        '<system_notification>{"notification":"Diagnosed checkout-dependent test failures."}</system_notification>';
+    const session = {
+        sessionId: "session-hidden-final-notification",
+        on(eventName, handler) {
+            listeners.set(eventName, handler);
+        },
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => {
+            listeners.get("message")?.({
+                content: "Confirmed. Root cause found.",
+                toolRequests: [{ name: "store_memory" }]
+            });
+            listeners.get("message")?.({ content: hiddenNotification });
+            return { content: hiddenNotification };
+        }
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => session
+    };
+
+    await service.runPrompt(
+        "Diagnose failed tests.",
+        {
+            onDelta(chunk) {
+                deltas.push(chunk);
+            }
+        },
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public"
+        });
+
+    assert.deepEqual(deltas, [
+        `Confirmed. Root cause found.\n\n${hiddenNotification}`
+    ]);
+});
+
+test("runPrompt keeps visible final response authoritative over cached visible message", async () => {
+    const listeners = new Map();
+    const deltas = [];
+    const session = {
+        sessionId: "session-visible-final-wins",
+        on(eventName, handler) {
+            listeners.set(eventName, handler);
+        },
+        getBackgroundTasks: async () => [],
+        sendAndWait: async () => {
+            listeners.get("message")?.({
+                content: "Earlier cached answer.",
+                toolRequests: [{ name: "store_memory" }]
+            });
+            return { content: "Authoritative final answer." };
+        }
+    };
+    const service = new SquadBridgeService();
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => session
+    };
+
+    await service.runPrompt(
+        "Diagnose failed tests.",
+        {
+            onDelta(chunk) {
+                deltas.push(chunk);
+            }
+        },
+        {
+            cwd: "D:\\Drive\\Source\\SquadDash-public"
+        });
+
+    assert.deepEqual(deltas, ["Authoritative final answer."]);
+});
+
 test("reconcileEmittedAndFinalReasoning treats an exact match as fully streamed", () => {
     const text = "Checking the config for inconsistencies.";
     const result = reconcileEmittedAndFinalReasoning(text, text);
