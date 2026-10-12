@@ -7,7 +7,7 @@ internal sealed class BranchPullDialog : ChromedWindow
 {
     internal bool UseRebase { get; private set; }
 
-    internal BranchPullDialog(string branch, GitUpstreamCounts counts, Window owner)
+    internal BranchPullDialog(string branch, string upstream, GitUpstreamCounts counts, Window owner)
         : base(captionHeight: 36, resizeMode: ResizeMode.NoResize)
     {
         Title = "Combine Diverged Branch Histories";
@@ -22,7 +22,7 @@ internal sealed class BranchPullDialog : ChromedWindow
 
         var heading = new TextBlock
         {
-            Text = "Your branch and the remote have diverged",
+            Text = $"Your branch and {upstream} have diverged",
             FontSize = 20,
             FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
@@ -33,8 +33,8 @@ internal sealed class BranchPullDialog : ChromedWindow
 
         var explanation = new TextBlock
         {
-            Text = $"Your local '{branch}' has {counts.Ahead} commit(s) that aren't on the remote, "
-                + $"and the remote has {counts.Behind} commit(s) you don't have. "
+            Text = $"Your local '{branch}' has {counts.Ahead} commit(s) that aren't on '{upstream}', "
+                + $"and '{upstream}' has {counts.Behind} commit(s) you don't have. "
                 + "These histories have diverged, so a simple fast-forward isn't possible.\n\n"
                 + "How would you like to combine them?",
             TextWrapping = TextWrapping.Wrap,

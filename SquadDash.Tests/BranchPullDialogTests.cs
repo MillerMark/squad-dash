@@ -17,7 +17,7 @@ internal sealed class BranchPullDialogTests
         {
             var owner = new Window { Width = 1, Height = 1, ShowInTaskbar = false };
             owner.Show();
-            var dialog = new BranchPullDialog("master", new GitUpstreamCounts(7, 3), owner);
+            var dialog = new BranchPullDialog("feature/models", "origin/master", new GitUpstreamCounts(7, 3), owner);
             try
             {
                 var content = Descendants(dialog);
@@ -29,8 +29,8 @@ internal sealed class BranchPullDialogTests
 
                 Assert.Multiple(() =>
                 {
-                    Assert.That(text, Does.Contain("local 'master' has 3 commit(s)")
-                        .And.Contain("remote has 7 commit(s)")
+                    Assert.That(text, Does.Contain("local 'feature/models' has 3 commit(s)")
+                        .And.Contain("'origin/master' has 7 commit(s)")
                         .And.Contain("fast-forward isn't possible")
                         .And.Contain("no force-push is needed")
                         .And.Contain("rewrites those local commits"));

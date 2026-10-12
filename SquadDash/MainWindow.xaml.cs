@@ -52707,18 +52707,20 @@ public partial class MainWindow : Window
             resolutionError = $"Could not read the local home branch: {ex.Message}";
             resolution = new(null, HomeBranchResolutionSource.None, false);
         }
-        var upstreamCounts = await TryReadGitUpstreamCountsAsync(workspaceFolder, branch);
+        var tracking = await TryReadGitBranchTrackingAsync(workspaceFolder, branch);
         if (revision != _branchIndicatorRevision
             || _currentWorkspace?.FolderPath != workspaceFolder || _currentBranch != branch)
             return;
+        var branchTooltip = $"{identity.BuildTooltip(includeRevealHint: false)}\n\n{tracking.TrackingDescription}";
         if ((resolutionError ?? resolution.Notice) is { } notice)
-            BranchIndicatorStrip.ToolTip = MakeThemedToolTip($"{identity.BuildTooltip(includeRevealHint: false)}\n\n{notice}");
+            branchTooltip += $"\n\n{notice}";
+        BranchIndicatorStrip.ToolTip = MakeThemedToolTip(branchTooltip);
 
         bool isMaintenance = branch.StartsWith("maintenance/", StringComparison.OrdinalIgnoreCase)
                           || branch.StartsWith("hotfix/", StringComparison.OrdinalIgnoreCase);
         bool isHomeBranch = _settingsSnapshot.IsHomeBranch(resolution, branch);
 
-        if (isMaintenance)
+        if (isMaintenance || tracking.HasMismatchedUpstream)
         {
             BranchDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "PriorityCritical");
             BranchNameText.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
@@ -52737,7 +52739,13 @@ public partial class MainWindow : Window
             BranchNameText.Text = branch;
         }
 
-        if (upstreamCounts is { Behind: > 0 } counts)
+        var trackingRun = new Run($" → {tracking.IndicatorText}");
+        trackingRun.SetResourceReference(
+            Run.ForegroundProperty,
+            tracking.HasMismatchedUpstream ? "ImportantText" : "SubtleText");
+        BranchNameText.Inlines.Add(trackingRun);
+
+        if (tracking.Counts is { Behind: > 0 } counts)
         {
             BranchNameText.Inlines.Add(new Run(" "));
             var behindRun = new Run($"({counts.Behind} behind)");
@@ -58977,7 +58985,7 @@ public partial class MainWindow : Window
             if (string.IsNullOrEmpty(branch)) return;
 
             var resolution = await ResolveHomeBranchAsync(workspaceFolder);
-            var upstreamCounts = await TryReadGitUpstreamCountsAsync(workspaceFolder, branch);
+            var tracking = await TryReadGitBranchTrackingAsync(workspaceFolder, branch);
             if (_currentWorkspace?.FolderPath != workspaceFolder || _currentBranch != branch) return;
             bool isHomeBranch = _settingsSnapshot.IsHomeBranch(resolution, branch);
             bool hasRemote = HasGitRemote(workspaceFolder);
@@ -58985,7 +58993,11 @@ public partial class MainWindow : Window
             var menu = new ContextMenu();
             menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
-            var headerItem = new MenuItem { Header = branch, IsEnabled = false };
+            var headerItem = new MenuItem
+            {
+                Header = $"{branch} → {tracking.IndicatorText}",
+                IsEnabled = false
+            };
             headerItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             menu.Items.Add(headerItem);
 
@@ -59000,11 +59012,11 @@ public partial class MainWindow : Window
             sep1.SetResourceReference(Separator.StyleProperty, "ThemedMenuSeparatorStyle");
             menu.Items.Add(sep1);
 
-            if (upstreamCounts is { Behind: > 0 } counts)
+            if (tracking.Counts is { Behind: > 0 } counts && tracking.TrackedBranch is { } upstream)
             {
                 var pullItem = new MenuItem
                 {
-                    Header = $"Pull ({counts.Behind} behind)",
+                    Header = tracking.PullLabel,
                     IsEnabled = !_promptQueue.Items.Any(i => i.SourceTag == "branch-indicator")
                 };
                 pullItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
@@ -59016,7 +59028,7 @@ public partial class MainWindow : Window
                     {
                         if (counts.Ahead > 0)
                         {
-                            var dialog = new BranchPullDialog(branch, counts, this);
+                            var dialog = new BranchPullDialog(branch, upstream, counts, this);
                             if (dialog.ShowDialog() != true) return;
 
                             // Explicitly override pull.rebase and avoid launching a merge-message editor.
@@ -59030,7 +59042,8 @@ public partial class MainWindow : Window
 
                         if (_isPromptRunning || IsNativeLoopRunning)
                         {
-                            var prompt = $"In workspace '{workspaceFolder}', verify that the current branch is still '{branch}' and has an upstream. "
+                            var prompt = $"In workspace '{workspaceFolder}', verify that the current branch is still '{branch}' "
+                                + $"and its upstream is still '{upstream}'. "
                                 + $"If either has changed, stop and report it. Otherwise run git {pullArguments}. "
                                 + (counts.Ahead > 0
                                     ? "This is the user's chosen pull strategy. Do not switch strategies, force-push, reset, stash, discard changes, "
@@ -59048,6 +59061,11 @@ public partial class MainWindow : Window
                         var currentBranch = await RunGitAsync(workspaceFolder, "symbolic-ref --quiet --short HEAD");
                         if (_currentWorkspace?.FolderPath != workspaceFolder || currentBranch != branch)
                             throw new InvalidOperationException("The workspace or branch changed. Reopen the branch menu before pulling.");
+                        var currentUpstream = await RunGitAsync(
+                            workspaceFolder,
+                            "rev-parse --abbrev-ref --symbolic-full-name @{u}");
+                        if (!string.Equals(currentUpstream, upstream, StringComparison.Ordinal))
+                            throw new InvalidOperationException("The upstream changed. Reopen the branch menu before pulling.");
 
                         await RunGitAsync(workspaceFolder, pullArguments);
                         UpdateBranchIndicator();
@@ -59064,23 +59082,34 @@ public partial class MainWindow : Window
 
             if (hasRemote)
             {
-                var pushItem = new MenuItem { Header = "Push branch" };
+                var pushItem = new MenuItem { Header = tracking.PushLabel };
                 pushItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
                 pushItem.Click += async (_, _) =>
                 {
                     try
                     {
-                        string pushArgs;
-                        try
+                        var currentBranch = await RunGitAsync(workspaceFolder, "symbolic-ref --quiet --short HEAD");
+                        if (_currentWorkspace?.FolderPath != workspaceFolder || currentBranch != branch)
+                            throw new InvalidOperationException("The workspace or branch changed. Reopen the branch menu before pushing.");
+
+                        var currentTracking = await TryReadGitBranchTrackingAsync(workspaceFolder, branch);
+                        if (!string.Equals(
+                                currentTracking.TrackedBranch,
+                                tracking.TrackedBranch,
+                                StringComparison.Ordinal))
+                            throw new InvalidOperationException("The upstream changed. Reopen the branch menu before pushing.");
+
+                        if (currentTracking.HasMismatchedUpstream)
                         {
-                            var upstream = await RunGitAsync(workspaceFolder, "rev-parse --abbrev-ref --symbolic-full-name @{u}");
-                            pushArgs = $"push origin {branch}";
+                            var result = MessageBox.Show(
+                                currentTracking.RepairConfirmation,
+                                "Repair Branch Tracking",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Warning);
+                            if (result != MessageBoxResult.Yes) return;
                         }
-                        catch
-                        {
-                            pushArgs = $"push --set-upstream origin {branch}";
-                        }
-                        await RunGitAsync(workspaceFolder, pushArgs);
+
+                        await RunGitAsync(workspaceFolder, currentTracking.PushArguments);
                         UpdateBranchIndicator();
                     }
                     catch (Exception ex)
@@ -59318,28 +59347,37 @@ public partial class MainWindow : Window
     private Task<HomeBranchResolution> ResolveHomeBranchAsync(string workspaceFolder) =>
         HomeBranchRepositoryReader.ResolveAsync(workspaceFolder, _settingsSnapshot.GetHomeBranch(workspaceFolder), RunGitAsync);
 
-    private static async Task<GitUpstreamCounts?> TryReadGitUpstreamCountsAsync(string workspaceFolder, string branch)
+    private static async Task<GitBranchTracking> TryReadGitBranchTrackingAsync(string workspaceFolder, string branch)
     {
         if (string.IsNullOrWhiteSpace(branch) || branch == "(detached)"
             || branch.StartsWith("(detached ", StringComparison.Ordinal))
-            return null;
+            return new(branch, null, null);
 
+        string upstream;
         try
         {
             if (string.IsNullOrWhiteSpace(await RunGitAsync(workspaceFolder, "remote")))
-                return null;
+                return new(branch, null, null);
 
-            var upstream = await RunGitAsync(workspaceFolder, "rev-parse --abbrev-ref --symbolic-full-name @{u}");
+            upstream = await RunGitAsync(workspaceFolder, "rev-parse --abbrev-ref --symbolic-full-name @{u}");
             if (string.IsNullOrWhiteSpace(upstream))
             {
                 SquadDashTrace.Write("Branch", $"No upstream returned for '{branch}'.");
-                return null;
+                return new(branch, null, null);
             }
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write("Branch", $"Could not read the upstream for '{branch}': {ex.Message}");
+            return new(branch, null, null);
+        }
 
+        try
+        {
             // Read only local tracking refs; refreshing the strip or menu must not fetch.
             var output = await RunGitAsync(workspaceFolder, "rev-list --left-right --count @{u}...HEAD");
             if (GitUpstreamCounts.TryParse(output, out var counts))
-                return counts;
+                return new(branch, upstream, counts);
 
             SquadDashTrace.Write("Branch", $"Invalid upstream counts for '{branch}': {output}");
         }
@@ -59347,7 +59385,7 @@ public partial class MainWindow : Window
         {
             SquadDashTrace.Write("Branch", $"Could not read upstream counts for '{branch}': {ex.Message}");
         }
-        return null;
+        return new(branch, upstream, null);
     }
 
     private async Task VerifyHomeBranchTargetAsync(
