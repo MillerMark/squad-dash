@@ -1109,10 +1109,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (onFixValidation is not null)
             {
                 var fixValidationButton = TranscriptQuickReplyFactory.CreateButton(
-                    "Add repair task and revalidate",
+                    "Fix defect and rerun validation",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        $"Create one bounded implementation task for “{failedValidation.Title},” preserve every completed task and commit, and rerun validation automatically. This keeps the current plan and does not recover a rejected plan revision."));
+                        $"SquadDash adds one new implementation step to the existing plan using the recorded failure evidence for “{failedValidation.Title}.” The coordinator executes that step to fix the implicated code or configuration and add regression coverage; the planning agent does not redesign the plan. Completed steps and commits remain accepted, and SquadDash reruns validation automatically afterward. This does not recover a rejected plan revision."));
                 fixValidationButton.Focusable = false;
                 fixValidationButton.Click += (_, _) =>
                 {

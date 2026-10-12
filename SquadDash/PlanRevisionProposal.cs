@@ -162,6 +162,7 @@ internal static class PlanRevisionProposalParser
         - updateApprovalGate: message, afterTaskIds, beforeTaskIds, proofRequirements, question
         - updateValidation: title, description, afterTaskIds, beforeTaskIds, assertions, outputIds, mode, commands, revalidateAtCompletion
         Runtime fields such as status, timestamps, resolution metadata, evidence, commits, and human selections are host-owned. Never include them in an update patch.
+        Do not set status to pending to request another approval or validation run. After an approved definition change, SquadDash resets affected gates and validations itself when reevaluation is required.
         """;
 
     internal static bool TryParse(

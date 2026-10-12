@@ -11445,9 +11445,11 @@ public partial class MainWindow : Window
             ScheduleRejectedPlanRevisionRecoveryEntry(recovery);
     }
 
-    private void ScheduleRejectedPlanRevisionRecoveryEntry(RejectedPlanRevisionRecoveryState recovery)
+    private void ScheduleRejectedPlanRevisionRecoveryEntry(
+        RejectedPlanRevisionRecoveryState recovery,
+        Plan? previewPlan = null)
     {
-        var plan = _planStore?.Load(recovery.Payload.PlanId);
+        var plan = previewPlan ?? _planStore?.Load(recovery.Payload.PlanId);
         var presentation = PlanRevisionRecoveryPresentationBuilder.Build(plan, recovery);
         var tag = $"plan-revision-recovery:{recovery.Payload.PlanId}";
         foreach (var existing in CoordinatorThread.Document.Blocks
@@ -17120,11 +17122,12 @@ public partial class MainWindow : Window
         string planId,
         string validationId,
         string message,
-        bool addMessage = true)
+        bool addMessage = true,
+        Plan? previewPlan = null)
     {
         void Publish()
         {
-            var plan = _planStore?.Load(planId);
+            var plan = previewPlan ?? _planStore?.Load(planId);
             var validation = plan?.Validations?.FirstOrDefault(candidate =>
                 string.Equals(candidate.ValidationId, validationId, StringComparison.Ordinal));
             var preparesHumanReview =
@@ -17195,12 +17198,12 @@ public partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center,
             };
             var primary = TranscriptQuickReplyFactory.CreateButton(
-                preparesHumanReview ? "Prepare Review Checklist" : "Add repair task and revalidate",
+                preparesHumanReview ? "Prepare Review Checklist" : "Fix defect and rerun validation",
                 _transcriptFontSize,
                 toolTip: ToolTipHelper.MakeThemedToolTip(
                     preparesHumanReview
                         ? "Re-evaluate this non-mutating audit under the human-review protocol and present the specific observations as checkboxes."
-                        : "Add one bounded implementation task from the recorded failure evidence, preserve every completed task and commit, and rerun this validation afterward. This keeps the current plan; it does not recover a rejected plan revision."));
+                        : "SquadDash adds one new implementation step to the existing plan using this validation's recorded failure evidence. The coordinator executes that step to fix the implicated code or configuration and add regression coverage; the planning agent does not redesign the plan. Completed steps and commits remain accepted, and SquadDash reruns this validation automatically afterward. This does not recover a rejected plan revision."));
             primary.Click += async (_, _) =>
             {
                 primary.IsEnabled = false;
@@ -17296,7 +17299,7 @@ public partial class MainWindow : Window
 
         var updated = PlanStoreUpdater.ApplyValidationRepairRequested(plan, validationId);
         if (ReferenceEquals(updated, plan))
-            throw new InvalidOperationException("SquadDash could not create a bounded repair step for this validation.");
+            throw new InvalidOperationException("SquadDash could not create a focused corrective step for this validation.");
         if (!TryPublishPlanProgress(updated, out var error))
             throw new InvalidOperationException(error ?? "The validation repair could not be saved.");
 
@@ -17304,8 +17307,8 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         PrepareForHostRecoveryAction();
         ScheduleDecomposeSystemEntry(
-            $"Repairing validation defect · {validation.Title}. Completed work remains accepted; " +
-            "the failed assertion evidence is attached to one bounded repair step, and validation will rerun automatically afterward.");
+            $"Fixing validation defect · {validation.Title}. SquadDash added one new implementation step from the failed assertion evidence. " +
+            "The coordinator will execute it; completed work remains accepted, and validation will rerun automatically afterward.");
         await StartOrResumeDurablePlanAsync(updated);
     }
 
@@ -35001,6 +35004,8 @@ public partial class MainWindow : Window
         "ProposedPlan",
         "HumanReview",
         "PlanRevision",
+        "RejectedPlanRevision",
+        "ValidationFailure",
         "PreflightBlocked",
         "PlanRecovery",
         "RecoveryOptions",
@@ -35308,6 +35313,8 @@ public partial class MainWindow : Window
             "ProposedPlan" => "Proposed plan actions",
             "HumanReview" => "Human review checkpoint",
             "PlanRevision" => "Plan revision approval",
+            "RejectedPlanRevision" => "Rejected plan revision recovery",
+            "ValidationFailure" => "Failed validation recovery",
             "PreflightBlocked" => "Preflight blocked",
             "PlanRecovery" => "Plan recovery",
             "RecoveryOptions" => "Recovery options",
@@ -35357,6 +35364,45 @@ public partial class MainWindow : Window
                     PreservedLockedTaskCount: 1);
                 AppendPlanRevisionApprovalCard(plan, proposal, revisionPreview, ownerView: null);
                 break;
+
+            case "RejectedPlanRevision":
+            {
+                var failedValidation = plan.Validations!.Single();
+                using var invalidPatch = JsonDocument.Parse("""{"status":"Pending"}""");
+                var rejectedPayload = new PlanRevisionProposalPayload(
+                    plan.PlanId,
+                    plan.Revision,
+                    "Update the integration boundary and its validation contract.",
+                    ReopenTaskIds: null,
+                    RevisedPlan: null,
+                    Operations:
+                    [
+                        new PlanRevisionOperation(
+                            "updateValidation",
+                            failedValidation.ValidationId,
+                            invalidPatch.RootElement.Clone()),
+                    ]);
+                ScheduleRejectedPlanRevisionRecoveryEntry(
+                    new RejectedPlanRevisionRecoveryState(
+                        rejectedPayload,
+                        "updateValidation cannot patch 'status'. Allowed fields: title, description, afterTaskIds, beforeTaskIds, assertions, outputIds, mode, commands, revalidateAtCompletion.",
+                        PlanRevisionRepairRetryPolicy.MaxAutomaticAttempts,
+                        DateTimeOffset.UtcNow.AddMinutes(-2)),
+                    previewPlan: plan);
+                break;
+            }
+
+            case "ValidationFailure":
+            {
+                var failedValidation = plan.Validations!.Single();
+                ScheduleValidationRecoveryEntry(
+                    plan.PlanId,
+                    failedValidation.ValidationId,
+                    $"Validation needs attention · {failedValidation.Title}.",
+                    addMessage: false,
+                    previewPlan: plan);
+                break;
+            }
 
             case "PreflightBlocked":
                 var blocked = new PlanPreflightBlockedException(
@@ -35419,6 +35465,16 @@ public partial class MainWindow : Window
             CompletedAt = index == 0 ? DateTimeOffset.UtcNow.AddMinutes(-5) : null,
             DisplayStepLabel = (index + 1).ToString(),
         }).ToArray();
+        var validations = kind is "RejectedPlanRevision" or "ValidationFailure"
+            ? source.Validations!.Select(validation => validation with
+            {
+                Status = PlanValidationStatus.Failed,
+                StartedAt = DateTimeOffset.UtcNow.AddMinutes(-4),
+                CompletedAt = DateTimeOffset.UtcNow.AddMinutes(-3),
+                Summary = "The integration boundary still permits an invalid response shape.",
+                Evidence = ["[FAIL] Contract assertion rejected the current response shape."],
+            }).ToArray()
+            : [];
         return source with
         {
             PlanId = id,
@@ -35429,7 +35485,7 @@ public partial class MainWindow : Window
             Tasks = tasks,
             ApprovalGates = [],
             Progress = new PlanProgress(1, tasks.Length),
-            Validations = [],
+            Validations = validations,
         };
     }
 

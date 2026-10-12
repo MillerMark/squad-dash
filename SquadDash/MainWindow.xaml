@@ -955,6 +955,12 @@
                             <MenuItem Header="Plan _revision approval"
                                       Tag="PlanRevision"
                                       Click="SimulatePlanResponseCard_Click" />
+                            <MenuItem Header="Rejected plan revision _recovery"
+                                      Tag="RejectedPlanRevision"
+                                      Click="SimulatePlanResponseCard_Click" />
+                            <MenuItem Header="Failed _validation recovery"
+                                      Tag="ValidationFailure"
+                                      Click="SimulatePlanResponseCard_Click" />
                             <MenuItem Header="_Preflight blocked"
                                       Tag="PreflightBlocked"
                                       Click="SimulatePlanResponseCard_Click" />

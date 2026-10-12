@@ -710,6 +710,8 @@ Allowed update patch fields:
 
 Runtime fields such as `status`, timestamps, resolution metadata, evidence, commits, and human
 selections are host-owned. Never include them in an update patch.
+Do not set `status` to `pending` to request another approval or validation run. After an approved
+definition change, SquadDash resets affected gates and validations itself when reevaluation is required.
 Remove operations require `targetId`. Do not use
 `reopenTask`: an unapproved proposal has no execution history to reopen.
 

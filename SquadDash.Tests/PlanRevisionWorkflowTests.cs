@@ -1197,6 +1197,8 @@ internal sealed class PlanRevisionWorkflowTests
             Assert.That(prompt, Does.Contain("updateApprovalGate: message, afterTaskIds, beforeTaskIds, proofRequirements, question"));
             Assert.That(prompt, Does.Contain("updateValidation: title, description, afterTaskIds, beforeTaskIds, assertions, outputIds, mode, commands, revalidateAtCompletion"));
             Assert.That(prompt, Does.Contain("Runtime fields such as status"));
+            Assert.That(prompt, Does.Contain("Do not set status to pending"));
+            Assert.That(prompt, Does.Contain("SquadDash resets affected gates and validations itself"));
         });
     }
 
