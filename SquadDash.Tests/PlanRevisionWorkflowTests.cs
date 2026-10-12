@@ -649,6 +649,58 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void ProposalParser_ReportsAllTopLevelSchemaErrorsTogether()
+    {
+        var text = """
+            PLAN_REVISION_JSON:
+            {
+              "planId": "",
+              "baseRevision": "",
+              "summary": "",
+              "operations": [null]
+            }
+            """;
+
+        var parsed = PlanRevisionProposalParser.TryParse(text, out _, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(error, Does.Contain("planId is required"));
+            Assert.That(error, Does.Contain("baseRevision is required"));
+            Assert.That(error, Does.Contain("summary is required"));
+            Assert.That(error, Does.Contain("operations cannot contain null entries"));
+        });
+    }
+
+    [Test]
+    public void ProposalParser_ReportsTopLevelAndOperationSchemaErrorsTogether()
+    {
+        var text = """
+            PLAN_REVISION_JSON:
+            {
+              "planId": "REVISION-20260806",
+              "baseRevision": "base-1",
+              "summary": "",
+              "operations": [{
+                "op": "updateValidation",
+                "targetId": "REVISION-20260806-VAL-001",
+                "patch": { "status": "Pending" }
+              }]
+            }
+            """;
+
+        var parsed = PlanRevisionProposalParser.TryParse(text, out _, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.False);
+            Assert.That(error, Does.Contain("summary is required"));
+            Assert.That(error, Does.Contain("updateValidation cannot patch 'status'"));
+        });
+    }
+
+    [Test]
     public void DecomposedTaskSerialization_WritesOnlyCanonicalTaskId()
     {
         var json = JsonSerializer.Serialize(new DecomposedSubTask(
@@ -1079,6 +1131,162 @@ internal sealed class PlanRevisionWorkflowTests
         {
             Assert.That(materialized, Is.False);
             Assert.That(error, Does.Contain("cannot patch 'status'"));
+        });
+    }
+
+    [Test]
+    public void DeltaMaterializer_ReportsAllSchemaErrorsAcrossOperations()
+    {
+        var plan = MakePlanWithTerminalGateAndValidation();
+        using var gatePatch = JsonDocument.Parse("""{"status":"pending","resolvedAt":null,"resolvedBy":null}""");
+        using var validationPatch = JsonDocument.Parse("""{"status":"pending","title":"Revised validation"}""");
+        var payload = new PlanRevisionProposalPayload(
+            plan.PlanId,
+            plan.Revision,
+            "Invalid runtime mutations",
+            null,
+            Operations:
+            [
+                new PlanRevisionOperation(
+                    "updateApprovalGate",
+                    plan.ApprovalGates.Single().GateId,
+                    gatePatch.RootElement.Clone()),
+                new PlanRevisionOperation(
+                    "updateValidation",
+                    plan.Validations!.Single().ValidationId,
+                    validationPatch.RootElement.Clone()),
+            ]);
+
+        var materialized = PlanRevisionDeltaApplier.TryMaterialize(
+            plan, payload, out _, out _, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(materialized, Is.False);
+            Assert.That(error, Does.Contain("Plan revision schema errors:"));
+            Assert.That(error, Does.Contain("updateApprovalGate cannot patch 'status'"));
+            Assert.That(error, Does.Contain("updateApprovalGate cannot patch 'resolvedAt'"));
+            Assert.That(error, Does.Contain("updateApprovalGate cannot patch 'resolvedBy'"));
+            Assert.That(error, Does.Contain("updateValidation cannot patch 'status'"));
+            Assert.That(error, Does.Not.Contain("Revised validation"),
+                "Allowed values must not be misreported as schema errors.");
+        });
+    }
+
+    [Test]
+    public void RepairPrompt_RequiresSurgicalCorrectionAndListsPatchFields()
+    {
+        var plan = MakePlan();
+        using var patch = JsonDocument.Parse("""{"summary":"Revised summary"}""");
+        var payload = new PlanRevisionProposalPayload(
+            plan.PlanId,
+            plan.Revision,
+            "Preserve the intended change",
+            null,
+            Operations:
+            [
+                new PlanRevisionOperation("updatePlan", Patch: patch.RootElement.Clone()),
+            ]);
+
+        var prompt = PlanRevisionProposalParser.BuildRepairPrompt("bad patch", payload);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("Correct only the listed validation errors"));
+            Assert.That(prompt, Does.Contain("Preserve every unaffected operation, field, and value"));
+            Assert.That(prompt, Does.Contain("updateApprovalGate: message, afterTaskIds, beforeTaskIds, proofRequirements, question"));
+            Assert.That(prompt, Does.Contain("updateValidation: title, description, afterTaskIds, beforeTaskIds, assertions, outputIds, mode, commands, revalidateAtCompletion"));
+            Assert.That(prompt, Does.Contain("Runtime fields such as status"));
+        });
+    }
+
+    [Test]
+    public void RepairPrompt_CanEmbedSavedCandidateForRestartRecovery()
+    {
+        var plan = MakePlan();
+        using var patch = JsonDocument.Parse("""{"status":"Pending"}""");
+        var payload = new PlanRevisionProposalPayload(
+            plan.PlanId,
+            plan.Revision,
+            "Preserve the intended validation change",
+            null,
+            Operations:
+            [
+                new PlanRevisionOperation(
+                    "updateValidation",
+                    "REVISION-20260806-VAL-001",
+                    patch.RootElement.Clone()),
+            ]);
+
+        var prompt = PlanRevisionProposalParser.BuildRepairPrompt(
+            "updateValidation cannot patch 'status'.",
+            payload,
+            includeSavedCandidate: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.Contain("may no longer be present in recent conversation context"));
+            Assert.That(prompt, Does.Contain(PlanRevisionProposalParser.Marker));
+            Assert.That(prompt, Does.Contain("\"planId\": \"REVISION-20260806\""));
+            Assert.That(prompt, Does.Contain("\"status\": \"Pending\""));
+        });
+    }
+
+    [Test]
+    public void RejectedRevisionRecovery_RecommendsSavedCandidateOnlyWhileBaseIsCurrent()
+    {
+        var plan = MakePlanWithTerminalGateAndValidation() with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+        };
+        using var patch = JsonDocument.Parse("""{"title":"Revised validation"}""");
+        var payload = new PlanRevisionProposalPayload(
+            plan.PlanId,
+            plan.Revision,
+            "Introduce a supervised commissioning path",
+            null,
+            Operations:
+            [
+                new PlanRevisionOperation(
+                    "updateValidation",
+                    plan.Validations!.Single().ValidationId,
+                    patch.RootElement.Clone()),
+            ]);
+        var recovery = new RejectedPlanRevisionRecoveryState(
+            payload,
+            "updateValidation cannot patch 'status'.",
+            2,
+            new DateTimeOffset(2026, 10, 11, 13, 54, 31, TimeSpan.Zero));
+
+        var current = PlanRevisionRecoveryPresentationBuilder.Build(plan, recovery);
+        var stale = PlanRevisionRecoveryPresentationBuilder.Build(
+            plan with { Revision = "new-revision" }, recovery);
+        var unsafeBoundary = PlanRevisionRecoveryPresentationBuilder.Build(
+            plan with { LifecycleStatus = PlanLifecycleStatus.Archived }, recovery);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(current.CanRetry, Is.True);
+            Assert.That(current.Explanation, Does.Contain("later revision was proposed but rejected"));
+            Assert.That(current.Explanation, Does.Contain("remains failed because the revision that changes it was never applied"));
+            Assert.That(current.Explanation, Does.Contain("Recommended: repair and resubmit"));
+            Assert.That(current.TechnicalDetails, Does.Contain("Operations preserved: 1"));
+            Assert.That(stale.CanRetry, Is.False);
+            Assert.That(stale.Explanation, Does.Contain("automatic resubmission is unsafe"));
+            Assert.That(unsafeBoundary.CanRetry, Is.False);
+            Assert.That(unsafeBoundary.Explanation, Does.Contain("not currently at a safe revision boundary"));
+        });
+    }
+
+    [Test]
+    public void RepairRetryPolicy_AllowsExactlyTwoAutomaticAttempts()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanRevisionRepairRetryPolicy.MaxAutomaticAttempts, Is.EqualTo(2));
+            Assert.That(PlanRevisionRepairRetryPolicy.CanQueue(0), Is.True);
+            Assert.That(PlanRevisionRepairRetryPolicy.CanQueue(1), Is.True);
+            Assert.That(PlanRevisionRepairRetryPolicy.CanQueue(2), Is.False);
         });
     }
 

@@ -37,34 +37,36 @@ internal static class StagedPlanRevisionProposalParser
         }
 
         var payload = extraction.Payload;
-        if (string.IsNullOrWhiteSpace(payload.GroupId) ||
-            string.IsNullOrWhiteSpace(payload.BaseRevision) ||
-            string.IsNullOrWhiteSpace(payload.Summary))
-        {
-            error = "groupId, baseRevision, and summary are required.";
-            return false;
-        }
+        var schemaErrors = new List<string>();
+        if (string.IsNullOrWhiteSpace(payload.GroupId)) schemaErrors.Add("groupId is required.");
+        if (string.IsNullOrWhiteSpace(payload.BaseRevision)) schemaErrors.Add("baseRevision is required.");
+        if (string.IsNullOrWhiteSpace(payload.Summary)) schemaErrors.Add("summary is required.");
         if (payload.Operations is not { Count: > 0 })
+            schemaErrors.Add("operations must contain at least one delta operation.");
+        else
         {
-            error = "operations must contain at least one delta operation.";
-            return false;
+            foreach (var entry in payload.Operations.Select((operation, index) => (operation, index)))
+            {
+                if (entry.operation is null)
+                {
+                    continue;
+                }
+                if (string.Equals(entry.operation.Op?.Trim(), "addTask", StringComparison.Ordinal) &&
+                    entry.operation.Task is not null && string.IsNullOrWhiteSpace(entry.operation.Task.Id))
+                    schemaErrors.Add($"operations[{entry.index}].addTask.task.taskId is required. " +
+                                     "Use taskId for new tasks; legacy id is accepted only for compatibility.");
+                if (string.Equals(entry.operation.Op?.Trim(), "reopenTask", StringComparison.Ordinal))
+                    schemaErrors.Add($"operations[{entry.index}].reopenTask is not valid for an unapproved staged " +
+                                     "proposal because it has no execution history.");
+            }
+            schemaErrors.AddRange(PlanRevisionDeltaApplier.GetOperationSchemaErrors(
+                payload.Operations,
+                allowTargetRef: true));
         }
-        if (payload.Operations.Any(operation => operation is null))
+        if (schemaErrors.Count > 0)
         {
-            error = "operations cannot contain null entries.";
-            return false;
-        }
-        if (payload.Operations.FirstOrDefault(operation =>
-                string.Equals(operation.Op?.Trim(), "addTask", StringComparison.Ordinal) &&
-                operation.Task is not null && string.IsNullOrWhiteSpace(operation.Task.Id)) is not null)
-        {
-            error = "addTask.task.taskId is required. Use taskId for new tasks; legacy id is accepted only for compatibility.";
-            return false;
-        }
-        if (payload.Operations.Any(operation =>
-                string.Equals(operation.Op?.Trim(), "reopenTask", StringComparison.Ordinal)))
-        {
-            error = "reopenTask is not valid for an unapproved staged proposal because it has no execution history.";
+            error = "Staged plan revision schema errors:" + Environment.NewLine +
+                    string.Join(Environment.NewLine, schemaErrors.Select(item => "- " + item));
             return false;
         }
 
@@ -108,6 +110,9 @@ internal static class StagedPlanRevisionProposalParser
 
             {{intent}}
             {{identity}}
+            Correct only the listed validation errors. Preserve every unaffected operation, field, and value from
+            the immediately preceding STAGED_PLAN_REVISION_JSON. Do not introduce new plan changes. If an error
+            requires combining duplicate operations, preserve their complete combined intent.
             Return exactly one corrected STAGED_PLAN_REVISION_JSON block. Do not return TASKS_JSON,
             PLAN_REVISION_JSON, commentary, or source changes. The object must contain groupId,
             baseRevision, summary, and a non-empty operations array. Use only updatePlan, editPlanText,
@@ -121,6 +126,8 @@ internal static class StagedPlanRevisionProposalParser
             approvalGate, or validation. New tasks must use taskId as their identifier; do not emit id.
             Remove operations require targetId. Keep groupId and
             baseRevision unchanged and do not use reopenTask.
+
+            {{PlanRevisionProposalParser.PatchFieldGuidance}}
             """;
     }
 

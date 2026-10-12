@@ -1109,10 +1109,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
             if (onFixValidation is not null)
             {
                 var fixValidationButton = TranscriptQuickReplyFactory.CreateButton(
-                    "Fix defect and revalidate",
+                    "Add repair task and revalidate",
                     quickReplyFontSize,
                     toolTip: ToolTipHelper.MakeThemedToolTip(
-                        $"Create one bounded repair step for “{failedValidation.Title},” preserve completed work, and rerun validation automatically."));
+                        $"Create one bounded implementation task for “{failedValidation.Title},” preserve every completed task and commit, and rerun validation automatically. This keeps the current plan and does not recover a rejected plan revision."));
                 fixValidationButton.Focusable = false;
                 fixValidationButton.Click += (_, _) =>
                 {

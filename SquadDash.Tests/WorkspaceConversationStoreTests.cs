@@ -180,6 +180,49 @@ internal sealed class WorkspaceConversationStoreTests {
     }
 
     [Test]
+    public void SaveAndLoad_PreservesRejectedPlanRevisionRecovery() {
+        using var patch = JsonDocument.Parse("""{"status":"Pending"}""");
+        var rejectedAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        var recovery = new RejectedPlanRevisionRecoveryState(
+            new PlanRevisionProposalPayload(
+                "PLAN-RECOVERY",
+                "revision-1",
+                "Correct the validation",
+                null,
+                Operations:
+                [
+                    new PlanRevisionOperation(
+                        "updateValidation",
+                        "PLAN-RECOVERY-VAL-001",
+                        patch.RootElement.Clone()),
+                ]),
+            "updateValidation cannot patch 'status'.",
+            2,
+            rejectedAt);
+
+        var saved = _store.Save(
+            _workspacePath,
+            WorkspaceConversationState.Empty with
+            {
+                RejectedPlanRevisionRecovery = recovery,
+            });
+        var loaded = _store.Load(_workspacePath);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(saved.RejectedPlanRevisionRecovery, Is.Not.Null);
+            Assert.That(loaded.RejectedPlanRevisionRecovery, Is.Not.Null);
+            Assert.That(loaded.RejectedPlanRevisionRecovery!.Payload.PlanId, Is.EqualTo("PLAN-RECOVERY"));
+            Assert.That(loaded.RejectedPlanRevisionRecovery.Payload.Operations, Has.Count.EqualTo(1));
+            Assert.That(loaded.RejectedPlanRevisionRecovery.Payload.Operations![0].Patch!.Value
+                .GetProperty("status").GetString(), Is.EqualTo("Pending"));
+            Assert.That(loaded.RejectedPlanRevisionRecovery.LastError,
+                Does.Contain("cannot patch 'status'"));
+            Assert.That(loaded.RejectedPlanRevisionRecovery.RepairAttempts, Is.EqualTo(2));
+        });
+    }
+
+    [Test]
     public void SaveAndLoad_RoundTripsForceStoppedPromptFreshnessBaseline()
     {
         var stoppedAt = new DateTimeOffset(2026, 8, 19, 17, 46, 8, TimeSpan.Zero);

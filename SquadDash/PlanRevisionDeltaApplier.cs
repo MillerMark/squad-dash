@@ -27,6 +27,15 @@ internal static class PlanRevisionDeltaApplier
     private static readonly IReadOnlySet<string> ValidationPatchFields = Set(
         "title", "description", "afterTaskIds", "beforeTaskIds", "assertions", "outputIds",
         "mode", "commands", "revalidateAtCompletion");
+    private static readonly IReadOnlySet<string> SupportedOperations = Set(
+        "updatePlan", "editPlanText", "reopenTask", "updateTask", "editTaskText", "addTask",
+        "removeTask", "updateApprovalGate", "editApprovalGateText", "addApprovalGate",
+        "removeApprovalGate", "updateValidation", "editValidationText", "addValidation",
+        "removeValidation");
+    private static readonly IReadOnlySet<string> TargetOperations = Set(
+        "reopenTask", "updateTask", "editTaskText", "removeTask", "updateApprovalGate",
+        "editApprovalGateText", "removeApprovalGate", "updateValidation", "editValidationText",
+        "removeValidation");
 
     internal static bool TryMaterialize(
         Plan current,
@@ -57,6 +66,9 @@ internal static class PlanRevisionDeltaApplier
         }
 
         var operations = payload.Operations;
+        if (!TryValidateOperationSchemas(operations, out error))
+            return false;
+
         var reopened = operations
             .Where(operation => string.Equals(operation.Op, "reopenTask", StringComparison.Ordinal))
             .Select(operation => operation.TargetId?.Trim())
@@ -94,21 +106,7 @@ internal static class PlanRevisionDeltaApplier
                 continue;
             }
 
-            var mutationKey = op switch
-            {
-                "updatePlan" => "plan",
-                "editPlanText" => "plan:text:" + operation.Path + ":" + operation.OldText,
-                "updateTask" or "removeTask" => "task:" + targetId,
-                "editTaskText" => "task:" + targetId + ":text:" + operation.Path + ":" + operation.OldText,
-                "addTask" => "task:" + operation.Task?.Id,
-                "updateApprovalGate" or "removeApprovalGate" => "gate:" + targetId,
-                "editApprovalGateText" => "gate:" + targetId + ":text:" + operation.Path + ":" + operation.OldText,
-                "addApprovalGate" => "gate:" + operation.ApprovalGate?.GateId,
-                "updateValidation" or "removeValidation" => "validation:" + targetId,
-                "editValidationText" => "validation:" + targetId + ":text:" + operation.Path + ":" + operation.OldText,
-                "addValidation" => "validation:" + operation.Validation?.ValidationId,
-                _ => string.Empty,
-            };
+            var mutationKey = GetMutationKey(operation);
             if (mutationKey.Length == 0)
                 return Fail($"Unsupported plan revision operation '{op}'.", out revisedPlan, out error);
             if (!mutationKeys.Add(mutationKey))
@@ -276,6 +274,164 @@ internal static class PlanRevisionDeltaApplier
             Validations = validations.Count == 0 ? null : validations,
         };
         return true;
+    }
+
+    /// <summary>
+    /// Reports every operation-shape and patch-field error that can be found without mutating the
+    /// plan. Semantic errors that depend on applying earlier operations remain materialization
+    /// errors, but a repair prompt receives the complete schema problem set in one pass.
+    /// </summary>
+    private static bool TryValidateOperationSchemas(
+        IReadOnlyList<PlanRevisionOperation> operations,
+        out string? error)
+    {
+        var errors = GetOperationSchemaErrors(operations);
+        if (errors.Count == 0)
+        {
+            error = null;
+            return true;
+        }
+
+        error = "Plan revision schema errors:" + Environment.NewLine +
+                string.Join(Environment.NewLine, errors.Select(item => "- " + item));
+        return false;
+    }
+
+    internal static IReadOnlyList<string> GetOperationSchemaErrors(
+        IReadOnlyList<PlanRevisionOperation> operations,
+        bool allowTargetRef = false)
+    {
+        var errors = new List<string>();
+        var mutationKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var index = 0; index < operations.Count; index++)
+        {
+            var operation = operations[index];
+            if (operation is null)
+            {
+                errors.Add($"operations cannot contain null entries (found at index {index}).");
+                continue;
+            }
+            var op = operation.Op?.Trim() ?? string.Empty;
+            var targetId = operation.TargetId?.Trim();
+            var targetRef = operation.TargetRef?.Trim();
+            var path = operation.Path?.Trim();
+            var context = string.IsNullOrWhiteSpace(targetId)
+                ? $"Operation {index + 1} ({(op.Length == 0 ? "missing op" : op)})"
+                : $"Operation {index + 1} ({op} {targetId})";
+
+            if (op.Length == 0)
+            {
+                errors.Add($"{context}: op is required.");
+                continue;
+            }
+            if (!SupportedOperations.Contains(op))
+            {
+                errors.Add($"{context}: unsupported plan revision operation '{op}'.");
+                continue;
+            }
+            if (TargetOperations.Contains(op))
+            {
+                if (string.IsNullOrWhiteSpace(targetId) &&
+                    (!allowTargetRef || string.IsNullOrWhiteSpace(targetRef)))
+                    errors.Add($"{context}: {op} requires " +
+                               (allowTargetRef ? "targetId or targetRef." : "targetId."));
+                if (allowTargetRef && !string.IsNullOrWhiteSpace(targetId) &&
+                    !string.IsNullOrWhiteSpace(targetRef))
+                    errors.Add($"{context}: {op} must use either targetId or targetRef, not both.");
+            }
+
+            var allowedPatchFields = GetPatchFields(op);
+            if (allowedPatchFields is not null)
+            {
+                if (operation.Patch is not { ValueKind: JsonValueKind.Object } patch)
+                    errors.Add($"{context}: {op} requires an object-valued patch.");
+                else
+                {
+                    foreach (var property in patch.EnumerateObject())
+                    {
+                        if (!allowedPatchFields.Contains(property.Name))
+                            errors.Add($"{context}: {op} cannot patch '{property.Name}'. Allowed fields: " +
+                                       $"{string.Join(", ", allowedPatchFields)}.");
+                    }
+                }
+            }
+
+            var allowedTextRoots = GetTextEditFields(op);
+            if (allowedTextRoots is not null)
+            {
+                if (string.IsNullOrWhiteSpace(path) ||
+                    !path.StartsWith("/", StringComparison.Ordinal))
+                    errors.Add($"{context}: {op} requires a JSON pointer path beginning with '/'.");
+                else
+                {
+                    var firstSegment = path.Split('/').Skip(1).FirstOrDefault();
+                    var decoded = firstSegment is null ? null : DecodePointerSegment(firstSegment);
+                    if (decoded is null)
+                        errors.Add($"{context}: {op} path '{path}' is not a valid JSON pointer.");
+                    else if (!allowedTextRoots.Contains(decoded))
+                        errors.Add($"{context}: {op} cannot edit '{decoded}'. Allowed roots: " +
+                                   $"{string.Join(", ", allowedTextRoots)}.");
+                }
+                if (string.IsNullOrEmpty(operation.OldText))
+                    errors.Add($"{context}: {op} requires non-empty oldText.");
+                if (operation.NewText is null)
+                    errors.Add($"{context}: {op} requires newText; use an empty string to delete matched text.");
+            }
+
+            if (op == "addTask" && operation.Task is null)
+                errors.Add($"{context}: addTask requires task.");
+            if (op == "addApprovalGate" && operation.ApprovalGate is null)
+                errors.Add($"{context}: addApprovalGate requires approvalGate.");
+            if (op == "addValidation" && operation.Validation is null)
+                errors.Add($"{context}: addValidation requires validation.");
+
+            var mutationKey = GetMutationKey(operation);
+            if (mutationKey.Length > 0 && !mutationKeys.Add(mutationKey))
+                errors.Add($"{context}: the proposal changes '{mutationKey}' more than once. " +
+                           "Combine those changes into one operation.");
+        }
+
+        return errors;
+    }
+
+    private static IReadOnlySet<string>? GetPatchFields(string operation) => operation switch
+    {
+        "updatePlan" => PlanPatchFields,
+        "updateTask" => TaskPatchFields,
+        "updateApprovalGate" => GatePatchFields,
+        "updateValidation" => ValidationPatchFields,
+        _ => null,
+    };
+
+    private static IReadOnlySet<string>? GetTextEditFields(string operation) => operation switch
+    {
+        "editPlanText" => PlanPatchFields,
+        "editTaskText" => TaskPatchFields,
+        "editApprovalGateText" => GatePatchFields,
+        "editValidationText" => ValidationPatchFields,
+        _ => null,
+    };
+
+    private static string GetMutationKey(PlanRevisionOperation operation)
+    {
+        var op = operation.Op?.Trim() ?? string.Empty;
+        var targetId = operation.TargetId?.Trim() ?? operation.TargetRef?.Trim();
+        return op switch
+        {
+            "updatePlan" => "plan",
+            "editPlanText" => "plan:text:" + operation.Path + ":" + operation.OldText,
+            "updateTask" or "removeTask" => "task:" + targetId,
+            "editTaskText" => "task:" + targetId + ":text:" + operation.Path + ":" + operation.OldText,
+            "addTask" => "task:" + operation.Task?.Id,
+            "updateApprovalGate" or "removeApprovalGate" => "gate:" + targetId,
+            "editApprovalGateText" => "gate:" + targetId + ":text:" + operation.Path + ":" + operation.OldText,
+            "addApprovalGate" => "gate:" + operation.ApprovalGate?.GateId,
+            "updateValidation" or "removeValidation" => "validation:" + targetId,
+            "editValidationText" => "validation:" + targetId + ":text:" + operation.Path + ":" + operation.OldText,
+            "addValidation" => "validation:" + operation.Validation?.ValidationId,
+            _ => string.Empty,
+        };
     }
 
     private static bool CanChangeTask(

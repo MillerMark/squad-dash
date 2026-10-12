@@ -429,7 +429,8 @@ internal sealed class WorkspaceConversationStore {
                !string.IsNullOrWhiteSpace(state.ActiveExecutingPlanGroupId) ||
                state.ActiveLoopExecution is not null ||
                state.PendingManualLoopResume is not null ||
-               state.PendingPlanContinuation is not null;
+               state.PendingPlanContinuation is not null ||
+               state.RejectedPlanRevisionRecovery is not null;
     }
 
     private static bool IsExplicitClear(WorkspaceConversationState state) {
@@ -517,6 +518,7 @@ internal sealed class WorkspaceConversationStore {
             ActiveLoopExecution       = ActiveLoopExecutionState.Normalize(state.ActiveLoopExecution),
             PendingManualLoopResume   = ActiveLoopExecutionState.Normalize(state.PendingManualLoopResume),
             PendingPlanContinuation   = PendingPlanContinuationState.Normalize(state.PendingPlanContinuation),
+            RejectedPlanRevisionRecovery = state.RejectedPlanRevisionRecovery,
             ActiveDraftSimResponse   = state.ActiveDraftSimResponse,
             ActiveDraftSimDelaySeconds = state.ActiveDraftSimDelaySeconds,
         };
@@ -965,6 +967,12 @@ internal sealed record WorkspaceConversationState(
     /// restarts and is cleared only after the matching plan publishes a new start boundary.
     /// </summary>
     public PendingPlanContinuationState? PendingPlanContinuation { get; init; }
+    /// <summary>
+    /// The most recent accepted-plan revision candidate that exhausted automatic schema repair.
+    /// Retained so the UI can explain the distinct failure and offer deterministic resubmission
+    /// while the durable plan is still at the candidate's base revision.
+    /// </summary>
+    public RejectedPlanRevisionRecoveryState? RejectedPlanRevisionRecovery { get; init; }
     /// <summary>Sim response for the active-draft tab set by /test-queue $ActiveDraft$. Null when not in sim mode.</summary>
     public string? ActiveDraftSimResponse { get; init; }
     /// <summary>Delay in seconds for the active-draft sim entry. Only meaningful when ActiveDraftSimResponse is non-null.</summary>

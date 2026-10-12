@@ -55,9 +55,114 @@ internal sealed record PendingPlanRevisionProposal(
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
     [property: JsonPropertyName("payload")] PlanRevisionProposalPayload Payload);
 
+internal sealed record RejectedPlanRevisionRecoveryState(
+    PlanRevisionProposalPayload Payload,
+    string LastError,
+    int RepairAttempts,
+    DateTimeOffset RejectedAt);
+
+internal sealed record PlanRevisionRecoveryPresentation(
+    bool CanRetry,
+    string Summary,
+    string Explanation,
+    string TechnicalDetails);
+
+internal static class PlanRevisionRepairRetryPolicy
+{
+    internal const int MaxAutomaticAttempts = 2;
+
+    internal static bool CanQueue(int attemptsAlreadyQueued) =>
+        attemptsAlreadyQueued >= 0 && attemptsAlreadyQueued < MaxAutomaticAttempts;
+}
+
+internal static class PlanRevisionRecoveryPresentationBuilder
+{
+    internal static PlanRevisionRecoveryPresentation Build(
+        Plan? current,
+        RejectedPlanRevisionRecoveryState recovery)
+    {
+        var payload = recovery.Payload;
+        var baseIsCurrent = current is not null &&
+                            string.Equals(current.PlanId, payload.PlanId, StringComparison.Ordinal) &&
+                            string.Equals(current.Revision, payload.BaseRevision, StringComparison.Ordinal);
+        var isCurrent = PlanRevisionRecoveryPolicy.CanRetry(current, payload);
+        var changedValidationIds = (payload.Operations ?? [])
+            .Where(operation => string.Equals(operation.Op, "updateValidation", StringComparison.Ordinal))
+            .Select(operation => operation.TargetId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .ToHashSet(StringComparer.Ordinal);
+        var relatedFailedValidation = current?.Validations?.FirstOrDefault(validation =>
+            validation.Status == PlanValidationStatus.Failed &&
+            changedValidationIds.Contains(validation.ValidationId));
+
+        var explanation =
+            $"A later revision was proposed but rejected before it changed plan {payload.PlanId}. " +
+            $"The rejected revision reported: {recovery.LastError}";
+        if (relatedFailedValidation is not null)
+            explanation += $" The earlier validation “{relatedFailedValidation.Title}” remains failed because " +
+                           "the revision that changes it was never applied.";
+
+        explanation += isCurrent
+            ? " Recommended: repair and resubmit this saved revision because the durable plan is still at its " +
+              "original base revision, so the intended proposal can be preserved without recreating the plan."
+            : baseIsCurrent
+                ? " The durable plan is still at the proposal's base revision, but it is not currently at a safe " +
+                  "revision boundary. Finish or stop the current transition before retrying."
+                : " The durable plan has changed since this proposal was authored, so automatic resubmission is unsafe; " +
+                  "review the current plan before creating a new revision.";
+
+        var operationSummary = string.Join(
+            ", ",
+            (payload.Operations ?? []).Select(operation =>
+            {
+                var target = operation.TargetId ?? operation.TargetRef;
+                return string.IsNullOrWhiteSpace(target)
+                    ? operation.Op
+                    : $"{operation.Op} {target}";
+            }));
+        var details =
+            $"Plan: {payload.PlanId}{Environment.NewLine}" +
+            $"Base revision: {payload.BaseRevision}{Environment.NewLine}" +
+            $"Proposed change: {payload.Summary}{Environment.NewLine}" +
+            $"Operations preserved: {payload.Operations?.Count ?? 0}{Environment.NewLine}" +
+            $"Operations: {(operationSummary.Length == 0 ? "none" : operationSummary)}{Environment.NewLine}" +
+            $"Repair attempts: {recovery.RepairAttempts}{Environment.NewLine}" +
+            $"Rejected at: {recovery.RejectedAt.LocalDateTime:g}{Environment.NewLine}" +
+            $"Last schema error: {recovery.LastError}";
+
+        return new PlanRevisionRecoveryPresentation(
+            isCurrent,
+            payload.Summary,
+            explanation,
+            details);
+    }
+}
+
+internal static class PlanRevisionRecoveryPolicy
+{
+    internal static bool CanRetry(Plan? current, PlanRevisionProposalPayload payload) =>
+        current is not null &&
+        string.Equals(current.PlanId, payload.PlanId, StringComparison.Ordinal) &&
+        string.Equals(current.Revision, payload.BaseRevision, StringComparison.Ordinal) &&
+        IsSafeRevisionBoundary(current);
+
+    internal static bool IsSafeRevisionBoundary(Plan plan) =>
+        plan.Tasks.Any(task => task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded)) &&
+        plan.LifecycleStatus is PlanLifecycleStatus.AwaitingApproval or
+            PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked or PlanLifecycleStatus.Executing;
+}
+
 internal static class PlanRevisionProposalParser
 {
     internal const string Marker = "PLAN_REVISION_JSON:";
+    internal const string PatchFieldGuidance = """
+        Allowed update patch fields:
+        - updatePlan: groupTitle, branch, summary
+        - updateTask: title, description, dependsOn, priority, parentTaskId, agentAssignments, parallelEligible, agentRoutingMode, genericAgentReason, outputs, inputs, proofRequirements, amendmentGateId, executionMode, verificationLevel, contractExamples
+        - updateApprovalGate: message, afterTaskIds, beforeTaskIds, proofRequirements, question
+        - updateValidation: title, description, afterTaskIds, beforeTaskIds, assertions, outputIds, mode, commands, revalidateAtCompletion
+        Runtime fields such as status, timestamps, resolution metadata, evidence, commits, and human selections are host-owned. Never include them in an update patch.
+        """;
 
     internal static bool TryParse(
         string? text,
@@ -84,28 +189,31 @@ internal static class PlanRevisionProposalParser
         }
 
         var payload = extraction.Payload;
-        if (string.IsNullOrWhiteSpace(payload.PlanId) ||
-            string.IsNullOrWhiteSpace(payload.BaseRevision) ||
-            string.IsNullOrWhiteSpace(payload.Summary))
-        {
-            error = "planId, baseRevision, and summary are required.";
-            return false;
-        }
+        var schemaErrors = new List<string>();
+        if (string.IsNullOrWhiteSpace(payload.PlanId)) schemaErrors.Add("planId is required.");
+        if (string.IsNullOrWhiteSpace(payload.BaseRevision)) schemaErrors.Add("baseRevision is required.");
+        if (string.IsNullOrWhiteSpace(payload.Summary)) schemaErrors.Add("summary is required.");
         if (payload.Operations is not { Count: > 0 })
+            schemaErrors.Add("operations must contain at least one delta operation. Do not return revisedPlan.");
+        else
         {
-            error = "operations must contain at least one delta operation. Do not return revisedPlan.";
-            return false;
+            foreach (var entry in payload.Operations.Select((operation, index) => (operation, index)))
+            {
+                if (entry.operation is null)
+                {
+                    continue;
+                }
+                if (string.Equals(entry.operation.Op?.Trim(), "addTask", StringComparison.Ordinal) &&
+                    entry.operation.Task is not null && string.IsNullOrWhiteSpace(entry.operation.Task.Id))
+                    schemaErrors.Add($"operations[{entry.index}].addTask.task.taskId is required. " +
+                                     "Use taskId for new tasks; legacy id is accepted only for compatibility.");
+            }
+            schemaErrors.AddRange(PlanRevisionDeltaApplier.GetOperationSchemaErrors(payload.Operations));
         }
-        if (payload.Operations.Any(operation => operation is null))
+        if (schemaErrors.Count > 0)
         {
-            error = "operations cannot contain null entries.";
-            return false;
-        }
-        if (payload.Operations.FirstOrDefault(operation =>
-                string.Equals(operation.Op?.Trim(), "addTask", StringComparison.Ordinal) &&
-                operation.Task is not null && string.IsNullOrWhiteSpace(operation.Task.Id)) is not null)
-        {
-            error = "addTask.task.taskId is required. Use taskId for new tasks; legacy id is accepted only for compatibility.";
+            error = "Plan revision schema errors:" + Environment.NewLine +
+                    string.Join(Environment.NewLine, schemaErrors.Select(item => "- " + item));
             return false;
         }
 
@@ -116,7 +224,7 @@ internal static class PlanRevisionProposalParser
             Summary = payload.Summary.Trim(),
             ReopenTaskIds = null,
             RevisedPlan = null,
-            Operations = payload.Operations.Select(operation => operation with
+            Operations = payload.Operations!.Select(operation => operation with
             {
                 Op = operation.Op?.Trim() ?? string.Empty,
                 TargetId = string.IsNullOrWhiteSpace(operation.TargetId) ? null : operation.TargetId.Trim(),
@@ -139,7 +247,10 @@ internal static class PlanRevisionProposalParser
         return count;
     }
 
-    internal static string BuildRepairPrompt(string validationError, PlanRevisionProposalPayload? proposal = null)
+    internal static string BuildRepairPrompt(
+        string validationError,
+        PlanRevisionProposalPayload? proposal = null,
+        bool includeSavedCandidate = false)
     {
         var intent = proposal is null
             ? "Preserve the user's requested plan change."
@@ -147,6 +258,18 @@ internal static class PlanRevisionProposalParser
         var identity = proposal is null
             ? "Use the exact planId and baseRevision from the original revision request."
             : $"Use planId {proposal.PlanId} and baseRevision {proposal.BaseRevision}.";
+        var savedCandidate = includeSavedCandidate && proposal is not null
+            ? $$"""
+
+                Repair this saved candidate (it may no longer be present in recent conversation context):
+                {{Marker}}
+                {{JsonSerializer.Serialize(proposal, new JsonSerializerOptions
+                {
+                    WriteIndented = true,
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                })}}
+                """
+            : string.Empty;
         return $$"""
             Your PLAN_REVISION_JSON response did not satisfy SquadDash's required schema.
 
@@ -155,6 +278,10 @@ internal static class PlanRevisionProposalParser
 
             {{intent}}
             {{identity}}
+            {{savedCandidate}}
+            Correct only the listed validation errors. Preserve every unaffected operation, field, and value from
+            the saved or immediately preceding PLAN_REVISION_JSON. Do not introduce new plan changes. If an error requires
+            combining duplicate operations, preserve their complete combined intent.
             Return exactly one corrected PLAN_REVISION_JSON block. Do not add commentary, return a complete plan, or make source changes.
             The object must contain planId, baseRevision, summary, and a non-empty operations array.
             Use only these delta operations: updatePlan, editPlanText, reopenTask, updateTask,
@@ -167,6 +294,8 @@ internal static class PlanRevisionProposalParser
             Add operations require the complete task, approvalGate, or validation being added. New tasks must
             use taskId as their identifier; do not emit id. Remove and reopen operations require targetId.
             Keep planId and baseRevision unchanged.
+
+            {{PlanRevisionProposalParser.PatchFieldGuidance}}
             """;
     }
 }
@@ -296,6 +425,7 @@ internal static class PlanRevisionPromptInjection
             Prefer a text edit for a clause-level correction within a long string or string array instead of
             replacing the complete property. Add operations require one complete `task`,
             `approvalGate`, or `validation`. A new task uses `taskId` as its identifier; do not emit `id`.
+            {{PlanRevisionProposalParser.PatchFieldGuidance}}
             Remove and reopen operations require `targetId`. Never return `revisedPlan`
             or copy unaffected definitions. A completed task can change only when preceded by a reopenTask operation;
             its accepted execution history remains preserved. Update downstream pending tasks and validations when the new

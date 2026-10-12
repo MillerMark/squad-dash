@@ -697,6 +697,19 @@ Allowed operations are `updatePlan`, `editPlanText`, `updateTask`, `editTaskText
 `updatePlan`, plus a `patch` containing only changed fields. Array-valued fields in a patch replace
 the complete array; they are not appended. Add operations require one complete `task`,
 `approvalGate`, or `validation` object. A new task uses `taskId` as its identifier; do not emit `id`.
+
+Allowed update patch fields:
+
+- `updatePlan`: `groupTitle`, `branch`, `summary`
+- `updateTask`: `title`, `description`, `dependsOn`, `priority`, `parentTaskId`, `agentAssignments`,
+  `parallelEligible`, `agentRoutingMode`, `genericAgentReason`, `outputs`, `inputs`,
+  `proofRequirements`, `amendmentGateId`, `executionMode`, `verificationLevel`, `contractExamples`
+- `updateApprovalGate`: `message`, `afterTaskIds`, `beforeTaskIds`, `proofRequirements`, `question`
+- `updateValidation`: `title`, `description`, `afterTaskIds`, `beforeTaskIds`, `assertions`,
+  `outputIds`, `mode`, `commands`, `revalidateAtCompletion`
+
+Runtime fields such as `status`, timestamps, resolution metadata, evidence, commits, and human
+selections are host-owned. Never include them in an update patch.
 Remove operations require `targetId`. Do not use
 `reopenTask`: an unapproved proposal has no execution history to reopen.
 

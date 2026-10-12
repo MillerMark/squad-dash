@@ -423,6 +423,7 @@ public partial class MainWindow : Window
     // ── Decompose mode ─────────────────────────────────────────────────────────
     private string?                  _activeDecomposeGroupId;
     private bool                     _planRevisionRepairPending;
+    private int                      _planRevisionRepairAttemptCount;
     private bool                     _stagedPlanRevisionRepairPending;
     private StagedPlanRevisionProposalPayload? _stagedPlanRevisionRepairProposal;
     private PlanRevisionProposalPayload? _planRevisionRepairProposal;
@@ -6900,10 +6901,9 @@ public partial class MainWindow : Window
                         }
                         if (_planRevisionRepairPending && !hasAcceptedRevisionPayload)
                         {
-                            _planRevisionRepairPending = false;
-                            _planRevisionRepairProposal = null;
-                            AppendLine("⚠ The automatic plan-revision repair response did not contain PLAN_REVISION_JSON. " +
-                                       "The plan remains unchanged.");
+                            QueuePlanRevisionRepair(
+                                "The automatic plan-revision repair response did not contain PLAN_REVISION_JSON.",
+                                _planRevisionRepairProposal);
                         }
                         if (_stagedPlanRevisionRepairPending && !hasStagedRevisionPayload)
                         {
@@ -11160,10 +11160,12 @@ public partial class MainWindow : Window
                 AppendLine(PlanRevisionTranscriptPresentation.BuildNoChanges(result.PreservedLockedTaskCount));
                 SquadDashTrace.Write("PlanRevision",
                     $"No changes plan={payload.PlanId} base={payload.BaseRevision} source={responseSource ?? "inline"}.");
+                ResetPlanRevisionRepairState(clearRecovery: true);
                 return;
 
             case PlanRevisionApplyOutcome.Stale:
                 AppendLine($"⚠ Plan revision was not applied: {result.Error}");
+                ResetPlanRevisionRepairState(clearRecovery: true);
                 return;
 
             case PlanRevisionApplyOutcome.Invalid:
@@ -11197,8 +11199,7 @@ public partial class MainWindow : Window
         SuppressCheckpointApprovalCardsForPendingRevision(current.PlanId);
         AppendPlanRevisionApprovalCard(current, pending, result, ownerView);
         _renderedPlanRevisionProposalIds.Add(pending.ProposalId);
-        _planRevisionRepairPending = false;
-        _planRevisionRepairProposal = null;
+        ResetPlanRevisionRepairState(clearRecovery: true);
         SquadDashTrace.Write("PlanRevision",
             $"Staged proposal={pending.ProposalId} plan={payload.PlanId} base={payload.BaseRevision} " +
             $"changes={result.AppliedChangeCount} source={responseSource ?? "inline"}.");
@@ -11350,9 +11351,10 @@ public partial class MainWindow : Window
             QueuePlanRevisionRepair($"Plan {payload.PlanId} is not available in this workspace.", payload);
             return true;
         }
-        if (!PlanRevisionPromptInjectionIsLegal(current))
+        if (!PlanRevisionRecoveryPolicy.IsSafeRevisionBoundary(current))
         {
             AppendLine("⚠ The plan revision was not staged because the plan is not at a safe revision boundary. No plan state changed.");
+            ResetPlanRevisionRepairState(clearRecovery: true);
             return true;
         }
 
@@ -11360,32 +11362,207 @@ public partial class MainWindow : Window
         return true;
     }
 
-    private static bool PlanRevisionPromptInjectionIsLegal(Plan plan) =>
-        plan.Tasks.Any(task => task.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded)) &&
-        plan.LifecycleStatus is PlanLifecycleStatus.AwaitingApproval or
-            PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked or PlanLifecycleStatus.Executing;
-
-    private void QueuePlanRevisionRepair(string error, PlanRevisionProposalPayload? payload)
+    private void QueuePlanRevisionRepair(
+        string error,
+        PlanRevisionProposalPayload? payload,
+        bool includeSavedCandidate = false,
+        bool preserveRecovery = false)
     {
-        if (_planRevisionRepairPending)
+        if (payload is not null)
+            _planRevisionRepairProposal = payload;
+
+        if (!PlanRevisionRepairRetryPolicy.CanQueue(_planRevisionRepairAttemptCount))
         {
             _planRevisionRepairPending = false;
+            var rejected = _planRevisionRepairProposal;
+            _planRevisionRepairAttemptCount = 0;
             _planRevisionRepairProposal = null;
-            AppendLine("⚠ The plan revision response was still invalid after one repair attempt. The plan remains unchanged. " +
-                       "Reason: " + error);
+            AppendLine($"⚠ The plan revision response was still invalid after {PlanRevisionRepairRetryPolicy.MaxAutomaticAttempts} " +
+                       "automatic repair attempts. The plan remains unchanged. Reason: " + error);
+            if (rejected is not null)
+            {
+                var recovery = new RejectedPlanRevisionRecoveryState(
+                    rejected,
+                    error,
+                    PlanRevisionRepairRetryPolicy.MaxAutomaticAttempts,
+                    DateTimeOffset.UtcNow);
+                _conversationManager.PersistConversationState(
+                    _conversationManager.ConversationState with
+                    {
+                        RejectedPlanRevisionRecovery = recovery,
+                    },
+                    "RejectedPlanRevisionRecovery");
+                ScheduleRejectedPlanRevisionRecoveryEntry(recovery);
+            }
             return;
         }
 
+        if (_planRevisionRepairAttemptCount == 0 && !preserveRecovery)
+            ClearRejectedPlanRevisionRecovery();
+
+        _planRevisionRepairAttemptCount++;
         _planRevisionRepairPending = true;
-        _planRevisionRepairProposal = payload;
         _promptQueue.EnqueueAtFront(
-            PlanRevisionProposalParser.BuildRepairPrompt(error, payload),
+            PlanRevisionProposalParser.BuildRepairPrompt(
+                error,
+                _planRevisionRepairProposal,
+                includeSavedCandidate),
             _promptQueueCoordinator.NextSequenceNumber(),
             sourceTag: "plan-revision-repair",
             isSystemInjected: true);
         SyncQueuePanel();
         SyncSendButton();
-        AppendLine("The plan revision response was invalid. SquadDash is asking the coordinator to correct it; the plan remains unchanged.");
+        AppendLine($"The plan revision response was invalid. SquadDash is asking the coordinator to correct it " +
+                   $"(automatic repair {_planRevisionRepairAttemptCount} of {PlanRevisionRepairRetryPolicy.MaxAutomaticAttempts}); " +
+                   "the plan remains unchanged.");
+    }
+
+    private void ResetPlanRevisionRepairState(bool clearRecovery)
+    {
+        _planRevisionRepairPending = false;
+        _planRevisionRepairAttemptCount = 0;
+        _planRevisionRepairProposal = null;
+        if (clearRecovery)
+            ClearRejectedPlanRevisionRecovery();
+    }
+
+    private void ClearRejectedPlanRevisionRecovery()
+    {
+        var recovery = _conversationManager.ConversationState.RejectedPlanRevisionRecovery;
+        if (recovery is null) return;
+        _conversationManager.PersistConversationState(
+            _conversationManager.ConversationState with
+            {
+                RejectedPlanRevisionRecovery = null,
+            },
+            "ClearRejectedPlanRevisionRecovery");
+        RemoveRejectedPlanRevisionRecoveryEntry(recovery.Payload.PlanId);
+    }
+
+    private void RestoreRejectedPlanRevisionRecoverySurface()
+    {
+        if (_conversationManager.ConversationState.RejectedPlanRevisionRecovery is { } recovery)
+            ScheduleRejectedPlanRevisionRecoveryEntry(recovery);
+    }
+
+    private void ScheduleRejectedPlanRevisionRecoveryEntry(RejectedPlanRevisionRecoveryState recovery)
+    {
+        var plan = _planStore?.Load(recovery.Payload.PlanId);
+        var presentation = PlanRevisionRecoveryPresentationBuilder.Build(plan, recovery);
+        var tag = $"plan-revision-recovery:{recovery.Payload.PlanId}";
+        foreach (var existing in CoordinatorThread.Document.Blocks
+                     .OfType<Section>()
+                     .Where(section => string.Equals(section.Tag as string, tag, StringComparison.Ordinal))
+                     .ToArray())
+            CoordinatorThread.Document.Blocks.Remove(existing);
+
+        var section = new Section { Tag = tag };
+        var card = new Border
+        {
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14, 12, 14, 12),
+            Margin = new Thickness(0, 6, 0, 8),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
+        var content = new StackPanel();
+        var heading = new TextBlock
+        {
+            Text = presentation.CanRetry
+                ? "Plan revision needs correction · Recommended recovery available"
+                : "Plan revision needs review",
+            FontWeight = FontWeights.SemiBold,
+            FontSize = _transcriptFontSize + 1,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        heading.SetResourceReference(TextBlock.ForegroundProperty,
+            presentation.CanRetry ? "ImportantText" : "PriorityCritical");
+        content.Children.Add(heading);
+        var summary = new TextBlock
+        {
+            Text = presentation.Summary,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 5, 0, 0),
+        };
+        summary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+        content.Children.Add(summary);
+        var explanation = new TextBlock
+        {
+            Text = presentation.Explanation,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 5, 0, 0),
+            MaxWidth = 900,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        explanation.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        content.Children.Add(explanation);
+
+        var actions = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 10, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        if (presentation.CanRetry)
+        {
+            var retry = TranscriptQuickReplyFactory.CreateButton(
+                "Repair and resubmit saved revision",
+                _transcriptFontSize,
+                toolTip: ToolTipHelper.MakeThemedToolTip(
+                    "Preserve the saved proposal and ask the coordinator to correct only its schema errors. " +
+                    "This does not recreate the plan or repeat completed implementation work."));
+            retry.Click += (_, _) =>
+            {
+                if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+                {
+                    AppendLine("Wait for the current prompt or plan turn to finish before retrying the saved revision.");
+                    return;
+                }
+
+                var current = _planStore?.Load(recovery.Payload.PlanId);
+                if (!PlanRevisionRecoveryPresentationBuilder.Build(current, recovery).CanRetry)
+                {
+                    ScheduleRejectedPlanRevisionRecoveryEntry(recovery);
+                    AppendLine("The plan changed after this revision was rejected. Review the current plan before creating a new revision.");
+                    return;
+                }
+
+                ResetPlanRevisionRepairState(clearRecovery: false);
+                QueuePlanRevisionRepair(
+                    recovery.LastError,
+                    recovery.Payload,
+                    includeSavedCandidate: true,
+                    preserveRecovery: true);
+            };
+            actions.Children.Add(retry);
+        }
+
+        var detailsText = new TextBlock
+        {
+            Margin = new Thickness(presentation.CanRetry ? 12 : 0, 5, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var details = new Hyperlink(new Run("Review technical details")) { Cursor = Cursors.Hand };
+        details.Click += (_, _) => ShowTextWindow("Rejected Plan Revision", presentation.TechnicalDetails);
+        detailsText.Inlines.Add(details);
+        actions.Children.Add(detailsText);
+        content.Children.Add(actions);
+        card.Child = content;
+        section.Blocks.Add(new BlockUIContainer(card));
+        CoordinatorThread.Document.Blocks.Add(section);
+    }
+
+    private void RemoveRejectedPlanRevisionRecoveryEntry(string planId)
+    {
+        var tag = $"plan-revision-recovery:{planId}";
+        foreach (var existing in CoordinatorThread.Document.Blocks
+                     .OfType<Section>()
+                     .Where(section => string.Equals(section.Tag as string, tag, StringComparison.Ordinal))
+                     .ToArray())
+            CoordinatorThread.Document.Blocks.Remove(existing);
     }
 
     private async Task ApplyPendingPlanRevisionAsync(
@@ -17018,12 +17195,12 @@ public partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center,
             };
             var primary = TranscriptQuickReplyFactory.CreateButton(
-                preparesHumanReview ? "Prepare Review Checklist" : "Fix defect and revalidate",
+                preparesHumanReview ? "Prepare Review Checklist" : "Add repair task and revalidate",
                 _transcriptFontSize,
                 toolTip: ToolTipHelper.MakeThemedToolTip(
                     preparesHumanReview
                         ? "Re-evaluate this non-mutating audit under the human-review protocol and present the specific observations as checkboxes."
-                        : "Add one bounded repair step from the recorded failure evidence, preserve completed work, and rerun this validation after the repair."));
+                        : "Add one bounded implementation task from the recorded failure evidence, preserve every completed task and commit, and rerun this validation afterward. This keeps the current plan; it does not recover a rejected plan revision."));
             primary.Click += async (_, _) =>
             {
                 primary.IsEnabled = false;
@@ -40526,6 +40703,7 @@ public partial class MainWindow : Window
         // document replacement above will silently erase them during every restart.
         RestoreInterruptedPlanRecoverySurfaces();
         RestoreFailedPlanValidationRecoverySurface();
+        RestoreRejectedPlanRevisionRecoverySurface();
         RestoreInterruptedPromptRecoverySurface();
         RestorePendingPlanContinuation();
         // A queued semantic preflight and its candidate correlation are one durable operation.

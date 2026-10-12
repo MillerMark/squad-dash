@@ -185,6 +185,32 @@ internal sealed class StagedPlanRevisionProposalTests
         });
     }
 
+    [Test]
+    public void Parser_AllowsDistinctShortReferencesWithoutFalseDuplicateMutation()
+    {
+        var pending = MakePending();
+        var text = $$"""
+            STAGED_PLAN_REVISION_JSON:
+            {
+              "groupId": "{{pending.Group.GroupId}}",
+              "baseRevision": "{{pending.Revision}}",
+              "summary": "Refine two tasks",
+              "operations": [
+                { "op": "updateTask", "targetRef": "T1", "patch": { "title": "First" } },
+                { "op": "updateTask", "targetRef": "T2", "patch": { "title": "Second" } }
+              ]
+            }
+            """;
+
+        var parsed = StagedPlanRevisionProposalParser.TryParse(text, out var proposal, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(proposal!.Operations, Has.Count.EqualTo(2));
+        });
+    }
+
     [TestCase("description", "{\"description\":\"Revised implementation contract\"}")]
     [TestCase("title", "{\"title\":\"Revised title\"}")]
     [TestCase("priority", "{\"priority\":\"medium\"}")]
@@ -688,7 +714,10 @@ internal sealed class StagedPlanRevisionProposalTests
     public void Apply_RejectsUnknownUpdateTarget(string operation, string targetId)
     {
         var pending = MakePending();
-        var result = Apply(pending, new PlanRevisionOperation(operation, targetId, Patch("""{"title":"Changed"}""")));
+        var patch = operation == "updateApprovalGate"
+            ? Patch("""{"message":"Changed"}""")
+            : Patch("""{"title":"Changed"}""");
+        var result = Apply(pending, new PlanRevisionOperation(operation, targetId, patch));
 
         Assert.That(result.Outcome, Is.EqualTo(StagedPlanRevisionOutcome.Invalid));
         Assert.That(result.Error, Does.Contain("does not exist"));
