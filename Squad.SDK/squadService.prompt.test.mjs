@@ -18,6 +18,7 @@ import {
     maybeRewritePowerShellToolArgs,
     matchesStagedPlanRevisionCandidate,
     normalizeAssistantResponseContent,
+    reconcileEmittedAndFinalReasoning,
     reconcileStreamedAndFinalResponse,
     RequestTreeActivityMonitor,
     resolvePermissionApprovalKind,
@@ -1426,6 +1427,63 @@ test("reconciles stale streamed progress with the authoritative final response",
     const final = 'TASKS_JSON:\n{"groupId":"SQUADCLI-20260826","tasks":[]}';
 
     assert.equal(reconcileStreamedAndFinalResponse(streamed, final), final);
+});
+
+test("reconcileEmittedAndFinalReasoning treats an exact match as fully streamed", () => {
+    const text = "Checking the config for inconsistencies.";
+    const result = reconcileEmittedAndFinalReasoning(text, text);
+
+    assert.equal(result.mergedContent, text);
+    assert.equal(result.unstreamedContent, undefined);
+});
+
+test("reconcileEmittedAndFinalReasoning does not re-emit the full final text when only whitespace differs", () => {
+    const emitted = "First I checked the config. Then I checked the logs. Everything looks fine.";
+    const final = "First I checked the config.\n\nThen I checked the logs.\n\nEverything looks fine.";
+
+    const result = reconcileEmittedAndFinalReasoning(emitted, final);
+
+    assert.equal(result.mergedContent, final);
+    assert.equal(result.unstreamedContent, undefined);
+});
+
+test("reconcileEmittedAndFinalReasoning emits only the genuinely new tail when final adds a paragraph with different whitespace", () => {
+    const emitted = "First I checked the config. Then I checked the logs.";
+    const final = "First I checked the config.\n\nThen I checked the logs.\n\nEverything looks fine.";
+
+    const result = reconcileEmittedAndFinalReasoning(emitted, final);
+
+    assert.equal(result.mergedContent, final);
+    assert.equal(result.unstreamedContent, "\n\nEverything looks fine.");
+});
+
+test("reconcileEmittedAndFinalReasoning emits only the new tail for a partial overlap with whitespace differences", () => {
+    const emitted = "Step one: gather requirements.\nStep two: draft the plan.";
+    const final = "Step one: gather requirements. Step two: draft the plan.\n\nStep three: implement it.";
+
+    const result = reconcileEmittedAndFinalReasoning(emitted, final);
+
+    assert.equal(result.mergedContent, final);
+    assert.equal(result.unstreamedContent, "\n\nStep three: implement it.");
+});
+
+test("reconcileEmittedAndFinalReasoning preserves unrelated final content when there is no meaningful overlap", () => {
+    const emitted = "Looking into the first approach.";
+    const final = "Switching strategy entirely based on new information.";
+
+    const result = reconcileEmittedAndFinalReasoning(emitted, final);
+
+    assert.equal(result.mergedContent, emitted + "\n\n" + final);
+    assert.equal(result.unstreamedContent, "\n\n" + final);
+});
+
+test("reconcileEmittedAndFinalReasoning emits the whole final block when nothing was streamed yet", () => {
+    const final = "Reasoning supplied only once the message completed.";
+
+    const result = reconcileEmittedAndFinalReasoning(undefined, final);
+
+    assert.equal(result.mergedContent, final);
+    assert.equal(result.unstreamedContent, final);
 });
 
 test("runNamedAgent returns and emits the complete final response after partial streaming", async () => {
