@@ -164,6 +164,58 @@ internal sealed class ButtonCommandExecutionServiceTests {
     }
 
     [Test]
+    public void BuildElevatedStartInfo_PowerShell_UsesRunAsVerbAndRedirectsToLogFile() {
+        const string command = "restart-service audiosrv";
+        var invocation = Prepare(Button(command));
+        var script = Path.Combine(_stateDirectory, "run.ps1");
+        var logPath = Path.Combine(_stateDirectory, "run.ps1.out.log");
+
+        var info = ButtonCommandExecutionService.BuildElevatedStartInfo(invocation, script, logPath);
+
+        Assert.Multiple(() => {
+            Assert.That(info.FileName, Is.EqualTo(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe")));
+            Assert.That(info.Verb, Is.EqualTo("runas"));
+            Assert.That(info.UseShellExecute, Is.True);
+            Assert.That(info.RedirectStandardOutput, Is.False);
+            Assert.That(info.RedirectStandardError, Is.False);
+            Assert.That(info.RedirectStandardInput, Is.False);
+            Assert.That(info.WorkingDirectory, Is.EqualTo(invocation.WorkingDirectory));
+            Assert.That(info.Arguments, Does.StartWith("/d /s /c \"pwsh.exe "));
+            Assert.That(info.Arguments, Does.Contain("-EncodedCommand "));
+            Assert.That(info.Arguments, Does.Contain($"> \"{logPath}\" 2>&1\""));
+            Assert.That(info.Arguments, Does.Not.Contain(command));
+            var encodedStart = info.Arguments.IndexOf("-EncodedCommand ", StringComparison.Ordinal) + "-EncodedCommand ".Length;
+            var encodedEnd = info.Arguments.IndexOf(" > \"", StringComparison.Ordinal);
+            var bootstrap = Encoding.Unicode.GetString(Convert.FromBase64String(info.Arguments[encodedStart..encodedEnd]));
+            Assert.That(bootstrap, Does.Contain($"& '{script}'"));
+        });
+    }
+
+    [Test]
+    public void BuildElevatedStartInfo_RawCommand_UsesRunAsVerbAndRedirectsToLogFile() {
+        var invocation = Prepare(Button("echo raw-stdout", ButtonCommandType.RawCommand));
+        var script = Path.Combine(_stateDirectory, "run.cmd");
+        var logPath = Path.Combine(_stateDirectory, "run.cmd.out.log");
+
+        var info = ButtonCommandExecutionService.BuildElevatedStartInfo(invocation, script, logPath);
+
+        Assert.Multiple(() => {
+            Assert.That(info.Verb, Is.EqualTo("runas"));
+            Assert.That(info.UseShellExecute, Is.True);
+            Assert.That(info.Arguments, Is.EqualTo(
+                $"/d /s /c \"chcp 65001 >nul & \"{script}\" > \"{logPath}\" 2>&1\""));
+        });
+    }
+
+    [Test]
+    public void BuildElevatedStartInfo_Url_ThrowsBecauseElevationIsNotSupported() {
+        var invocation = Prepare(Button("https://example.com", ButtonCommandType.Url));
+        Assert.That(() => ButtonCommandExecutionService.BuildElevatedStartInfo(invocation, "script", "log"),
+            Throws.TypeOf<ArgumentException>());
+    }
+
+    [Test]
     public async Task ExecuteAsync_UrlValidationFailure_ReturnsErrorWithoutScriptsOrCapturedStreams() {
         _workspace.CreateFile(@".git\HEAD", "ref: refs/heads/main\n");
 
@@ -314,6 +366,35 @@ internal sealed class ButtonCommandExecutionServiceTests {
         Assert.Multiple(() => {
             Assert.That(captured, Is.EqualTo(text));
             Assert.That(lines, Is.EqualTo(new[] { "first", "", "second", "third", "fourth caf\u00e9", "last" }));
+        });
+    }
+
+    [Test]
+    public async Task TailLogFileAsync_StreamsAppendedContentAndFlushesUnterminatedTail() {
+        var logPath = _workspace.GetPath("elevated.out.log");
+        using (var writer = new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete)) {
+            var firstChunk = Encoding.UTF8.GetBytes("first-line\r\n");
+            writer.Write(firstChunk, 0, firstChunk.Length);
+            writer.Flush();
+        }
+        var lines = new ConcurrentQueue<string>();
+        using var stopPolling = new CancellationTokenSource();
+        var tail = ButtonCommandExecutionService.TailLogFileAsync(logPath, new InlineProgress(lines.Enqueue), stopPolling.Token);
+
+        // Give the first poll a chance to observe the already-written content, then append more.
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+        using (var writer = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete)) {
+            var secondChunk = Encoding.UTF8.GetBytes("second-line\r\nunterminated-tail");
+            writer.Write(secondChunk, 0, secondChunk.Length);
+            writer.Flush();
+        }
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+        stopPolling.Cancel();
+        var captured = await tail.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Multiple(() => {
+            Assert.That(captured, Is.EqualTo("first-line\r\nsecond-line\r\nunterminated-tail"));
+            Assert.That(lines, Is.EquivalentTo(new[] { "first-line", "second-line", "unterminated-tail" }));
         });
     }
 
