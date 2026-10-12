@@ -65,6 +65,7 @@ internal sealed record PlanRevisionRecoveryPresentation(
     bool CanRetry,
     string Summary,
     string Explanation,
+    string Recommendation,
     string TechnicalDetails);
 
 internal static class PlanRevisionRepairRetryPolicy
@@ -102,13 +103,13 @@ internal static class PlanRevisionRecoveryPresentationBuilder
             explanation += $" The earlier validation “{relatedFailedValidation.Title}” remains failed because " +
                            "the revision that changes it was never applied.";
 
-        explanation += isCurrent
+        var recommendation = isCurrent
             ? " Recommended: repair and resubmit this saved revision because the durable plan is still at its " +
               "original base revision, so the intended proposal can be preserved without recreating the plan."
             : baseIsCurrent
-                ? " The durable plan is still at the proposal's base revision, but it is not currently at a safe " +
+                ? "The durable plan is still at the proposal's base revision, but it is not currently at a safe " +
                   "revision boundary. Finish or stop the current transition before retrying."
-                : " The durable plan has changed since this proposal was authored, so automatic resubmission is unsafe; " +
+                : "The durable plan has changed since this proposal was authored, so automatic resubmission is unsafe; " +
                   "review the current plan before creating a new revision.";
 
         var operationSummary = string.Join(
@@ -134,6 +135,7 @@ internal static class PlanRevisionRecoveryPresentationBuilder
             isCurrent,
             payload.Summary,
             explanation,
+            recommendation.TrimStart(),
             details);
     }
 }

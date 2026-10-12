@@ -11502,6 +11502,18 @@ public partial class MainWindow : Window
         explanation.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
         content.Children.Add(explanation);
 
+        var recommendation = new TextBlock
+        {
+            Text = presentation.Recommendation,
+            FontWeight = FontWeights.Bold,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 9, 0, 0),
+            MaxWidth = 900,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        recommendation.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+        content.Children.Add(recommendation);
+
         var actions = new WrapPanel
         {
             Orientation = Orientation.Horizontal,
@@ -11553,7 +11565,7 @@ public partial class MainWindow : Window
         actions.Children.Add(detailsText);
         content.Children.Add(actions);
         card.Child = content;
-        section.Blocks.Add(new BlockUIContainer(card));
+        section.Blocks.Add(TranscriptCardLayout.CreateContainer(card));
         CoordinatorThread.Document.Blocks.Add(section);
     }
 

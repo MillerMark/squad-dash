@@ -1271,12 +1271,13 @@ internal sealed class PlanRevisionWorkflowTests
             Assert.That(current.CanRetry, Is.True);
             Assert.That(current.Explanation, Does.Contain("later revision was proposed but rejected"));
             Assert.That(current.Explanation, Does.Contain("remains failed because the revision that changes it was never applied"));
-            Assert.That(current.Explanation, Does.Contain("Recommended: repair and resubmit"));
+            Assert.That(current.Explanation, Does.Not.Contain("Recommended:"));
+            Assert.That(current.Recommendation, Does.StartWith("Recommended: repair and resubmit"));
             Assert.That(current.TechnicalDetails, Does.Contain("Operations preserved: 1"));
             Assert.That(stale.CanRetry, Is.False);
-            Assert.That(stale.Explanation, Does.Contain("automatic resubmission is unsafe"));
+            Assert.That(stale.Recommendation, Does.Contain("automatic resubmission is unsafe"));
             Assert.That(unsafeBoundary.CanRetry, Is.False);
-            Assert.That(unsafeBoundary.Explanation, Does.Contain("not currently at a safe revision boundary"));
+            Assert.That(unsafeBoundary.Recommendation, Does.Contain("not currently at a safe revision boundary"));
         });
     }
 
