@@ -2,12 +2,24 @@ using System;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace SquadDash;
 
 internal sealed class SquadCommandOutputWindow : ChromedWindow {
-    private readonly TextBox _outputBox;
+    // Conventional xterm/VS Code terminal palette. These are deliberately fixed (not theme
+    // resources) so command output keeps the same colors a user would see in a real terminal,
+    // regardless of the app's light/dark theme.
+    private static readonly Color[] AnsiPalette = {
+        Color.FromRgb(0x00, 0x00, 0x00), Color.FromRgb(0xCD, 0x31, 0x31), Color.FromRgb(0x0D, 0xBC, 0x79), Color.FromRgb(0xE5, 0xE5, 0x10),
+        Color.FromRgb(0x24, 0x72, 0xC8), Color.FromRgb(0xBC, 0x3F, 0xBC), Color.FromRgb(0x11, 0xA8, 0xCD), Color.FromRgb(0xE5, 0xE5, 0xE5),
+        Color.FromRgb(0x66, 0x66, 0x66), Color.FromRgb(0xF1, 0x4C, 0x4C), Color.FromRgb(0x23, 0xD1, 0x8B), Color.FromRgb(0xF5, 0xF5, 0x43),
+        Color.FromRgb(0x3B, 0x8E, 0xEA), Color.FromRgb(0xD6, 0x70, 0xD6), Color.FromRgb(0x29, 0xB8, 0xDB), Color.FromRgb(0xFF, 0xFF, 0xFF)
+    };
+
+    private readonly ThrottledScrollRichTextBox _outputBox;
     private readonly ProgressBar _busyIndicator;
     private readonly TextBlock _busyText;
     private readonly DispatcherTimer _elapsedTimer;
@@ -15,6 +27,7 @@ internal sealed class SquadCommandOutputWindow : ChromedWindow {
     private string _busyMessage = string.Empty;
     private bool _hasLiveOutput;
     private bool _isClosed;
+    private Paragraph? _liveParagraph;
 
     public SquadCommandOutputWindow(
         string title,
@@ -75,13 +88,10 @@ internal sealed class SquadCommandOutputWindow : ChromedWindow {
         Grid.SetRow(outputBorder, 1);
         root.Children.Add(outputBorder);
 
-        _outputBox = new TextBox {
+        _outputBox = new ThrottledScrollRichTextBox {
             IsReadOnly = true,
-            AcceptsReturn = true,
-            AcceptsTab = true,
-            TextWrapping = TextWrapping.Wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             BorderThickness = new Thickness(0)
         };
         _outputBox.SetResourceReference(Control.FontFamilyProperty, "MonoFont");
@@ -134,19 +144,67 @@ internal sealed class SquadCommandOutputWindow : ChromedWindow {
     }
 
     public void SetOutput(string output) {
-        _outputBox.Text = string.IsNullOrWhiteSpace(output) ? "(no output)" : output.TrimEnd();
+        var text = string.IsNullOrWhiteSpace(output) ? "(no output)" : output.TrimEnd();
+        _outputBox.Document = BuildDocument(text);
+        _liveParagraph = null;
         _outputBox.ScrollToHome();
     }
 
     public void AppendOutputLine(string line) {
         // Queued progress must not overwrite the completed summary or resurrect a closed window.
         if (!_elapsed.IsRunning || _isClosed) return;
-        if (!_hasLiveOutput) {
-            _outputBox.Clear();
+        if (!_hasLiveOutput || _liveParagraph is null) {
+            _liveParagraph = new Paragraph { Margin = new Thickness(0) };
+            var document = new FlowDocument { PagePadding = new Thickness(0) };
+            document.Blocks.Add(_liveParagraph);
+            _outputBox.Document = document;
             _hasLiveOutput = true;
         }
-        _outputBox.AppendText(line + Environment.NewLine);
+        AppendAnsiRuns(_liveParagraph.Inlines, line);
+        _liveParagraph.Inlines.Add(new LineBreak());
         _outputBox.ScrollToEnd();
+    }
+
+    /// <summary>
+    /// Parses <paramref name="text"/> for ANSI/VT100 SGR escape sequences and builds a
+    /// <see cref="FlowDocument"/> containing a single wrapped paragraph of styled runs, so colored
+    /// or bold error/warning output (e.g. from PowerShell) renders instead of showing raw escape bytes.
+    /// </summary>
+    private static FlowDocument BuildDocument(string text) {
+        var document = new FlowDocument { PagePadding = new Thickness(0) };
+        var paragraph = new Paragraph { Margin = new Thickness(0) };
+        AppendAnsiRuns(paragraph.Inlines, text);
+        document.Blocks.Add(paragraph);
+        return document;
+    }
+
+    private static void AppendAnsiRuns(InlineCollection inlines, string text) {
+        foreach (var span in AnsiTextParser.Parse(text)) {
+            var lines = span.Text.Split('\n');
+            for (var i = 0; i < lines.Length; i++) {
+                var lineText = lines[i].TrimEnd('\r');
+                if (lineText.Length > 0) inlines.Add(CreateRun(lineText, span.Style));
+                if (i < lines.Length - 1) inlines.Add(new LineBreak());
+            }
+        }
+    }
+
+    private static Run CreateRun(string text, AnsiStyle style) {
+        var run = new Run(text);
+        if (style.ForegroundRgb is { } foregroundRgb)
+            run.Foreground = new SolidColorBrush(Color.FromRgb(foregroundRgb.R, foregroundRgb.G, foregroundRgb.B));
+        else if (style.Foreground is { } foreground)
+            run.Foreground = new SolidColorBrush(AnsiPalette[(int)foreground]);
+        // Otherwise leave Foreground unset so it inherits the box's themed default color.
+
+        if (style.BackgroundRgb is { } backgroundRgb)
+            run.Background = new SolidColorBrush(Color.FromRgb(backgroundRgb.R, backgroundRgb.G, backgroundRgb.B));
+        else if (style.Background is { } background)
+            run.Background = new SolidColorBrush(AnsiPalette[(int)background]);
+
+        if (style.Bold) run.FontWeight = FontWeights.Bold;
+        if (style.Underline) run.TextDecorations = TextDecorations.Underline;
+        return run;
     }
 
     public void SetBusy(bool isBusy, string message = "Executing command\u2026") {
