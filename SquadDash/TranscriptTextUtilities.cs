@@ -271,6 +271,37 @@ internal static class TranscriptTextUtilities
         return final.Length > current.Length ? final : current;
     }
 
+    /// <summary>
+    /// Heuristic gate used to decide whether an incoming streamed "thinking" chunk is actually
+    /// a resend of content that's already been streamed (e.g. an upstream SDK bug re-emitting
+    /// the entire reasoning block as a single delta after a whitespace/line-break-only
+    /// reconciliation miss), as opposed to a genuine incremental delta. A genuine incremental
+    /// delta is always small relative to what's already been accumulated and does not reproduce
+    /// earlier content from the start, so this only returns true when the chunk is at least as
+    /// long as what's already streamed AND its opening text — compared with whitespace
+    /// differences ignored — actually matches the opening of what's already streamed.
+    /// </summary>
+    internal static bool LooksLikeFullReasoningResend(string current, string chunk)
+    {
+        if (string.IsNullOrEmpty(current) || string.IsNullOrEmpty(chunk))
+            return false;
+
+        if (chunk.Length < current.Length)
+            return false;
+
+        var probeLength = Math.Min(current.Length, 48);
+        if (probeLength == 0)
+            return false;
+
+        var currentProbe = CollapseWhitespace(current[..probeLength]);
+        if (currentProbe.Length == 0)
+            return false;
+
+        var chunkProbeLength = Math.Min(chunk.Length, probeLength * 2);
+        var chunkProbe = CollapseWhitespace(chunk[..chunkProbeLength]);
+        return chunkProbe.StartsWith(currentProbe, StringComparison.Ordinal);
+    }
+
     internal static string BuildTimedStatusText(
         string? statusText,
         DateTimeOffset? startedAt,

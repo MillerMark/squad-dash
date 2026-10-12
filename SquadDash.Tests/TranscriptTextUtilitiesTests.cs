@@ -764,6 +764,91 @@ internal sealed class TranscriptTextUtilitiesTests {
     }
 
     [Test]
+    public void MergeStreamingAndFinalResponse_DedupesThinkingText_WhenFinalDiffersOnlyByWhitespace() {
+        // Simulates the SDK bug being fixed independently: the final reasoning block repeats
+        // everything already streamed, but with natural paragraph breaks where the streamed
+        // deltas only had plain spaces.
+        const string streamed = "Let me look at the file structure first. Then I'll check the tests.";
+        const string final = "Let me look at the file structure first.\n\nThen I'll check the tests.";
+
+        var merged = TranscriptTextUtilities.MergeStreamingAndFinalResponse(
+            streamed,
+            final,
+            out var tail);
+
+        Assert.Multiple(() => {
+            Assert.That(merged, Is.EqualTo(final));
+            // The well-formatted final text replaces the streamed text wholesale (no distinct
+            // tail chunk) — the caller is expected to swap in the merged text rather than
+            // append it, so it shows exactly once instead of duplicated.
+            Assert.That(tail, Is.Null);
+        });
+    }
+
+    [Test]
+    public void MergeStreamingAndFinalResponse_ShowsExactlyOnce_WhenStreamedAndFinalThinkingTextMatch() {
+        const string streamed = "Reviewing the reconciliation logic for duplicate thinking text.";
+
+        var merged = TranscriptTextUtilities.MergeStreamingAndFinalResponse(
+            streamed,
+            streamed,
+            out var tail);
+
+        Assert.Multiple(() => {
+            Assert.That(merged, Is.EqualTo(streamed));
+            Assert.That(tail, Is.Null);
+        });
+    }
+
+    [Test]
+    public void MergeStreamingAndFinalResponse_AppendsNewTail_WhenFinalThinkingTextIsGenuineContinuation() {
+        const string streamed = "First I'll inspect the event handlers.";
+        const string final = "First I'll inspect the event handlers. Then I'll add a reconciliation step.";
+
+        var merged = TranscriptTextUtilities.MergeStreamingAndFinalResponse(
+            streamed,
+            final,
+            out var tail);
+
+        Assert.Multiple(() => {
+            Assert.That(merged, Is.EqualTo(final));
+            Assert.That(tail, Is.EqualTo(" Then I'll add a reconciliation step."));
+        });
+    }
+
+    [Test]
+    public void LooksLikeFullReasoningResend_IsFalse_ForGenuineSmallIncrementalDelta() {
+        const string current = "Let me look at the file structure first. Then I'll check ";
+        const string chunk = "the tests.";
+
+        Assert.That(TranscriptTextUtilities.LooksLikeFullReasoningResend(current, chunk), Is.False);
+    }
+
+    [Test]
+    public void LooksLikeFullReasoningResend_IsTrue_ForWhitespaceOnlyVariantOfWholeStreamedText() {
+        const string current = "Let me look at the file structure first. Then I'll check the tests.";
+        const string chunk = "Let me look at the file structure first.\n\nThen I'll check the tests.";
+
+        Assert.That(TranscriptTextUtilities.LooksLikeFullReasoningResend(current, chunk), Is.True);
+    }
+
+    [Test]
+    public void LooksLikeFullReasoningResend_IsFalse_WhenChunkIsShorterThanStreamedText() {
+        const string current = "Let me look at the file structure first. Then I'll check the tests.";
+        const string chunk = "Then I'll check";
+
+        Assert.That(TranscriptTextUtilities.LooksLikeFullReasoningResend(current, chunk), Is.False);
+    }
+
+    [Test]
+    public void LooksLikeFullReasoningResend_IsFalse_WhenLongerChunkDoesNotShareOpening() {
+        const string current = "Let me look at the file structure first.";
+        const string chunk = "Totally unrelated new reasoning that happens to be just as long as before.";
+
+        Assert.That(TranscriptTextUtilities.LooksLikeFullReasoningResend(current, chunk), Is.False);
+    }
+
+    [Test]
     public void EnsureResponseParagraphBreak_AppendsBlankLineAfterText() {
         var builder = new System.Text.StringBuilder("Finished a sentence.");
 

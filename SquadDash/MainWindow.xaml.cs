@@ -7449,7 +7449,7 @@ public partial class MainWindow : Window
         thread.IsCurrentBackgroundRun = true;
 
         if (!string.IsNullOrWhiteSpace(evt.ReasoningText))
-            AppendThinkingText(thread, evt.ReasoningText!, thread.Title);
+            ReconcileFinalThinkingText(thread, evt.ReasoningText!, thread.Title);
 
         if (!string.IsNullOrWhiteSpace(evt.Text))
             ReconcileFinalSubagentResponseText(thread, evt.Text!);
@@ -47460,13 +47460,100 @@ public partial class MainWindow : Window
         ScrollToEndIfAtBottom(thread);
     }
 
+    // Defense-in-depth counterpart to ReconcileFinalSubagentResponseText (below), but for
+    // thinking/reasoning text. The Coordinator's own thinking stream has no distinct
+    // "final reasoning" event separate from "thinking_delta" — the SDK's own reconciliation
+    // (which normally only emits the unstreamed tail) feeds into the very same delta channel
+    // that AppendThinkingText uses for live streaming. If that upstream reconciliation ever
+    // misses a whitespace/line-break-only match and re-emits the ENTIRE reasoning block as a
+    // single "delta", AppendThoughtChunk must recognize and reconcile it instead of blindly
+    // appending a duplicate. This is gated so genuine small incremental deltas (the common
+    // case, many times per response) are left untouched and remain as cheap as before.
     private static void AppendThoughtChunk(StringBuilder builder, string text)
     {
         var chunk = NormalizeThinkingChunk(text);
         if (string.IsNullOrWhiteSpace(chunk))
             return;
 
+        // Only pay for the whitespace-tolerant resend check (and the StringBuilder -> string
+        // copy it requires) when the incoming chunk is at least as long as what's already
+        // accumulated — a genuine incremental delta never satisfies that, so this keeps the
+        // common streaming case exactly as cheap as a plain Append.
+        if (builder.Length > 0 && chunk.Length >= builder.Length)
+        {
+            var current = builder.ToString();
+            if (TranscriptTextUtilities.LooksLikeFullReasoningResend(current, chunk))
+            {
+                var merged = TranscriptTextUtilities.MergeStreamingAndFinalResponse(
+                    current,
+                    chunk,
+                    out var tailToAppend);
+
+                if (!string.IsNullOrEmpty(tailToAppend))
+                {
+                    builder.Append(tailToAppend);
+                }
+                else if (!string.Equals(merged, current, StringComparison.Ordinal))
+                {
+                    builder.Clear();
+                    builder.Append(merged);
+                }
+
+                return;
+            }
+        }
+
         builder.Append(chunk);
+    }
+
+    // Defense-in-depth counterpart to ReconcileFinalSubagentResponseText for thinking/reasoning
+    // text. Used when an event explicitly carries the FINAL/authoritative reasoning text for a
+    // turn (e.g. a sub-agent's completed message), rather than an incremental streaming delta.
+    // Reconciles against whatever has already been streamed into the thought entry instead of
+    // blindly re-appending it, so whitespace/line-break-only re-sends of the same reasoning
+    // don't show up twice.
+    private void ReconcileFinalThinkingText(TranscriptThreadState thread, string finalText, string? speaker)
+    {
+        if (string.IsNullOrWhiteSpace(finalText))
+            return;
+
+        _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
+        if (thread.CurrentTurn is null)
+            return;
+
+        var normalizedFinal = NormalizeThinkingChunk(finalText);
+        if (string.IsNullOrWhiteSpace(normalizedFinal))
+            return;
+
+        var thoughtEntry = GetOrCreateThoughtEntry(thread.CurrentTurn, speaker);
+        var builder = thoughtEntry.RawTextBuilder;
+        var current = builder.ToString();
+        var merged = TranscriptTextUtilities.MergeStreamingAndFinalResponse(
+            current,
+            normalizedFinal,
+            out var tailToAppend);
+
+        if (!string.IsNullOrEmpty(tailToAppend))
+        {
+            builder.Append(tailToAppend);
+        }
+        else if (!string.Equals(merged, current, StringComparison.Ordinal))
+        {
+            builder.Clear();
+            builder.Append(merged);
+        }
+        else
+        {
+            // Final text fully duplicates (or is a whitespace-only variant of) what's already
+            // streamed — nothing new to render.
+            return;
+        }
+
+        if (thread.CurrentTurn.ThoughtBlocks.LastOrDefault() is { } thoughtBlock)
+            thoughtBlock.LastUpdatedAt = DateTimeOffset.Now;
+
+        QueueThoughtEntryRender(thoughtEntry, flushImmediately: false);
+        ScrollToEndIfAtBottom(thread);
     }
 
     private void ScrollToEndIfAtBottom() =>
