@@ -34,6 +34,11 @@ internal static class EmbeddedCodeRegionManager
         /// Non-null (together with NewLanguage) when building a brand-new region.
         public string? NewContent;
         public string? NewLanguage;
+        /// When true, the region's content box should receive keyboard focus (with the
+        /// caret placed in its — necessarily empty — content) immediately after render.
+        /// Used only by the instant-open-fence path (<see cref="TryConvertOpenFence"/>);
+        /// the complete-fence path never sets this.
+        public bool FocusContentAfterRender;
     }
 
     /// <summary>
@@ -61,6 +66,51 @@ internal static class EmbeddedCodeRegionManager
             var replacement = new List<Segment>();
             if (before.Length > 0) replacement.Add(new TextSegment { Text = before });
             replacement.Add(new RegionSegment { NewContent = content, NewLanguage = span.Language });
+            if (after.Length > 0) replacement.Add(new TextSegment { Text = after });
+
+            segments.RemoveAt(s);
+            segments.InsertRange(s, replacement);
+
+            RenderSegments(rtb, segments);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Attempts to convert a bare, just-completed *opening* fence marker (``` or
+    /// ```&lt;language&gt; on its own line, with no closing ``` yet anywhere after it) into an
+    /// empty, expanded <see cref="EmbeddedCodeRegionBlock"/> whose content box immediately
+    /// receives keyboard focus — so the user never sees raw "```" sitting in the prompt
+    /// waiting for a close; they type straight into the region instead. Unlike
+    /// <see cref="TryConvertNextFence"/> this does not require (or wait for) a closing fence.
+    /// Returns <see langword="false"/> if no such bare opening marker is present.
+    /// </summary>
+    internal static bool TryConvertOpenFence(RichTextBox rtb)
+    {
+        var segments = ExtractSegments(rtb);
+
+        for (var s = 0; s < segments.Count; s++)
+        {
+            if (segments[s] is not TextSegment textSeg) continue;
+
+            var lines = textSeg.Text.Split('\n');
+            var openFence = EmbeddedFenceDetector.FindOpenFenceWithNoClose(lines);
+            if (openFence is null) continue;
+
+            var span = openFence.Value;
+            var before = string.Join("\n", lines.Take(span.LineIndex));
+            var after = string.Join("\n", lines.Skip(span.LineIndex + 1));
+
+            var replacement = new List<Segment>();
+            if (before.Length > 0) replacement.Add(new TextSegment { Text = before });
+            replacement.Add(new RegionSegment
+            {
+                NewContent = "",
+                NewLanguage = span.Language,
+                FocusContentAfterRender = true,
+            });
             if (after.Length > 0) replacement.Add(new TextSegment { Text = after });
 
             segments.RemoveAt(s);
@@ -120,28 +170,49 @@ internal static class EmbeddedCodeRegionManager
         // after typing/pasting the closing fence), rather than always jumping to document end.
         var caretOffset = rtb.GetCaretOffset();
 
-        rtb.Document.Blocks.Clear();
-        foreach (var segment in segments)
+        var undoWasEnabled = rtb.IsUndoEnabled;
+        if (undoWasEnabled)
+            rtb.IsUndoEnabled = false;
+
+        EmbeddedCodeRegionBlock? regionToFocus = null;
+
+        try
         {
-            switch (segment)
+            rtb.Document.Blocks.Clear();
+            foreach (var segment in segments)
             {
-                case TextSegment textSeg:
-                    foreach (var line in textSeg.Text.Split('\n'))
-                        rtb.Document.Blocks.Add(new Paragraph(new Run(line)) { Margin = new Thickness(0) });
-                    break;
+                switch (segment)
+                {
+                    case TextSegment textSeg:
+                        foreach (var line in textSeg.Text.Split('\n'))
+                            rtb.Document.Blocks.Add(new Paragraph(new Run(line)) { Margin = new Thickness(0) });
+                        break;
 
-                case RegionSegment { ExistingContainer: { } existing }:
-                    rtb.Document.Blocks.Add(existing);
-                    break;
+                    case RegionSegment { ExistingContainer: { } existing }:
+                        rtb.Document.Blocks.Add(existing);
+                        break;
 
-                case RegionSegment regionSeg:
-                    var region = EmbeddedCodeRegionBlock.Build(regionSeg.NewContent ?? "", regionSeg.NewLanguage ?? "");
-                    rtb.Document.Blocks.Add(new BlockUIContainer(region) { Margin = new Thickness(0) });
-                    break;
+                    case RegionSegment regionSeg:
+                        var region = EmbeddedCodeRegionBlock.Build(regionSeg.NewContent ?? "", regionSeg.NewLanguage ?? "");
+                        rtb.Document.Blocks.Add(new BlockUIContainer(region) { Margin = new Thickness(0) });
+                        if (regionSeg.FocusContentAfterRender)
+                            regionToFocus = region;
+                        break;
+                }
             }
+
+            rtb.CaretPosition = ResolveCaretPointerAfterRebuild(rtb, caretOffset);
+        }
+        finally
+        {
+            if (undoWasEnabled)
+                rtb.IsUndoEnabled = true;
         }
 
-        rtb.CaretPosition = ResolveCaretPointerAfterRebuild(rtb, caretOffset);
+        // Done after the undo-state finally block (and outside the try) so a focus-transfer
+        // failure (e.g. no live visual tree in a headless test) can't leave IsUndoEnabled
+        // incorrectly restored.
+        regionToFocus?.FocusContent();
     }
 
     /// Resolves the <see cref="TextPointer"/> to assign to <c>RichTextBox.CaretPosition</c>

@@ -29666,6 +29666,16 @@ public partial class MainWindow : Window
                 try
                 {
                     while (EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox)) { }
+
+                    // Complete-fence conversion above takes priority (e.g. a multi-line
+                    // paste that already contains both the opening and closing fence is
+                    // fully handled by the loop above). Only after that settles do we check
+                    // for a bare opening fence marker with no close yet — the user just
+                    // finished typing "```" (optionally with a language tag) on its own
+                    // line — and convert it instantly into an empty, expanded region with
+                    // the caret already inside, so raw "```" never sits waiting in the
+                    // prompt text.
+                    EmbeddedCodeRegionManager.TryConvertOpenFence(PromptTextBox);
                 }
                 finally
                 {

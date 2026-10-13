@@ -183,6 +183,48 @@ internal sealed class EmbeddedCodeRegionTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void TextChangedConversion_WithExistingEmbeddedRegion_RebuildsWithoutUndoSerialization()
+    {
+        var rtb = new RichTextBox { IsUndoEnabled = true };
+        rtb.SetPlainText("```\nfirst\n```\nplaceholder");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        Assert.That(rtb.Document.Blocks.OfType<BlockUIContainer>().Count(), Is.EqualTo(1));
+
+        Exception? conversionException = null;
+        var converting = false;
+        rtb.TextChanged += (_, _) =>
+        {
+            if (converting)
+                return;
+
+            converting = true;
+            try
+            {
+                while (EmbeddedCodeRegionManager.TryConvertNextFence(rtb)) { }
+            }
+            catch (Exception ex)
+            {
+                conversionException = ex;
+            }
+            finally
+            {
+                converting = false;
+            }
+        };
+
+        var lastParagraph = (Paragraph)rtb.Document.Blocks.LastBlock!;
+        Assert.DoesNotThrow(() =>
+        {
+            lastParagraph.Inlines.Clear();
+            lastParagraph.Inlines.Add(new Run("```\nsecond\n```"));
+        });
+
+        Assert.That(conversionException, Is.Null);
+        Assert.That(rtb.Document.Blocks.OfType<BlockUIContainer>().Count(), Is.EqualTo(2));
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nfirst\n```\n```" + "\nsecond\n```"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void SetPlainText_AfterEmbeddedRegion_DoesNotSerializeRegionIntoUndoUnit()
     {
         var rtb = new RichTextBox();
@@ -455,5 +497,162 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.DoesNotThrow(() => EditingCommands.Delete.Execute(null, rtb));
         Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False);
         Assert.That(rtb.GetPlainText(), Is.EqualTo("before\nafter"));
+    }
+
+    // ── Instant open-fence conversion: region appears the moment "```" is completed ──
+
+    [Test]
+    public void FindOpenFenceWithNoClose_BareOpeningMarker_NoCloseAnywhere_Found()
+    {
+        var lines = new[] { "before", "```" };
+        var open = EmbeddedFenceDetector.FindOpenFenceWithNoClose(lines);
+
+        Assert.That(open, Is.Not.Null);
+        Assert.That(open!.Value.LineIndex, Is.EqualTo(1));
+        Assert.That(open.Value.Language, Is.EqualTo(""));
+    }
+
+    [Test]
+    public void FindOpenFenceWithNoClose_WithLanguageTag_CapturesLanguage()
+    {
+        var lines = new[] { "```python" };
+        var open = EmbeddedFenceDetector.FindOpenFenceWithNoClose(lines);
+
+        Assert.That(open, Is.Not.Null);
+        Assert.That(open!.Value.Language, Is.EqualTo("python"));
+    }
+
+    [Test]
+    public void FindOpenFenceWithNoClose_CompleteFenceAlreadyExists_ReturnsNull()
+    {
+        // A fully-formed open+close pair must be left to FindFirstFence/TryConvertNextFence
+        // instead — this is what lets the complete-fence-paste path keep priority.
+        var lines = new[] { "```", "code", "```" };
+        Assert.That(EmbeddedFenceDetector.FindOpenFenceWithNoClose(lines), Is.Null);
+    }
+
+    [Test]
+    public void FindOpenFenceWithNoClose_NoFenceAtAll_ReturnsNull()
+    {
+        var lines = new[] { "just", "plain", "text" };
+        Assert.That(EmbeddedFenceDetector.FindOpenFenceWithNoClose(lines), Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryConvertOpenFence_BareOpeningMarker_InstantlyCreatesEmptyExpandedRegion_WithCaretFocusedInside()
+    {
+        // Simulates the user finishing typing "```" on an otherwise-empty line, with no
+        // closing fence typed yet.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```");
+
+        var converted = EmbeddedCodeRegionManager.TryConvertOpenFence(rtb);
+        Assert.That(converted, Is.True);
+
+        Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(1));
+        var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
+        var region = (EmbeddedCodeRegionBlock)container.Child;
+
+        Assert.That(region.Content, Is.EqualTo(""), "region must be created empty, not waiting for pasted content");
+        Assert.That(region.Language, Is.EqualTo(""));
+        Assert.That(region.IsCollapsed, Is.False, "region must appear expanded immediately, not collapsed");
+
+        // A live keyboard-focus assertion without a real window/PresentationSource: calling
+        // Focus() on a control outside a visual root can't acquire true OS keyboard focus,
+        // but it does still set WPF's own logical IsFocused state within the control's focus
+        // scope — which is exactly what FocusContent (called by TryConvertOpenFence's
+        // render step) is proven here to have done.
+        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        Assert.That(contentBox.IsFocused, Is.True, "caret must be focused into the content box immediately");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryConvertOpenFence_WithLanguageTag_InstantlyCreatesEmptyExpandedRegion_WithLanguageAndFocus()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```python");
+
+        var converted = EmbeddedCodeRegionManager.TryConvertOpenFence(rtb);
+        Assert.That(converted, Is.True);
+
+        var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
+        var region = (EmbeddedCodeRegionBlock)container.Child;
+
+        Assert.That(region.Content, Is.EqualTo(""));
+        Assert.That(region.Language, Is.EqualTo("python"));
+        Assert.That(region.IsCollapsed, Is.False);
+
+        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        Assert.That(contentBox.IsFocused, Is.True);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryConvertOpenFence_SurroundingPlainTextPreserved()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\n");
+
+        Assert.That(EmbeddedCodeRegionManager.TryConvertOpenFence(rtb), Is.True);
+        Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(2));
+        Assert.That(((Paragraph)rtb.Document.Blocks.FirstBlock!).Inlines.OfType<Run>().First().Text,
+            Is.EqualTo("before"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryConvertOpenFence_CompleteFenceAlreadyPresent_DoesNotApply()
+    {
+        // When a complete fence has already been pasted/typed, the open-fence path must not
+        // fire — TryConvertNextFence owns that case (priority rule from the task brief).
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\ncode\n```");
+
+        Assert.That(EmbeddedCodeRegionManager.TryConvertOpenFence(rtb), Is.False);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryConvertNextFence_TakesPriorityOverOpenFence_WhenBothPresentInSameEdit()
+    {
+        // A multi-line paste that completes one fence while a second, separate fence is
+        // still open must have the complete one converted by TryConvertNextFence first;
+        // TryConvertOpenFence then only picks up the still-open remainder — matching how
+        // MainWindow.PromptTextBox_TextChanged orders the two calls.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nfirst\n```\n```python");
+
+        var completeConversions = 0;
+        while (EmbeddedCodeRegionManager.TryConvertNextFence(rtb)) completeConversions++;
+        Assert.That(completeConversions, Is.EqualTo(1));
+
+        Assert.That(EmbeddedCodeRegionManager.TryConvertOpenFence(rtb), Is.True);
+
+        var containers = rtb.Document.Blocks.OfType<BlockUIContainer>().ToList();
+        Assert.That(containers.Count, Is.EqualTo(2));
+        var firstRegion = (EmbeddedCodeRegionBlock)containers[0].Child;
+        var secondRegion = (EmbeddedCodeRegionBlock)containers[1].Child;
+        Assert.That(firstRegion.Content, Is.EqualTo("first"));
+        Assert.That(secondRegion.Content, Is.EqualTo(""));
+        Assert.That(secondRegion.Language, Is.EqualTo("python"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TypingClosingFenceLineInsideContentBox_CollapsesRegion_AndStripsMarkerFromContent()
+    {
+        // Judgment call for "how does the user finish an instantly-opened region": typing a
+        // bare ``` as its own last line inside the content box ends it — the marker line is
+        // stripped back out of Content (ToFencedText already supplies the closing marker)
+        // and the region collapses to its compact summary.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```");
+        EmbeddedCodeRegionManager.TryConvertOpenFence(rtb);
+
+        var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
+        var region = (EmbeddedCodeRegionBlock)container.Child;
+        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+
+        contentBox.Text = "x = 1\n```";
+
+        Assert.That(region.Content, Is.EqualTo("x = 1"));
+        Assert.That(region.IsCollapsed, Is.True);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nx = 1\n```"));
     }
 }

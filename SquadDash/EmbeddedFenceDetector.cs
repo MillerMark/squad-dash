@@ -47,6 +47,47 @@ internal static class EmbeddedFenceDetector
         return null;
     }
 
+    internal readonly record struct OpenFence(int LineIndex, string Language);
+
+    /// <summary>
+    /// Finds the first opening fence line (``` or ```&lt;language&gt;, and nothing else on
+    /// that line) that has no corresponding closing ``` anywhere later in
+    /// <paramref name="lines"/> — i.e. the opening marker the user just finished typing,
+    /// before any content or closing fence exists. Used to trigger the "instant open fence"
+    /// conversion (create an empty, expanded region immediately) as distinct from
+    /// <see cref="FindFirstFence"/>, which requires a complete open+close pair (e.g. a
+    /// pasted block).
+    /// </summary>
+    internal static OpenFence? FindOpenFenceWithNoClose(string[] lines)
+    {
+        var i = 0;
+        while (i < lines.Length)
+        {
+            var openMatch = FenceOpenRegex.Match(lines[i].Trim());
+            if (!openMatch.Success)
+            {
+                i++;
+                continue;
+            }
+
+            var closeLineIndex = -1;
+            for (var j = i + 1; j < lines.Length; j++)
+            {
+                if (lines[j].Trim() != "```") continue;
+                closeLineIndex = j;
+                break;
+            }
+
+            if (closeLineIndex < 0)
+                return new OpenFence(i, openMatch.Groups[1].Value);
+
+            // This opener is already closed — skip past its closing marker so that marker
+            // line is never itself re-examined as a candidate opening fence.
+            i = closeLineIndex + 1;
+        }
+        return null;
+    }
+
     /// <summary>
     /// Serializes code-region content back into an equivalent triple-backtick fenced block:
     /// a bare fence if <paramref name="language"/> is null/empty, or ```&lt;language&gt;

@@ -1,7 +1,9 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace SquadDash;
@@ -37,6 +39,7 @@ internal sealed class EmbeddedCodeRegionBlock : Border
     private readonly TextBox _contentBox;
     private readonly TextBlock _summaryText;
     private readonly ToggleButton _toggle;
+    private bool _isClosingFromTrailingFenceLine;
 
     public static EmbeddedCodeRegionBlock Build(string content, string language, bool startCollapsed = false)
         => new(content, language, startCollapsed);
@@ -77,6 +80,8 @@ internal sealed class EmbeddedCodeRegionBlock : Border
             Content = _contentBox.Text;
             if (IsCollapsed)
                 UpdateSummaryText();
+            else
+                TryCloseOnTrailingFenceLine();
         };
 
         _summaryText = new TextBlock
@@ -147,4 +152,57 @@ internal sealed class EmbeddedCodeRegionBlock : Border
     /// a bare fence if no language is set, or ```&lt;language&gt; if one is present.
     /// This is the contract consumed by <see cref="RichTextBoxExtensions.GetPlainText"/>.
     public string ToFencedText() => EmbeddedFenceDetector.BuildFencedText(Content, Language);
+
+    /// <summary>
+    /// Gives keyboard focus to this region's content box and places the caret at the end of
+    /// its (ordinarily empty) text. Called immediately after
+    /// <see cref="EmbeddedCodeRegionManager.TryConvertOpenFence"/> creates a region from a
+    /// just-typed opening fence marker, so the user's very next keystroke lands in the
+    /// region's content instead of back out in the surrounding prompt text.
+    /// </summary>
+    public void FocusContent()
+    {
+        _contentBox.CaretIndex = _contentBox.Text.Length;
+        // FocusManager.SetFocusedElement sets logical/keyboard focus within the control's
+        // focus scope even before the element has gone through a layout pass against a real
+        // PresentationSource (e.g. right after this region is created, before WPF has had a
+        // chance to render it) — plain Focus()/Keyboard.Focus() require IsVisible to already
+        // be true, which isn't guaranteed synchronously at creation time. Keyboard.Focus is
+        // still attempted afterward so a live, already-rendered app also gets real OS
+        // keyboard input focus, not just the logical bookkeeping.
+        FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
+        Keyboard.Focus(_contentBox);
+    }
+
+    /// <summary>
+    /// Judgment call for "how does the user finish an instantly-opened region": if the last
+    /// line the user typed into the content box is a bare closing ``` by itself, treat that
+    /// as "done" — strip the marker line back out of <see cref="Content"/> (it's implicit in
+    /// <see cref="ToFencedText"/> already), collapse the region to its compact summary, and
+    /// move keyboard focus back out to whatever's next in the surrounding prompt so ordinary
+    /// typing resumes immediately after the region, mirroring how a pasted/complete fence
+    /// already behaves. Guarded against re-entrancy because it mutates <c>_contentBox.Text</c>
+    /// from within that same TextBox's own TextChanged handler.
+    /// </summary>
+    private void TryCloseOnTrailingFenceLine()
+    {
+        if (_isClosingFromTrailingFenceLine) return;
+
+        var lines = Content.Split('\n');
+        if (lines[^1].Trim() != "```") return;
+
+        _isClosingFromTrailingFenceLine = true;
+        try
+        {
+            var withoutClosingLine = string.Join("\n", lines.Take(lines.Length - 1));
+            Content = withoutClosingLine;
+            _contentBox.Text = withoutClosingLine;
+            SetCollapsed(true);
+            _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+        }
+        finally
+        {
+            _isClosingFromTrailingFenceLine = false;
+        }
+    }
 }
