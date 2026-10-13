@@ -27392,6 +27392,62 @@ public partial class MainWindow : Window
         }
     }
 
+    private void PromptTextBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            // Detect if the click landed inside an embedded code region's TextBox.
+            // If so, prevent RichTextBox's default selection and let the region handle focus.
+            var clickPosition = e.GetPosition(PromptTextBox);
+            var hitElement = PromptTextBox.InputHitTest(clickPosition) as DependencyObject;
+
+            if (hitElement == null) return;
+
+            // Walk up the visual tree to find the EmbeddedCodeRegionBlock
+            var current = hitElement;
+            TextBox? targetTextBox = null;
+            EmbeddedCodeRegionBlock? targetRegion = null;
+
+            while (current != null)
+            {
+                if (current is TextBox tb)
+                    targetTextBox = tb;
+
+                if (current is EmbeddedCodeRegionBlock region)
+                {
+                    targetRegion = region;
+                    break;
+                }
+
+                if (current is Visual visual)
+                    current = VisualTreeHelper.GetParent(visual);
+                else
+                    break;
+            }
+
+            // If we found an embedded region, suppress RichTextBox's selection logic
+            // and route focus to the region's TextBox at the clicked position
+            if (targetRegion != null && targetTextBox != null)
+            {
+                e.Handled = true;
+                
+                // Calculate the position within the TextBox and place the caret there
+                var positionInTextBox = e.GetPosition(targetTextBox);
+                int caretIndex = targetTextBox.GetCharacterIndexFromPoint(positionInTextBox, snapToText: true);
+                if (caretIndex >= 0)
+                {
+                    targetTextBox.CaretIndex = caretIndex;
+                }
+                targetTextBox.Focus();
+            }
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(PromptTextBox_PreviewMouseLeftButtonDown), ex);
+        }
+    }
+
+
     private void ApplyPromptFontSize()
     {
         PromptTextBox.FontSize = _promptFontSize;
@@ -30039,7 +30095,7 @@ public partial class MainWindow : Window
 
     private static int FindAtTriggerPosition(string text, int caret)
     {
-        if (caret <= 0) return -1;
+        if (caret <= 0 || caret > text.Length) return -1;
         var scanStart = Math.Max(0, caret - MaxAtTriggerScanChars);
         int i = caret - 1;
         while (i >= scanStart && !char.IsWhiteSpace(text[i]))
@@ -30138,7 +30194,7 @@ public partial class MainWindow : Window
         }
 
         // Check for [ trigger — only when [ is the first char (prompt is otherwise empty)
-        if (caret == 1 && text[0] == '[')
+        if (caret == 1 && text.Length > 0 && text[0] == '[')
         {
             var options = GetCurrentQuickReplyOptions();
             if (options.Length > 0)
@@ -30163,7 +30219,7 @@ public partial class MainWindow : Window
         // filter="/" and shows ALL commands instead of the filtered subset.  Using text.Length
         // always places the filter at the end of the typed text, which is where the user's
         // logical cursor is during re-activation.
-        if (caret > 0 && text[0] == '/' && !text.Contains(' ') && !text.Contains('\n'))
+        if (caret > 0 && caret <= text.Length && text.Length > 0 && text[0] == '/' && !text.Contains(' ') && !text.Contains('\n'))
         {
             var activated = IntelliSenseController.TryActivate('/', 0, SlashCommands, filterIncludesTrigger: true);
             _intelliSenseState = activated is not null
