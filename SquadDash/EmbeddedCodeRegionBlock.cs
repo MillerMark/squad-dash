@@ -73,8 +73,8 @@ public sealed class EmbeddedCodeRegionBlock : Border
             if (!_contentBox.IsFocused)
             {
                 _contentBox.Focus();
-                e.Handled = false; // Allow normal click positioning
             }
+            // Don't set e.Handled = true; allow TextBox to handle click positioning normally
         };
 
         // Keep Content (the serialization source of truth read by ToFencedText/GetPlainText)
@@ -92,6 +92,85 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 UpdateSummaryText();
             else
                 TryCloseOnTrailingFenceLine();
+        };
+
+        // Allow navigation exits from the region: Tab or Down (at end) to move focus out
+        _contentBox.PreviewKeyDown += (_, e) =>
+        {
+            // Tab always moves focus to the next element after the region
+            if (e.Key == Key.Tab)
+            {
+                _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+                e.Handled = true;
+                return;
+            }
+
+            // Ctrl+Down always moves focus out (convention for exiting nested editors)
+            if (e.Key == Key.Down && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+                e.Handled = true;
+                return;
+            }
+
+            // Shift+Tab moves focus to the previous element (before the region)
+            if (e.Key == Key.Tab && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Previous));
+                e.Handled = true;
+                return;
+            }
+
+            // Ctrl+Up always moves focus out (convention for exiting nested editors)
+            if (e.Key == Key.Up && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Previous));
+                e.Handled = true;
+                return;
+            }
+
+            // Down arrow at the end of the TextBox: move focus out to navigate past the region
+            if (e.Key == Key.Down)
+            {
+                // Count total lines in the text
+                int lineCount = _contentBox.Text.Length == 0 ? 1 : _contentBox.Text.Count(c => c == '\n') + 1;
+                // Count which line the caret is on (0-based)
+                int caretLineIndex = _contentBox.Text.Substring(0, _contentBox.CaretIndex).Count(c => c == '\n');
+
+                // If we're on the last line and there's text after the caret on that line,
+                // let the TextBox handle it normally (move to next visible line)
+                if (caretLineIndex == lineCount - 1)
+                {
+                    var lastLineStart = _contentBox.Text.LastIndexOf('\n') + 1;
+                    var lastLineText = _contentBox.Text.Substring(lastLineStart);
+                    // If caret is at or near the end of the last line, exit the region
+                    if (_contentBox.CaretIndex >= lastLineStart + lastLineText.Length - 1)
+                    {
+                        _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+                        e.Handled = true;
+                    }
+                }
+            }
+
+            // Up arrow at the beginning of the TextBox: move focus out to navigate before the region
+            if (e.Key == Key.Up)
+            {
+                int caretLineIndex = _contentBox.Text.Substring(0, _contentBox.CaretIndex).Count(c => c == '\n');
+
+                // If we're on the first line, Up should move focus out before the region
+                if (caretLineIndex == 0)
+                {
+                    var firstLineLength = _contentBox.Text.IndexOf('\n') >= 0
+                        ? _contentBox.Text.IndexOf('\n')
+                        : _contentBox.Text.Length;
+                    // If caret is at the beginning or early in the first line, exit the region
+                    if (_contentBox.CaretIndex <= 1)
+                    {
+                        _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Previous));
+                        e.Handled = true;
+                    }
+                }
+            }
         };
 
         _summaryText = new TextBlock
@@ -133,6 +212,34 @@ public sealed class EmbeddedCodeRegionBlock : Border
         SetResourceReference(BackgroundProperty, "CodeSurface");
         SetResourceReference(BorderBrushProperty, "SubtleBorder");
         Child = stack;
+
+        // Route clicks on the Border/header to the content TextBox to enable editing.
+        // Clicks on the TextBox itself are handled above. This PreviewMouseDown on the
+        // Border ensures that even if a click lands on the header area, we still focus
+        // the content box (unless the user specifically clicked the toggle button).
+        PreviewMouseLeftButtonDown += (sender, e) =>
+        {
+            // If the click landed on the toggle button, let it be handled normally
+            var clickedElement = InputHitTest(e.GetPosition(this)) as DependencyObject;
+            if (clickedElement != null)
+            {
+                // Walk up the visual tree to check if we hit the toggle button
+                var current = clickedElement;
+                while (current != null)
+                {
+                    if (ReferenceEquals(current, _toggle))
+                        return; // Let the toggle button handle its own click
+                    if (current is Visual visual)
+                        current = VisualTreeHelper.GetParent(visual);
+                    else
+                        break;
+                }
+            }
+
+            // For any other click, focus the content box
+            _contentBox.Focus();
+            e.Handled = true; // Prevent RichTextBox from selecting the region as a block
+        };
 
         SetCollapsed(startCollapsed);
     }
