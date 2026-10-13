@@ -112,6 +112,14 @@ internal static class EmbeddedCodeRegionManager
 
     private static void RenderSegments(RichTextBox rtb, List<Segment> segments)
     {
+        // Capture the caret's plain-text offset before rebuilding. Conversion never changes
+        // the overall plain-text content (GetPlainText() before/after is identical — a raw
+        // fence becomes a region that serializes back to the exact same fenced text), so the
+        // same offset maps back to the equivalent position after rebuild: e.g. right after
+        // the newly-created region if that's where the user's caret actually was (immediately
+        // after typing/pasting the closing fence), rather than always jumping to document end.
+        var caretOffset = rtb.GetCaretOffset();
+
         rtb.Document.Blocks.Clear();
         foreach (var segment in segments)
         {
@@ -133,8 +141,35 @@ internal static class EmbeddedCodeRegionManager
             }
         }
 
-        // Place the caret at the end of the document so typing continues naturally after
-        // the just-created region.
-        rtb.CaretPosition = rtb.Document.ContentEnd;
+        rtb.CaretPosition = ResolveCaretPointerAfterRebuild(rtb, caretOffset);
+    }
+
+    /// Resolves the <see cref="TextPointer"/> to assign to <c>RichTextBox.CaretPosition</c>
+    /// for a given plain-text offset, nudging a pointer that lands exactly at a region's
+    /// own ElementStart/ElementEnd boundary onto the neighboring Paragraph's
+    /// ContentStart/ContentEnd instead. WPF does not reliably keep the caret at a
+    /// BlockUIContainer's own element boundary when that container hosts a focusable child
+    /// control (the region's content TextBox) — assigning there can cause the caret to
+    /// normalize elsewhere (e.g. document start), which is what made the caret look like it
+    /// landed on the wrong line around a region. This nudge is local to caret *assignment*
+    /// here; it intentionally does not change <see cref="RichTextBoxExtensions.GetTextPointerAt"/>
+    /// or <see cref="RichTextBoxExtensions.GetCharOffset"/>, which must stay symmetric with
+    /// each other for offset math elsewhere (selection, etc.) to remain correct.
+    private static TextPointer ResolveCaretPointerAfterRebuild(RichTextBox rtb, int caretOffset)
+    {
+        var pointer = rtb.GetTextPointerAt(caretOffset);
+        var blocks = rtb.Document.Blocks.ToList();
+
+        for (var i = 0; i < blocks.Count; i++)
+        {
+            if (blocks[i] is not BlockUIContainer { Child: EmbeddedCodeRegionBlock } region) continue;
+
+            if (pointer.CompareTo(region.ElementStart) == 0 && i > 0 && blocks[i - 1] is Paragraph prev)
+                return prev.ContentEnd;
+            if (pointer.CompareTo(region.ElementEnd) == 0 && i + 1 < blocks.Count && blocks[i + 1] is Paragraph next)
+                return next.ContentStart;
+        }
+
+        return pointer;
     }
 }

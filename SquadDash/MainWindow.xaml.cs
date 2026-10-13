@@ -27412,6 +27412,26 @@ public partial class MainWindow : Window
         var normalizedSelectionLength = Math.Clamp(selectionLength, 0, text.Length - normalizedSelectionStart);
 
         PromptTextBox.SetPlainText(text);
+
+        // Convert any already-fenced content into collapsible regions as part of every
+        // programmatic load/restore — not just live typing. PromptTextBox_TextChanged's own
+        // conversion call is skipped whenever _conversationManager.IsApplyingHistoryEntry is
+        // true (which it is for the entire duration of a draft/history restore via
+        // ApplyPromptText), so without this, fences loaded at startup would stay raw text
+        // until the user caused an unrelated TextChanged event.
+        if (!_isConvertingEmbeddedCodeRegion)
+        {
+            _isConvertingEmbeddedCodeRegion = true;
+            try
+            {
+                while (EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox)) { }
+            }
+            finally
+            {
+                _isConvertingEmbeddedCodeRegion = false;
+            }
+        }
+
         if (normalizedSelectionLength > 0)
             PromptTextBox.SelectRange(normalizedSelectionStart, normalizedSelectionLength);
         else
@@ -27438,6 +27458,14 @@ public partial class MainWindow : Window
         if (_suppressPromptNextTextInput)
         {
             _suppressPromptNextTextInput = false;
+            e.Handled = true;
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(e.Text)
+            && PromptTextBox.SelectionContainsEmbeddedCodeRegion()
+            && PromptTextBox.ReplaceSelectionWithoutUndo(e.Text))
+        {
             e.Handled = true;
             return;
         }
@@ -27761,6 +27789,29 @@ public partial class MainWindow : Window
             _suppressPromptNextTextInput = false;
 
             var modifiers = Keyboard.Modifiers;
+
+            if (modifiers == ModifierKeys.None
+                && e.Key is Key.Delete or Key.Back
+                && PromptTextBox.SelectionContainsEmbeddedCodeRegion()
+                && PromptTextBox.DeleteSelectionWithoutUndo())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            // Collapsed-caret case: the caret sits right next to a region (no highlighted
+            // selection) and Delete/Backspace would otherwise fall through to WPF's native
+            // block-boundary deletion around the BlockUIContainer, which is unreliable and
+            // can crash. Remove the adjacent region ourselves instead.
+            if (modifiers == ModifierKeys.None && e.Key is Key.Delete or Key.Back)
+            {
+                var direction = e.Key == Key.Delete ? LogicalDirection.Forward : LogicalDirection.Backward;
+                if (PromptTextBox.TryDeleteAdjacentEmbeddedCodeRegion(direction))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
 
             if (modifiers == ModifierKeys.None
                 && IsPrintableKey(e.Key)
@@ -28909,7 +28960,10 @@ public partial class MainWindow : Window
             return false;
 
         var insertionStart = PromptTextBox.GetSelectionStart();
-        PromptTextBox.ReplaceSelection(ch.Value.ToString());
+        if (PromptTextBox.SelectionContainsEmbeddedCodeRegion())
+            PromptTextBox.ReplaceSelectionWithoutUndo(ch.Value.ToString());
+        else
+            PromptTextBox.ReplaceSelection(ch.Value.ToString());
         PromptTextBox.SetCaretOffset(insertionStart + 1);
         e.Handled = true;
         SquadDashTrace.Write(

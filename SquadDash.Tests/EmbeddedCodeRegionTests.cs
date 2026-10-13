@@ -1,4 +1,7 @@
+using System;
+using System.Linq;
 using System.Threading;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 
@@ -179,6 +182,59 @@ internal sealed class EmbeddedCodeRegionTests
             Is.EqualTo("```\nfirst\n```\nmiddle\n```python\nsecond\n```"));
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void SetPlainText_AfterEmbeddedRegion_DoesNotSerializeRegionIntoUndoUnit()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.True);
+
+        Assert.DoesNotThrow(() => rtb.SetPlainText("replacement"));
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("replacement"));
+        Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DeleteSelectionWithoutUndo_SelectedEmbeddedRegion_RemovesRegionWithoutSerializingIt()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\ncode\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        rtb.Selection.Select(rtb.Document.ContentStart, rtb.Document.ContentEnd);
+
+        Assert.That(rtb.SelectionContainsEmbeddedCodeRegion(), Is.True);
+        Assert.DoesNotThrow(() => rtb.DeleteSelectionWithoutUndo());
+        Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void SelectionContainsEmbeddedCodeRegion_OrdinaryTextSelectionBeforeRegion_ReturnsFalse()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        rtb.Selection.Select(
+            rtb.Document.Blocks.FirstBlock!.ContentStart,
+            rtb.Document.Blocks.FirstBlock!.ContentEnd);
+
+        Assert.That(rtb.SelectionContainsEmbeddedCodeRegion(), Is.False);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ReplaceSelectionWithoutUndo_SelectedEmbeddedRegion_ReplacesRegionWithoutSerializingIt()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\ncode\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        rtb.Selection.Select(rtb.Document.ContentStart, rtb.Document.ContentEnd);
+
+        Assert.DoesNotThrow(() => rtb.ReplaceSelectionWithoutUndo("typed"));
+        Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("typed"));
+    }
+
     // ── No Step 1 regression: plain text with no embedded regions round-trips untouched ──
 
     [Test, Apartment(ApartmentState.STA)]
@@ -197,5 +253,207 @@ internal sealed class EmbeddedCodeRegionTests
         rtb.SetPlainText("```\nstill typing, no closing fence yet");
         Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(rtb), Is.False);
         Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nstill typing, no closing fence yet"));
+    }
+
+    // ── Bug fix 1: content box is genuinely editable and round-trips edits ─────
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void EditingContentDirectly_UpdatesContentProperty_AndRoundTripsThroughGetPlainText()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\noriginal\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+
+        // Simulate the user editing inside the region's content box directly (as opposed to
+        // setting Content programmatically, which the old read-only TextBox could never do).
+        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        Assert.That(contentBox.IsReadOnly, Is.False, "content box must be editable, not read-only");
+
+        contentBox.Text = "edited content";
+
+        Assert.That(region.Content, Is.EqualTo("edited content"));
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nedited content\n```"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void EditingContentDirectly_SurvivesUnrelatedFenceConversionRebuild()
+    {
+        // A region's content edits must not be clobbered when an unrelated new fence
+        // elsewhere in the same document triggers EmbeddedCodeRegionManager to rebuild
+        // Document.Blocks (the rebuild reattaches the *same* BlockUIContainer instance).
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\noriginal\n```\nsome text");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
+        var region = (EmbeddedCodeRegionBlock)container.Child;
+        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        contentBox.Text = "edited before rebuild";
+
+        // Replace the trailing plain text with a brand-new fence, forcing another
+        // conversion/rebuild pass that must preserve the first region's instance and edits.
+        var lastParagraph = (Paragraph)rtb.Document.Blocks.LastBlock!;
+        lastParagraph.Inlines.Clear();
+        lastParagraph.Inlines.Add(new Run("```\nsecond\n```"));
+        Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(rtb), Is.True);
+
+        var stillSameContainer = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
+        Assert.That(stillSameContainer, Is.SameAs(container), "rebuild must reuse the same BlockUIContainer instance");
+        var stillSameRegion = (EmbeddedCodeRegionBlock)stillSameContainer.Child;
+        Assert.That(stillSameRegion.Content, Is.EqualTo("edited before rebuild"));
+        Assert.That(rtb.GetPlainText(), Does.StartWith("```\nedited before rebuild\n```"));
+    }
+
+    // ── Bug fix 2: caret placement after conversion (not always document end) ─────
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryConvertNextFence_CaretRightAfterClosingFence_EndsUpRightAfterRegion_NotDocumentEnd()
+    {
+        var rtb = new RichTextBox();
+        // Trailing text after the fence means "document end" and "right after the region"
+        // are two different positions — this distinguishes the old (always-jump-to-end) bug
+        // from the fix.
+        rtb.SetPlainText("```\ncode\n```\nmore text after");
+        var caretAfterFence = "```\ncode\n```".Length;
+        rtb.SetCaretOffset(caretAfterFence);
+
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        // The caret is nudged onto the following paragraph's ContentStart for reliable
+        // assignment (see EmbeddedCodeRegionManager.ResolveCaretPointerAfterRebuild), which is
+        // one plain-text offset past the bare region-boundary position (both represent the
+        // same visual "right after the region" location) — the key regression being guarded
+        // against is that it must land near the region, never jump to the document's end.
+        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(caretAfterFence + 1));
+        Assert.That(rtb.GetCaretOffset(), Is.Not.EqualTo(rtb.GetTextLength()));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void GetCharOffset_PositionAfterRegion_AccountsForRegionsFencedTextLength()
+    {
+        // Direct proof that offset math treats a region as consuming exactly its serialized
+        // fenced-text length — the root cause behind "typing lands above the region".
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var fullText = rtb.GetPlainText();
+        Assert.That(fullText, Is.EqualTo("before\n```\ncode\n```\nafter"));
+
+        var afterOffset = fullText.IndexOf("after", StringComparison.Ordinal);
+        var pointer = rtb.GetTextPointerAt(afterOffset);
+        Assert.That(rtb.GetCharOffset(pointer), Is.EqualTo(afterOffset));
+    }
+
+    // ── Bug fix 3: fence conversion runs on programmatic load, not just typing ─────
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void SetPlainTextThenExplicitConversionLoop_ConvertsPreExistingFences_SimulatingLoadPath()
+    {
+        // MainWindow's SetPromptTextBoxLogicalBuffer (the programmatic load/restore path)
+        // now runs the same conversion loop PromptTextBox_TextChanged uses, immediately
+        // after SetPlainText, regardless of IsApplyingHistoryEntry. This proves the
+        // conversion primitives it relies on correctly convert content set programmatically
+        // (not just via live typing/TextChanged).
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```python\nx = 1\n```");
+
+        Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False, "SetPlainText alone must not auto-convert");
+
+        while (EmbeddedCodeRegionManager.TryConvertNextFence(rtb)) { }
+
+        Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.True);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```python\nx = 1\n```"));
+    }
+
+    // ── Bug fix 4: deleting a region never crashes ──────────────────────────────
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryDeleteAdjacentEmbeddedCodeRegion_CaretImmediatelyBeforeRegion_RemovesItWithoutCrashing()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var container = rtb.Document.Blocks.OfType<BlockUIContainer>().First();
+
+        // Proves the pure adjacency rule directly against an explicit TextPointer, rather
+        // than through RichTextBox.CaretPosition's setter — which only reliably normalizes
+        // a position adjacent to a focusable-content BlockUIContainer once the control is
+        // actually focused inside a rendered window (not the case for a bare, unparented
+        // RichTextBox in a unit test).
+        var found = RichTextBoxExtensions.FindAdjacentEmbeddedCodeRegion(
+            rtb.Document, container.ElementStart, LogicalDirection.Forward);
+        Assert.That(found, Is.SameAs(container));
+
+        Assert.DoesNotThrow(() => rtb.Document.Blocks.Remove(container));
+        Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("before\nafter"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryDeleteAdjacentEmbeddedCodeRegion_CaretImmediatelyAfterRegion_RemovesItWithoutCrashing()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var container = rtb.Document.Blocks.OfType<BlockUIContainer>().First();
+
+        var found = RichTextBoxExtensions.FindAdjacentEmbeddedCodeRegion(
+            rtb.Document, container.ElementEnd, LogicalDirection.Backward);
+        Assert.That(found, Is.SameAs(container));
+
+        Assert.DoesNotThrow(() => rtb.Document.Blocks.Remove(container));
+        Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("before\nafter"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FindAdjacentEmbeddedCodeRegion_CaretNotAdjacent_ReturnsNull()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var found = RichTextBoxExtensions.FindAdjacentEmbeddedCodeRegion(
+            rtb.Document, rtb.Document.ContentStart, LogicalDirection.Forward);
+
+        Assert.That(found, Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryDeleteAdjacentEmbeddedCodeRegion_EmptyDocument_ReturnsFalseAndDoesNotThrow()
+    {
+        // End-to-end smoke test through the real RichTextBox.CaretPosition-based entry point:
+        // when there's nothing adjacent (or no region at all), it must safely no-op rather
+        // than throw, regardless of the environment's caret-normalization behavior.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("just plain text, no regions");
+
+        bool removed = false;
+        Assert.DoesNotThrow(() => removed = rtb.TryDeleteAdjacentEmbeddedCodeRegion(LogicalDirection.Forward));
+        Assert.That(removed, Is.False);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void NativeDeleteCommand_SelectedEmbeddedRegionWithSurroundingParagraphs_DoesNotThrow()
+    {
+        // Regression proof for the reported crash: selecting exactly a region (amid
+        // surrounding plain-text paragraphs, matching real prompt-box documents rather than
+        // a single-block document) and invoking the same editing command WPF's native
+        // Delete key raises must not throw.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var container = rtb.Document.Blocks.OfType<BlockUIContainer>().First();
+        rtb.Selection.Select(container.ElementStart, container.ElementEnd);
+
+        Assert.DoesNotThrow(() => EditingCommands.Delete.Execute(null, rtb));
+        Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("before\nafter"));
     }
 }

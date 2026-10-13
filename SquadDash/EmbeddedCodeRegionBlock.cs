@@ -30,7 +30,7 @@ internal sealed class EmbeddedCodeRegionBlock : Border
     public string Content { get; set; }
 
     /// Optional language tag (e.g. "python"). Empty string means no language tag.
-    public string Language { get; set; }
+    public new string Language { get; set; }
 
     public bool IsCollapsed { get; private set; }
 
@@ -50,8 +50,8 @@ internal sealed class EmbeddedCodeRegionBlock : Border
         _contentBox = new TextBox
         {
             Text = Content,
-            IsReadOnly = true,
             AcceptsReturn = true,
+            AcceptsTab = true,
             TextWrapping = TextWrapping.NoWrap,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
@@ -63,6 +63,21 @@ internal sealed class EmbeddedCodeRegionBlock : Border
         };
         _contentBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         _contentBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
+
+        // Keep Content (the serialization source of truth read by ToFencedText/GetPlainText)
+        // in sync with every edit made directly inside the region. _contentBox's TextChanged
+        // never bubbles up as the host RichTextBox's own TextChanged (it only fires for
+        // FlowDocument/TextContainer content changes, not a nested control's Text property),
+        // so this is isolated from EmbeddedCodeRegionManager's fence-scanning rebuilds — and
+        // because those rebuilds reattach this exact same BlockUIContainer/control instance
+        // (see EmbeddedCodeRegionManager.RenderSegments's ExistingContainer branch) rather
+        // than recreating it, in-progress edits are never lost across a rebuild.
+        _contentBox.TextChanged += (_, _) =>
+        {
+            Content = _contentBox.Text;
+            if (IsCollapsed)
+                UpdateSummaryText();
+        };
 
         _summaryText = new TextBlock
         {
@@ -115,7 +130,14 @@ internal sealed class EmbeddedCodeRegionBlock : Border
         _toggle.IsChecked = collapsed;
         _contentBox.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
         _summaryText.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSummaryText();
+    }
 
+    /// Refreshes the collapsed-state summary line's line count (recomputed from the current
+    /// <see cref="Content"/>) so edits made while collapsed — or just before re-collapsing —
+    /// are reflected the next time the summary is shown.
+    private void UpdateSummaryText()
+    {
         var lineCount = Content.Length == 0 ? 0 : Content.Split('\n').Length;
         var languageTag = string.IsNullOrEmpty(Language) ? "" : $" ({Language})";
         _summaryText.Text = $"``` {lineCount} line{(lineCount == 1 ? "" : "s")} of code{languageTag} — click to expand";
