@@ -193,8 +193,8 @@ internal sealed class PlanningSpecialistInstructionsTests
     [Test]
     public void EmbeddedUniverse_AdvertisesRoryAsPlanningArchitect()
     {
-        var universe = SquadInstallerService.LoadEmbeddedSquadDashMdPublic();
-        var profiles = SquadInstallerService.LoadEmbeddedSquadDashProfilesMdPublic();
+        var universe = SquadInstallerService.LoadEmbeddedSquadDashMdPublic()?.ReplaceLineEndings("\n");
+        var profiles = SquadInstallerService.LoadEmbeddedSquadDashProfilesMdPublic()?.ReplaceLineEndings("\n");
 
         Assert.Multiple(() =>
         {

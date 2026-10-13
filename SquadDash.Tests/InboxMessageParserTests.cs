@@ -69,12 +69,12 @@ internal sealed class InboxMessageParserTests {
         var result = InboxMessageParser.TryExtract(text, out var body, out var dto);
 
         Assert.That(result, Is.True);
-        Assert.That(body, Is.EqualTo("""
+        Assert.That(body?.ReplaceLineEndings("\n"), Is.EqualTo("""
             Report ready.
 
             ## Summary
             **Tasks Found: 52** — see table above for details.
-            """));
+            """.ReplaceLineEndings("\n")));
         Assert.That(dto, Is.Not.Null);
         Assert.That(dto!.Subject, Is.EqualTo("README report"));
     }
@@ -186,11 +186,11 @@ internal sealed class InboxMessageParserTests {
         Assert.That(result, Is.True);
         Assert.That(dto, Is.Not.Null);
         Assert.That(dto!.Subject, Is.EqualTo("Example"));
-        Assert.That(body, Is.EqualTo("""
+        Assert.That(body?.ReplaceLineEndings("\n"), Is.EqualTo("""
             Example:
 
             The real response continues here.
-            """));
+            """.ReplaceLineEndings("\n")));
     }
 
     [Test]
@@ -210,11 +210,11 @@ internal sealed class InboxMessageParserTests {
         Assert.That(extraction, Is.Not.Null);
         Assert.That(extraction!.TextBeforeBlock, Is.EqualTo("Report ready."));
         Assert.That(extraction.TrailingText, Is.EqualTo("Final visible note."));
-        Assert.That(extraction.VisibleText, Is.EqualTo("""
+        Assert.That(extraction.VisibleText?.ReplaceLineEndings("\n"), Is.EqualTo("""
             Report ready.
 
             Final visible note.
-            """));
+            """.ReplaceLineEndings("\n")));
     }
 
     [Test]
