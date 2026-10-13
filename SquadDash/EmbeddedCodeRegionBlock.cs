@@ -71,14 +71,14 @@ public sealed class EmbeddedCodeRegionBlock : Border
         _contentBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         _contentBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
 
-        // Ensure clicks inside the content box move the caret to the clicked position
+        // Hosted controls inside a RichTextBox's BlockUIContainer need to claim the mouse
+        // gesture explicitly. If the event reaches the host RichTextBox unhandled, WPF
+        // selects the entire BlockUIContainer as an object instead of placing the nested
+        // editor caret.
         _contentBox.PreviewMouseLeftButtonDown += (_, e) =>
         {
-            if (!_contentBox.IsFocused)
-            {
-                _contentBox.Focus();
-            }
-            // Don't set e.Handled = true; allow TextBox to handle click positioning normally
+            FocusContentAtPoint(e.GetPosition(_contentBox));
+            e.Handled = true;
         };
 
         // Keep Content (the serialization source of truth read by ToFencedText/GetPlainText)
@@ -279,6 +279,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     public void FocusContent()
     {
+        ClearHostSelection();
         _contentBox.CaretIndex = _contentBox.Text.Length;
         // FocusManager.SetFocusedElement sets logical/keyboard focus within the control's
         // focus scope even before the element has gone through a layout pass against a real
@@ -289,6 +290,28 @@ public sealed class EmbeddedCodeRegionBlock : Border
         // keyboard input focus, not just the logical bookkeeping.
         FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
         Keyboard.Focus(_contentBox);
+    }
+
+    internal void FocusContentAtPoint(Point pointInContentBox)
+    {
+        ClearHostSelection();
+        FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
+        _contentBox.Focus();
+        Keyboard.Focus(_contentBox);
+
+        var caretIndex = GetCaretIndexFromPoint(pointInContentBox);
+        _contentBox.CaretIndex = caretIndex;
+        _contentBox.SelectionLength = 0;
+    }
+
+    private void ClearHostSelection()
+    {
+        var host = _hostRichTextBox;
+        if (host is null)
+            return;
+
+        var collapseTo = host.Selection.End;
+        host.Selection.Select(collapseTo, collapseTo);
     }
 
     /// <summary>
@@ -321,6 +344,26 @@ public sealed class EmbeddedCodeRegionBlock : Border
         {
             _isClosingFromTrailingFenceLine = false;
         }
+    }
+
+    private int GetCaretIndexFromPoint(Point point)
+    {
+        if (_contentBox.Text.Length == 0)
+            return 0;
+
+        var index = _contentBox.GetCharacterIndexFromPoint(point, snapToText: true);
+        if (index < 0)
+            return _contentBox.Text.Length;
+
+        index = Math.Clamp(index, 0, _contentBox.Text.Length);
+        if (index < _contentBox.Text.Length)
+        {
+            var rect = _contentBox.GetRectFromCharacterIndex(index, trailingEdge: true);
+            if (!rect.IsEmpty && point.X > rect.X)
+                index++;
+        }
+
+        return Math.Clamp(index, 0, _contentBox.Text.Length);
     }
 
     private void FocusHostOutsideRegion(LogicalDirection direction)

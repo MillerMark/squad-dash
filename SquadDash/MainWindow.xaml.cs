@@ -27405,10 +27405,18 @@ public partial class MainWindow : Window
 
             // Walk up the visual tree to find the EmbeddedCodeRegionBlock
             var current = hitElement;
+            TextBox? targetTextBox = null;
             EmbeddedCodeRegionBlock? targetRegion = null;
+            var hitToggle = false;
 
             while (current != null)
             {
+                if (current is TextBox tb)
+                    targetTextBox = tb;
+
+                if (current is System.Windows.Controls.Primitives.ToggleButton)
+                    hitToggle = true;
+
                 if (current is EmbeddedCodeRegionBlock region)
                 {
                     targetRegion = region;
@@ -27421,11 +27429,19 @@ public partial class MainWindow : Window
                     break;
             }
 
-            // Embedded regions host their own editable TextBox. Let that TextBox receive
-            // the normal mouse event so WPF can place the caret, select text, and focus it
-            // exactly as an ordinary editor would; the region itself handles header clicks.
-            if (targetRegion != null)
+            // RichTextBox treats BlockUIContainer as an embedded object unless the hosted
+            // editor claims the mouse gesture. Route content clicks to the nested TextBox
+            // caret explicitly; leave the collapse toggle alone.
+            if (targetRegion != null && !hitToggle)
+            {
+                if (targetTextBox != null)
+                    targetRegion.FocusContentAtPoint(e.GetPosition(targetTextBox));
+                else
+                    targetRegion.FocusContent();
+
+                e.Handled = true;
                 return;
+            }
         }
         catch (Exception ex)
         {
