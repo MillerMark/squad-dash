@@ -1669,7 +1669,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             case "thinking_delta":
             case "subagent_thinking_delta":
                 _pendingBridgeThinkingDeltaCount++;
-                _pendingBridgeThinkingDeltaChars += evt.Text?.Length ?? 0;
+                _pendingBridgeThinkingDeltaChars += ThinkingTraceDiagnostics.ExtractThinkingText(evt)?.Length ?? 0;
+                if (ShouldTraceThinkingWhitespaceDiagnostics())
+                    SquadDashTrace.Write("Bridge", ThinkingTraceDiagnostics.BuildBridgeReceivedMessage(evt));
                 FlushBridgeDeltaTrace(force: false);
                 return;
 
@@ -1687,6 +1689,13 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 return;
         }
     }
+
+    private bool ShouldTraceThinkingWhitespaceDiagnostics() =>
+        BridgeDiagnosticsEnabled ||
+        string.Equals(
+            Environment.GetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
 
     private static string BuildReceivedEventTrace(SquadSdkEvent evt) {
         var builder = new StringBuilder()

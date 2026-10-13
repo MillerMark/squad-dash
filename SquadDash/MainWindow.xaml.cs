@@ -6484,6 +6484,10 @@ public partial class MainWindow : Window
                     UpdateLeadAgent("Thinking", string.Empty, FormatThinkingText(thought));
                     AppendThinkingText(thought, evt.Speaker);
                 }
+                else
+                {
+                    TraceThinkingWhitespaceDrop("coordinator", evt.Type ?? "thinking_delta", evt.Text, thought, CoordinatorThread);
+                }
                 break;
 
             case "tool":
@@ -7422,7 +7426,11 @@ public partial class MainWindow : Window
 
         var thought = NormalizeThinkingChunk(evt.Text ?? evt.ReasoningText);
         if (string.IsNullOrWhiteSpace(thought))
+        {
+            var target = BuildThinkingTraceTarget(evt, fallbackThread: null);
+            TraceThinkingWhitespaceDrop(target, evt.Type ?? "subagent_thinking_delta", evt.Text ?? evt.ReasoningText, thought, null);
             return;
+        }
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         MaybeReactivateThread(thread);
@@ -47442,16 +47450,115 @@ public partial class MainWindow : Window
             SetExpanderOpen(latestBlock.Expander, true);
     }
 
+    private bool ShouldTraceThinkingWhitespaceDiagnostics() =>
+        _settingsSnapshot.BridgeDiagnosticsEnabled ||
+        string.Equals(
+            Environment.GetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS"),
+            "true",
+            StringComparison.OrdinalIgnoreCase);
+
+    private void TraceThinkingWhitespaceDrop(
+        string target,
+        string eventType,
+        string? rawText,
+        string normalizedText,
+        TranscriptThreadState? thread)
+    {
+        if (!ShouldTraceThinkingWhitespaceDiagnostics())
+            return;
+
+        SquadDashTrace.Write(
+            TraceCategory.UI,
+            ThinkingTraceDiagnostics.BuildUiDropMessage(
+                target,
+                eventType,
+                rawText,
+                normalizedText,
+                TryGetLatestThoughtText(thread)));
+    }
+
+    private static string? TryGetLatestThoughtText(TranscriptThreadState? thread)
+    {
+        if (thread?.CurrentTurn is null)
+            return null;
+
+        return GetLatestThoughtEntry(thread.CurrentTurn)?.RawTextBuilder.ToString();
+    }
+
+    private static string BuildThinkingTraceTarget(TranscriptThreadState thread)
+    {
+        if (thread.Kind == TranscriptThreadKind.Coordinator)
+            return "coordinator";
+
+        return "agent:" + SanitizeThinkingTraceToken(
+            thread.AgentId ??
+            thread.AgentName ??
+            thread.AgentDisplayName ??
+            thread.Title ??
+            thread.ThreadId);
+    }
+
+    private static string BuildThinkingTraceTarget(SquadSdkEvent evt, TranscriptThreadState? fallbackThread)
+    {
+        if (fallbackThread is not null)
+            return BuildThinkingTraceTarget(fallbackThread);
+
+        var label =
+            evt.AgentId ??
+            evt.AgentName ??
+            evt.AgentDisplayName ??
+            evt.ParentToolCallId ??
+            evt.SessionId ??
+            "unknown";
+        return "agent:" + SanitizeThinkingTraceToken(label);
+    }
+
+    private static string SanitizeThinkingTraceToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "unknown";
+
+        var builder = new StringBuilder(value.Length);
+        foreach (var ch in value.Trim())
+        {
+            builder.Append(char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' or ':'
+                ? ch
+                : '_');
+        }
+
+        return builder.Length == 0 ? "unknown" : builder.ToString();
+    }
+
     private void AppendThinkingText(string text, string? speaker) =>
         AppendThinkingText(CoordinatorThread, text, speaker);
 
     private void AppendThinkingText(TranscriptThreadState thread, string text, string? speaker)
     {
-        if (thread.CurrentTurn is null || string.IsNullOrWhiteSpace(text))
+        var traceDiagnostics = ShouldTraceThinkingWhitespaceDiagnostics();
+        var traceTarget = traceDiagnostics ? BuildThinkingTraceTarget(thread) : string.Empty;
+        if (thread.CurrentTurn is null)
+        {
+            if (traceDiagnostics)
+                SquadDashTrace.Write(
+                    TraceCategory.UI,
+                    ThinkingTraceDiagnostics.BuildUiSkipMessage(traceTarget, "no-current-turn", text, null));
             return;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            if (traceDiagnostics)
+            {
+                var currentText = GetLatestThoughtEntry(thread.CurrentTurn)?.RawTextBuilder.ToString();
+                SquadDashTrace.Write(
+                    TraceCategory.UI,
+                    ThinkingTraceDiagnostics.BuildUiSkipMessage(traceTarget, "whitespace-only", text, currentText));
+            }
+            return;
+        }
 
         var thoughtEntry = GetOrCreateThoughtEntry(thread.CurrentTurn, speaker);
-        AppendThoughtChunk(thoughtEntry.RawTextBuilder, text);
+        AppendThoughtChunk(thoughtEntry.RawTextBuilder, text, traceDiagnostics, traceTarget);
 
         if (thread.CurrentTurn.ThoughtBlocks.LastOrDefault() is { } thoughtBlock)
             thoughtBlock.LastUpdatedAt = DateTimeOffset.Now;
@@ -47469,19 +47576,37 @@ public partial class MainWindow : Window
     // single "delta", AppendThoughtChunk must recognize and reconcile it instead of blindly
     // appending a duplicate. This is gated so genuine small incremental deltas (the common
     // case, many times per response) are left untouched and remain as cheap as before.
-    private static void AppendThoughtChunk(StringBuilder builder, string text)
+    private static void AppendThoughtChunk(
+        StringBuilder builder,
+        string text,
+        bool traceDiagnostics = false,
+        string traceTarget = "thinking")
     {
         var chunk = NormalizeThinkingChunk(text);
         if (string.IsNullOrWhiteSpace(chunk))
+        {
+            if (traceDiagnostics)
+            {
+                SquadDashTrace.Write(
+                    TraceCategory.UI,
+                    ThinkingTraceDiagnostics.BuildUiSkipMessage(
+                        traceTarget,
+                        "normalized-whitespace-only",
+                        text,
+                        builder.ToString()));
+            }
             return;
+        }
 
         // Only pay for the whitespace-tolerant resend check (and the StringBuilder -> string
         // copy it requires) when the incoming chunk is at least as long as what's already
         // accumulated — a genuine incremental delta never satisfies that, so this keeps the
         // common streaming case exactly as cheap as a plain Append.
+        string? currentForTrace = null;
         if (builder.Length > 0 && chunk.Length >= builder.Length)
         {
             var current = builder.ToString();
+            currentForTrace = current;
             if (TranscriptTextUtilities.LooksLikeFullReasoningResend(current, chunk))
             {
                 var merged = TranscriptTextUtilities.MergeStreamingAndFinalResponse(
@@ -47491,15 +47616,66 @@ public partial class MainWindow : Window
 
                 if (!string.IsNullOrEmpty(tailToAppend))
                 {
+                    if (traceDiagnostics)
+                    {
+                        SquadDashTrace.Write(
+                            TraceCategory.UI,
+                            ThinkingTraceDiagnostics.BuildUiReconcileMessage(
+                                traceTarget,
+                                current,
+                                chunk,
+                                merged,
+                                tailToAppend,
+                                "append-tail"));
+                    }
                     builder.Append(tailToAppend);
                 }
                 else if (!string.Equals(merged, current, StringComparison.Ordinal))
                 {
+                    if (traceDiagnostics)
+                    {
+                        SquadDashTrace.Write(
+                            TraceCategory.UI,
+                            ThinkingTraceDiagnostics.BuildUiReconcileMessage(
+                                traceTarget,
+                                current,
+                                chunk,
+                                merged,
+                                tailToAppend,
+                                "replace-current"));
+                    }
                     builder.Clear();
                     builder.Append(merged);
                 }
+                else if (traceDiagnostics)
+                {
+                    SquadDashTrace.Write(
+                        TraceCategory.UI,
+                        ThinkingTraceDiagnostics.BuildUiReconcileMessage(
+                            traceTarget,
+                            current,
+                            chunk,
+                            merged,
+                            tailToAppend,
+                            "no-op"));
+                }
 
                 return;
+            }
+        }
+
+        if (traceDiagnostics && builder.Length > 0)
+        {
+            var current = currentForTrace ?? builder.ToString();
+            if (ThinkingTraceDiagnostics.ShouldTraceAppendBoundary(current, chunk))
+            {
+                SquadDashTrace.Write(
+                    TraceCategory.UI,
+                    ThinkingTraceDiagnostics.BuildUiAppendMessage(
+                        traceTarget,
+                        current,
+                        chunk,
+                        "boundary-shape"));
             }
         }
 
@@ -47528,6 +47704,18 @@ public partial class MainWindow : Window
         var thoughtEntry = GetOrCreateThoughtEntry(thread.CurrentTurn, speaker);
         var builder = thoughtEntry.RawTextBuilder;
         var current = builder.ToString();
+        var traceDiagnostics = ShouldTraceThinkingWhitespaceDiagnostics();
+        var traceTarget = traceDiagnostics ? BuildThinkingTraceTarget(thread) : string.Empty;
+        if (traceDiagnostics)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.UI,
+                ThinkingTraceDiagnostics.BuildFinalReasoningMessage(
+                    traceTarget,
+                    current,
+                    normalizedFinal));
+        }
+
         var merged = TranscriptTextUtilities.MergeStreamingAndFinalResponse(
             current,
             normalizedFinal,
@@ -47535,15 +47723,51 @@ public partial class MainWindow : Window
 
         if (!string.IsNullOrEmpty(tailToAppend))
         {
+            if (traceDiagnostics)
+            {
+                SquadDashTrace.Write(
+                    TraceCategory.UI,
+                    ThinkingTraceDiagnostics.BuildUiReconcileMessage(
+                        traceTarget,
+                        current,
+                        normalizedFinal,
+                        merged,
+                        tailToAppend,
+                        "append-final-tail"));
+            }
             builder.Append(tailToAppend);
         }
         else if (!string.Equals(merged, current, StringComparison.Ordinal))
         {
+            if (traceDiagnostics)
+            {
+                SquadDashTrace.Write(
+                    TraceCategory.UI,
+                    ThinkingTraceDiagnostics.BuildUiReconcileMessage(
+                        traceTarget,
+                        current,
+                        normalizedFinal,
+                        merged,
+                        tailToAppend,
+                        "replace-with-final"));
+            }
             builder.Clear();
             builder.Append(merged);
         }
         else
         {
+            if (traceDiagnostics)
+            {
+                SquadDashTrace.Write(
+                    TraceCategory.UI,
+                    ThinkingTraceDiagnostics.BuildUiReconcileMessage(
+                        traceTarget,
+                        current,
+                        normalizedFinal,
+                        merged,
+                        tailToAppend,
+                        "final-duplicate"));
+            }
             // Final text fully duplicates (or is a whitespace-only variant of) what's already
             // streamed — nothing new to render.
             return;
