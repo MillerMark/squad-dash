@@ -29399,42 +29399,27 @@ public partial class MainWindow : Window
 
     private void AppendSpeechToRichTextBox(RichTextBox rtb, string text)
     {
-        var current    = rtb.GetPlainText();
-        var caretIndex = Math.Min(_sessionCaretIndex, current.Length);
-        var selLength  = _sessionSelectionLength;
+        var current = rtb.GetPlainText();
+        var selLength = _sessionSelectionLength;
         _sessionSelectionLength = 0; // consume once; subsequent dictation appends
-        var selEndIndex   = Math.Min(caretIndex + selLength, current.Length);
-        var leftContext   = current[..caretIndex];
-        var rightContext  = current[selEndIndex..];
-        var precedingChar = caretIndex > 0 ? current[caretIndex - 1] : '\0';
-        // Suppress the auto-inserted leading space when the caret sits immediately after
-        // an opening double-quote that is itself preceded by a space — e.g. `like "`.
-        var isQuoteAfterSpace = (precedingChar == '"' || precedingChar == '\u201C')
-                                && caretIndex >= 2 && current[caretIndex - 2] == ' ';
-        var prefix = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '('
-                     && precedingChar != '\n' && precedingChar != '\r' && !isQuoteAfterSpace
-                     ? " " : string.Empty;
-        var processed = VoiceInsertionHeuristics.Apply(leftContext, text, rightContext);
-        var insert    = prefix + processed;
         var rules = _settingsSnapshot.VoiceReplacementRules;
-        var replaced = rules.Count > 0
-            ? prefix + VoiceInsertionHeuristics.ApplyReplacementRules(processed, rules)
-            : insert;
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            current, _sessionCaretIndex, selLength, text, rules);
 
         // Step 1: insert conditioned text
         // Use SelectRange + ReplaceSelection — undo-safe, preserves scroll position and formatting.
-        rtb.SelectRange(caretIndex, selEndIndex - caretIndex);
-        rtb.ReplaceSelection(insert);
-        rtb.SelectRange(caretIndex + insert.Length, 0);
-        _sessionCaretIndex = caretIndex + insert.Length;
+        rtb.SelectRange(plan.CaretIndex, plan.SelectionLength);
+        rtb.ReplaceSelection(plan.InsertedText);
+        rtb.SelectRange(plan.CaretIndexAfterInsert, 0);
+        _sessionCaretIndex = plan.CaretIndexAfterInsert;
 
         // Step 2: apply replacements as a separate undo entry
-        if (!string.Equals(replaced, insert, StringComparison.Ordinal))
+        if (plan.HasReplacementStep)
         {
-            rtb.SelectRange(caretIndex, insert.Length);
-            rtb.ReplaceSelection(replaced);
-            rtb.SelectRange(caretIndex + replaced.Length, 0);
-            _sessionCaretIndex = caretIndex + replaced.Length;
+            rtb.SelectRange(plan.CaretIndex, plan.InsertedText.Length);
+            rtb.ReplaceSelection(plan.ReplacedText);
+            rtb.SelectRange(plan.CaretIndexAfterReplace, 0);
+            _sessionCaretIndex = plan.CaretIndexAfterReplace;
         }
     }
 

@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using VoiceHeuristics;
 
 namespace SquadDash.Tests;
 
@@ -239,6 +240,16 @@ internal sealed class PromptTextBoxRichTextBoxMigrationTests
     // PromptTextBox now routes push-to-talk dictation through the same
     // RichTextBoxExtensions surface used for DocSourceTextBox, so inserted speech text
     // must land as plain text only, with no rich formatting, at the expected offset.
+    //
+    // MainWindow.AppendSpeechToRichTextBox delegates ALL of its insertion planning —
+    // the leading-space prefix, the quote-after-space suppression heuristic, and the
+    // selection-replace / replacement-rules second pass — to
+    // VoiceInsertionHeuristics.PlanDictationInsertion. These tests call that real
+    // production method directly (not a reimplementation), then apply its plan to a
+    // RichTextBox via the same RichTextBoxExtensions.SelectRange/ReplaceSelection calls
+    // AppendSpeechToRichTextBox uses, to additionally confirm no rich formatting leaks in.
+
+    private static readonly VoiceReplacementRule[] NoRules = Array.Empty<VoiceReplacementRule>();
 
     [Test, Apartment(ApartmentState.STA)]
     public void DictationInsertion_AtCaretOffset_InsertsPlainTextOnly()
@@ -247,18 +258,17 @@ internal sealed class PromptTextBoxRichTextBoxMigrationTests
         rtb.SetPlainText("hello world");
         rtb.SetCaretOffset(5); // between "hello" and " world"
 
-        // Simulate the insertion MainWindow.AppendSpeechToRichTextBox performs: replace
-        // the dictation-session range with plain recognized text via SetPlainText-based
-        // reconstruction (the same contract exercised by the production code path).
         var current = rtb.GetPlainText();
         var caretIndex = rtb.GetCaretOffset();
-        var inserted = " dictated";
-        var updated = current[..caretIndex] + inserted + current[caretIndex..];
-        rtb.SetPlainText(updated);
-        rtb.SetCaretOffset(caretIndex + inserted.Length);
+
+        // Real production planning method — not a reimplementation.
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            current, caretIndex, selectionLength: 0, dictatedText: "dictated", NoRules);
+
+        ApplyPlanToRichTextBox(rtb, plan);
 
         Assert.That(rtb.GetPlainText(), Is.EqualTo("hello dictated world"));
-        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(5 + inserted.Length));
+        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(plan.CaretIndexAfterInsert));
 
         // Confirm no rich formatting was introduced — every block is a plain Paragraph
         // containing only Run/LineBreak inlines (no InlineUIContainer, no styled Span).
@@ -268,6 +278,97 @@ internal sealed class PromptTextBoxRichTextBoxMigrationTests
             var para = (Paragraph)block;
             foreach (var inline in para.Inlines)
                 Assert.That(inline, Is.TypeOf<Run>().Or.TypeOf<LineBreak>());
+        }
+    }
+
+    [Test]
+    public void PlanDictationInsertion_AfterWordChar_PrependsLeadingSpace()
+    {
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            "hello", caretIndex: 5, selectionLength: 0, dictatedText: "world", NoRules);
+
+        Assert.That(plan.InsertedText, Does.StartWith(" "));
+        Assert.That(plan.TextAfterInsert, Is.EqualTo("hello world"));
+    }
+
+    [Test]
+    public void PlanDictationInsertion_AfterQuoteFollowingSpace_SuppressesLeadingSpace()
+    {
+        // Caret sits right after `like "` — the quote-after-space heuristic in the real
+        // production method must suppress the normally-inserted leading space, otherwise
+        // dictation would land as `like " word` (stray space inside the quote).
+        var current = "say like \"";
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            current, caretIndex: current.Length, selectionLength: 0, dictatedText: "hello", NoRules);
+
+        Assert.That(plan.InsertedText, Does.Not.StartWith(" "));
+        Assert.That(plan.TextAfterInsert, Is.EqualTo("say like \"hello"));
+    }
+
+    [Test]
+    public void PlanDictationInsertion_QuoteNotPrecededBySpace_StillInsertsLeadingSpace()
+    {
+        // Quote-suppression only applies when the quote itself follows a space
+        // (e.g. mid-word quotes like `so"metimes"` must not be affected).
+        var current = "end\"";
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            current, caretIndex: current.Length, selectionLength: 0, dictatedText: "more", NoRules);
+
+        Assert.That(plan.InsertedText, Does.StartWith(" "));
+    }
+
+    [Test]
+    public void PlanDictationInsertion_WithActiveSelection_ReplacesSelectedRange()
+    {
+        // When PTT started with a selection active, the first dictation insert must
+        // replace that selected range rather than inserting at the caret.
+        var current = "hello brave world";
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            current, caretIndex: 6, selectionLength: 5, dictatedText: "new", NoRules);
+
+        Assert.That(plan.LeftContext, Is.EqualTo("hello "));
+        Assert.That(plan.RightContext, Is.EqualTo(" world"));
+        Assert.That(plan.TextAfterInsert, Is.EqualTo("hello new world"));
+    }
+
+    [Test]
+    public void PlanDictationInsertion_WithReplacementRules_AppliesSecondUndoStep()
+    {
+        var rules = new[] { new VoiceReplacementRule(@"\bgonna\b", "going to") };
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            "I'm ", caretIndex: 4, selectionLength: 0, dictatedText: "gonna go", rules);
+
+        Assert.That(plan.HasReplacementStep, Is.True);
+        Assert.That(plan.ReplacedText, Does.Contain("going to"));
+        Assert.That(plan.TextAfterReplace, Is.EqualTo("I'm going to go"));
+    }
+
+    [Test]
+    public void PlanDictationInsertion_NoReplacementRules_SkipsSecondUndoStep()
+    {
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            "hi ", caretIndex: 3, selectionLength: 0, dictatedText: "there", NoRules);
+
+        Assert.That(plan.HasReplacementStep, Is.False);
+        Assert.That(plan.ReplacedText, Is.EqualTo(plan.InsertedText));
+    }
+
+    /// <summary>
+    /// Applies a <see cref="DictationInsertionPlan"/> to a RichTextBox using the exact
+    /// two-step SelectRange/ReplaceSelection sequence MainWindow.AppendSpeechToRichTextBox
+    /// performs in production.
+    /// </summary>
+    private static void ApplyPlanToRichTextBox(RichTextBox rtb, DictationInsertionPlan plan)
+    {
+        rtb.SelectRange(plan.CaretIndex, plan.SelectionLength);
+        rtb.ReplaceSelection(plan.InsertedText);
+        rtb.SelectRange(plan.CaretIndexAfterInsert, 0);
+
+        if (plan.HasReplacementStep)
+        {
+            rtb.SelectRange(plan.CaretIndex, plan.InsertedText.Length);
+            rtb.ReplaceSelection(plan.ReplacedText);
+            rtb.SelectRange(plan.CaretIndexAfterReplace, 0);
         }
     }
 }

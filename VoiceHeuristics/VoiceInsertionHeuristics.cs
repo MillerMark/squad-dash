@@ -493,6 +493,48 @@ public static class VoiceInsertionHeuristics
     }
 
     /// <summary>
+    /// Plans a dictation-session text insertion/replacement against a flat-string
+    /// document: computes the leading-space prefix (suppressing it when the caret
+    /// sits immediately after an opening double-quote that is itself preceded by a
+    /// space, e.g. <c>like "</c>), applies <see cref="Apply"/> voice heuristics, and —
+    /// when replacement rules are configured — computes the second-pass replaced text
+    /// applied as a separate undo entry.
+    ///
+    /// This is the single source of truth for the insertion logic shared by
+    /// MainWindow's <c>AppendSpeechToRichTextBox</c> (and the legacy plain-TextBox
+    /// path): callers apply the returned <see cref="DictationInsertionPlan"/> to
+    /// their own document/control, but the prefix/quote-spacing-suppression and
+    /// selection-replace planning always runs through here.
+    /// </summary>
+    public static DictationInsertionPlan PlanDictationInsertion(
+        string current, int caretIndex, int selectionLength, string dictatedText,
+        IReadOnlyList<VoiceReplacementRule> replacementRules)
+    {
+        caretIndex = Math.Clamp(caretIndex, 0, current.Length);
+        var selEndIndex = Math.Clamp(caretIndex + Math.Max(selectionLength, 0), caretIndex, current.Length);
+        var leftContext = current[..caretIndex];
+        var rightContext = current[selEndIndex..];
+        var precedingChar = caretIndex > 0 ? current[caretIndex - 1] : '\0';
+        // Suppress the auto-inserted leading space when the caret sits immediately after
+        // an opening double-quote that is itself preceded by a space — e.g. `like "`.
+        // Inserting a space before the dictation would produce `like " word` (stray space
+        // inside the quote). Straight and Unicode left-double-quote are both matched.
+        var isQuoteAfterSpace = (precedingChar == '"' || precedingChar == '\u201C')
+                                && caretIndex >= 2 && current[caretIndex - 2] == ' ';
+        var prefix = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '('
+                     && precedingChar != '\n' && precedingChar != '\r' && !isQuoteAfterSpace
+                     ? " " : string.Empty;
+        var processed = Apply(leftContext, dictatedText, rightContext);
+        var insert = prefix + processed;
+        var replaced = replacementRules.Count > 0
+            ? prefix + ApplyReplacementRules(processed, replacementRules)
+            : insert;
+
+        return new DictationInsertionPlan(
+            leftContext, rightContext, caretIndex, selEndIndex - caretIndex, insert, replaced);
+    }
+
+    /// <summary>
     /// Returns <c>true</c> when the insertion caret is inside a markdown path
     /// context — specifically inside the URL/path parentheses of a markdown link
     /// or image: <c>![alt](|)</c>, <c>[text](|)</c>, or any <c>](|</c> followed
@@ -640,3 +682,39 @@ public static class VoiceInsertionHeuristics
 /// <param name="Pattern">A .NET regular expression to match against the dictated text.</param>
 /// <param name="Replacement">The replacement string (supports $1, $2 backreferences).</param>
 public record VoiceReplacementRule(string Pattern, string Replacement);
+
+/// <summary>
+/// The result of <see cref="VoiceInsertionHeuristics.PlanDictationInsertion"/>: the
+/// document split at the dictation-session range, the conditioned text to insert in
+/// step 1, and the (possibly rule-replaced) text to apply as a separate undo entry in
+/// step 2.
+/// </summary>
+/// <param name="LeftContext">Document text to the left of the insertion/selection start.</param>
+/// <param name="RightContext">Document text to the right of the insertion/selection end.</param>
+/// <param name="CaretIndex">Clamped caret/selection-start offset the plan was computed at.</param>
+/// <param name="SelectionLength">Clamped length of the selection replaced by the first insert.</param>
+/// <param name="InsertedText">Step 1 text (prefix + voice-heuristic-processed dictation).</param>
+/// <param name="ReplacedText">Step 2 text after replacement rules (equal to <see cref="InsertedText"/> when no rules apply).</param>
+public readonly record struct DictationInsertionPlan(
+    string LeftContext,
+    string RightContext,
+    int CaretIndex,
+    int SelectionLength,
+    string InsertedText,
+    string ReplacedText)
+{
+    /// <summary>True when replacement rules changed the text, requiring a second undo-entry step.</summary>
+    public bool HasReplacementStep => !string.Equals(InsertedText, ReplacedText, StringComparison.Ordinal);
+
+    /// <summary>Full document text after step 1 (insert) is applied.</summary>
+    public string TextAfterInsert => LeftContext + InsertedText + RightContext;
+
+    /// <summary>Full document text after step 2 (replace) is applied.</summary>
+    public string TextAfterReplace => LeftContext + ReplacedText + RightContext;
+
+    /// <summary>Caret offset immediately after step 1 (insert) is applied.</summary>
+    public int CaretIndexAfterInsert => CaretIndex + InsertedText.Length;
+
+    /// <summary>Caret offset immediately after step 2 (replace) is applied.</summary>
+    public int CaretIndexAfterReplace => CaretIndex + ReplacedText.Length;
+}
