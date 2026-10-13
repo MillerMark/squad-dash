@@ -75,11 +75,14 @@ public sealed class EmbeddedCodeRegionBlock : Border
         // gesture explicitly. If the event reaches the host RichTextBox unhandled, WPF
         // selects the entire BlockUIContainer as an object instead of placing the nested
         // editor caret.
-        _contentBox.PreviewMouseLeftButtonDown += (_, e) =>
-        {
-            FocusContentAtPoint(e.GetPosition(_contentBox));
-            e.Handled = true;
-        };
+        _contentBox.AddHandler(
+            UIElement.PreviewMouseLeftButtonDownEvent,
+            new MouseButtonEventHandler((_, e) =>
+            {
+                FocusContentAtPoint(e.GetPosition(_contentBox));
+                e.Handled = true;
+            }),
+            handledEventsToo: true);
 
         // Keep Content (the serialization source of truth read by ToFencedText/GetPlainText)
         // in sync with every edit made directly inside the region. _contentBox's TextChanged

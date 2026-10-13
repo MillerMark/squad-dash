@@ -1010,6 +1010,10 @@ public partial class MainWindow : Window
                 }
             });
         InitializeComponent();
+        PromptTextBox.AddHandler(
+            UIElement.PreviewMouseLeftButtonDownEvent,
+            new MouseButtonEventHandler(PromptTextBox_PreviewMouseLeftButtonDown),
+            handledEventsToo: true);
         // Force plain-text paste — RichTextBox defaults to rich paste which would otherwise
         // let formatted clipboard content creep into the plain-text prompt editor.
         DataObject.AddPastingHandler(PromptTextBox, (s, e) =>

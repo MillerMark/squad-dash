@@ -153,6 +153,9 @@ internal static class EmbeddedCodeRegionManager
 
         foreach (var block in rtb.Document.Blocks.ToList())
         {
+            if (RichTextBoxExtensions.IsEmptyEmbeddedCodeRegionCaretLandingParagraph(block))
+                continue;
+
             if (block is Paragraph para)
             {
                 currentText ??= new StringBuilder();
@@ -193,8 +196,9 @@ internal static class EmbeddedCodeRegionManager
         try
         {
             rtb.Document.Blocks.Clear();
-            foreach (var segment in segments)
+            for (var segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
             {
+                var segment = segments[segmentIndex];
                 switch (segment)
                 {
                     case TextSegment textSeg:
@@ -206,12 +210,14 @@ internal static class EmbeddedCodeRegionManager
                         if (existing.Child is EmbeddedCodeRegionBlock existingRegion)
                             existingRegion.AttachHost(rtb);
                         rtb.Document.Blocks.Add(existing);
+                        AddCaretLandingAfterRegionIfNeeded(rtb, segments, segmentIndex);
                         break;
 
                     case RegionSegment regionSeg:
                         var region = EmbeddedCodeRegionBlock.Build(regionSeg.NewContent ?? "", regionSeg.NewLanguage ?? "");
                         region.AttachHost(rtb);
                         rtb.Document.Blocks.Add(new BlockUIContainer(region) { Margin = new Thickness(0) });
+                        AddCaretLandingAfterRegionIfNeeded(rtb, segments, segmentIndex);
                         if (regionSeg.FocusContentAfterRender)
                             regionToFocus = region;
                         break;
@@ -230,6 +236,18 @@ internal static class EmbeddedCodeRegionManager
         // failure (e.g. no live visual tree in a headless test) can't leave IsUndoEnabled
         // incorrectly restored.
         regionToFocus?.FocusContent();
+    }
+
+    private static void AddCaretLandingAfterRegionIfNeeded(RichTextBox rtb, List<Segment> segments, int regionSegmentIndex)
+    {
+        if (regionSegmentIndex + 1 < segments.Count &&
+            segments[regionSegmentIndex + 1] is TextSegment { Text: { Length: > 0 } text } &&
+            text[0] == '\n')
+        {
+            return;
+        }
+
+        rtb.Document.Blocks.Add(RichTextBoxExtensions.CreateEmbeddedCodeRegionCaretLandingParagraph());
     }
 
     /// Resolves the <see cref="TextPointer"/> to assign to <c>RichTextBox.CaretPosition</c>

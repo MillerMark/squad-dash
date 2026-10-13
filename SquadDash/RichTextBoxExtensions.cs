@@ -19,6 +19,20 @@ namespace SquadDash;
 /// </summary>
 internal static class RichTextBoxExtensions
 {
+    internal const string EmbeddedCodeRegionCaretLandingTag = "embedded-code-region-caret-landing";
+
+    internal static Paragraph CreateEmbeddedCodeRegionCaretLandingParagraph() =>
+        new(new Run(string.Empty))
+        {
+            Margin = new Thickness(0),
+            Tag = EmbeddedCodeRegionCaretLandingTag,
+        };
+
+    internal static bool IsEmptyEmbeddedCodeRegionCaretLandingParagraph(Block block) =>
+        block is Paragraph para &&
+        Equals(para.Tag, EmbeddedCodeRegionCaretLandingTag) &&
+        GetParagraphText(para).Length == 0;
+
     // ── Plain-text access ────────────────────────────────────────────────────
 
     /// Returns the editor content as a plain-text string with '\n' line endings.
@@ -33,6 +47,9 @@ internal static class RichTextBoxExtensions
         bool first = true;
         foreach (var block in rtb.Document.Blocks)
         {
+            if (IsEmptyEmbeddedCodeRegionCaretLandingParagraph(block))
+                continue;
+
             string? blockText = block switch
             {
                 Paragraph para => GetParagraphText(para),
@@ -107,6 +124,14 @@ internal static class RichTextBoxExtensions
         var first = true;
         foreach (var block in rtb.Document.Blocks)
         {
+            if (IsEmptyEmbeddedCodeRegionCaretLandingParagraph(block))
+            {
+                if (pointer.CompareTo(block.ElementStart) >= 0 && pointer.CompareTo(block.ElementEnd) <= 0)
+                    return offset;
+
+                continue;
+            }
+
             string? blockText = block switch
             {
                 Paragraph => null, // handled specially below (needs partial-text support)
@@ -171,6 +196,9 @@ internal static class RichTextBoxExtensions
 
         foreach (var block in rtb.Document.Blocks)
         {
+            if (IsEmptyEmbeddedCodeRegionCaretLandingParagraph(block))
+                continue;
+
             if (block is Paragraph para)
             {
                 if (!first)

@@ -84,11 +84,12 @@ internal sealed class EmbeddedCodeRegionTests
 
         // The raw fence paragraphs are gone — the document now holds exactly one block,
         // a BlockUIContainer wrapping an EmbeddedCodeRegionBlock.
-        Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(1));
+        Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(2));
         var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
         var region = (EmbeddedCodeRegionBlock)container.Child;
         Assert.That(region.Content, Is.EqualTo("def foo():\n    pass"));
         Assert.That(region.Language, Is.EqualTo(""));
+        Assert.That(RichTextBoxExtensions.IsEmptyEmbeddedCodeRegionCaretLandingParagraph(container.NextBlock!), Is.True);
 
         // No further fences remain to convert.
         Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(rtb), Is.False);
@@ -165,7 +166,7 @@ internal sealed class EmbeddedCodeRegionTests
 
         // Confirm the middle block really did become a region, not just unconverted text.
         var blocks = rtb.Document.Blocks;
-        Assert.That(blocks.Count, Is.EqualTo(3));
+        Assert.That(blocks.Count, Is.EqualTo(4));
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -363,12 +364,10 @@ internal sealed class EmbeddedCodeRegionTests
 
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
 
-        // The caret is nudged onto the following paragraph's ContentStart for reliable
-        // assignment (see EmbeddedCodeRegionManager.ResolveCaretPointerAfterRebuild), which is
-        // one plain-text offset past the bare region-boundary position (both represent the
-        // same visual "right after the region" location) — the key regression being guarded
-        // against is that it must land near the region, never jump to the document's end.
-        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(caretAfterFence + 1));
+        // The caret lands on the empty caret landing paragraph after the region. That line is
+        // intentionally skipped by GetPlainText while empty, so its offset is the serialized
+        // fence boundary itself.
+        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(caretAfterFence));
         Assert.That(rtb.GetCaretOffset(), Is.Not.EqualTo(rtb.GetTextLength()));
     }
 
@@ -408,6 +407,26 @@ internal sealed class EmbeddedCodeRegionTests
 
         Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.True);
         Assert.That(rtb.GetPlainText(), Is.EqualTo("```python\nx = 1\n```"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void EmptyCaretLandingParagraph_AfterRegion_IsVisualOnlyUntilTypedInto()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\ncode\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var regionContainer = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
+        var landing = (Paragraph)regionContainer.NextBlock!;
+
+        Assert.That(RichTextBoxExtensions.IsEmptyEmbeddedCodeRegionCaretLandingParagraph(landing), Is.True);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\ncode\n```"));
+
+        landing.Inlines.Clear();
+        landing.Inlines.Add(new Run("after"));
+
+        Assert.That(RichTextBoxExtensions.IsEmptyEmbeddedCodeRegionCaretLandingParagraph(landing), Is.False);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\ncode\n```\nafter"));
     }
 
     // ── Bug fix 4: deleting a region never crashes ──────────────────────────────
@@ -549,9 +568,10 @@ internal sealed class EmbeddedCodeRegionTests
         var converted = EmbeddedCodeRegionManager.TryConvertOpenFence(rtb);
         Assert.That(converted, Is.True);
 
-        Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(1));
+        Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(2));
         var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
         var region = (EmbeddedCodeRegionBlock)container.Child;
+        Assert.That(RichTextBoxExtensions.IsEmptyEmbeddedCodeRegionCaretLandingParagraph(container.NextBlock!), Is.True);
 
         Assert.That(region.Content, Is.EqualTo(""), "region must be created empty, not waiting for pasted content");
         Assert.That(region.Language, Is.EqualTo(""));
@@ -593,7 +613,7 @@ internal sealed class EmbeddedCodeRegionTests
         rtb.SetPlainText("before\n```\n");
 
         Assert.That(EmbeddedCodeRegionManager.TryConvertOpenFence(rtb), Is.True);
-        Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(2));
+        Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(3));
         Assert.That(((Paragraph)rtb.Document.Blocks.FirstBlock!).Inlines.OfType<Run>().First().Text,
             Is.EqualTo("before"));
     }
@@ -654,6 +674,6 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(region.Content, Is.EqualTo("x = 1"));
         Assert.That(region.IsCollapsed, Is.True);
         Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(2), "closing the region should leave a caret landing paragraph after it");
-        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nx = 1\n```\n"));
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nx = 1\n```"));
     }
 }
