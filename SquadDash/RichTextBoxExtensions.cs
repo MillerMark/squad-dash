@@ -23,24 +23,44 @@ internal static class RichTextBoxExtensions
 
     /// Returns the editor content as a plain-text string with '\n' line endings.
     /// InlineUIContainer and other non-Run inlines are intentionally excluded so they
-    /// never appear in the text written to disk.
+    /// never appear in the text written to disk. Embedded code regions (see
+    /// <see cref="EmbeddedCodeRegionBlock"/>, created by <see cref="EmbeddedCodeRegionManager"/>)
+    /// are serialized back into their equivalent triple-backtick fenced form — this is the
+    /// read-path half of the embedded-region serialization round-trip contract.
     public static string GetPlainText(this RichTextBox rtb)
     {
         var sb = new StringBuilder();
         bool first = true;
         foreach (var block in rtb.Document.Blocks)
         {
-            if (block is not Paragraph para) continue;
+            string? blockText = block switch
+            {
+                Paragraph para => GetParagraphText(para),
+                BlockUIContainer { Child: EmbeddedCodeRegionBlock region } => region.ToFencedText(),
+                _ => null,
+            };
+            if (blockText is null) continue;
             if (!first) sb.Append('\n');
             first = false;
-            foreach (var inline in para.Inlines)
-            {
-                if (inline is Run run)
-                    sb.Append(run.Text);
-                else if (inline is LineBreak)
-                    sb.Append('\n'); // Shift+Enter produces a LineBreak within a paragraph
-                // InlineUIContainer (e.g. RevisionPendingIndicator) intentionally skipped
-            }
+            sb.Append(blockText);
+        }
+        return sb.ToString();
+    }
+
+    /// Returns the plain-text content of a single Paragraph ('\n' for each internal
+    /// LineBreak, e.g. from Shift+Enter). Shared by <see cref="GetPlainText"/> and
+    /// <see cref="EmbeddedCodeRegionManager"/>'s fence-scanning logic so both use the exact
+    /// same paragraph-to-text rule.
+    internal static string GetParagraphText(Paragraph para)
+    {
+        var sb = new StringBuilder();
+        foreach (var inline in para.Inlines)
+        {
+            if (inline is Run run)
+                sb.Append(run.Text);
+            else if (inline is LineBreak)
+                sb.Append('\n'); // Shift+Enter produces a LineBreak within a paragraph
+            // InlineUIContainer (e.g. RevisionPendingIndicator) intentionally skipped
         }
         return sb.ToString();
     }

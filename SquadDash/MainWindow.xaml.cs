@@ -486,6 +486,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, TextDisplayWindow> _openTextWindows = new(StringComparer.OrdinalIgnoreCase);
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
+    private bool _isConvertingEmbeddedCodeRegion;
     private bool _codeHealthPendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
     private QueueRecoveryHoldState? _queueRecoveryHold;
@@ -29600,6 +29601,23 @@ public partial class MainWindow : Window
         {
             if (_conversationManager.IsApplyingHistoryEntry)
                 return;
+
+            // Convert any triple-backtick fence that just became complete (closing ``` typed
+            // or pasted) into a collapsible embedded code region. Guarded against reentrancy
+            // because converting rebuilds Document.Blocks, which raises nested TextChanged
+            // events; the guard lets those nested calls pass through as plain no-op scans.
+            if (!_isConvertingEmbeddedCodeRegion)
+            {
+                _isConvertingEmbeddedCodeRegion = true;
+                try
+                {
+                    while (EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox)) { }
+                }
+                finally
+                {
+                    _isConvertingEmbeddedCodeRegion = false;
+                }
+            }
 
             var text = PromptTextBox.GetPlainText();
             MarkPhase(PromptTextChangedPhase.ReadText);

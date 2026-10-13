@@ -196,6 +196,9 @@
     <Compile Include="..\SquadDash\TraceWindow.cs" Link="Source\TraceWindow.cs" />
     <Compile Include="..\SquadDash\CopyButton.cs" Link="Source\CopyButton.cs" />
     <Compile Include="..\SquadDash\CopyableCodeBlockBuilder.cs" Link="Source\CopyableCodeBlockBuilder.cs" />
+    <Compile Include="..\SquadDash\EmbeddedCodeRegionBlock.cs" Link="Source\EmbeddedCodeRegionBlock.cs" />
+    <Compile Include="..\SquadDash\EmbeddedCodeRegionManager.cs" Link="Source\EmbeddedCodeRegionManager.cs" />
+    <Compile Include="..\SquadDash\EmbeddedFenceDetector.cs" Link="Source\EmbeddedFenceDetector.cs" />
     <Compile Include="..\SquadDash\StickyCodeBlockBehavior.cs" Link="Source\StickyCodeBlockBehavior.cs" />
     <Compile Include="..\SquadDash\SquadDashTrace.cs" Link="Source\SquadDashTrace.cs" />
     <Compile Include="..\SquadDash\SquadDashRuntimeStamp.cs" Link="Source\SquadDashRuntimeStamp.cs" />
