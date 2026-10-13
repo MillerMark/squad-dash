@@ -203,11 +203,14 @@ internal static class EmbeddedCodeRegionManager
                         break;
 
                     case RegionSegment { ExistingContainer: { } existing }:
+                        if (existing.Child is EmbeddedCodeRegionBlock existingRegion)
+                            existingRegion.AttachHost(rtb);
                         rtb.Document.Blocks.Add(existing);
                         break;
 
                     case RegionSegment regionSeg:
                         var region = EmbeddedCodeRegionBlock.Build(regionSeg.NewContent ?? "", regionSeg.NewLanguage ?? "");
+                        region.AttachHost(rtb);
                         rtb.Document.Blocks.Add(new BlockUIContainer(region) { Margin = new Thickness(0) });
                         if (regionSeg.FocusContentAfterRender)
                             regionToFocus = region;

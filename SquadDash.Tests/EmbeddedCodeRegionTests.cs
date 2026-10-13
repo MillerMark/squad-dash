@@ -653,6 +653,7 @@ internal sealed class EmbeddedCodeRegionTests
 
         Assert.That(region.Content, Is.EqualTo("x = 1"));
         Assert.That(region.IsCollapsed, Is.True);
-        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nx = 1\n```"));
+        Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(2), "closing the region should leave a caret landing paragraph after it");
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nx = 1\n```\n"));
     }
 }

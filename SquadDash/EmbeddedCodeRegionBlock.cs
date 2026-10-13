@@ -3,8 +3,11 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
+using System.Windows.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 
 namespace SquadDash;
 
@@ -39,6 +42,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     private readonly TextBox _contentBox;
     private readonly TextBlock _summaryText;
     private readonly ToggleButton _toggle;
+    private RichTextBox? _hostRichTextBox;
     private bool _isClosingFromTrailingFenceLine;
 
     public static EmbeddedCodeRegionBlock Build(string content, string language, bool startCollapsed = false)
@@ -97,10 +101,18 @@ public sealed class EmbeddedCodeRegionBlock : Border
         // Allow navigation exits from the region: Tab or Down (at end) to move focus out
         _contentBox.PreviewKeyDown += (_, e) =>
         {
-            // Tab always moves focus to the next element after the region
+            // Shift+Tab moves focus to the previous text position outside the region.
+            if (e.Key == Key.Tab && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
+            {
+                FocusHostOutsideRegion(LogicalDirection.Backward);
+                e.Handled = true;
+                return;
+            }
+
+            // Tab always moves focus to the next text position after the region.
             if (e.Key == Key.Tab)
             {
-                _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+                FocusHostOutsideRegion(LogicalDirection.Forward);
                 e.Handled = true;
                 return;
             }
@@ -108,15 +120,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
             // Ctrl+Down always moves focus out (convention for exiting nested editors)
             if (e.Key == Key.Down && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
-                _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
-                e.Handled = true;
-                return;
-            }
-
-            // Shift+Tab moves focus to the previous element (before the region)
-            if (e.Key == Key.Tab && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-            {
-                _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Previous));
+                FocusHostOutsideRegion(LogicalDirection.Forward);
                 e.Handled = true;
                 return;
             }
@@ -124,7 +128,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
             // Ctrl+Up always moves focus out (convention for exiting nested editors)
             if (e.Key == Key.Up && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
-                _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Previous));
+                FocusHostOutsideRegion(LogicalDirection.Backward);
                 e.Handled = true;
                 return;
             }
@@ -146,7 +150,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
                     // If caret is at or near the end of the last line, exit the region
                     if (_contentBox.CaretIndex >= lastLineStart + lastLineText.Length - 1)
                     {
-                        _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+                        FocusHostOutsideRegion(LogicalDirection.Forward);
                         e.Handled = true;
                     }
                 }
@@ -166,7 +170,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
                     // If caret is at the beginning or early in the first line, exit the region
                     if (_contentBox.CaretIndex <= 1)
                     {
-                        _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Previous));
+                        FocusHostOutsideRegion(LogicalDirection.Backward);
                         e.Handled = true;
                     }
                 }
@@ -219,29 +223,25 @@ public sealed class EmbeddedCodeRegionBlock : Border
         // the content box (unless the user specifically clicked the toggle button).
         PreviewMouseLeftButtonDown += (sender, e) =>
         {
-            // If the click landed on the toggle button, let it be handled normally
             var clickedElement = InputHitTest(e.GetPosition(this)) as DependencyObject;
-            if (clickedElement != null)
-            {
-                // Walk up the visual tree to check if we hit the toggle button
-                var current = clickedElement;
-                while (current != null)
-                {
-                    if (ReferenceEquals(current, _toggle))
-                        return; // Let the toggle button handle its own click
-                    if (current is Visual visual)
-                        current = VisualTreeHelper.GetParent(visual);
-                    else
-                        break;
-                }
-            }
+            if (IsVisualAncestorOrSelf(clickedElement, _toggle))
+                return; // Let the toggle button handle its own click.
 
-            // For any other click, focus the content box
+            if (IsVisualAncestorOrSelf(clickedElement, _contentBox))
+                return; // Let TextBox do normal caret placement, selection, and focus.
+
+            // Header/background clicks focus the editor without selecting the whole hosted block.
             _contentBox.Focus();
-            e.Handled = true; // Prevent RichTextBox from selecting the region as a block
+            Keyboard.Focus(_contentBox);
+            e.Handled = true;
         };
 
         SetCollapsed(startCollapsed);
+    }
+
+    internal void AttachHost(RichTextBox hostRichTextBox)
+    {
+        _hostRichTextBox = hostRichTextBox;
     }
 
     /// Toggles between the compact single-line summary and the full fenced content.
@@ -315,11 +315,106 @@ public sealed class EmbeddedCodeRegionBlock : Border
             Content = withoutClosingLine;
             _contentBox.Text = withoutClosingLine;
             SetCollapsed(true);
-            _contentBox.MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+            FocusHostOutsideRegion(LogicalDirection.Forward);
         }
         finally
         {
             _isClosingFromTrailingFenceLine = false;
         }
+    }
+
+    private void FocusHostOutsideRegion(LogicalDirection direction)
+    {
+        var host = _hostRichTextBox;
+        if (host is null)
+        {
+            _contentBox.MoveFocus(new TraversalRequest(
+                direction == LogicalDirection.Forward
+                    ? FocusNavigationDirection.Next
+                    : FocusNavigationDirection.Previous));
+            return;
+        }
+
+        var pointer = FindHostCaretPointer(host, direction);
+        if (pointer is null)
+        {
+            _contentBox.MoveFocus(new TraversalRequest(
+                direction == LogicalDirection.Forward
+                    ? FocusNavigationDirection.Next
+                    : FocusNavigationDirection.Previous));
+            return;
+        }
+
+        host.Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+        {
+            host.Focus();
+            Keyboard.Focus(host);
+            host.CaretPosition = pointer;
+            host.Selection.Select(pointer, pointer);
+        });
+    }
+
+    private TextPointer? FindHostCaretPointer(RichTextBox host, LogicalDirection direction)
+    {
+        var blocks = host.Document.Blocks.ToList();
+        for (var i = 0; i < blocks.Count; i++)
+        {
+            if (blocks[i] is not BlockUIContainer { Child: EmbeddedCodeRegionBlock region } container ||
+                !ReferenceEquals(region, this))
+                continue;
+
+            if (direction == LogicalDirection.Forward)
+            {
+                if (i + 1 < blocks.Count && blocks[i + 1] is Paragraph next)
+                    return next.ContentStart;
+                var inserted = InsertHostParagraphWithoutUndo(host, container, after: true);
+                return inserted.ContentStart;
+            }
+
+            if (i > 0 && blocks[i - 1] is Paragraph previous)
+                return previous.ContentEnd;
+            var before = InsertHostParagraphWithoutUndo(host, container, after: false);
+            return before.ContentEnd;
+        }
+
+        return null;
+    }
+
+    private static Paragraph InsertHostParagraphWithoutUndo(RichTextBox host, BlockUIContainer container, bool after)
+    {
+        var paragraph = new Paragraph(new Run(string.Empty)) { Margin = new Thickness(0) };
+        var undoWasEnabled = host.IsUndoEnabled;
+        if (undoWasEnabled)
+            host.IsUndoEnabled = false;
+
+        try
+        {
+            if (after)
+                host.Document.Blocks.InsertAfter(container, paragraph);
+            else
+                host.Document.Blocks.InsertBefore(container, paragraph);
+        }
+        finally
+        {
+            if (undoWasEnabled)
+                host.IsUndoEnabled = true;
+        }
+
+        return paragraph;
+    }
+
+    private static bool IsVisualAncestorOrSelf(DependencyObject? current, DependencyObject target)
+    {
+        while (current is not null)
+        {
+            if (ReferenceEquals(current, target))
+                return true;
+
+            current = current is Visual or Visual3D
+                ? VisualTreeHelper.GetParent(current)
+                : LogicalTreeHelper.GetParent(current);
+        }
+
+        return false;
     }
 }

@@ -27405,14 +27405,10 @@ public partial class MainWindow : Window
 
             // Walk up the visual tree to find the EmbeddedCodeRegionBlock
             var current = hitElement;
-            TextBox? targetTextBox = null;
             EmbeddedCodeRegionBlock? targetRegion = null;
 
             while (current != null)
             {
-                if (current is TextBox tb)
-                    targetTextBox = tb;
-
                 if (current is EmbeddedCodeRegionBlock region)
                 {
                     targetRegion = region;
@@ -27425,21 +27421,11 @@ public partial class MainWindow : Window
                     break;
             }
 
-            // If we found an embedded region, suppress RichTextBox's selection logic
-            // and route focus to the region's TextBox at the clicked position
-            if (targetRegion != null && targetTextBox != null)
-            {
-                e.Handled = true;
-                
-                // Calculate the position within the TextBox and place the caret there
-                var positionInTextBox = e.GetPosition(targetTextBox);
-                int caretIndex = targetTextBox.GetCharacterIndexFromPoint(positionInTextBox, snapToText: true);
-                if (caretIndex >= 0)
-                {
-                    targetTextBox.CaretIndex = caretIndex;
-                }
-                targetTextBox.Focus();
-            }
+            // Embedded regions host their own editable TextBox. Let that TextBox receive
+            // the normal mouse event so WPF can place the caret, select text, and focus it
+            // exactly as an ordinary editor would; the region itself handles header clicks.
+            if (targetRegion != null)
+                return;
         }
         catch (Exception ex)
         {
@@ -30095,7 +30081,8 @@ public partial class MainWindow : Window
 
     private static int FindAtTriggerPosition(string text, int caret)
     {
-        if (caret <= 0 || caret > text.Length) return -1;
+        caret = Math.Clamp(caret, 0, text.Length);
+        if (caret <= 0) return -1;
         var scanStart = Math.Max(0, caret - MaxAtTriggerScanChars);
         int i = caret - 1;
         while (i >= scanStart && !char.IsWhiteSpace(text[i]))
@@ -30174,6 +30161,9 @@ public partial class MainWindow : Window
     {
         if (_conversationManager.IsApplyingHistoryEntry || _isApplyingIntelliSenseAccept)
             return;
+
+        text ??= string.Empty;
+        caret = Math.Clamp(caret, 0, text.Length);
 
         if (_intelliSenseState is not null)
         {
