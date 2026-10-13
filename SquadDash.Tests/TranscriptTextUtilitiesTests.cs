@@ -347,6 +347,19 @@ internal sealed class TranscriptTextUtilitiesTests {
             "First paragraph.\n\nI need to add:\n  - `afterTaskIds`: value\n  - `beforeTaskIds`: value"));
     }
 
+    [TestCase("a.b.c")]
+    [TestCase("System.Text.Json")]
+    [TestCase("Foo.Bar")]
+    [TestCase("`System.Text.Json`")]
+    [TestCase("```csharp\nSystem.Text.Json\n```")]
+    [TestCase("Giving a direct instruction to proceed.So I should respond.")]
+    public void FormatThinkingText_PreservesDottedText(string text)
+    {
+        var result = TranscriptTextUtilities.FormatThinkingText(text);
+
+        Assert.That(result, Is.EqualTo(text));
+    }
+
     [Test]
     public void SanitizeResponseText_PartialPlanValidationResult_HidesStreamingPayload()
     {

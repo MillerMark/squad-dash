@@ -669,6 +669,11 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             if (string.IsNullOrWhiteSpace(e.Data))
                 return;
 
+            if (IsBridgeDiagnosticStderr(e.Data)) {
+                SquadDashTrace.Write("Bridge", $"diagnostic: {e.Data}");
+                return;
+            }
+
             if (ShouldSuppressBridgeStderr(e.Data)) {
                 if (IsConptyAttachConsoleStart(e.Data))
                     SquadDashTrace.Write("Bridge", "suppressed benign node-pty AttachConsole stderr block.");
@@ -1346,6 +1351,9 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
         text.Contains("ExperimentalWarning: SQLite is an experimental feature", StringComparison.OrdinalIgnoreCase) ||
         text.Contains("Use `node --trace-warnings", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsBridgeDiagnosticStderr(string text) =>
+        text.StartsWith("[SquadDash bridge diagnostic]", StringComparison.Ordinal);
+
     private static bool IsConptyAttachConsoleStart(string text) =>
         text.Contains("node-pty", StringComparison.OrdinalIgnoreCase) &&
         text.Contains("conpty_console_list_agent.js", StringComparison.OrdinalIgnoreCase);
@@ -1669,9 +1677,7 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
             case "thinking_delta":
             case "subagent_thinking_delta":
                 _pendingBridgeThinkingDeltaCount++;
-                _pendingBridgeThinkingDeltaChars += ThinkingTraceDiagnostics.ExtractThinkingText(evt)?.Length ?? 0;
-                if (ShouldTraceThinkingWhitespaceDiagnostics())
-                    SquadDashTrace.Write("Bridge", ThinkingTraceDiagnostics.BuildBridgeReceivedMessage(evt));
+                _pendingBridgeThinkingDeltaChars += (evt.Text ?? evt.ReasoningText)?.Length ?? 0;
                 FlushBridgeDeltaTrace(force: false);
                 return;
 
@@ -1689,13 +1695,6 @@ public sealed class SquadSdkProcess : IAsyncDisposable {
                 return;
         }
     }
-
-    private bool ShouldTraceThinkingWhitespaceDiagnostics() =>
-        BridgeDiagnosticsEnabled ||
-        string.Equals(
-            Environment.GetEnvironmentVariable("SQUADDASH_BRIDGE_DIAGNOSTICS"),
-            "true",
-            StringComparison.OrdinalIgnoreCase);
 
     private static string BuildReceivedEventTrace(SquadSdkEvent evt) {
         var builder = new StringBuilder()

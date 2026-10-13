@@ -1360,88 +1360,6 @@ function bridgeDiagnostic(message: string, fields: Record<string, unknown> = {})
     })}`);
 }
 
-const ReasoningTracePreviewChars = 36;
-
-function escapeReasoningTraceText(text: string): string {
-    let escaped = "";
-    for (const ch of text) {
-        switch (ch) {
-            case " ":
-                escaped += "[sp]";
-                break;
-            case "\t":
-                escaped += "\\t";
-                break;
-            case "\r":
-                escaped += "\\r";
-                break;
-            case "\n":
-                escaped += "\\n";
-                break;
-            case "\f":
-                escaped += "\\f";
-                break;
-            case "\v":
-                escaped += "\\v";
-                break;
-            case "\\":
-                escaped += "\\\\";
-                break;
-            case "\"":
-                escaped += "\\\"";
-                break;
-            default: {
-                const code = ch.codePointAt(0) ?? 0;
-                escaped += code < 0x20 || code === 0x7f
-                    ? "\\u" + code.toString(16).padStart(4, "0")
-                    : ch;
-                break;
-            }
-        }
-    }
-    return escaped;
-}
-
-function countLeadingWhitespace(text: string): number {
-    const match = /^\s*/u.exec(text);
-    return match?.[0].length ?? 0;
-}
-
-function countTrailingWhitespace(text: string): number {
-    const match = /\s*$/u.exec(text);
-    return match?.[0].length ?? 0;
-}
-
-function summarizeReasoningTraceText(text: string): Record<string, unknown> {
-    const head = text.slice(0, ReasoningTracePreviewChars);
-    const tail = text.length <= ReasoningTracePreviewChars
-        ? text
-        : text.slice(text.length - ReasoningTracePreviewChars);
-    return {
-        textLen: text.length,
-        textWhitespaceOnly: text.length > 0 && text.trim().length === 0,
-        textLeadingWs: countLeadingWhitespace(text),
-        textTrailingWs: countTrailingWhitespace(text),
-        textHead: escapeReasoningTraceText(head),
-        textTail: escapeReasoningTraceText(tail)
-    };
-}
-
-function traceReasoningText(
-    message: string,
-    sessionId: string,
-    event: unknown,
-    text: string,
-    parentToolCallId?: string
-): void {
-    bridgeDiagnostic(message, {
-        sessionId,
-        parentToolCallId: parentToolCallId ?? "(none)",
-        reasoningId: getEventStringValue(event, "reasoningId") ?? "(none)",
-        ...summarizeReasoningTraceText(text)
-    });
-}
-
 type ToolArgsRewriteResult = {
     modifiedArgs: Record<string, unknown>;
     reason: string;
@@ -4583,12 +4501,6 @@ export class SquadBridgeService {
             if (text.length > 0)
                 markRequestTreeActivity();
             const parentToolCallId = extractParentToolCallId(event);
-            traceReasoningText(
-                "reasoning_delta:raw",
-                state.session.sessionId,
-                event,
-                text,
-                parentToolCallId);
             if (parentToolCallId) {
                 if (text.length === 0)
                     return;
@@ -4617,12 +4529,6 @@ export class SquadBridgeService {
             if (text.length > 0)
                 markRequestTreeActivity();
             const parentToolCallId = extractParentToolCallId(event);
-            traceReasoningText(
-                "reasoning:final",
-                state.session.sessionId,
-                event,
-                text,
-                parentToolCallId);
             if (parentToolCallId) {
                 const reasoningText = this.takeUnstreamedSubagentFinalReasoning(
                     state,
