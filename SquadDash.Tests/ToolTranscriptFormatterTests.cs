@@ -184,6 +184,8 @@ internal sealed class ToolTranscriptFormatterTests {
     [TestCase("Get-Content a -Wait >> b")]
     [TestCase("Get-Content a; Add-Content b 'text'")]
     [TestCase("Set-Content b 'text'; Get-Content a")]
+    [TestCase("Get-Process 2>&1 > out.txt")]
+    [TestCase("Get-Process > out.txt 2>&1")]
     public void ClassifyPowerShellFileIconKey_WritesTakePrecedence(string command) {
         Assert.That(ToolTranscriptFormatter.ClassifyPowerShellFileIconKey(command),
             Is.EqualTo("ToolIcon_edit"));
@@ -213,6 +215,13 @@ internal sealed class ToolTranscriptFormatterTests {
     [TestCase("Get-TypeData")]
     [TestCase("sc query service")]
     [TestCase("ac x")]
+    [TestCase("Get-Service audiosrv -ErrorAction SilentlyContinue 2>&1")]
+    [TestCase("Get-Process 2>&1")]
+    [TestCase("Get-Process *>&1")]
+    [TestCase("Get-Process 1>&2")]
+    [TestCase("Get-Process 2>$null")]
+    [TestCase("Get-Process 2> $null")]
+    [TestCase("if (2 -gt 1) { Write-Output 'yes' } 2>&1")]
     public void ClassifyPowerShellFileIconKey_UnmatchedCommandsKeepShellIcon(string? command) {
         Assert.Multiple(() => {
             Assert.That(ToolTranscriptFormatter.ClassifyPowerShellFileIconKey(command), Is.Null);

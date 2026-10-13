@@ -25,6 +25,12 @@ internal static class ToolTranscriptFormatter {
     private static readonly Regex PowerShellFileReadRegex = new(
         @"(?<![\w-])(?:Get-Content|gc|cat|type|ReadAllText|ReadAllLines|ReadAllBytes|Import-Csv|Import-Clixml)(?![\w-])",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // Matches a true file-redirection operator (optionally prefixed with a stream number or "*"
+    // for all streams), but NOT stream-to-stream duplication (e.g. "2>&1") or a redirect to the
+    // null device (e.g. "2>$null"), neither of which write to any file on disk.
+    private static readonly Regex PowerShellFileRedirectRegex = new(
+        @"[0-9*]*>{1,2}(?!&)(?!\s*\$null\b)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public static string GetToolEmoji(ToolTranscriptDescriptor descriptor) {
         var toolName = NormalizePresentationToolName(descriptor.ToolName.Trim());
@@ -98,7 +104,7 @@ internal static class ToolTranscriptFormatter {
             return null;
 
         // A pipeline or multi-statement command that reads and writes is still a write.
-        if (command.Contains('>') || PowerShellFileWriteRegex.IsMatch(command))
+        if (PowerShellFileRedirectRegex.IsMatch(command) || PowerShellFileWriteRegex.IsMatch(command))
             return "ToolIcon_edit";
 
         return PowerShellFileReadRegex.IsMatch(command) ? "ToolIcon_view" : null;
