@@ -26,7 +26,7 @@ internal sealed class PromptTextFixtureLoader : IFixtureLoader
     public IReadOnlyList<string> KnownKeys => _knownKeys;
 
     // ── Dependencies ──────────────────────────────────────────────────────────
-    private readonly TextBox    _promptTextBox;
+    private readonly RichTextBox _promptTextBox;
     private readonly Dispatcher _dispatcher;
 
     // ── Restore snapshot ──────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ internal sealed class PromptTextFixtureLoader : IFixtureLoader
     // ── Constructor ───────────────────────────────────────────────────────────
 
     internal PromptTextFixtureLoader(
-        TextBox    promptTextBox,
+        RichTextBox promptTextBox,
         Dispatcher dispatcher)
     {
         _promptTextBox = promptTextBox ?? throw new ArgumentNullException(nameof(promptTextBox));
@@ -62,10 +62,10 @@ internal sealed class PromptTextFixtureLoader : IFixtureLoader
             ct.ThrowIfCancellationRequested();
 
             // ── Snapshot original text ───────────────────────────────────────
-            _originalText = _promptTextBox.Text;
+            _originalText = _promptTextBox.GetPlainText();
 
             // ── Apply requested prompt text ──────────────────────────────────
-            _promptTextBox.Text = promptText;
+            _promptTextBox.SetPlainText(promptText);
 
             _applied = true;
 
@@ -81,7 +81,7 @@ internal sealed class PromptTextFixtureLoader : IFixtureLoader
 
         _dispatcher.Invoke(() =>
         {
-            _promptTextBox.Text = _originalText;
+            _promptTextBox.SetPlainText(_originalText);
             _applied            = false;
 
         }, DispatcherPriority.Normal, ct);

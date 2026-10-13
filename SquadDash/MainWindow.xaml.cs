@@ -880,8 +880,8 @@ public partial class MainWindow : Window
     private DateTime _ctrlFirstReleaseTime;
     private ISpeechRecognitionService? _speechService;
     private PushToTalkWindow? _pttWindow;
-    private TextBox? _pttTargetTextBox;       // resolved at activation; null = PromptTextBox
-    private RichTextBox? _pttTargetRichTextBox;  // set when a RichTextBox (e.g. DocSourceTextBox) has focus at PTT activation
+    private TextBox? _pttTargetTextBox;       // resolved at activation; set for plain TextBox dictation targets (e.g. clipboard/note editors)
+    private RichTextBox? _pttTargetRichTextBox;  // set when a RichTextBox (e.g. DocSourceTextBox, PromptTextBox) has focus at PTT activation
     private readonly object _pttVolumeUpdateGate = new();
     private bool _pttVolumeUpdateQueued;
     private double _pendingPttVolumeHeight;
@@ -1006,6 +1006,16 @@ public partial class MainWindow : Window
                 }
             });
         InitializeComponent();
+        // Force plain-text paste — RichTextBox defaults to rich paste which would otherwise
+        // let formatted clipboard content creep into the plain-text prompt editor.
+        DataObject.AddPastingHandler(PromptTextBox, (s, e) =>
+        {
+            var resolvedFormat = RichTextBoxExtensions.ResolvePlainTextPasteFormat(e.FormatToApply, Clipboard.ContainsText());
+            if (resolvedFormat is null)
+                e.CancelCommand();
+            else
+                e.FormatToApply = resolvedFormat;
+        });
         TranscriptTitleSpinner.PreviewMouseLeftButtonUp +=
             TranscriptTitleSpinner_PreviewMouseLeftButtonUp;
         // Dynamic dock-size providers must exist before a workspace layout is restored or a
@@ -1197,12 +1207,12 @@ public partial class MainWindow : Window
             shouldRecoverMissingAgentReport: thread => _conversationManager.ShouldRecoverMissingAgentReportForLatestCoordinatorTurn(thread));
         _conversationManager = new TranscriptConversationManager(
             getWorkspace: () => _currentWorkspace,
-            getPromptText: () => PromptTextBox.Text,
+            getPromptText: () => PromptTextBox.GetPlainText(),
             setPromptText: (text, caretIndex, selectionStart, selectionLength) =>
             {
                 SetPromptTextBoxLogicalBuffer(text, caretIndex, selectionStart, selectionLength, "conversation-apply");
             },
-            getPromptCaretState: () => (PromptTextBox.CaretIndex, PromptTextBox.SelectionStart, PromptTextBox.SelectionLength),
+            getPromptCaretState: () => (PromptTextBox.GetCaretOffset(), PromptTextBox.GetSelectionStart(), PromptTextBox.GetSelectionLength()),
             isClosing: () => _isClosing,
             renderPersistedTurn: (thread, turn, isLast) => RenderPersistedTurn(thread, turn, isLast),
             coordinatorThread: () => CoordinatorThread,
@@ -1479,7 +1489,7 @@ public partial class MainWindow : Window
                 SquadDashTrace.Write(
                     TraceCategory.UI,
                     $"UI_THREAD_LAG elapsedMs={elapsedMs:0} promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} " +
-                    $"textLen={PromptTextBox?.Text.Length ?? 0} postedPending={_postedUiActionTracker.PendingCount} " +
+                    $"textLen={PromptTextBox?.GetPlainText().Length ?? 0} postedPending={_postedUiActionTracker.PendingCount} " +
                     $"promptRenderPendingMs={GetPromptRenderPendingMs()} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
                     $"pttState={_pttState} pttDraining={_pttDraining} pttVolumeQueued={_pttVolumeUpdateQueued} " +
                     $"lastLongDispatcherOp={_lastLongDispatcherOperationSummary}");
@@ -1608,7 +1618,7 @@ public partial class MainWindow : Window
                         e.Handled = true;
                     }
                 }
-                (_intelliSenseOwnerBox ?? PromptTextBox).Focus();
+                ((IInputElement?)_intelliSenseOwnerBox ?? PromptTextBox).Focus();
             }
             catch (Exception ex)
             {
@@ -1644,7 +1654,7 @@ public partial class MainWindow : Window
             focusPromptTextBox: () => PromptTextBox.Focus(),
             getIsEnabled:       () => PromptTextBox.IsEnabled,
             getQueueCount:      () => _promptQueue.Count,
-            getPromptBoxText:   () => PromptTextBox.Text,
+            getPromptBoxText:   () => PromptTextBox.GetPlainText(),
             setPromptBoxText:   text => SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "test-queue-draft"),
             enqueueSimItem:     item =>
             {
@@ -2748,7 +2758,7 @@ public partial class MainWindow : Window
 
                 // A slash command in a queued tab must execute immediately regardless of
                 // queue state — remove the slot, restore the main draft, then dispatch.
-                var queuedText = PromptTextBox.Text.Trim();
+                var queuedText = PromptTextBox.GetPlainText().Trim();
                 if (LocalPromptSubmissionPolicy.IsImmediateLocalCommand(queuedText))
                 {
                     var capturedId = _activeTabId;
@@ -2790,7 +2800,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var prompt = PromptTextBox.Text.Trim();
+            var prompt = PromptTextBox.GetPlainText().Trim();
             if (string.IsNullOrWhiteSpace(prompt) && !(_followUpAttachments.TryGetValue("", out var clickAttachCheck) && clickAttachCheck.Count > 0))
                 return;
 
@@ -2923,7 +2933,7 @@ public partial class MainWindow : Window
 
     private void EnqueueCurrentPrompt()
     {
-        var text = PromptTextBox.Text.Trim();
+        var text = PromptTextBox.GetPlainText().Trim();
         var hasDraftAttachments = _followUpAttachments.TryGetValue("", out var draftAttachCheck) && draftAttachCheck.Count > 0;
         if (string.IsNullOrWhiteSpace(text) && !hasDraftAttachments) return;
 
@@ -2991,7 +3001,7 @@ public partial class MainWindow : Window
         if (_activeTabId is null)
         {
             // Active Draft — enqueue at front if there is text.
-            var text = PromptTextBox.Text.Trim();
+            var text = PromptTextBox.GetPlainText().Trim();
             if (string.IsNullOrWhiteSpace(text)) return;
 
             RecordHintFeatureUsed(PromptHintFeature.CtrlShiftEnterPrioritize);
@@ -3532,7 +3542,7 @@ public partial class MainWindow : Window
             : _promptQueue.Items.FirstOrDefault(item => item.Id == tabId);
         return new SteeringDraftSnapshot(
             tabId,
-            PromptTextBox.Text,
+            PromptTextBox.GetPlainText(),
             tabId is null ? _promptHasVoiceInput : queuedItem?.IsDictated == true,
             attachments);
     }
@@ -3551,7 +3561,7 @@ public partial class MainWindow : Window
             if (item is null)
                 return false;
             var currentText = string.Equals(_activeTabId, tabId, StringComparison.Ordinal)
-                ? PromptTextBox.Text
+                ? PromptTextBox.GetPlainText()
                 : item.Text;
             if (!string.Equals(currentText, draft.RawText, StringComparison.Ordinal) ||
                 item.IsDictated != draft.IsDictated)
@@ -3567,7 +3577,7 @@ public partial class MainWindow : Window
 
         var draftIsVisible = _activeTabId is null;
         var currentDraftText = draftIsVisible
-            ? PromptTextBox.Text
+            ? PromptTextBox.GetPlainText()
             : _queuePreEditDraft ?? string.Empty;
         if (!string.Equals(currentDraftText, draft.RawText, StringComparison.Ordinal) ||
             _promptHasVoiceInput != draft.IsDictated)
@@ -3767,7 +3777,7 @@ public partial class MainWindow : Window
         var item = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
         if (item is null) return;
 
-        var prompt = PromptTextBox.Text.Trim();
+        var prompt = PromptTextBox.GetPlainText().Trim();
         if (string.IsNullOrWhiteSpace(prompt)) return;
 
         item.Text = prompt;
@@ -3828,7 +3838,7 @@ public partial class MainWindow : Window
         var item = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
         if (item is null) return;
 
-        var prompt = PromptTextBox.Text.Trim();
+        var prompt = PromptTextBox.GetPlainText().Trim();
         if (string.IsNullOrWhiteSpace(prompt)) return;
 
         item.Text = prompt;
@@ -4638,10 +4648,10 @@ public partial class MainWindow : Window
         var current = _promptQueue.Items.FirstOrDefault(item => item.Id == _activeTabId);
         if (current is not null && !current.IsLocked)
         {
-            current.Text = PromptTextBox.Text;
-            current.CaretIndex = PromptTextBox.CaretIndex;
-            current.SelectionStart = PromptTextBox.SelectionStart;
-            current.SelectionLength = PromptTextBox.SelectionLength;
+            current.Text = PromptTextBox.GetPlainText();
+            current.CaretIndex = PromptTextBox.GetCaretOffset();
+            current.SelectionStart = PromptTextBox.GetSelectionStart();
+            current.SelectionLength = PromptTextBox.GetSelectionLength();
         }
 
         _activeTabId = null;
@@ -5615,20 +5625,20 @@ public partial class MainWindow : Window
         // Save current content + caret before switching.
         if (_activeTabId is null)
         {
-            _queuePreEditDraft = PromptTextBox.Text;
-            _queuePreEditDraftCaretIndex = PromptTextBox.CaretIndex;
-            _queuePreEditDraftSelectionStart = PromptTextBox.SelectionStart;
-            _queuePreEditDraftSelectionLength = PromptTextBox.SelectionLength;
+            _queuePreEditDraft = PromptTextBox.GetPlainText();
+            _queuePreEditDraftCaretIndex = PromptTextBox.GetCaretOffset();
+            _queuePreEditDraftSelectionStart = PromptTextBox.GetSelectionStart();
+            _queuePreEditDraftSelectionLength = PromptTextBox.GetSelectionLength();
         }
         else
         {
             var current = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
             if (current is not null && !current.IsLocked)
             {
-                current.Text = PromptTextBox.Text;
-                current.CaretIndex = PromptTextBox.CaretIndex;
-                current.SelectionStart = PromptTextBox.SelectionStart;
-                current.SelectionLength = PromptTextBox.SelectionLength;
+                current.Text = PromptTextBox.GetPlainText();
+                current.CaretIndex = PromptTextBox.GetCaretOffset();
+                current.SelectionStart = PromptTextBox.GetSelectionStart();
+                current.SelectionLength = PromptTextBox.GetSelectionLength();
             }
         }
 
@@ -5748,7 +5758,7 @@ public partial class MainWindow : Window
         // When this item is the active tab, live edits are in PromptTextBox — not
         // yet written back to item.Text (that flush only happens on tab switch).
         // Read the live text so the empty-check reflects what the user sees.
-        var effectiveText = _activeTabId == id ? PromptTextBox.Text : item.Text;
+        var effectiveText = _activeTabId == id ? PromptTextBox.GetPlainText() : item.Text;
 
         // Empty items have nothing to confirm — delete immediately.
         // Tour/sim items in developer mode are also deleted without confirmation.
@@ -5788,7 +5798,7 @@ public partial class MainWindow : Window
         if (item is null) return;
 
         // Active tab's live text lives in PromptTextBox (not yet flushed to item.Text).
-        var effectiveText = PromptTextBox.Text;
+        var effectiveText = PromptTextBox.GetPlainText();
 
         if (!string.IsNullOrWhiteSpace(effectiveText) &&
             !(SquadDashEnvironment.IsDeveloperMode && IsTourOrSimTag(item.SourceTag)))
@@ -9440,9 +9450,9 @@ public partial class MainWindow : Window
         SquadDashTrace.Write("RC", $"rc_transcribed: {text}");
 
         // Put text in prompt box and auto-send if the prompt is empty (i.e. no text already there).
-        PromptTextBox.Text = text.Trim();
-        PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
-        if (!string.IsNullOrWhiteSpace(PromptTextBox.Text) && RunButton.IsEnabled)
+        PromptTextBox.SetPlainText(text.Trim());
+        PromptTextBox.SetCaretOffset(PromptTextBox.GetTextLength());
+        if (!string.IsNullOrWhiteSpace(PromptTextBox.GetPlainText()) && RunButton.IsEnabled)
             RunButton_Click(this, new System.Windows.RoutedEventArgs());
     }
 
@@ -27400,11 +27410,11 @@ public partial class MainWindow : Window
         var normalizedSelectionStart = Math.Clamp(selectionStart, 0, text.Length);
         var normalizedSelectionLength = Math.Clamp(selectionLength, 0, text.Length - normalizedSelectionStart);
 
-        PromptTextBox.Text = text;
+        PromptTextBox.SetPlainText(text);
         if (normalizedSelectionLength > 0)
-            PromptTextBox.Select(normalizedSelectionStart, normalizedSelectionLength);
+            PromptTextBox.SelectRange(normalizedSelectionStart, normalizedSelectionLength);
         else
-            PromptTextBox.CaretIndex = normalizedCaret;
+            PromptTextBox.SetCaretOffset(normalizedCaret);
 
         var undoWasEnabled = PromptTextBox.IsUndoEnabled;
         if (undoWasEnabled)
@@ -27419,7 +27429,7 @@ public partial class MainWindow : Window
         }
         SquadDashTrace.Write(
             TraceCategory.UI,
-            $"PROMPT_BUFFER_LOAD reason={reason} textLen={text.Length} caret={PromptTextBox.CaretIndex} selectionLen={PromptTextBox.SelectionLength} undoCleared={undoWasEnabled}");
+            $"PROMPT_BUFFER_LOAD reason={reason} textLen={text.Length} caret={PromptTextBox.GetCaretOffset()} selectionLen={PromptTextBox.GetSelectionLength()} undoCleared={undoWasEnabled}");
     }
 
     private void PromptTextBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
@@ -27432,8 +27442,8 @@ public partial class MainWindow : Window
         }
 
         // Paren embedding (works on all keyboard layouts)
-        if ((e.Text == "(" || e.Text == ")") && PromptTextBox.SelectionLength > 0
-            && !PromptTextBox.SelectedText.Contains('\n'))
+        if ((e.Text == "(" || e.Text == ")") && PromptTextBox.GetSelectionLength() > 0
+            && !PromptTextBox.GetSelectedText().Contains('\n'))
         {
             if (MarkdownEditorCommands.ApplyInlineParens(PromptTextBox, e.Text))
             {
@@ -27494,7 +27504,7 @@ public partial class MainWindow : Window
             Style   = (Style)FindResource("ThemedMenuItemStyle"),
             Command = ApplicationCommands.Cut,
             CommandTarget = PromptTextBox,
-            IsEnabled = PromptTextBox.SelectionLength > 0
+            IsEnabled = PromptTextBox.GetSelectionLength() > 0
         };
         var copy = new MenuItem
         {
@@ -27502,7 +27512,7 @@ public partial class MainWindow : Window
             Style   = (Style)FindResource("ThemedMenuItemStyle"),
             Command = ApplicationCommands.Copy,
             CommandTarget = PromptTextBox,
-            IsEnabled = PromptTextBox.SelectionLength > 0
+            IsEnabled = PromptTextBox.GetSelectionLength() > 0
         };
         var paste = new MenuItem
         {
@@ -27516,12 +27526,12 @@ public partial class MainWindow : Window
         menu.Items.Add(copy);
         menu.Items.Add(paste);
 
-        if (PromptTextBox.SelectionLength > 0)
+        if (PromptTextBox.GetSelectionLength() > 0)
         {
             menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
 
-            var capturedStart  = PromptTextBox.SelectionStart;
-            var capturedLength = PromptTextBox.SelectionLength;
+            var capturedStart  = PromptTextBox.GetSelectionStart();
+            var capturedLength = PromptTextBox.GetSelectionLength();
             var smoothItem = new MenuItem
             {
                 Header           = "✨ Smooth Dictation",
@@ -27529,8 +27539,8 @@ public partial class MainWindow : Window
                 Style            = (Style)FindResource("ThemedMenuItemStyle")
             };
             smoothItem.Click += (_, _) => {
-                PromptTextBox.Select(capturedStart, capturedLength);
-                SmoothDictationHelper.ApplyToTextBox(PromptTextBox);
+                PromptTextBox.SelectRange(capturedStart, capturedLength);
+                SmoothDictationHelper.ApplyToRichTextBox(PromptTextBox);
             };
             menu.Items.Add(smoothItem);
         }
@@ -27753,7 +27763,7 @@ public partial class MainWindow : Window
 
             if (modifiers == ModifierKeys.None
                 && IsPrintableKey(e.Key)
-                && !((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && PromptTextBox.SelectionLength > 0))
+                && !((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && PromptTextBox.GetSelectionLength() > 0))
             {
                 return;
             }
@@ -27826,10 +27836,10 @@ public partial class MainWindow : Window
             }
 
             // ── Shift+F3: cycle case of selected text ─────────────────────────────
-            if (e.Key == Key.F3 && modifiers == ModifierKeys.Shift && PromptTextBox.SelectionLength > 0)
+            if (e.Key == Key.F3 && modifiers == ModifierKeys.Shift && PromptTextBox.GetSelectionLength() > 0)
             {
-                var selStart     = PromptTextBox.SelectionStart;
-                var selectedText = PromptTextBox.SelectedText;
+                var selStart     = PromptTextBox.GetSelectionStart();
+                var selectedText = PromptTextBox.GetSelectedText();
 
                 // Continue an existing cycle if the selection is still on the same range and
                 // shows one of our computed variants.
@@ -27840,16 +27850,15 @@ public partial class MainWindow : Window
                 if (!continuing)
                 {
                     // New selection — initialize cycle state.
-                    _promptCycleOriginal  = PromptTextBox.Text;
+                    _promptCycleOriginal  = PromptTextBox.GetPlainText();
                     _promptCycleVariants  = TextCaseHelper.ComputeOrderedVariants(selectedText);
                     _promptCycleIndex     = 0;
                     _promptCycleSelStart  = selStart;
-                    _promptCycleSelLen    = PromptTextBox.SelectionLength;
+                    _promptCycleSelLen    = PromptTextBox.GetSelectionLength();
 
                     // First press: normal replacement — creates one undo entry (original → variant).
-                    PromptTextBox.SelectedText    = _promptCycleVariants[_promptCycleIndex];
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleVariants[_promptCycleIndex].Length;
+                    PromptTextBox.ReplaceSelection(_promptCycleVariants[_promptCycleIndex]);
+                    PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleVariants[_promptCycleIndex].Length);
                 }
                 else
                 {
@@ -27860,13 +27869,11 @@ public partial class MainWindow : Window
                     // Restore original text without adding to the undo stack, then apply the
                     // new variant as a single replacement so Ctrl+Z always undoes back to original.
                     PromptTextBox.IsUndoEnabled   = false;
-                    PromptTextBox.Text            = _promptCycleOriginal!;
+                    PromptTextBox.SetPlainText(_promptCycleOriginal!);
                     PromptTextBox.IsUndoEnabled   = true;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleSelLen;
-                    PromptTextBox.SelectedText    = nextVariant;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = nextVariant.Length;
+                    PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleSelLen);
+                    PromptTextBox.ReplaceSelection(nextVariant);
+                    PromptTextBox.SelectRange(_promptCycleSelStart, nextVariant.Length);
                 }
                 e.Handled = true;
                 _guidedTourCoordinator.RaiseCycleCaseForward(this);
@@ -27874,10 +27881,10 @@ public partial class MainWindow : Window
             }
 
             // ── Ctrl+Shift+F3: reverse cycle case of selected text ────────────────
-            if (e.Key == Key.F3 && modifiers == (ModifierKeys.Shift | ModifierKeys.Control) && PromptTextBox.SelectionLength > 0)
+            if (e.Key == Key.F3 && modifiers == (ModifierKeys.Shift | ModifierKeys.Control) && PromptTextBox.GetSelectionLength() > 0)
             {
-                var selStart     = PromptTextBox.SelectionStart;
-                var selectedText = PromptTextBox.SelectedText;
+                var selStart     = PromptTextBox.GetSelectionStart();
+                var selectedText = PromptTextBox.GetSelectedText();
 
                 bool continuing = _promptCycleVariants is not null
                     && selStart == _promptCycleSelStart
@@ -27885,15 +27892,14 @@ public partial class MainWindow : Window
 
                 if (!continuing)
                 {
-                    _promptCycleOriginal  = PromptTextBox.Text;
+                    _promptCycleOriginal  = PromptTextBox.GetPlainText();
                     _promptCycleVariants  = TextCaseHelper.ComputeOrderedVariants(selectedText);
                     _promptCycleIndex     = _promptCycleVariants.Count - 1;
                     _promptCycleSelStart  = selStart;
-                    _promptCycleSelLen    = PromptTextBox.SelectionLength;
+                    _promptCycleSelLen    = PromptTextBox.GetSelectionLength();
 
-                    PromptTextBox.SelectedText    = _promptCycleVariants[_promptCycleIndex];
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleVariants[_promptCycleIndex].Length;
+                    PromptTextBox.ReplaceSelection(_promptCycleVariants[_promptCycleIndex]);
+                    PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleVariants[_promptCycleIndex].Length);
                 }
                 else
                 {
@@ -27901,13 +27907,11 @@ public partial class MainWindow : Window
                     var prevVariant = _promptCycleVariants[_promptCycleIndex];
 
                     PromptTextBox.IsUndoEnabled   = false;
-                    PromptTextBox.Text            = _promptCycleOriginal!;
+                    PromptTextBox.SetPlainText(_promptCycleOriginal!);
                     PromptTextBox.IsUndoEnabled   = true;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleSelLen;
-                    PromptTextBox.SelectedText    = prevVariant;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = prevVariant.Length;
+                    PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleSelLen);
+                    PromptTextBox.ReplaceSelection(prevVariant);
+                    PromptTextBox.SelectRange(_promptCycleSelStart, prevVariant.Length);
                 }
                 e.Handled = true;
                 _guidedTourCoordinator.RaiseCycleCaseReverse(this);
@@ -27915,15 +27919,15 @@ public partial class MainWindow : Window
             }
 
             // ── Smooth Dictation: Shift+Space on selection ────────────────────────
-            if (e.Key == Key.Space && modifiers == ModifierKeys.Shift && PromptTextBox.SelectionLength > 0)
+            if (e.Key == Key.Space && modifiers == ModifierKeys.Shift && PromptTextBox.GetSelectionLength() > 0)
             {
-                e.Handled = SmoothDictationHelper.ApplyToTextBox(PromptTextBox);
+                e.Handled = SmoothDictationHelper.ApplyToRichTextBox(PromptTextBox);
                 return;
             }
 
             // ── Selection embedding: backtick or apostrophe ───────────────────────────
             if ((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && modifiers == ModifierKeys.None
-                && PromptTextBox.SelectionLength > 0)
+                && PromptTextBox.GetSelectionLength() > 0)
             {
                 if (MarkdownEditorCommands.ApplyInlineCodeOrFence(PromptTextBox))
                 {
@@ -27935,7 +27939,7 @@ public partial class MainWindow : Window
 
             // ── Selection embedding: double-quote ─────────────────────────────────────
             if (e.Key == Key.OemQuotes && modifiers == ModifierKeys.Shift
-                && PromptTextBox.SelectionLength > 0)
+                && PromptTextBox.GetSelectionLength() > 0)
             {
                 if (MarkdownEditorCommands.ApplyInlineQuote(PromptTextBox))
                 {
@@ -28043,7 +28047,7 @@ public partial class MainWindow : Window
             {
                 SquadDashTrace.Write(TraceCategory.Performance,
                     $"PROMPT_KEYDOWN elapsed={sw.ElapsedMilliseconds}ms key={e.Key} repeat={e.IsRepeat} " +
-                    $"handled={e.Handled} textLen={PromptTextBox.Text.Length} caret={PromptTextBox.CaretIndex}");
+                    $"handled={e.Handled} textLen={PromptTextBox.GetTextLength()} caret={PromptTextBox.GetCaretOffset()}");
             }
         }
     }
@@ -28360,8 +28364,8 @@ public partial class MainWindow : Window
                 if (PromptTextBox is not { } promptBox)
                     return;
                 if (ch.HasValue)
-                    promptBox.AppendText(ch.Value.ToString());
-                promptBox.CaretIndex = promptBox.Text.Length;
+                    promptBox.AppendPlainText(ch.Value.ToString());
+                promptBox.SetCaretOffset(promptBox.GetTextLength());
                 promptBox.Focus();
                 e.Handled = true;
                 return;
@@ -28390,7 +28394,7 @@ public partial class MainWindow : Window
                 // (handled by PromptTextBox_KeyDown), not navigate search results.
                 if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0
                     && PromptTextBox?.IsKeyboardFocusWithin == true
-                    && PromptTextBox.SelectionLength > 0)
+                    && PromptTextBox.GetSelectionLength() > 0)
                     return;
 
                 if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
@@ -28460,8 +28464,8 @@ public partial class MainWindow : Window
                     ShowFullScreenPrompt();
                 if (PromptTextBox is not { } promptBox)
                     return;
-                promptBox.AppendText(text);
-                promptBox.CaretIndex = promptBox.Text.Length;
+                promptBox.AppendPlainText(text);
+                promptBox.SetCaretOffset(promptBox.GetTextLength());
                 promptBox.Focus();
                 e.Handled = true;
                 return;
@@ -28696,7 +28700,7 @@ public partial class MainWindow : Window
     private void TryStartPushToTalkFromFocusedTarget(double secondTapGapMs)
     {
         // Resolve the target at activation time — prefer a focused RichTextBox
-        // (e.g. DocSourceTextBox) over the fallback TextBox path.
+        // (e.g. DocSourceTextBox, PromptTextBox) over the fallback TextBox path.
         var focusedTextBox     = Keyboard.FocusedElement as TextBox;
         var focusedRichTextBox = Keyboard.FocusedElement as RichTextBox;
 
@@ -28704,22 +28708,24 @@ public partial class MainWindow : Window
         // so dictated text goes to the prompt input instead of the transcript.
         if (focusedRichTextBox == ActiveTranscriptBox)
         {
-            focusedRichTextBox = null;
             PromptTextBox?.Focus();
-            focusedTextBox = PromptTextBox;
+            focusedRichTextBox = PromptTextBox;
         }
 
         _pttTargetRichTextBox = null;
+        _pttTargetTextBox = null;
         if (focusedRichTextBox != null)
         {
             _pttTargetRichTextBox = focusedRichTextBox;
-            _pttTargetTextBox = null;
+        }
+        else if (focusedTextBox != null)
+        {
+            _pttTargetTextBox = focusedTextBox;
         }
         else
         {
-            _pttTargetTextBox = focusedTextBox != null && focusedTextBox != PromptTextBox
-                ? focusedTextBox
-                : PromptTextBox;
+            // Nothing else focused — default to the prompt box (now a RichTextBox).
+            _pttTargetRichTextBox = PromptTextBox;
         }
 
         var pttTargetExists = _pttTargetRichTextBox != null || _pttTargetTextBox != null;
@@ -28749,12 +28755,11 @@ public partial class MainWindow : Window
         // the prompt box may be empty but we must not treat that as a new draft auto-send.
         _voiceStartedWithSendEnabled = _activeTabId == null
                                        && _settingsSnapshot.PttAutoSend
-                                       && _pttTargetRichTextBox == null
-                                       && _pttTargetTextBox == PromptTextBox
-                                       && string.IsNullOrEmpty(PromptTextBox?.Text);
+                                       && _pttTargetRichTextBox == PromptTextBox
+                                       && string.IsNullOrEmpty(PromptTextBox?.GetPlainText());
         SquadDashTrace.Write("UI",
             $"PTT started: secondTapGapMs={secondTapGapMs:0} voiceSendEnabled={_voiceStartedWithSendEnabled} " +
-            $"targetIsPrompt={_pttTargetTextBox == PromptTextBox} promptHasText={!string.IsNullOrEmpty(PromptTextBox?.Text)}");
+            $"targetIsPrompt={_pttTargetRichTextBox == PromptTextBox} promptHasText={!string.IsNullOrEmpty(PromptTextBox?.GetPlainText())}");
 
         // Re-evaluate on each PTT activation: true only when quick reply
         // buttons are visible, the prompt box was empty at start time,
@@ -28764,7 +28769,7 @@ public partial class MainWindow : Window
         _dictationStartedForQuickReply = _activeTabId == null
                                          && _lastQuickReplyEntry?.AllowQuickReplies == true
                                          && _currentQuickReplyOptions.Length > 0
-                                         && string.IsNullOrEmpty(PromptTextBox?.Text)
+                                         && string.IsNullOrEmpty(PromptTextBox?.GetPlainText())
                                          && (DateTime.UtcNow - _quickRepliesShownAt).TotalMilliseconds >= QuickReplyReadWindowMs;
         _pttState = PttState.Active;
         _ = StartPushToTalkAsync();
@@ -28902,13 +28907,13 @@ public partial class MainWindow : Window
         if (ch is null)
             return false;
 
-        var insertionStart = PromptTextBox.SelectionStart;
-        PromptTextBox.SelectedText = ch.Value.ToString();
-        PromptTextBox.CaretIndex = insertionStart + 1;
+        var insertionStart = PromptTextBox.GetSelectionStart();
+        PromptTextBox.ReplaceSelection(ch.Value.ToString());
+        PromptTextBox.SetCaretOffset(insertionStart + 1);
         e.Handled = true;
         SquadDashTrace.Write(
             TraceCategory.UI,
-            $"PROMPT_STALE_MODIFIER_RECOVERY key={e.Key} logical={logicalModifiers} physical={physicalModifiers} textLen={PromptTextBox.Text.Length}");
+            $"PROMPT_STALE_MODIFIER_RECOVERY key={e.Key} logical={logicalModifiers} physical={physicalModifiers} textLen={PromptTextBox.GetTextLength()}");
         ResetPttState();
         return true;
     }
@@ -28975,10 +28980,10 @@ public partial class MainWindow : Window
 
     private async Task StartPushToTalkAsync()
     {
-        var targetIsPrompt = _pttTargetRichTextBox == null && (_pttTargetTextBox == null || _pttTargetTextBox == PromptTextBox);
+        var targetIsPrompt = _pttTargetRichTextBox == PromptTextBox;
         var targetHasText  = _pttTargetRichTextBox != null
             ? !string.IsNullOrEmpty(_pttTargetRichTextBox.GetPlainText())
-            : !string.IsNullOrEmpty((_pttTargetTextBox ?? PromptTextBox).Text);
+            : !string.IsNullOrEmpty(_pttTargetTextBox?.Text);
         _pttHadPreexistingText = targetHasText;
         _promptHasVoiceInput = false;
         RecordHintFeatureUsed(PromptHintFeature.PushToTalk);
@@ -29113,7 +29118,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            var target = _pttTargetTextBox ?? PromptTextBox;
+            var target = _pttTargetTextBox!;
             dpiSource = target;
             try
             {
@@ -29210,8 +29215,7 @@ public partial class MainWindow : Window
         _pttState = PttState.Idle;
         StopPttCtrlPollTimer();
         _pttLostFocusDuringRecording = false;
-        var wasTargetingPrompt = _pttTargetRichTextBox == null
-            && (_pttTargetTextBox is null || _pttTargetTextBox == PromptTextBox);
+        var wasTargetingPrompt = _pttTargetRichTextBox == PromptTextBox;
         // Do NOT null _pttTargetTextBox here — pending AppendSpeechToPrompt BeginInvoke
         // callbacks in the dispatcher queue still need it to route text to the correct target.
         // It is cleared inside the Background-priority dispatcher callback below, after all
@@ -29242,7 +29246,7 @@ public partial class MainWindow : Window
 
         // Yield to the dispatcher at Background priority. All queued Normal-priority
         // PhraseRecognized → AppendSpeechToPrompt callbacks run first, writing the final
-        // dictated text into PromptTextBox.Text. Then our Background item runs on the
+        // dictated text into PromptTextBox.GetPlainText(). Then our Background item runs on the
         // dispatcher thread — we clear _pttDraining and trigger the deferred close if needed.
         await Dispatcher.InvokeAsync(() =>
         {
@@ -29277,7 +29281,7 @@ public partial class MainWindow : Window
             await Task.Delay(UiTimingConstants.PttSendSettleMs).ConfigureAwait(false);
             Dispatcher.Invoke(() =>
             {
-                var text = PromptTextBox.Text.Trim();
+                var text = PromptTextBox.GetPlainText().Trim();
                 var quickReplyEntry = _lastQuickReplyEntry;
                 if (!string.IsNullOrWhiteSpace(text) && quickReplyEntry?.AllowQuickReplies == true)
                 {
@@ -29290,7 +29294,7 @@ public partial class MainWindow : Window
                         _promptQueue.Remove(idToRemove);
                         SyncQueuePanel();
                     }
-                    PromptTextBox.Clear();
+                    PromptTextBox.SetPlainText(string.Empty);
                     _pec.DisableQuickReplies(quickReplyEntry);
                     ClearActiveQuickReplyState(quickReplyEntry);
                     ResumeQueueAfterStoppedWorkResponseIfNeeded();
@@ -29320,7 +29324,7 @@ public partial class MainWindow : Window
                     // that tab directly rather than enqueuing a duplicate new item.
                     _ = DispatchQueuedTabAsync(_activeTabId);
                 }
-                else if (!string.IsNullOrWhiteSpace(PromptTextBox.Text) ||
+                else if (!string.IsNullOrWhiteSpace(PromptTextBox.GetPlainText()) ||
                          (_followUpAttachments.TryGetValue("", out var pttAttachCheck) && pttAttachCheck.Count > 0))
                 {
                     EnqueueCurrentPrompt();
@@ -29353,7 +29357,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var target = _pttTargetTextBox ?? PromptTextBox;
+        var target = _pttTargetTextBox!;
         var current = target.Text;
         // Clamp in case text was externally modified since session start.
         var caretIndex = Math.Min(_sessionCaretIndex, current.Length);
@@ -29612,7 +29616,7 @@ public partial class MainWindow : Window
             if (_conversationManager.IsApplyingHistoryEntry)
                 return;
 
-            var text = PromptTextBox.Text;
+            var text = PromptTextBox.GetPlainText();
             MarkPhase(PromptTextChangedPhase.ReadText);
             if (string.IsNullOrEmpty(text))
             {
@@ -29631,7 +29635,7 @@ public partial class MainWindow : Window
             if (_isPromptRunning)
                 UpdateInteractiveControlState(promptTextOnly: true);
             MarkPhase(PromptTextChangedPhase.InteractiveState);
-            TryUpdateIntelliSense(text, PromptTextBox.CaretIndex);
+            TryUpdateIntelliSense(text, PromptTextBox.GetCaretOffset());
             MarkPhase(PromptTextChangedPhase.IntelliSense);
         }
         catch (Exception ex)
@@ -29644,8 +29648,8 @@ public partial class MainWindow : Window
             if (sw.ElapsedMilliseconds >= PromptTextChangedSevereTraceMs)
             {
                 SquadDashTrace.Write(TraceCategory.Performance,
-                    $"PROMPT_TEXT_CHANGED elapsed={sw.ElapsedMilliseconds}ms textLen={PromptTextBox.Text.Length} " +
-                    $"caret={PromptTextBox.CaretIndex} primaryHosts={_primaryAgentTranscriptHosts.Count} " +
+                    $"PROMPT_TEXT_CHANGED elapsed={sw.ElapsedMilliseconds}ms textLen={PromptTextBox.GetTextLength()} " +
+                    $"caret={PromptTextBox.GetCaretOffset()} primaryHosts={_primaryAgentTranscriptHosts.Count} " +
                     $"phaseMaxMs={FormatPromptTextChangedPhaseMaxes()}");
             }
             RecordPromptInputTiming(isTextChanged: true, sw.ElapsedMilliseconds);
@@ -29734,7 +29738,7 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 TraceCategory.Performance,
                 $"DISPATCHER_OP_LONG status={status} priority={started.Priority} elapsedMs={elapsedMs} " +
-                $"promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} textLen={PromptTextBox?.Text.Length ?? 0} " +
+                $"promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} textLen={PromptTextBox?.GetTextLength() ?? 0} " +
                 $"postedPending={_postedUiActionTracker.PendingCount} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
                 BuildTranscriptRenderState());
         }
@@ -29747,7 +29751,7 @@ public partial class MainWindow : Window
     private void MarkPromptInputAwaitingRender()
     {
         _promptRenderLatencyStartedAt = Stopwatch.GetTimestamp();
-        _promptRenderLatencyTextLen = PromptTextBox?.Text.Length ?? 0;
+        _promptRenderLatencyTextLen = PromptTextBox?.GetTextLength() ?? 0;
 
         if (_promptRenderLatencyPending)
             return;
@@ -29770,8 +29774,8 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 TraceCategory.Performance,
                 $"PROMPT_RENDER_LATENCY elapsedMs={elapsedMs} textLenAtInput={_promptRenderLatencyTextLen} " +
-                $"textLenNow={PromptTextBox?.Text.Length ?? 0} caret={PromptTextBox?.CaretIndex ?? 0} " +
-                $"selectionLen={PromptTextBox?.SelectionLength ?? 0} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
+                $"textLenNow={PromptTextBox?.GetTextLength() ?? 0} caret={PromptTextBox?.GetCaretOffset() ?? 0} " +
+                $"selectionLen={PromptTextBox?.GetSelectionLength() ?? 0} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
                 $"lastLongDispatcherOp={_lastLongDispatcherOperationSummary} " +
                 BuildTranscriptRenderState());
         }
@@ -29818,7 +29822,7 @@ public partial class MainWindow : Window
             $"textChangedCount={textChangedCount} textChangedAvgMs={FormatAverageMs(_promptTextChangedTraceElapsedMs, textChangedCount)} textChangedMaxMs={_promptTextChangedTraceMaxMs} " +
             $"textChangedPhaseAvgMs={FormatPromptTextChangedPhaseAverages(textChangedCount)} textChangedPhaseMaxMs={FormatPromptTextChangedPhaseMaxes()} " +
             $"keyDownCount={keyDownCount} keyDownAvgMs={FormatAverageMs(_promptKeyDownTraceElapsedMs, keyDownCount)} keyDownMaxMs={_promptKeyDownTraceMaxMs} " +
-            $"textLen={PromptTextBox.Text.Length} caret={PromptTextBox.CaretIndex} selectionLen={PromptTextBox.SelectionLength} " +
+            $"textLen={PromptTextBox.GetTextLength()} caret={PromptTextBox.GetCaretOffset()} selectionLen={PromptTextBox.GetSelectionLength()} " +
             $"logicalModifiers={Keyboard.Modifiers} physicalModifiers={NativeMethods.GetPhysicalModifierKeys()}");
 
         _promptInputTraceStopwatch.Restart();
@@ -30000,7 +30004,7 @@ public partial class MainWindow : Window
     }
 
     private void TryUpdateIntelliSense() =>
-        TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
+        TryUpdateIntelliSense(PromptTextBox.GetPlainText(), PromptTextBox.GetCaretOffset());
 
     private void TryUpdateIntelliSense(string text, int caret)
     {
@@ -30109,11 +30113,16 @@ public partial class MainWindow : Window
         if (IntelliSenseList.SelectedItem is not null)
             IntelliSenseList.ScrollIntoView(IntelliSenseList.SelectedItem);
 
-        var ownerBox = _intelliSenseOwnerBox ?? PromptTextBox;
-        IntelliSensePopup.PlacementTarget = ownerBox;
+        // _intelliSenseOwnerBox is non-null only when a filter TextBox (Tasks/Inbox) owns
+        // IntelliSense; null means PromptTextBox (RichTextBox) owns it.
+        var ownerBox = _intelliSenseOwnerBox;
+        UIElement placementTarget = ownerBox is not null ? ownerBox : PromptTextBox;
+        IntelliSensePopup.PlacementTarget = placementTarget;
         IntelliSensePopup.CustomPopupPlacementCallback = (popupSize, targetSize, offset) =>
         {
-            var caretRect = ownerBox.GetRectFromCharacterIndex(ownerBox.CaretIndex);
+            var caretRect = ownerBox is not null
+                ? ownerBox.GetRectFromCharacterIndex(ownerBox.CaretIndex)
+                : PromptTextBox.GetRectFromOffset(PromptTextBox.GetCaretOffset());
             return new[] {
                 new CustomPopupPlacement(
                     new Point(caretRect.Left, caretRect.Bottom),
@@ -30129,9 +30138,13 @@ public partial class MainWindow : Window
     {
         if (_intelliSenseState is null) return;
 
-        var targetBox = _intelliSenseOwnerBox ?? PromptTextBox;
+        // _intelliSenseOwnerBox is non-null only when a filter TextBox (Tasks/Inbox) owns
+        // IntelliSense; null means PromptTextBox (RichTextBox) owns it.
+        var ownerBox      = _intelliSenseOwnerBox;
+        var currentText   = ownerBox?.Text       ?? PromptTextBox.GetPlainText();
+        var currentCaret  = ownerBox?.CaretIndex ?? PromptTextBox.GetCaretOffset();
         var (newText, newCaret) = IntelliSenseController.Accept(
-            _intelliSenseState, targetBox.Text, targetBox.CaretIndex);
+            _intelliSenseState, currentText, currentCaret);
 
         // Capture trigger char and selected label before state is cleared below.
         var triggerChar = _intelliSenseState.TriggerChar;
@@ -30149,9 +30162,9 @@ public partial class MainWindow : Window
                 : (_agentHandleByDisplayName.TryGetValue(displayName, out var h) ? h : null);
             if (handle is not null)
             {
-                var before = targetBox.Text[.._intelliSenseState.TriggerPosition];
-                var after  = targetBox.CaretIndex < targetBox.Text.Length
-                    ? targetBox.Text[targetBox.CaretIndex..]
+                var before = currentText[.._intelliSenseState.TriggerPosition];
+                var after  = currentCaret < currentText.Length
+                    ? currentText[currentCaret..]
                     : string.Empty;
                 newText  = before + "@" + handle + " " + after;
                 newCaret = _intelliSenseState.TriggerPosition + 1 + handle.Length + 1;
@@ -30167,14 +30180,21 @@ public partial class MainWindow : Window
             andSubmit = false;
         }
 
-        var ownerBox = _intelliSenseOwnerBox;
         _isApplyingIntelliSenseAccept = true;
         try
         {
             _intelliSenseState = null;
             _intelliSenseOwnerBox = null;
-            targetBox.Text = newText;
-            targetBox.CaretIndex = newCaret;
+            if (ownerBox is not null)
+            {
+                ownerBox.Text = newText;
+                ownerBox.CaretIndex = newCaret;
+            }
+            else
+            {
+                PromptTextBox.SetPlainText(newText);
+                PromptTextBox.SetCaretOffset(newCaret);
+            }
         }
         finally
         {
@@ -30187,7 +30207,7 @@ public partial class MainWindow : Window
             // routing metadata (including sim mode) is respected, exactly as if the user
             // had clicked the button directly.
             if (triggerChar == '[')
-                SimulateQuickReplyIntelliSenseAccept(selectedLabel, targetBox);
+                SimulateQuickReplyIntelliSenseAccept(selectedLabel);
             else
                 RunButton_Click(this, new RoutedEventArgs());
         }
@@ -30197,8 +30217,10 @@ public partial class MainWindow : Window
     /// Called when a quick reply option is accepted via IntelliSense ([ trigger).
     /// Routes the selection through the appropriate click handler so that routing
     /// metadata — including sim mode — is honoured, just as if the button were clicked.
+    /// Only ever invoked for PromptTextBox (the [ trigger cannot originate from the
+    /// Tasks/Inbox filter boxes), so it operates directly on the RichTextBox.
     /// </summary>
-    private void SimulateQuickReplyIntelliSenseAccept(string optionLabel, TextBox targetBox)
+    private void SimulateQuickReplyIntelliSenseAccept(string optionLabel)
     {
         var cardButton = TranscriptQuickReplyFactory
             .FindLatestActionButtons(CoordinatorThread.Document.Blocks)
@@ -30209,7 +30231,7 @@ public partial class MainWindow : Window
         if (cardButton is not null)
         {
             _isApplyingIntelliSenseAccept = true;
-            try { targetBox.Text = string.Empty; }
+            try { PromptTextBox.SetPlainText(string.Empty); }
             finally { _isApplyingIntelliSenseAccept = false; }
             cardButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, cardButton));
             return;
@@ -30224,7 +30246,7 @@ public partial class MainWindow : Window
         {
             // Clear the accepted text — the button handler owns the submission.
             _isApplyingIntelliSenseAccept = true;
-            try { targetBox.Text = string.Empty; }
+            try { PromptTextBox.SetPlainText(string.Empty); }
             finally { _isApplyingIntelliSenseAccept = false; }
             var syntheticSender = new FrameworkElement { Tag = payload };
             QuickReplyButton_Click(syntheticSender, new RoutedEventArgs());
@@ -30233,7 +30255,7 @@ public partial class MainWindow : Window
         {
             // No routing payload = tour-injected quick reply.  Route through the tour handler.
             _isApplyingIntelliSenseAccept = true;
-            try { targetBox.Text = string.Empty; }
+            try { PromptTextBox.SetPlainText(string.Empty); }
             finally { _isApplyingIntelliSenseAccept = false; }
             var syntheticSender = new FrameworkElement { Tag = new TourQuickReplyPayload(optionLabel) };
             TourQuickReplyButton_Click(syntheticSender, new RoutedEventArgs());
@@ -32658,7 +32680,7 @@ public partial class MainWindow : Window
         {
             var liveItem = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
             if (liveItem is not null)
-                liveItem.Text = PromptTextBox.Text;
+                liveItem.Text = PromptTextBox.GetPlainText();
         }
 
         // If the user clicked into a demo tab that will be removed, restore the pre-edit draft
@@ -32993,25 +33015,25 @@ public partial class MainWindow : Window
 
         _guidedTourCoordinator.CommandRegistry.Register("ShowSlashIntelliSense", () =>
         {
-            var current = PromptTextBox.Text;
+            var current = PromptTextBox.GetPlainText();
             if (string.IsNullOrEmpty(current) || current[0] == '/')
             {
                 if (string.IsNullOrEmpty(current))
                     SetPromptTextBoxLogicalBuffer("/", 1, reason: "tour-slash-intellisense");
-                TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
+                TryUpdateIntelliSense(PromptTextBox.GetPlainText(), PromptTextBox.GetCaretOffset());
                 _guidedTourCoordinator.KeptOpenIntelliSenseTrigger = "slash";
             }
         });
 
         _guidedTourCoordinator.CommandRegistry.Register("ShowAtIntelliSense", () =>
         {
-            var current = PromptTextBox.Text;
+            var current = PromptTextBox.GetPlainText();
             if (!current.EndsWith('@'))
             {
                 var newText = current + "@";
                 SetPromptTextBoxLogicalBuffer(newText, newText.Length, reason: "tour-at-intellisense");
             }
-            TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
+            TryUpdateIntelliSense(PromptTextBox.GetPlainText(), PromptTextBox.GetCaretOffset());
             _guidedTourCoordinator.KeptOpenIntelliSenseTrigger = "at";
         });
 
@@ -33443,7 +33465,7 @@ public partial class MainWindow : Window
             if (_activeTabId == existing.Id)
             {
                 // Tab already active — just re-apply the selection (handles navigate-back case).
-                PromptTextBox.Select(selStart, selLength);
+                PromptTextBox.SelectRange(selStart, selLength);
                 _ = Dispatcher.BeginInvoke(DispatcherPriority.Input, () => { this.Activate(); PromptTextBox.Focus(); });
                 return;
             }
@@ -33454,20 +33476,20 @@ public partial class MainWindow : Window
             // dummy item's text — exactly what OnQueueTabClicked does minus the drain path.
             if (_activeTabId is null)
             {
-                _queuePreEditDraft               = PromptTextBox.Text;
-                _queuePreEditDraftCaretIndex     = PromptTextBox.CaretIndex;
-                _queuePreEditDraftSelectionStart = PromptTextBox.SelectionStart;
-                _queuePreEditDraftSelectionLength = PromptTextBox.SelectionLength;
+                _queuePreEditDraft               = PromptTextBox.GetPlainText();
+                _queuePreEditDraftCaretIndex     = PromptTextBox.GetCaretOffset();
+                _queuePreEditDraftSelectionStart = PromptTextBox.GetSelectionStart();
+                _queuePreEditDraftSelectionLength = PromptTextBox.GetSelectionLength();
             }
             else
             {
                 var prev = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
                 if (prev is not null)
                 {
-                    prev.Text            = PromptTextBox.Text;
-                    prev.CaretIndex      = PromptTextBox.CaretIndex;
-                    prev.SelectionStart  = PromptTextBox.SelectionStart;
-                    prev.SelectionLength = PromptTextBox.SelectionLength;
+                    prev.Text            = PromptTextBox.GetPlainText();
+                    prev.CaretIndex      = PromptTextBox.GetCaretOffset();
+                    prev.SelectionStart  = PromptTextBox.GetSelectionStart();
+                    prev.SelectionLength = PromptTextBox.GetSelectionLength();
                 }
             }
             var previousId = _activeTabId;
@@ -40464,7 +40486,7 @@ public partial class MainWindow : Window
         _conversationManager.PersistConversationState(_conversationManager.ConversationState with
         {
             SessionId = _conversationManager.CurrentSessionId,
-            PromptDraft = PromptTextBox.Text,
+            PromptDraft = PromptTextBox.GetPlainText(),
             PromptHistory = _conversationManager.PromptHistory.ToArray(),
             Threads = _conversationManager.BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
         });
@@ -41657,7 +41679,7 @@ public partial class MainWindow : Window
                 $"snapshotCount={_transcriptSnapshots.Count} snapshotThread={snapshotThread} " +
                 $"lastSnapshotAgeMs={snapshotAgeMs} lastSnapshot=\"{_lastTranscriptSnapshotCaptureSummary}\" " +
                 $"inputAgeMs={inputAgeMs} promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} " +
-                $"docFocused={DocSourceTextBox?.IsKeyboardFocusWithin == true} promptLen={PromptTextBox?.Text.Length ?? 0}";
+                $"docFocused={DocSourceTextBox?.IsKeyboardFocusWithin == true} promptLen={PromptTextBox?.GetTextLength() ?? 0}";
         }
         catch (Exception ex)
         {
@@ -47130,7 +47152,7 @@ public partial class MainWindow : Window
             InterruptedPromptRecoveryPresentation.BuildEditablePrompt(recovery),
             recovery.Attachments);
         PromptTextBox.Focus();
-        PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
+        PromptTextBox.SetCaretOffset(PromptTextBox.GetTextLength());
         SquadDashTrace.Write("Recovery", $"Restored interrupted prompt to editor id={recovery.RecoveryId}");
     }
 
@@ -47210,7 +47232,7 @@ public partial class MainWindow : Window
         }
 
         // If the active draft box is empty, fill it directly.
-        if (_activeTabId is null && string.IsNullOrWhiteSpace(PromptTextBox.Text))
+        if (_activeTabId is null && string.IsNullOrWhiteSpace(PromptTextBox.GetPlainText()))
         {
             SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "draft-quick-reply");
             PromptTextBox.Focus();
@@ -50354,7 +50376,7 @@ public partial class MainWindow : Window
             isInstallingSquad: _isInstallingSquad,
             isPromptRunning: _isPromptRunning,
             canAbortBackgroundTask: canAbortBackgroundTask,
-            currentPromptText: PromptTextBox.Text);
+            currentPromptText: PromptTextBox.GetPlainText());
         var previous = _lastInteractiveControlState;
         _lastInteractiveControlState = state;
 
@@ -52465,7 +52487,7 @@ public partial class MainWindow : Window
 
     private bool IsMultiLinePrompt()
     {
-        return PromptTextBox.LineCount > 1 || PromptTextBox.Text.Contains('\n');
+        return PromptTextBox.GetLineCount() > 1 || PromptTextBox.GetPlainText().Contains('\n');
     }
 
     private void HideHistoryHint()
@@ -58457,7 +58479,7 @@ public partial class MainWindow : Window
         UpdateFollowUpStrip();
         SyncQueuePanel();
         PromptTextBox.Focus();
-        PromptTextBox.CaretIndex = draft.Length;
+        PromptTextBox.SetCaretOffset(draft.Length);
         ShowPlanRevisionPromptGlow();
     }
 
@@ -58492,7 +58514,7 @@ public partial class MainWindow : Window
     private void ReplyInChatFromInboxMessage(InboxMessage msg)
     {
         var draftKey = _activeTabId ?? "";
-        var hasDraftText = !string.IsNullOrWhiteSpace(PromptTextBox.Text);
+        var hasDraftText = !string.IsNullOrWhiteSpace(PromptTextBox.GetPlainText());
         var hasDraftAttachments = _followUpAttachments.TryGetValue(draftKey, out var draftList) && draftList.Count > 0;
 
         if (hasDraftText || hasDraftAttachments)

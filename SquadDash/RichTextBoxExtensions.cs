@@ -55,6 +55,10 @@ internal static class RichTextBoxExtensions
             rtb.Document.Blocks.Add(new Paragraph(new Run(line)) { Margin = new Thickness(0) });
     }
 
+    /// Appends plain text to the end of the editor content. Equivalent to TextBox.AppendText.
+    public static void AppendPlainText(this RichTextBox rtb, string? text)
+        => rtb.SetPlainText(rtb.GetPlainText() + (text ?? string.Empty));
+
     // ── TextPointer ↔ char-offset conversions ─────────────────────────────────
 
     /// Converts a <see cref="TextPointer"/> to a zero-based plain-text character offset.
@@ -137,6 +141,12 @@ internal static class RichTextBoxExtensions
     public static int GetTextLength(this RichTextBox rtb)
         => rtb.GetPlainText().Length;
 
+    /// Returns the number of paragraph lines, counting embedded LineBreak-created lines
+    /// as part of the same paragraph (matching TextBox.LineCount's '\n' counting semantics
+    /// closely enough for the "is multi-line" checks that consume it).
+    public static int GetLineCount(this RichTextBox rtb)
+        => rtb.GetPlainText().Count(c => c == '\n') + 1;
+
     public static string GetSubstring(this RichTextBox rtb, int start, int length)
         => rtb.GetPlainText().Substring(start, length);
 
@@ -158,5 +168,27 @@ internal static class RichTextBoxExtensions
     {
         var ptr = rtb.GetTextPointerAt(offset);
         ptr.Paragraph?.BringIntoView();
+    }
+
+    // ── Paste enforcement ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Pure decision logic behind "force plain-text paste" handlers registered via
+    /// <see cref="DataObject.AddPastingHandler"/> on plain-text RichTextBox editors
+    /// (e.g. PromptTextBox, MarkdownDocumentTabState.EditorTextBox). Separated from the
+    /// actual <see cref="Clipboard"/> access so it can be unit tested without requiring
+    /// a live OS clipboard.
+    /// </summary>
+    /// <param name="formatToApply">The format WPF is about to apply, from
+    /// <c>DataObjectPastingEventArgs.FormatToApply</c>.</param>
+    /// <param name="clipboardContainsText">Whether the clipboard currently contains a
+    /// text representation, from <c>Clipboard.ContainsText()</c>.</param>
+    /// <returns>The format that should be applied (always a plain-text format), or
+    /// <see langword="null"/> if the paste should be cancelled entirely.</returns>
+    public static string? ResolvePlainTextPasteFormat(string formatToApply, bool clipboardContainsText)
+    {
+        if (formatToApply == DataFormats.UnicodeText || formatToApply == DataFormats.Text)
+            return formatToApply;
+        return clipboardContainsText ? DataFormats.UnicodeText : null;
     }
 }

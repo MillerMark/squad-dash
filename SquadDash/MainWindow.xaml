@@ -3556,13 +3556,11 @@
                                         Orientation="Horizontal" />
                         </DockPanel>
                     </Border>
-                    <TextBox x:Name="PromptTextBox"
+                    <RichTextBox x:Name="PromptTextBox"
                              Panel.ZIndex="1"
                              MinHeight="96"
                              MaxHeight="260"
                              Padding="10"
-                             AcceptsReturn="True"
-                             TextWrapping="Wrap"
                              VerticalScrollBarVisibility="Auto"
                              HorizontalScrollBarVisibility="Disabled"
                              SpellCheck.IsEnabled="False"

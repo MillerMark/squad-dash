@@ -32,7 +32,7 @@ internal sealed class VoiceFeedbackFixtureLoader : IFixtureLoader
     public IReadOnlyList<string> KnownKeys => _knownKeys;
 
     // ── Dependencies ──────────────────────────────────────────────────────────
-    private readonly TextBox    _promptTextBox;
+    private readonly RichTextBox _promptTextBox;
     private readonly Window     _ownerWindow;
     private readonly Dispatcher _dispatcher;
 
@@ -44,7 +44,7 @@ internal sealed class VoiceFeedbackFixtureLoader : IFixtureLoader
     // ── Constructor ───────────────────────────────────────────────────────────
 
     internal VoiceFeedbackFixtureLoader(
-        TextBox    promptTextBox,
+        RichTextBox promptTextBox,
         Window     ownerWindow,
         Dispatcher dispatcher)
     {
@@ -68,15 +68,15 @@ internal sealed class VoiceFeedbackFixtureLoader : IFixtureLoader
             ct.ThrowIfCancellationRequested();
 
             // Snapshot
-            _originalPromptText = _promptTextBox.Text;
+            _originalPromptText = _promptTextBox.GetPlainText();
 
             // ── dictationText → PromptTextBox ────────────────────────────────
             if (hasDictation &&
                 fixture.Data.TryGetValue("dictationText", out var dictationEl))
             {
                 var text = dictationEl.GetString() ?? string.Empty;
-                _promptTextBox.Text        = text;
-                _promptTextBox.CaretIndex  = text.Length;
+                _promptTextBox.SetPlainText(text);
+                _promptTextBox.SetCaretOffset(text.Length);
             }
 
             // ── isListening → show PushToTalkWindow ──────────────────────────
@@ -122,8 +122,8 @@ internal sealed class VoiceFeedbackFixtureLoader : IFixtureLoader
             // Restore prompt text
             if (_originalPromptText is not null)
             {
-                _promptTextBox.Text       = _originalPromptText;
-                _promptTextBox.CaretIndex = _originalPromptText.Length;
+                _promptTextBox.SetPlainText(_originalPromptText);
+                _promptTextBox.SetCaretOffset(_originalPromptText.Length);
                 _originalPromptText       = null;
             }
 
