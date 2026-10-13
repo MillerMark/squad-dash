@@ -487,6 +487,9 @@ public partial class MainWindow : Window
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
     private bool _isConvertingEmbeddedCodeRegion;
+    // Guards against piling up duplicate deferred embedded-code-region conversion callbacks
+    // (see PromptTextBox_TextChanged) when several keystrokes land before the first one runs.
+    private bool _embeddedCodeRegionConversionScheduled;
     private bool _codeHealthPendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
     private QueueRecoveryHoldState? _queueRecoveryHold;
@@ -29657,30 +29660,56 @@ public partial class MainWindow : Window
                 return;
 
             // Convert any triple-backtick fence that just became complete (closing ``` typed
-            // or pasted) into a collapsible embedded code region. Guarded against reentrancy
-            // because converting rebuilds Document.Blocks, which raises nested TextChanged
-            // events; the guard lets those nested calls pass through as plain no-op scans.
-            if (!_isConvertingEmbeddedCodeRegion)
+            // or pasted) into a collapsible embedded code region, and any bare *opening* fence
+            // marker into an instantly-focused empty region. This mutates Document.Blocks (via
+            // EmbeddedCodeRegionManager.RenderSegments), which both raises nested TextChanged
+            // events AND toggles IsUndoEnabled — and WPF's TextBoxBase throws
+            // InvalidOperationException if IsUndoEnabled is set while still inside the
+            // DeclareChangeBlock/BeginChange scope that wraps the live keystroke which raised
+            // this very TextChanged event. TryConvertOpenFence hits that window reliably because
+            // it fires on every keystroke while an unclosed fence line exists (unlike the
+            // complete-fence path, which mostly only fires after a full paste). Deferring the
+            // actual conversion via Dispatcher.BeginInvoke at Background priority (lower than
+            // Input) runs it after the current keystroke's internal change block has closed, but
+            // before further queued input is processed — avoiding the crash without introducing
+            // a user-visible delay. The _isConvertingEmbeddedCodeRegion guard (set inside the
+            // deferred callback, same as before) still protects against the nested TextChanged
+            // events the rebuild itself raises; _embeddedCodeRegionConversionScheduled only
+            // prevents piling up duplicate deferred callbacks if several keystrokes land before
+            // the first one runs.
+            if (!_isConvertingEmbeddedCodeRegion && !_embeddedCodeRegionConversionScheduled)
             {
-                _isConvertingEmbeddedCodeRegion = true;
-                try
+                _embeddedCodeRegionConversionScheduled = true;
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
                 {
-                    while (EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox)) { }
+                    _embeddedCodeRegionConversionScheduled = false;
+                    if (_isConvertingEmbeddedCodeRegion)
+                        return;
 
-                    // Complete-fence conversion above takes priority (e.g. a multi-line
-                    // paste that already contains both the opening and closing fence is
-                    // fully handled by the loop above). Only after that settles do we check
-                    // for a bare opening fence marker with no close yet — the user just
-                    // finished typing "```" (optionally with a language tag) on its own
-                    // line — and convert it instantly into an empty, expanded region with
-                    // the caret already inside, so raw "```" never sits waiting in the
-                    // prompt text.
-                    EmbeddedCodeRegionManager.TryConvertOpenFence(PromptTextBox);
-                }
-                finally
-                {
-                    _isConvertingEmbeddedCodeRegion = false;
-                }
+                    _isConvertingEmbeddedCodeRegion = true;
+                    try
+                    {
+                        while (EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox)) { }
+
+                        // Complete-fence conversion above takes priority (e.g. a multi-line
+                        // paste that already contains both the opening and closing fence is
+                        // fully handled by the loop above). Only after that settles do we check
+                        // for a bare opening fence marker with no close yet — the user just
+                        // finished typing "```" (optionally with a language tag) on its own
+                        // line — and convert it instantly into an empty, expanded region with
+                        // the caret already inside, so raw "```" never sits waiting in the
+                        // prompt text.
+                        EmbeddedCodeRegionManager.TryConvertOpenFence(PromptTextBox);
+                    }
+                    catch (Exception ex)
+                    {
+                        HandleUiCallbackException(nameof(PromptTextBox_TextChanged), ex);
+                    }
+                    finally
+                    {
+                        _isConvertingEmbeddedCodeRegion = false;
+                    }
+                });
             }
 
             var text = PromptTextBox.GetPlainText();
