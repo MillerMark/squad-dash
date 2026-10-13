@@ -1,4 +1,4 @@
-﻿<!-- decompose-group: DETAIL-20261009 | branch: feature/collapsible-markdown-detail | revision: a359481df7ea52e6 -->
+<!-- decompose-group: DETAIL-20261009 | branch: feature/collapsible-markdown-detail | revision: a359481df7ea52e6 -->
 **[DETAIL-20261009] Collapsible Markdown Detail**
 > Keep rendered Markdown concise for expert readers while allowing optional explanations in themed, initially collapsed detail sections. Share rendering and durable section state across Inbox and Plan Visualizer descriptions, including the inspector, and exclude collapsed bodies from copy/export and in-document find without changing stored content schemas.
 

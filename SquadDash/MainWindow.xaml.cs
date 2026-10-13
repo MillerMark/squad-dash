@@ -27816,6 +27816,18 @@ public partial class MainWindow : Window
                 }
             }
 
+            // ── Arrow key navigation into/out of embedded code regions ────────────────
+            // When Down arrow is pressed at end of a line just before a region, focus the region.
+            // When Up arrow is pressed at start of a line just after a region, focus the region.
+            if (modifiers == ModifierKeys.None && (e.Key == Key.Down || e.Key == Key.Up))
+            {
+                if (PromptTextBox.TryFocusAdjacentEmbeddedCodeRegion(e.Key == Key.Down ? LogicalDirection.Forward : LogicalDirection.Backward))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             if (modifiers == ModifierKeys.None
                 && IsPrintableKey(e.Key)
                 && !((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && PromptTextBox.GetSelectionLength() > 0))

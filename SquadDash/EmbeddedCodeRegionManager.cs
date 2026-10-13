@@ -42,6 +42,20 @@ internal static class EmbeddedCodeRegionManager
     }
 
     /// <summary>
+    /// Converts all complete triple-backtick fences in the RichTextBox into embedded code
+    /// regions. Used during document initialization or restoration to ensure fences that
+    /// were previously saved as plain text are immediately rendered as interactive regions.
+    /// Returns the number of fences converted.
+    /// </summary>
+    internal static int ConvertAllFences(RichTextBox rtb)
+    {
+        int count = 0;
+        while (TryConvertNextFence(rtb))
+            count++;
+        return count;
+    }
+
+    /// <summary>
     /// Attempts a single fence-to-region conversion. Returns <see langword="true"/> if a
     /// fence was found and converted (caller should loop until this returns
     /// <see langword="false"/> to catch multiple fences, e.g. from a multi-block paste).

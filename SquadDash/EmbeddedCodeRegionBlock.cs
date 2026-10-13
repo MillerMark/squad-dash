@@ -26,7 +26,7 @@ namespace SquadDash;
 /// this step; a future plan may add one.
 /// </para>
 /// </summary>
-internal sealed class EmbeddedCodeRegionBlock : Border
+public sealed class EmbeddedCodeRegionBlock : Border
 {
     /// Fence content, excluding the opening/closing ``` markers and the language tag.
     public string Content { get; set; }
@@ -66,6 +66,16 @@ internal sealed class EmbeddedCodeRegionBlock : Border
         };
         _contentBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         _contentBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
+
+        // Ensure clicks inside the content box move the caret to the clicked position
+        _contentBox.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            if (!_contentBox.IsFocused)
+            {
+                _contentBox.Focus();
+                e.Handled = false; // Allow normal click positioning
+            }
+        };
 
         // Keep Content (the serialization source of truth read by ToFencedText/GetPlainText)
         // in sync with every edit made directly inside the region. _contentBox's TextChanged

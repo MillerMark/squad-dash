@@ -281,6 +281,26 @@ internal static class RichTextBoxExtensions
             .Any(block => block.Child is EmbeddedCodeRegionBlock);
 
     /// <summary>
+    /// When the caret (an empty/collapsed selection) sits immediately adjacent to an
+    /// embedded code region's <see cref="BlockUIContainer"/> in the given direction,
+    /// gives focus to that region's content TextBox. This enables arrow-key navigation
+    /// to enter the region. Returns <see langword="true"/> if a region was found and focused,
+    /// <see langword="false"/> otherwise.
+    /// </summary>
+    public static bool TryFocusAdjacentEmbeddedCodeRegion(this RichTextBox rtb, LogicalDirection direction)
+    {
+        if (!rtb.Selection.IsEmpty)
+            return false;
+
+        var block = FindAdjacentEmbeddedCodeRegion(rtb.Document, rtb.CaretPosition, direction);
+        if (block?.Child is not EmbeddedCodeRegionBlock region)
+            return false;
+
+        region.FocusContent();
+        return true;
+    }
+
+    /// <summary>
     /// Pure adjacency check, separated from <see cref="TryDeleteAdjacentEmbeddedCodeRegion"/>
     /// so the detection rule is directly unit-testable with an explicit <see cref="TextPointer"/>
     /// — bypassing <c>RichTextBox.CaretPosition</c>'s own setter, which only reliably
