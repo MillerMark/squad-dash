@@ -1029,6 +1029,18 @@ public partial class MainWindow : Window
             else
                 e.FormatToApply = resolvedFormat;
         });
+        // Mirror GetPlainText's block-walk on the copy/cut path so a RichTextBox-level
+        // selection that spans an embedded code region keeps that region as its fenced text
+        // on the clipboard. WPF's default serialization only copies the selection's text Runs
+        // and silently drops the region's BlockUIContainer (regressed during the
+        // variable-length-backtick work). We override the clipboard data ONLY when the
+        // selection actually intersects a region; a plain-text selection falls through to
+        // WPF's normal copy so Shift+Enter breaks, etc. are unaffected. This fires for both
+        // Copy and Cut (Cut copies then deletes), so Cut keeps WPF's default deletion of the
+        // selected blocks while still placing the correct fenced text on the clipboard. The
+        // inside-a-region content-box Ctrl+C/X handler sets e.Handled and is a distinct case,
+        // so the two paths never double-handle.
+        DataObject.AddCopyingHandler(PromptTextBox, PromptTextBox_DataObjectCopying);
         TranscriptTitleSpinner.PreviewMouseLeftButtonUp +=
             TranscriptTitleSpinner_PreviewMouseLeftButtonUp;
         // Dynamic dock-size providers must exist before a workspace layout is restored or a
@@ -27463,6 +27475,25 @@ public partial class MainWindow : Window
         {
             HandleUiCallbackException(nameof(PromptTextBox_PreviewMouseWheel), ex);
         }
+    }
+
+    // Keeps embedded code regions intact when the user copies/cuts a RichTextBox-level
+    // selection that spans or contains one. Wired via DataObject.AddCopyingHandler on
+    // PromptTextBox (see constructor). Fires for both Copy and Cut; for Cut, WPF performs its
+    // normal deletion of the selected content after this runs, so we only need to fix up the
+    // clipboard text. When the selection intersects no region we return without touching the
+    // DataObject, letting WPF's default plain-text copy proceed unchanged.
+    private void PromptTextBox_DataObjectCopying(object sender, DataObjectCopyingEventArgs e)
+    {
+        if (e.IsDragDrop)
+            return;
+
+        var fencedText = PromptTextBox.GetSelectionFencedText(out var containsRegion);
+        if (!containsRegion)
+            return;
+
+        e.DataObject.SetData(DataFormats.UnicodeText, fencedText);
+        e.DataObject.SetData(DataFormats.Text, fencedText);
     }
 
     private void PromptTextBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

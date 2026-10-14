@@ -260,6 +260,86 @@ internal static class RichTextBoxExtensions
     public static string GetSelectedText(this RichTextBox rtb)
         => rtb.Selection.Text.Replace("\r\n", "\n");
 
+    /// <summary>
+    /// Serializes the current selection to plain text using the SAME block-walk contract as
+    /// <see cref="GetPlainText"/>: every embedded code region whose
+    /// <see cref="BlockUIContainer"/> the selection intersects contributes its FULL fenced
+    /// text (<see cref="EmbeddedCodeRegionBlock.ToFencedText"/>, with the variable-length
+    /// backtick outer fence), plain paragraphs contribute only the selected portion of their
+    /// text, and contributing blocks are joined with '\n' exactly as
+    /// <see cref="GetPlainText"/> / <see cref="GetCharOffset"/> do.
+    /// <para>
+    /// This is the copy/cut counterpart of the <see cref="GetPlainText"/> read path. WPF's
+    /// default clipboard serialization only walks the text <see cref="Run"/>s of a selection
+    /// and silently drops any <see cref="BlockUIContainer"/>, which strips an embedded region
+    /// out of the copied text. A region is an atomic unit — it can never be partially copied —
+    /// so the instant the selection touches one it is emitted as its whole fenced form, which
+    /// mirrors how <see cref="GetCharOffset"/> treats a region as one indivisible
+    /// fenced-length block. <paramref name="containsRegion"/> reports whether any region was
+    /// intersected so callers can leave WPF's normal plain-text copy untouched (Shift+Enter
+    /// line breaks, etc.) when the selection contains no region.
+    /// </para>
+    /// </summary>
+    public static string GetSelectionFencedText(this RichTextBox rtb, out bool containsRegion)
+    {
+        containsRegion = false;
+        var selection = rtb.Selection;
+        if (selection is null || selection.IsEmpty)
+            return string.Empty;
+
+        var selStart = selection.Start;
+        var selEnd = selection.End;
+
+        var sb = new StringBuilder();
+        var first = true;
+        foreach (var block in rtb.Document.Blocks)
+        {
+            if (IsEmptyEmbeddedCodeRegionCaretLandingParagraph(block))
+                continue;
+
+            // Open-interval overlap between the selection and this block's element range.
+            var overlapsSelection =
+                selStart.CompareTo(block.ElementEnd) < 0 && selEnd.CompareTo(block.ElementStart) > 0;
+
+            if (block is BlockUIContainer { Child: EmbeddedCodeRegionBlock region })
+            {
+                if (!overlapsSelection) continue;
+
+                containsRegion = true;
+                if (!first) sb.Append('\n');
+                first = false;
+                sb.Append(region.ToFencedText());
+                continue;
+            }
+
+            if (block is not Paragraph para || !overlapsSelection)
+                continue;
+
+            // Respect a partial selection at the leading/trailing paragraph by clamping to the
+            // intersection of the selection and this paragraph's content.
+            var rangeStart = selStart.CompareTo(para.ContentStart) > 0 ? selStart : para.ContentStart;
+            var rangeEnd = selEnd.CompareTo(para.ContentEnd) < 0 ? selEnd : para.ContentEnd;
+            var clampedText = rangeStart.CompareTo(rangeEnd) < 0
+                ? new TextRange(rangeStart, rangeEnd).Text.Replace("\r\n", "\n").Replace("\r", "\n")
+                : string.Empty;
+
+            // A paragraph contributes a line only when it carries selected text or is a
+            // fully-selected (possibly blank) line whose '\n' join must be preserved. One
+            // merely touched at a boundary (empty clamp, not fully contained) is skipped so we
+            // never inject a stray blank line.
+            var fullyContained =
+                selStart.CompareTo(para.ElementStart) <= 0 && selEnd.CompareTo(para.ElementEnd) >= 0;
+            if (clampedText.Length == 0 && !fullyContained)
+                continue;
+
+            if (!first) sb.Append('\n');
+            first = false;
+            sb.Append(clampedText);
+        }
+
+        return sb.ToString();
+    }
+
     /// Selects a range by plain-text offsets.
     public static void SelectRange(this RichTextBox rtb, int start, int length)
     {

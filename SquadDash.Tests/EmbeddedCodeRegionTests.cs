@@ -278,6 +278,100 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(rtb.GetPlainText(), Is.EqualTo("typed"));
     }
 
+    // ── Bug fix: copy/cut of a RichTextBox-level selection spanning a region keeps it ──
+    // Regression guard for the embedded-region copy hole: WPF's default clipboard
+    // serialization walks only text Runs and drops the region's BlockUIContainer, stripping
+    // the region out of copied text. GetSelectionFencedText reuses the GetPlainText
+    // block-walk so the region survives as its full fenced form.
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void GetSelectionFencedText_SelectionSpanningRegion_PreservesRegionAsFencedText()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        // Select the whole document — spans text before, the region, and text after.
+        rtb.Selection.Select(rtb.Document.ContentStart, rtb.Document.ContentEnd);
+
+        var text = rtb.GetSelectionFencedText(out var containsRegion);
+
+        Assert.That(containsRegion, Is.True);
+        Assert.That(text, Is.EqualTo("before\n```\ncode\n```\nafter"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void GetSelectionFencedText_RegionContainingBacktickRun_UsesVariableLengthOuterFence()
+    {
+        var rtb = new RichTextBox();
+        // Region content itself contains a 4-backtick line, so the outer fence must widen to
+        // max(3, longestRun + 1) = 5 backticks. The variable-length-backtick path is exactly
+        // what regressed, so prove it is used here and the region is not stripped.
+        rtb.SetPlainText("intro\n`````\n````\ndone\n`````\noutro");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var region = (EmbeddedCodeRegionBlock)rtb.Document.Blocks.OfType<BlockUIContainer>().First().Child;
+        Assert.That(region.Content, Is.EqualTo("````\ndone"), "fence scanning should have captured the 4-backtick line as content");
+
+        rtb.Selection.Select(rtb.Document.ContentStart, rtb.Document.ContentEnd);
+        var text = rtb.GetSelectionFencedText(out var containsRegion);
+
+        Assert.That(containsRegion, Is.True);
+        Assert.That(text, Is.EqualTo("intro\n`````\n````\ndone\n`````\noutro"));
+        // Explicitly confirm the widened 5-backtick outer fence is present (not stripped,
+        // not a bare 3-backtick fence that would collide with the inner run).
+        Assert.That(text, Does.Contain("`````\n````\ndone\n`````"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void GetSelectionFencedText_SelectionWithoutRegion_ReportsNoRegionSoWpfDefaultCopyProceeds()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        // Select only the leading "before" paragraph — no region touched.
+        var firstPara = rtb.Document.Blocks.FirstBlock!;
+        rtb.Selection.Select(firstPara.ContentStart, firstPara.ContentEnd);
+
+        var text = rtb.GetSelectionFencedText(out var containsRegion);
+
+        Assert.That(containsRegion, Is.False, "no region intersected — caller must let WPF's default copy run");
+        Assert.That(text, Is.EqualTo("before"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void GetSelectionFencedText_PartialLeadingAndTrailingParagraphs_ClampToSelectionButKeepFullRegion()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("hello\n```\ncode\n```\nworld");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        // Plain-text layout: "hello"(0..5) \n ```\ncode\n```(region, 6..18) \n "world"(19..24).
+        // Select from mid-"hello" (after "hel", offset 3) to mid-"world" (after "wor",
+        // offset 22), spanning the region in between.
+        rtb.SelectRange(3, 19);
+
+        var text = rtb.GetSelectionFencedText(out var containsRegion);
+
+        Assert.That(containsRegion, Is.True);
+        Assert.That(text, Is.EqualTo("lo\n```\ncode\n```\nwor"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void GetSelectionFencedText_RegionWithLanguageTag_PreservesLanguageTaggedFence()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```python\nx = 1\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        rtb.Selection.Select(rtb.Document.ContentStart, rtb.Document.ContentEnd);
+
+        var text = rtb.GetSelectionFencedText(out var containsRegion);
+
+        Assert.That(containsRegion, Is.True);
+        Assert.That(text, Is.EqualTo("```python\nx = 1\n```"));
+    }
+
     // ── No Step 1 regression: plain text with no embedded regions round-trips untouched ──
 
     [Test, Apartment(ApartmentState.STA)]
