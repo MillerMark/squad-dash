@@ -137,6 +137,23 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(rtb.GetPlainText(), Is.EqualTo("```python\nhello\n```"));
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void LanguageLabel_IsItalicWithNoBackground()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```python\nhello\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+
+        var stack = (StackPanel)region.Child;
+        var label = (TextBlock)stack.Children[0];
+
+        Assert.That(label.FontStyle, Is.EqualTo(FontStyles.Italic),
+            "language label must render italic");
+        Assert.That(label.Background, Is.EqualTo(System.Windows.Media.Brushes.Transparent),
+            "language label must have a transparent (no) background fill");
+    }
+
     // ── Contract Example 2: region-serializes-with-language-tag ─────────────────
 
     [Test, Apartment(ApartmentState.STA)]

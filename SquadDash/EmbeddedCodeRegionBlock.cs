@@ -210,6 +210,8 @@ public sealed class EmbeddedCodeRegionBlock : Border
             Margin = new Thickness(8, 4, 8, 4),
             VerticalAlignment = VerticalAlignment.Center,
             Opacity = 0.7, // Subtle text
+            FontStyle = FontStyles.Italic,
+            Background = System.Windows.Media.Brushes.Transparent,
         };
         languageLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
@@ -223,7 +225,20 @@ public sealed class EmbeddedCodeRegionBlock : Border
             Child = _contentBox,
         };
         editorBorder.SetResourceReference(BackgroundProperty, "CodeSurface");
-        editorBorder.SetResourceReference(BorderBrushProperty, "SubtleBorder");
+
+        // Render the editor rectangle's BORDER at half the themed contrast WITHOUT fading
+        // the content box, its CodeSurface background, or its text. We hold the live themed
+        // "SubtleBorder" brush on the Border's (otherwise unused) Tag via a DynamicResource so
+        // it re-resolves across theme switches, then bind a dedicated half-opacity
+        // SolidColorBrush's Color to that resolved color. Only the border line gets the 0.5
+        // alpha; the shared "SubtleBorder" resource is never mutated in place.
+        editorBorder.SetResourceReference(FrameworkElement.TagProperty, "SubtleBorder");
+        var halfContrastBorderBrush = new SolidColorBrush { Opacity = 0.5 };
+        System.Windows.Data.BindingOperations.SetBinding(
+            halfContrastBorderBrush,
+            SolidColorBrush.ColorProperty,
+            new System.Windows.Data.Binding("Tag.Color") { Source = editorBorder });
+        editorBorder.BorderBrush = halfContrastBorderBrush;
 
         var stack = new StackPanel();
         stack.Children.Add(languageLabel);
