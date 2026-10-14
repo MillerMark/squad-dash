@@ -27517,7 +27517,7 @@ public partial class MainWindow : Window
 
             // Walk up the visual tree to find the EmbeddedCodeRegionBlock
             var current = hitElement;
-            TextBox? targetTextBox = null;
+            var hitContentEditor = false;
             EmbeddedCodeRegionBlock? targetRegion = null;
             var hitToggle = false;
             var path = new List<string>();
@@ -27527,8 +27527,11 @@ public partial class MainWindow : Window
                 if (path.Count < 16)
                     path.Add(DescribePromptInputObject(current));
 
-                if (current is TextBox tb)
-                    targetTextBox = tb;
+                // The region's content is now an AvalonEdit TextEditor (its editing surface is the
+                // TextArea). A hit landing within either means the click is on the content editor —
+                // the equivalent of the old "hit the nested content TextBox" test.
+                if (current is ICSharpCode.AvalonEdit.TextEditor or ICSharpCode.AvalonEdit.Editing.TextArea)
+                    hitContentEditor = true;
 
                 if (current is System.Windows.Controls.Primitives.ToggleButton)
                     hitToggle = true;
@@ -27547,11 +27550,11 @@ public partial class MainWindow : Window
 
             SquadDashTrace.Write(
                 "UI",
-                $"PROMPT_EMBEDDED_CODE_MOUSE path={string.Join(">", path)} targetRegion={targetRegion != null} targetTextBox={targetTextBox != null} hitToggle={hitToggle}");
+                $"PROMPT_EMBEDDED_CODE_MOUSE path={string.Join(">", path)} targetRegion={targetRegion != null} hitContentEditor={hitContentEditor} hitToggle={hitToggle}");
 
             // RichTextBox treats BlockUIContainer as an embedded object unless the hosted
             // editor claims the mouse gesture. For a click that landed on the nested content
-            // TextBox we must NOT handle this (Preview) event: the TextBox implements native
+            // editor we must NOT handle this (Preview) event: AvalonEdit implements native
             // caret placement, double-click word-select, click-drag and double-click-drag
             // selection on the bubbling MouseLeftButtonDown, which marking Preview handled would
             // suppress. The region's own bubbling handler stops the gesture reaching the host, so
@@ -27560,10 +27563,10 @@ public partial class MainWindow : Window
             if (targetRegion != null && !hitToggle)
             {
                 if (!EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
-                        hitRegion: true, hitToggle: hitToggle, hitContentTextBox: targetTextBox != null))
+                        hitRegion: true, hitToggle: hitToggle, hitContentTextBox: hitContentEditor))
                 {
-                    SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=content-textbox-native");
-                    return; // Let the nested TextBox select natively.
+                    SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=content-editor-native");
+                    return; // Let the nested editor select natively.
                 }
 
                 SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=region-focus-end");
@@ -55459,6 +55462,10 @@ public partial class MainWindow : Window
         ButtonsPanelBorder.DockMaximumUsefulWidth = width;
     }
 
+    /// Active palette source for AvalonEdit-backed embedded code regions. Pluggable per the
+    /// AvalonEdit integration contract; the shipped source reads the theme's CodeSurface/CodeText.
+    private readonly IRegionEditorPaletteSource _regionEditorPaletteSource = new ThemeResourcePaletteSource();
+
     private void ApplyTheme(string themeName)
     {
         var themeUri = string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
@@ -55527,6 +55534,14 @@ public partial class MainWindow : Window
         DocSourceFind_RenderHighlights();
         foreach (var agent in _agents)
             agent.NotifyThemeChanged();
+
+        // AvalonEdit-backed embedded code regions do NOT follow DynamicResource, so push the
+        // active theme's CodeSurface/CodeText onto each region's editor imperatively now that the
+        // theme dictionaries have been swapped (AVALONEDIT-20261014-001, §3). Newly created
+        // regions pull the same palette at construction, so one created between switches is themed.
+        var regionPalette = _regionEditorPaletteSource.CreatePalette();
+        foreach (var region in RichTextBoxExtensions.EnumerateEmbeddedRegions(PromptTextBox))
+            region.ApplyEditorTheme(regionPalette);
 
         foreach (var thread in _agentThreadRegistry.ThreadOrder)
             SyncThreadChip(thread);

@@ -22,6 +22,21 @@ internal static class RichTextBoxExtensions
 {
     internal const string EmbeddedCodeRegionCaretLandingTag = "embedded-code-region-caret-landing";
 
+    /// <summary>
+    /// Enumerates the <see cref="EmbeddedCodeRegionBlock"/> instances hosted in
+    /// <paramref name="rtb"/>'s document (each inside a <see cref="BlockUIContainer"/>). Used by
+    /// <c>MainWindow.ApplyTheme</c> to push the active theme palette onto every region's
+    /// AvalonEdit editor, whose colors do not follow WPF DynamicResource.
+    /// </summary>
+    internal static IEnumerable<EmbeddedCodeRegionBlock> EnumerateEmbeddedRegions(RichTextBox rtb)
+    {
+        foreach (var block in rtb.Document.Blocks)
+        {
+            if (block is BlockUIContainer { Child: EmbeddedCodeRegionBlock region })
+                yield return region;
+        }
+    }
+
     internal static Paragraph CreateEmbeddedCodeRegionCaretLandingParagraph() =>
         new(new Run(string.Empty))
         {

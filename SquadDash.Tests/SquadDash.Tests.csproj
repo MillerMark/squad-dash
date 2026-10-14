@@ -122,6 +122,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="ICSharpCode.AvalonEdit" Version="4.3.0-alpha-00000000" />
     <PackageReference Include="Handlebars.Net" Version="2.1.6" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.49.0" />
     <PackageReference Include="NAudio" Version="2.3.0" />
@@ -198,6 +199,8 @@
     <Compile Include="..\SquadDash\CopyButton.cs" Link="Source\CopyButton.cs" />
     <Compile Include="..\SquadDash\CopyableCodeBlockBuilder.cs" Link="Source\CopyableCodeBlockBuilder.cs" />
     <Compile Include="..\SquadDash\EmbeddedCodeRegionBlock.cs" Link="Source\EmbeddedCodeRegionBlock.cs" />
+    <Compile Include="..\SquadDash\IRegionCodeEditor.cs" Link="Source\IRegionCodeEditor.cs" />
+    <Compile Include="..\SquadDash\AvalonEditRegionEditor.cs" Link="Source\AvalonEditRegionEditor.cs" />
     <Compile Include="..\SquadDash\EmbeddedCaretNavMath.cs" Link="Source\EmbeddedCaretNavMath.cs" />
     <Compile Include="..\SquadDash\EmbeddedCodeRegionManager.cs" Link="Source\EmbeddedCodeRegionManager.cs" />
     <Compile Include="..\SquadDash\EmbeddedFenceDetector.cs" Link="Source\EmbeddedFenceDetector.cs" />

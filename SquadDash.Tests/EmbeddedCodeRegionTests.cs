@@ -71,6 +71,53 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(text, Is.EqualTo("```python\nx = 1\n```"));
     }
 
+    // ── Serialization convention: language-mode round-trips through the fence token ──────
+    // explicit language → ```<lang> ; auto detect → bare ``` ; plain text → the reserved
+    // token `text`. Each example builds the fenced form then re-parses it, proving the mode
+    // survives the serialize→parse round-trip (the deterministic AVALONEDIT-20261014 contract).
+
+    [Test]
+    public void Serialization_ExplicitLanguageFence_EmitsAndReparsesLanguageToken()
+    {
+        // explicit-language-fence: Region mode = explicit language "csharp".
+        var serialized = EmbeddedFenceDetector.BuildFencedText("int x = 1;", "csharp");
+        Assert.That(serialized, Is.EqualTo("```csharp\nint x = 1;\n```"));
+
+        var fence = EmbeddedFenceDetector.FindFirstFence(serialized.Split('\n'));
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.Language, Is.EqualTo("csharp"),
+            "explicit language token must round-trip");
+        Assert.That(fence.Value.ExtractContent(serialized.Split('\n')), Is.EqualTo("int x = 1;"));
+    }
+
+    [Test]
+    public void Serialization_AutoDetect_EmitsBareFenceWithNoToken()
+    {
+        // auto-detect-no-tag: Region mode = Auto detect, Language field empty.
+        var serialized = EmbeddedFenceDetector.BuildFencedText("int x = 1;", "");
+        Assert.That(serialized, Is.EqualTo("```\nint x = 1;\n```"),
+            "auto detect must serialize as a bare fence with no language token");
+
+        var fence = EmbeddedFenceDetector.FindFirstFence(serialized.Split('\n'));
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.Language, Is.EqualTo(""),
+            "auto detect must round-trip as an empty language token");
+    }
+
+    [Test]
+    public void Serialization_PlainText_EmitsReservedTextToken()
+    {
+        // plain-text-marker: Region mode = Plain text → reserved token "text".
+        var serialized = EmbeddedFenceDetector.BuildFencedText("int x = 1;", "text");
+        Assert.That(serialized, Is.EqualTo("```text\nint x = 1;\n```"),
+            "plain text must serialize with the reserved token `text`");
+
+        var fence = EmbeddedFenceDetector.FindFirstFence(serialized.Split('\n'));
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.Language, Is.EqualTo("text"),
+            "plain-text reserved token must round-trip");
+    }
+
     // ── Contract Example 1: backtick-fence-creates-region ───────────────────────
 
     [Test, Apartment(ApartmentState.STA)]
@@ -108,8 +155,8 @@ internal sealed class EmbeddedCodeRegionTests
         // its visual tree, and the content editor is visible.
         Assert.That(FindDescendant<System.Windows.Controls.Primitives.ToggleButton>(region), Is.Null,
             "collapse/expand toggle button must be gone");
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
-        Assert.That(contentBox.Visibility, Is.EqualTo(Visibility.Visible));
+        var contentEditor = (ICSharpCode.AvalonEdit.TextEditor)((Border)((StackPanel)region.Child).Children[1]).Child;
+        Assert.That(contentEditor.Visibility, Is.EqualTo(Visibility.Visible));
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -131,7 +178,7 @@ internal sealed class EmbeddedCodeRegionTests
         // The label is a sibling ABOVE the editor rectangle, never a descendant of it.
         Assert.That(FindDescendant<TextBlock>(editorBorder), Is.Null,
             "language label must not live inside the editor border");
-        Assert.That(editorBorder.Child, Is.InstanceOf<TextBox>());
+        Assert.That(editorBorder.Child, Is.InstanceOf<ICSharpCode.AvalonEdit.TextEditor>());
 
         // Serialized form is unaffected by the chrome restructure.
         Assert.That(rtb.GetPlainText(), Is.EqualTo("```python\nhello\n```"));
@@ -433,7 +480,7 @@ internal sealed class EmbeddedCodeRegionTests
 
         // Simulate the user editing inside the region's content box directly (as opposed to
         // setting Content programmatically, which the old read-only TextBox could never do).
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        var contentBox = GetContentEditor(region);
         Assert.That(contentBox.IsReadOnly, Is.False, "content box must be editable, not read-only");
 
         contentBox.Text = "edited content";
@@ -454,7 +501,7 @@ internal sealed class EmbeddedCodeRegionTests
 
         var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
         var region = (EmbeddedCodeRegionBlock)container.Child;
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        var contentBox = GetContentEditor(region);
         contentBox.Text = "edited before rebuild";
 
         // Replace the trailing plain text with a brand-new fence, forcing another
@@ -703,8 +750,8 @@ internal sealed class EmbeddedCodeRegionTests
         // but it does still set WPF's own logical IsFocused state within the control's focus
         // scope — which is exactly what FocusContent (called by TryConvertOpenFence's
         // render step) is proven here to have done.
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
-        Assert.That(contentBox.IsFocused, Is.True, "caret must be focused into the content box immediately");
+        var contentBox = GetContentEditor(region);
+        Assert.That(contentBox.TextArea.IsFocused, Is.True, "caret must be focused into the content box immediately");
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -722,8 +769,8 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(region.Content, Is.EqualTo(""));
         Assert.That(region.Language, Is.EqualTo("python"));
 
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
-        Assert.That(contentBox.IsFocused, Is.True);
+        var contentBox = GetContentEditor(region);
+        Assert.That(contentBox.TextArea.IsFocused, Is.True);
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -787,7 +834,7 @@ internal sealed class EmbeddedCodeRegionTests
 
         var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
         var region = (EmbeddedCodeRegionBlock)container.Child;
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        var contentBox = GetContentEditor(region);
 
         contentBox.Text = "x = 1\n```";
 
@@ -930,7 +977,7 @@ internal sealed class EmbeddedCodeRegionTests
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
 
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        var contentBox = GetContentEditor(region);
 
         // Pretend the TextBox's native handling selected the word "world".
         contentBox.Select(6, 5);
@@ -983,10 +1030,10 @@ internal sealed class EmbeddedCodeRegionTests
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
 
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        var contentBox = GetContentEditor(region);
 
         // Simulate pressing Down on first line — should allow navigation within region
-        contentBox.CaretIndex = 0; // Start of "line1"
+        contentBox.CaretOffset = 0; // Start of "line1"
         
         // Verify we can navigate within the content
         Assert.That(contentBox.Text, Contains.Substring("line1\nline2\nline3"));
@@ -1002,14 +1049,14 @@ internal sealed class EmbeddedCodeRegionTests
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
 
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        var contentBox = GetContentEditor(region);
 
         // Position caret at start of last line
         var lastLineStart = contentBox.Text.LastIndexOf("line3");
-        contentBox.CaretIndex = lastLineStart;
+        contentBox.CaretOffset = lastLineStart;
         
         // Verify content integrity
-        Assert.That(contentBox.CaretIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(contentBox.CaretOffset, Is.GreaterThanOrEqualTo(0));
         Assert.That(contentBox.Text.Contains("line3"));
     }
 
@@ -1365,7 +1412,7 @@ internal sealed class EmbeddedCodeRegionTests
         rtb.SetPlainText("```\nhello\n```");
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        var contentBox = GetContentEditor(region);
 
         var host = new RichTextBox { MaxHeight = 260 };
         region.AttachHost(host);
@@ -1383,7 +1430,7 @@ internal sealed class EmbeddedCodeRegionTests
         rtb.SetPlainText("```\nhello\n```");
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        var contentBox = GetContentEditor(region);
 
         // A default RichTextBox has MaxHeight == PositiveInfinity, so the fallback cap applies.
         var host = new RichTextBox();
@@ -1397,9 +1444,14 @@ internal sealed class EmbeddedCodeRegionTests
     public void BeforeAttachHost_ContentEditorHasDefault130Cap()
     {
         var region = EmbeddedCodeRegionBlock.Build("hello", "");
-        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        var contentBox = GetContentEditor(region);
         Assert.That(contentBox.MaxHeight, Is.EqualTo(130));
     }
+
+    // The region's content editor is now an AvalonEdit TextEditor hosted inside the editor
+    // border (the second child of the region's StackPanel).
+    private static ICSharpCode.AvalonEdit.TextEditor GetContentEditor(EmbeddedCodeRegionBlock region)
+        => (ICSharpCode.AvalonEdit.TextEditor)((Border)((StackPanel)region.Child).Children[1]).Child;
 
     // Depth-first visual-tree search for the first descendant of type <typeparamref name="T"/>.
     private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject

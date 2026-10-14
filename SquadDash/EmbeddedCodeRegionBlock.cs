@@ -37,7 +37,8 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// Optional language tag (e.g. "python"). Empty string means no language tag.
     public new string Language { get; set; }
 
-    private readonly TextBox _contentBox;
+    private readonly IRegionCodeEditor _editor;
+    private readonly Control _editorControl;
     private RichTextBox? _hostRichTextBox;
     private bool _isClosingFromTrailingFenceLine;
 
@@ -71,90 +72,76 @@ public sealed class EmbeddedCodeRegionBlock : Border
         Language = language ?? string.Empty;
         Tag = "embedded-code-region";
 
-        _contentBox = new TextBox
-        {
-            Text = Content,
-            AcceptsReturn = true,
-            AcceptsTab = true,
-            TextWrapping = TextWrapping.NoWrap,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = 12,
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(8),
-            Margin = new Thickness(0),
-            MaxHeight = 130,
-        };
-        _contentBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
-        _contentBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
+        _editor = new AvalonEditRegionEditor(Content);
+        _editorControl = _editor.Control;
+        // Pull the current theme's surface/text colors once at construction so a region created
+        // between theme switches is themed immediately (AvalonEdit colors are not DynamicResource-
+        // driven; see ApplyEditorTheme and MainWindow.ApplyTheme's per-region fan-out).
+        _editor.ApplyPalette(new ThemeResourcePaletteSource().CreatePalette());
 
         // Hosted controls inside a RichTextBox's BlockUIContainer must stop the left-button
         // gesture from reaching the host RichTextBox — otherwise WPF object-selects the whole
         // BlockUIContainer instead of leaving the nested editor's caret/selection intact.
         //
         // The subtlety: we must NOT do this at the Preview (tunneling) stage, and we must NOT
-        // reset the caret/selection ourselves. WPF's TextBox implements single-click caret,
-        // double-click word-select, click-drag and double-click-drag selection on the BUBBLING
-        // MouseLeftButtonDown it receives. Marking the gesture handled at Preview (or calling
-        // FocusContentAtPoint, which collapses the selection) cancels all of that native
+        // reset the caret/selection ourselves. AvalonEdit's TextArea implements single-click
+        // caret, double-click word-select, click-drag and double-click-drag selection on the
+        // BUBBLING MouseLeftButtonDown it receives. Marking the gesture handled at Preview (or
+        // calling FocusContentAtPoint, which collapses the selection) cancels all of that native
         // behavior — that was the selection bug. So we attach at the bubbling stage with
-        // handledEventsToo: by the time this runs the TextBox has already applied the user's
+        // handledEventsToo: by the time this runs AvalonEdit has already applied the user's
         // native gesture, and we only need to (a) keep the host's own selection collapsed and
         // (b) mark the event handled so it never bubbles up to the host for object-selection.
-        _contentBox.AddHandler(
+        _editorControl.AddHandler(
             UIElement.MouseLeftButtonDownEvent,
             new MouseButtonEventHandler((_, e) =>
             {
-                var point = e.GetPosition(_contentBox);
-                Trace($"EMBEDDED_CODE_CONTENT_MOUSE enter handled={e.Handled} point=({point.X:F1},{point.Y:F1}) caret={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} focused={_contentBox.IsKeyboardFocusWithin} source={DescribeInputObject(e.OriginalSource)}");
+                var point = e.GetPosition(_editorControl);
+                Trace($"EMBEDDED_CODE_CONTENT_MOUSE enter handled={e.Handled} point=({point.X:F1},{point.Y:F1}) caret={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} focused={_editor.IsKeyboardFocusWithin} source={DescribeInputObject(e.OriginalSource)}");
                 // Collapse the host RichTextBox selection, and ensure keyboard focus has landed
-                // in the region — but deliberately leave _contentBox's caret/selection exactly
-                // as the TextBox's native handling just set them, so native text selection works.
+                // in the region — but deliberately leave the editor's caret/selection exactly
+                // as AvalonEdit's native handling just set them, so native text selection works.
                 ClearHostSelection();
-                if (!_contentBox.IsKeyboardFocusWithin)
-                {
-                    FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
-                    Keyboard.Focus(_contentBox);
-                }
+                if (!_editor.IsKeyboardFocusWithin)
+                    _editor.FocusEditor();
                 e.Handled = true;
-                Trace($"EMBEDDED_CODE_CONTENT_MOUSE exit handled=True caret={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+                Trace($"EMBEDDED_CODE_CONTENT_MOUSE exit handled=True caret={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} focused={_editor.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
             }),
             handledEventsToo: true);
 
         // Keep Content (the serialization source of truth read by ToFencedText/GetPlainText)
-        // in sync with every edit made directly inside the region. _contentBox's TextChanged
+        // in sync with every edit made directly inside the region. The editor's TextChanged
         // never bubbles up as the host RichTextBox's own TextChanged (it only fires for
         // FlowDocument/TextContainer content changes, not a nested control's Text property),
         // so this is isolated from EmbeddedCodeRegionManager's fence-scanning rebuilds — and
         // because those rebuilds reattach this exact same BlockUIContainer/control instance
         // (see EmbeddedCodeRegionManager.RenderSegments's ExistingContainer branch) rather
         // than recreating it, in-progress edits are never lost across a rebuild.
-        _contentBox.TextChanged += (_, _) =>
+        _editor.TextChanged += (_, _) =>
         {
-            Content = _contentBox.Text;
+            Content = _editor.Text;
             TryCloseOnTrailingFenceLine();
         };
 
         // Handle Ctrl+C (Copy) and Ctrl+X (Cut) to provide fenced text to clipboard
-        _contentBox.PreviewKeyDown += (_, e) =>
+        _editorControl.PreviewKeyDown += (_, e) =>
         {
             // When user selects all or partial content and copies/cuts, provide the fenced representation
             if ((e.Key == Key.C || e.Key == Key.X) && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
-                if (_contentBox.SelectionLength > 0)
+                if (_editor.SelectionLength > 0)
                 {
                     // User selected text within the region. Get the selected text and wrap in fences.
-                    var selectedText = _contentBox.SelectedText;
+                    var selectedText = _editor.SelectedText;
                     var fencedText = EmbeddedFenceDetector.BuildFencedText(selectedText, Language);
                     Clipboard.SetText(fencedText);
-                    
+
                     if (e.Key == Key.X)
                     {
-                        // For Cut, delete the selection after copying to clipboard
-                        _contentBox.SelectedText = string.Empty;
+                        // For Cut, delete the selection after copying to clipboard.
+                        _editor.RemoveSelectedText();
                     }
-                    
+
                     e.Handled = true;
                     return;
                 }
@@ -162,13 +149,13 @@ public sealed class EmbeddedCodeRegionBlock : Border
         };
 
         // Allow navigation exits from the region: Tab, arrow keys to move focus out
-        _contentBox.PreviewKeyDown += (_, e) =>
+        _editorControl.PreviewKeyDown += (_, e) =>
         {
             var traceNavigationKey = e.Key is Key.Tab or Key.Down or Key.Up or Key.Left or Key.Right;
             if (traceNavigationKey)
             {
                 Trace(
-                    $"EMBEDDED_CODE_KEY enter key={e.Key} modifiers={Keyboard.Modifiers} handled={e.Handled} caret={_contentBox.CaretIndex} line={GetCaretLineIndexForTrace()} lineCount={GetLineCountForTrace()} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength}");
+                    $"EMBEDDED_CODE_KEY enter key={e.Key} modifiers={Keyboard.Modifiers} handled={e.Handled} caret={_editor.CaretOffset} line={GetCaretLineIndexForTrace()} lineCount={GetLineCountForTrace()} selection={_editor.SelectionStart}+{_editor.SelectionLength}");
             }
 
             // Shift+Tab moves focus to the previous text position outside the region.
@@ -213,31 +200,31 @@ public sealed class EmbeddedCodeRegionBlock : Border
             if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
             {
                 var decision = EmbeddedCaretNavMath.Decide(
-                    _contentBox.Text, _contentBox.CaretIndex, _contentBox.SelectionLength, e.Key);
+                    _editor.Text, _editor.CaretOffset, _editor.SelectionLength, e.Key);
 
                 switch (decision)
                 {
                     case EmbeddedCaretNavMath.Decision.ExitBackward:
-                        Trace($"EMBEDDED_CODE_KEY_EXIT reason={e.Key}-exit direction=Backward caret={_contentBox.CaretIndex} textLen={_contentBox.Text.Length}");
+                        Trace($"EMBEDDED_CODE_KEY_EXIT reason={e.Key}-exit direction=Backward caret={_editor.CaretOffset} textLen={_editor.TextLength}");
                         FocusHostOutsideRegion(LogicalDirection.Backward);
                         e.Handled = true;
                         return;
 
                     case EmbeddedCaretNavMath.Decision.ExitForward:
-                        Trace($"EMBEDDED_CODE_KEY_EXIT reason={e.Key}-exit direction=Forward caret={_contentBox.CaretIndex} textLen={_contentBox.Text.Length}");
+                        Trace($"EMBEDDED_CODE_KEY_EXIT reason={e.Key}-exit direction=Forward caret={_editor.CaretOffset} textLen={_editor.TextLength}");
                         FocusHostOutsideRegion(LogicalDirection.Forward);
                         e.Handled = true;
                         return;
 
                     case EmbeddedCaretNavMath.Decision.PassThrough:
-                        Trace($"EMBEDDED_CODE_KEY pass-through reason={e.Key}-within-region caret={_contentBox.CaretIndex} line={GetCaretLineIndexForTrace()}");
-                        // Don't set e.Handled; let the TextBox move the caret within the region.
+                        Trace($"EMBEDDED_CODE_KEY pass-through reason={e.Key}-within-region caret={_editor.CaretOffset} line={GetCaretLineIndexForTrace()}");
+                        // Don't set e.Handled; let the editor move the caret within the region.
                         break;
                 }
             }
 
             if (traceNavigationKey && !e.Handled)
-                Trace($"EMBEDDED_CODE_KEY pass-through key={e.Key} caret={_contentBox.CaretIndex} line={GetCaretLineIndexForTrace()}");
+                Trace($"EMBEDDED_CODE_KEY pass-through key={e.Key} caret={_editor.CaretOffset} line={GetCaretLineIndexForTrace()}");
         };
 
         var languageLabel = new TextBlock
@@ -260,7 +247,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         {
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(3),
-            Child = _contentBox,
+            Child = _editorControl,
         };
         editorBorder.SetResourceReference(BackgroundProperty, "CodeSurface");
 
@@ -289,34 +276,41 @@ public sealed class EmbeddedCodeRegionBlock : Border
         Child = stack;
 
         // Route clicks on the transparent outer area or the language label to the content
-        // TextBox to enable editing. Clicks on the TextBox itself are handled above. This
+        // editor to enable editing. Clicks on the editor itself are handled above. This
         // PreviewMouseDown ensures that even if a click lands on the label or background, we
-        // still focus the content box instead of selecting the whole hosted BlockUIContainer.
+        // still focus the content editor instead of selecting the whole hosted BlockUIContainer.
         PreviewMouseLeftButtonDown += (sender, e) =>
         {
             var clickedElement = InputHitTest(e.GetPosition(this)) as DependencyObject;
             Trace($"EMBEDDED_CODE_BORDER_MOUSE enter handled={e.Handled} hit={DescribeInputObject(clickedElement)} point=({e.GetPosition(this).X:F1},{e.GetPosition(this).Y:F1})");
-            if (IsVisualAncestorOrSelf(clickedElement, _contentBox))
+            if (IsVisualAncestorOrSelf(clickedElement, _editorControl))
             {
-                Trace("EMBEDDED_CODE_BORDER_MOUSE exit reason=content-textbox");
-                return; // Let TextBox do normal caret placement, selection, and focus.
+                Trace("EMBEDDED_CODE_BORDER_MOUSE exit reason=content-editor");
+                return; // Let the editor do normal caret placement, selection, and focus.
             }
 
             // Label/background clicks focus the editor without selecting the whole hosted block.
-            _contentBox.Focus();
-            Keyboard.Focus(_contentBox);
+            _editor.FocusEditor();
             e.Handled = true;
-            Trace($"EMBEDDED_CODE_BORDER_MOUSE exit reason=header-focus handled=True focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+            Trace($"EMBEDDED_CODE_BORDER_MOUSE exit reason=header-focus handled=True focused={_editor.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         };
     }
 
     internal void AttachHost(RichTextBox hostRichTextBox)
     {
         _hostRichTextBox = hostRichTextBox;
-        _contentBox.MaxHeight = (double.IsNaN(hostRichTextBox.MaxHeight) || double.IsInfinity(hostRichTextBox.MaxHeight))
+        _editor.MaxHeight = (double.IsNaN(hostRichTextBox.MaxHeight) || double.IsInfinity(hostRichTextBox.MaxHeight))
             ? 130
             : hostRichTextBox.MaxHeight / 2.0;
     }
+
+    /// <summary>
+    /// Pushes the given <paramref name="palette"/> onto this region's editor so its surface/text
+    /// colors follow the active theme. Called from <c>MainWindow.ApplyTheme</c>'s per-region
+    /// fan-out after a theme dictionary swap (AvalonEdit colors are not DynamicResource-driven,
+    /// so they must be re-applied imperatively; see AVALONEDIT-20261014-001).
+    /// </summary>
+    public void ApplyEditorTheme(RegionEditorPalette palette) => _editor.ApplyPalette(palette);
 
     /// Serializes this region back into an equivalent triple-backtick fenced block:
     /// a bare fence if no language is set, or ```&lt;language&gt; if one is present.
@@ -332,50 +326,43 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     public void FocusContent()
     {
-        Trace($"EMBEDDED_CODE_FOCUS_END enter textLen={_contentBox.Text.Length} caretBefore={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} visible={_contentBox.IsVisible} enabled={_contentBox.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+        Trace($"EMBEDDED_CODE_FOCUS_END enter textLen={_editor.TextLength} caretBefore={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} visible={_editorControl.IsVisible} enabled={_editorControl.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         ClearHostSelection();
-        _contentBox.CaretIndex = _contentBox.Text.Length;
-        // FocusManager.SetFocusedElement sets logical/keyboard focus within the control's
-        // focus scope even before the element has gone through a layout pass against a real
-        // PresentationSource (e.g. right after this region is created, before WPF has had a
-        // chance to render it) — plain Focus()/Keyboard.Focus() require IsVisible to already
-        // be true, which isn't guaranteed synchronously at creation time. Keyboard.Focus is
-        // still attempted afterward so a live, already-rendered app also gets real OS
-        // keyboard input focus, not just the logical bookkeeping.
-        FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
-        Keyboard.Focus(_contentBox);
-        Trace($"EMBEDDED_CODE_FOCUS_END exit caret={_contentBox.CaretIndex} focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+        _editor.CaretOffset = _editor.TextLength;
+        // FocusEditor sets logical/keyboard focus within the control's focus scope even before
+        // the element has gone through a layout pass against a real PresentationSource (e.g. right
+        // after this region is created, before WPF has had a chance to render it) and then also
+        // attempts real OS keyboard focus for the already-rendered case.
+        _editor.FocusEditor();
+        Trace($"EMBEDDED_CODE_FOCUS_END exit caret={_editor.CaretOffset} focused={_editor.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
     }
 
     /// <summary>
-    /// Gives keyboard focus to this region's content box and places the caret at the specified
+    /// Gives keyboard focus to this region's content editor and places the caret at the specified
     /// position within the text. Used for smart arrow-key navigation to enter the region with
     /// caret at the correct position (start, end, or specific offset).
     /// </summary>
     public void FocusContentAtPosition(int caretPosition)
     {
-        var clampedPosition = Math.Clamp(caretPosition, 0, _contentBox.Text.Length);
-        Trace($"EMBEDDED_CODE_FOCUS_POSITION enter position={caretPosition} clamped={clampedPosition} textLen={_contentBox.Text.Length} caretBefore={_contentBox.CaretIndex} visible={_contentBox.IsVisible}");
+        var clampedPosition = Math.Clamp(caretPosition, 0, _editor.TextLength);
+        Trace($"EMBEDDED_CODE_FOCUS_POSITION enter position={caretPosition} clamped={clampedPosition} textLen={_editor.TextLength} caretBefore={_editor.CaretOffset} visible={_editorControl.IsVisible}");
         ClearHostSelection();
-        _contentBox.CaretIndex = clampedPosition;
-        _contentBox.SelectionLength = 0;
-        FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
-        Keyboard.Focus(_contentBox);
-        Trace($"EMBEDDED_CODE_FOCUS_POSITION exit caret={_contentBox.CaretIndex} focused={_contentBox.IsKeyboardFocusWithin}");
+        _editor.CaretOffset = clampedPosition;
+        _editor.SelectionLength = 0;
+        _editor.FocusEditor();
+        Trace($"EMBEDDED_CODE_FOCUS_POSITION exit caret={_editor.CaretOffset} focused={_editor.IsKeyboardFocusWithin}");
     }
 
     internal void FocusContentAtPoint(Point pointInContentBox)
     {
-        Trace($"EMBEDDED_CODE_FOCUS_POINT enter point=({pointInContentBox.X:F1},{pointInContentBox.Y:F1}) textLen={_contentBox.Text.Length} caretBefore={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} visible={_contentBox.IsVisible} enabled={_contentBox.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+        Trace($"EMBEDDED_CODE_FOCUS_POINT enter point=({pointInContentBox.X:F1},{pointInContentBox.Y:F1}) textLen={_editor.TextLength} caretBefore={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} visible={_editorControl.IsVisible} enabled={_editorControl.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         ClearHostSelection();
-        FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
-        _contentBox.Focus();
-        Keyboard.Focus(_contentBox);
+        _editor.FocusEditor();
 
         var caretIndex = GetCaretIndexFromPoint(pointInContentBox);
-        _contentBox.CaretIndex = caretIndex;
-        _contentBox.SelectionLength = 0;
-        Trace($"EMBEDDED_CODE_FOCUS_POINT exit caret={_contentBox.CaretIndex} focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+        _editor.CaretOffset = caretIndex;
+        _editor.SelectionLength = 0;
+        Trace($"EMBEDDED_CODE_FOCUS_POINT exit caret={_editor.CaretOffset} focused={_editor.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
     }
 
     private void ClearHostSelection()
@@ -400,8 +387,8 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// <see cref="ToFencedText"/> already) and move keyboard focus back out to whatever's next
     /// in the surrounding prompt so ordinary typing resumes immediately after the region,
     /// mirroring how a pasted/complete fence already behaves. The region stays expanded.
-    /// Guarded against re-entrancy because it mutates <c>_contentBox.Text</c> from within that
-    /// same TextBox's own TextChanged handler.
+    /// Guarded against re-entrancy because it mutates the editor's text from within that
+    /// same editor's own TextChanged handler.
     /// </summary>
     private void TryCloseOnTrailingFenceLine()
     {
@@ -415,7 +402,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         {
             var withoutClosingLine = string.Join("\n", lines.Take(lines.Length - 1));
             Content = withoutClosingLine;
-            _contentBox.Text = withoutClosingLine;
+            _editor.Text = withoutClosingLine;
             FocusHostOutsideRegion(LogicalDirection.Forward);
         }
         finally
@@ -424,25 +411,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         }
     }
 
-    private int GetCaretIndexFromPoint(Point point)
-    {
-        if (_contentBox.Text.Length == 0)
-            return 0;
-
-        var index = _contentBox.GetCharacterIndexFromPoint(point, snapToText: true);
-        if (index < 0)
-            return _contentBox.Text.Length;
-
-        index = Math.Clamp(index, 0, _contentBox.Text.Length);
-        if (index < _contentBox.Text.Length)
-        {
-            var rect = _contentBox.GetRectFromCharacterIndex(index, trailingEdge: true);
-            if (!rect.IsEmpty && point.X > rect.X)
-                index++;
-        }
-
-        return Math.Clamp(index, 0, _contentBox.Text.Length);
-    }
+    private int GetCaretIndexFromPoint(Point point) => _editor.GetOffsetFromPoint(point);
 
     private void FocusHostOutsideRegion(LogicalDirection direction)
     {
@@ -450,7 +419,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         if (host is null)
         {
             Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE fallback=no-host direction={direction}");
-            _contentBox.MoveFocus(new TraversalRequest(
+            _editorControl.MoveFocus(new TraversalRequest(
                 direction == LogicalDirection.Forward
                     ? FocusNavigationDirection.Next
                     : FocusNavigationDirection.Previous));
@@ -461,7 +430,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         if (pointer is null)
         {
             Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE fallback=no-pointer direction={direction} hostCaretOffset={GetHostCaretOffsetForTrace(host)}");
-            _contentBox.MoveFocus(new TraversalRequest(
+            _editorControl.MoveFocus(new TraversalRequest(
                 direction == LogicalDirection.Forward
                     ? FocusNavigationDirection.Next
                     : FocusNavigationDirection.Previous));
@@ -545,12 +514,16 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
     private int GetCaretLineIndexForTrace()
     {
-        var caret = Math.Clamp(_contentBox.CaretIndex, 0, _contentBox.Text.Length);
-        return _contentBox.Text[..caret].Count(c => c == '\n');
+        var text = _editor.Text;
+        var caret = Math.Clamp(_editor.CaretOffset, 0, text.Length);
+        return text[..caret].Count(c => c == '\n');
     }
 
-    private int GetLineCountForTrace() =>
-        _contentBox.Text.Length == 0 ? 1 : _contentBox.Text.Count(c => c == '\n') + 1;
+    private int GetLineCountForTrace()
+    {
+        var text = _editor.Text;
+        return text.Length == 0 ? 1 : text.Count(c => c == '\n') + 1;
+    }
 
     private static string GetHostCaretOffsetForTrace(RichTextBox host)
     {
