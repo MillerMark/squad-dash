@@ -4,6 +4,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 
 namespace SquadDash.Tests;
 
@@ -864,7 +865,7 @@ internal sealed class EmbeddedCodeRegionTests
         // when the user presses Down and would land on the region's paragraph line
         var caretPointer = beforePara!.ContentEnd;
         
-        var region = RichTextBoxExtensions.FindRegionOnCaretParagraph(rtb.Document, caretPointer);
+        var region = RichTextBoxExtensions.FindRegionOnCaretParagraph(rtb.Document, caretPointer, Key.Down);
         Assert.That(region, Is.Not.Null);
     }
 
@@ -877,8 +878,169 @@ internal sealed class EmbeddedCodeRegionTests
         var firstPara = rtb.Document.Blocks.FirstBlock as Paragraph;
         var caretPointer = firstPara!.ContentStart;
 
-        var region = RichTextBoxExtensions.FindRegionOnCaretParagraph(rtb.Document, caretPointer);
+        var region = RichTextBoxExtensions.FindRegionOnCaretParagraph(rtb.Document, caretPointer, Key.Down);
         Assert.That(region, Is.Null);
+    }
+
+    // ── Direction-aware entry decision (pure, deterministic) ───────────────────────
+    // Document layout for these tests: block[0]=Paragraph "before", block[1]=region("code"),
+    // block[2]=Paragraph "after". START=0, END=Content.Length (4 for "code").
+
+    private static (System.Collections.Generic.List<Block> blocks, EmbeddedCodeRegionBlock region) BuildRegionSandwich()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var blocks = rtb.Document.Blocks.ToList();
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)blocks[1]).Child;
+        return (blocks, region);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_DownOnLineAboveRegion_EntersRegionAtStart()
+    {
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 0, Key.Down);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_RightOnLineAboveRegion_EntersRegionAtStart()
+    {
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 0, Key.Right);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_UpOnLineBelowRegion_EntersRegionAtEnd()
+    {
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 2, Key.Up);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(region.Content.Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_LeftOnLineBelowRegion_EntersRegionAtEnd()
+    {
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 2, Key.Left);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(region.Content.Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_DownOnLineBelowRegion_DoesNotEnterRegionAbove()
+    {
+        // The reported bug: Down pressed on the line BELOW a region must NEVER jump UP into it.
+        var (blocks, _) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 2, Key.Down);
+
+        Assert.That(decision, Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_RightOnLineBelowRegion_DoesNotEnterRegionAbove()
+    {
+        var (blocks, _) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 2, Key.Right);
+
+        Assert.That(decision, Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_UpOnLineAboveRegion_DoesNotEnterRegionBelow()
+    {
+        // Symmetric guard: Up pressed on the line ABOVE a region must never drop DOWN into it.
+        var (blocks, _) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 0, Key.Up);
+
+        Assert.That(decision, Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_LeftOnLineAboveRegion_DoesNotEnterRegionBelow()
+    {
+        var (blocks, _) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 0, Key.Left);
+
+        Assert.That(decision, Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_CaretOnRegionContainer_ReturnsNull()
+    {
+        // Caret already inside the region's own container block → no host-side entry to make.
+        var (blocks, _) = BuildRegionSandwich();
+
+        Assert.That(RichTextBoxExtensions.DecideRegionEntry(blocks, 1, Key.Down), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntry(blocks, 1, Key.Up), Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_NonArrowKey_ReturnsNull()
+    {
+        var (blocks, _) = BuildRegionSandwich();
+
+        Assert.That(RichTextBoxExtensions.DecideRegionEntry(blocks, 0, Key.A), Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_NoAdjacentRegion_ReturnsNull()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("line1\nline2\nline3");
+        var blocks = rtb.Document.Blocks.ToList();
+
+        Assert.That(RichTextBoxExtensions.DecideRegionEntry(blocks, 0, Key.Down), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntry(blocks, 1, Key.Up), Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FindRegionOnCaretParagraph_DownFromLineBelowRegion_ReturnsNull()
+    {
+        // Live-document mirror of the bug: caret on the "after" paragraph (below the region),
+        // pressing Down must not resolve to the region above it.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var afterPara = (Paragraph)rtb.Document.Blocks.ToList()[2];
+        var region = RichTextBoxExtensions.FindRegionOnCaretParagraph(rtb.Document, afterPara.ContentStart, Key.Down);
+
+        Assert.That(region, Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FindRegionOnCaretParagraph_UpFromLineBelowRegion_ReturnsRegion()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var afterPara = (Paragraph)rtb.Document.Blocks.ToList()[2];
+        var region = RichTextBoxExtensions.FindRegionOnCaretParagraph(rtb.Document, afterPara.ContentStart, Key.Up);
+
+        Assert.That(region, Is.Not.Null);
     }
 
     [Test, Apartment(ApartmentState.STA)]

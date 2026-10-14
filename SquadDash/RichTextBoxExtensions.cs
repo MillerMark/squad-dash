@@ -548,56 +548,100 @@ internal static class RichTextBoxExtensions
     }
 
     /// <summary>
+    /// The outcome of <see cref="DecideRegionEntry"/>: the embedded region an arrow key should
+    /// enter and the caret position within it. START (0) for forward keys (Down/Right), END
+    /// (<c>Region.Content.Length</c>) for backward keys (Up/Left).
+    /// </summary>
+    internal readonly record struct RegionEntryDecision(EmbeddedCodeRegionBlock Region, int TargetCaretPosition);
+
+    /// <summary>
+    /// Pure, direction-aware entry decision — the deterministic core of smart arrow-key
+    /// navigation, separated from any live <see cref="TextPointer"/>/focus state so it is
+    /// directly unit-testable (mirroring <see cref="FindAdjacentEmbeddedCodeRegion"/> and
+    /// <c>EmbeddedCaretNavMath.Decide</c>).
+    /// <para>
+    /// Given the document's block list, the index of the block the caret sits on, and the
+    /// arrow key, decides which adjacent region (if any) should be entered and where to place
+    /// the caret. The rule is STRICTLY directional: a forward key (Down/Right) may ONLY enter
+    /// the region immediately <em>below</em> the caret block, and a backward key (Up/Left) may
+    /// ONLY enter the region immediately <em>above</em> it. This is what prevents a Down/Right
+    /// press on the line below a region from jumping UP into the region above it (and the
+    /// symmetric Up/Left case).
+    /// </para>
+    /// </summary>
+    internal static RegionEntryDecision? DecideRegionEntry(IReadOnlyList<Block> blocks, int caretBlockIndex, Key key)
+    {
+        if (caretBlockIndex < 0 || caretBlockIndex >= blocks.Count)
+            return null;
+
+        var forward = key is Key.Down or Key.Right;
+        var backward = key is Key.Up or Key.Left;
+        if (!forward && !backward)
+            return null;
+
+        // Entry is only from a text (host) line adjacent to the region; if the caret is on the
+        // region's own container the caret is already inside, so there is no entry to make.
+        if (blocks[caretBlockIndex] is not Paragraph)
+            return null;
+
+        var neighborIndex = forward ? caretBlockIndex + 1 : caretBlockIndex - 1;
+        if (neighborIndex < 0 || neighborIndex >= blocks.Count)
+            return null;
+
+        if (blocks[neighborIndex] is not BlockUIContainer { Child: EmbeddedCodeRegionBlock region })
+            return null;
+
+        var target = forward ? 0 : region.Content.Length;
+        return new RegionEntryDecision(region, target);
+    }
+
+    /// <summary>
+    /// Returns the index of the first block whose element range contains <paramref name="caret"/>,
+    /// or -1 if none. First-match-wins mirrors the boundary semantics of the original
+    /// caret-paragraph scan (a position on a block boundary resolves to the earlier block).
+    /// </summary>
+    private static int FindCaretBlockIndex(IReadOnlyList<Block> blocks, TextPointer caret)
+    {
+        for (var i = 0; i < blocks.Count; i++)
+        {
+            var block = blocks[i];
+            if (caret.CompareTo(block.ElementStart) >= 0 && caret.CompareTo(block.ElementEnd) <= 0)
+                return i;
+        }
+        return -1;
+    }
+
+    private static BlockUIContainer? FindContainerForRegion(FlowDocument document, EmbeddedCodeRegionBlock region)
+    {
+        foreach (var block in document.Blocks.OfType<BlockUIContainer>())
+        {
+            if (ReferenceEquals(block.Child, region))
+                return block;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Detects if the caret is on a region's paragraph line (the "dead zone") — positioned
     /// before or after a BlockUIContainer that hosts an EmbeddedCodeRegionBlock, but not
-    /// actually inside the region's TextBox. This state occurs after pressing an arrow key
+    /// actually inside the region's editor. This state occurs after pressing an arrow key
     /// that would land on the region's line without entering the region.
-    /// 
+    /// <para>
+    /// Direction-aware: a forward key (Down/Right) only matches a region BELOW the caret block
+    /// and a backward key (Up/Left) only matches a region ABOVE it, so a press can never select
+    /// the region on the wrong side of the travel direction.
+    /// </para>
     /// Returns the region if found, null otherwise. Used to implement smart arrow-key
     /// navigation that enters the region directly instead of landing in the dead zone.
     /// </summary>
-    internal static EmbeddedCodeRegionBlock? FindRegionOnCaretParagraph(FlowDocument document, TextPointer caret)
+    internal static EmbeddedCodeRegionBlock? FindRegionOnCaretParagraph(FlowDocument document, TextPointer caret, Key key)
     {
         if (caret is null)
             return null;
 
         var blocksList = document.Blocks.ToList();
-        for (var i = 0; i < blocksList.Count; i++)
-        {
-            var block = blocksList[i];
-            var isWithinBlock = caret.CompareTo(block.ElementStart) >= 0 && caret.CompareTo(block.ElementEnd) <= 0;
-            
-            if (!isWithinBlock)
-                continue;
-
-            // If caret is within a paragraph, check if the next or previous block is a region
-            if (block is Paragraph)
-            {
-                // Check if there's an embedded region on the same line
-                // This happens when the paragraph contains text before or after the region
-                
-                // Check adjacent blocks for regions
-                if (i + 1 < blocksList.Count && 
-                    blocksList[i + 1] is BlockUIContainer { Child: EmbeddedCodeRegionBlock region })
-                {
-                    return region;
-                }
-                if (i > 0 && 
-                    blocksList[i - 1] is BlockUIContainer { Child: EmbeddedCodeRegionBlock region2 })
-                {
-                    return region2;
-                }
-            }
-            // If caret is within a BlockUIContainer with a region, it's already inside
-            else if (block is BlockUIContainer { Child: EmbeddedCodeRegionBlock region3 })
-            {
-                return region3;
-            }
-
-            return null;
-        }
-
-        return null;
+        var caretIndex = FindCaretBlockIndex(blocksList, caret);
+        return DecideRegionEntry(blocksList, caretIndex, key)?.Region;
     }
 
     /// <summary>
@@ -619,24 +663,43 @@ internal static class RichTextBoxExtensions
         if (key is not (Key.Up or Key.Down or Key.Left or Key.Right))
             return false;
 
-        // Find if there's a region on the new caret position (dead zone detection)
-        var region = FindRegionOnCaretParagraph(rtb.Document, caretAfter);
-        if (region is null)
+        var forward = key is Key.Down or Key.Right;
+
+        // Direction-aware dead-zone detection on the predicted landing paragraph.
+        var blocksList = rtb.Document.Blocks.ToList();
+        var caretAfterIndex = FindCaretBlockIndex(blocksList, caretAfter);
+        var decision = DecideRegionEntry(blocksList, caretAfterIndex, key);
+        if (decision is null)
             return false;
 
-        // Determine position within the region based on arrow direction
-        int targetPosition = key switch
+        var region = decision.Value.Region;
+
+        // Guard against GetLineStartPosition walking ACROSS the region's non-text
+        // BlockUIContainer: the predicted caretAfter can resolve onto a paragraph on the WRONG
+        // side of the region, which would otherwise select the region against the direction of
+        // travel. Require the chosen region to lie on the correct side of the caret BEFORE the
+        // key press — forward keys may only enter a region positioned AFTER caretBefore,
+        // backward keys only a region positioned BEFORE caretBefore.
+        var container = FindContainerForRegion(rtb.Document, region);
+        if (container is not null)
         {
-            // Down arrow from above or Right arrow from left → position at START
-            Key.Down or Key.Right => 0,
-            // Up arrow from below or Left arrow from right → position at END
-            Key.Up or Key.Left => region.Content.Length,
-            _ => 0,
-        };
+            var onCorrectSide = forward
+                ? container.ElementStart.CompareTo(caretBefore) >= 0
+                : container.ElementEnd.CompareTo(caretBefore) <= 0;
+            if (!onCorrectSide)
+            {
+                SquadDashTrace.Write(
+                    "UI",
+                    $"EMBEDDED_CODE_SMART_NAV reject reason=region-wrong-side key={key} forward={forward} caretBefore-offset={GetCaretOffsetForTraceHelper(rtb, caretBefore)} caretAfter-offset={GetCaretOffsetForTraceHelper(rtb, caretAfter)}");
+                return false;
+            }
+        }
+
+        var targetPosition = decision.Value.TargetCaretPosition;
 
         SquadDashTrace.Write(
             "UI",
-            $"EMBEDDED_CODE_SMART_NAV enter key={key} caretBefore-offset={GetCaretOffsetForTraceHelper(rtb, caretBefore)} caretAfter-offset={GetCaretOffsetForTraceHelper(rtb, caretAfter)} targetPosition={targetPosition}");
+            $"EMBEDDED_CODE_SMART_NAV enter key={key} forward={forward} caretBefore-offset={GetCaretOffsetForTraceHelper(rtb, caretBefore)} caretAfter-offset={GetCaretOffsetForTraceHelper(rtb, caretAfter)} targetPosition={targetPosition}");
 
         // Focus the region at the calculated position
         region.FocusContentAtPosition(targetPosition);
