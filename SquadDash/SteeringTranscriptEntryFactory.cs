@@ -8,9 +8,9 @@ namespace SquadDash;
 internal static class SteeringPromptBuilder
 {
     internal const string VisibleAcknowledgementInstruction =
-        "At your next model opportunity, write a brief visible response to the user—not internal reasoning—" +
-        "acknowledging this steering and explaining in one or two sentences how it will affect your approach, " +
-        "then continue working. If the steering does not change your approach, briefly explain why in that visible response.";
+        "Before any further tool call or delegation, produce a user-facing assistant message in the normal conversation transcript, not hidden reasoning/thinking. " +
+        "In that message, acknowledge this steering and explain in one or two sentences how it will affect your approach, " +
+        "then continue working. If the steering does not change your approach, say that briefly in the same user-facing message.";
 
     internal static string AddVisibleAcknowledgementInstruction(string providerPrompt)
     {
