@@ -506,8 +506,53 @@ internal sealed class ToolTranscriptFormatterTests {
     [TestCase("No filename here", "+added")]
     [TestCase("Fix SchedulerService.cs", "")]
     [TestCase("Fix SchedulerService.cs", null)]
+    [TestCase("Fix SchedulerService.cs", "\n\n")]
     public void BuildSimulatedEdit_ReturnsNullWhenPathOrBodyMissing(string? description, string? output) =>
         Assert.That(ToolTranscriptFormatter.BuildSimulatedEdit(description, output), Is.Null);
+
+    [Test]
+    public void BuildSimulatedEdit_PicksLastFilenameTokenWhenMultiplePresent() {
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit("Sync Foo.cs with Bar.cs", "+line");
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.That(edit!.Path, Is.EqualTo("Bar.cs"));
+    }
+
+    [TestCase("Fix Parser.cs.", "Parser.cs")]
+    [TestCase("Update (Scheduler.cs)", "Scheduler.cs")]
+    [TestCase("Rewrite `Runner.cs`,", "Runner.cs")]
+    public void BuildSimulatedEdit_StripsSurroundingPunctuationFromPath(string description, string expectedPath) {
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit(description, "+line");
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.That(edit!.Path, Is.EqualTo(expectedPath));
+    }
+
+    [Test]
+    public void BuildSimulatedEdit_NormalizesCrlfLooseLines() {
+        var output = "- old line\r\n+ new line";
+
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit("Fix Worker.cs", output);
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(edit!.AddedLineCount, Is.EqualTo(1));
+            Assert.That(edit.RemovedLineCount, Is.EqualTo(1));
+            Assert.That(edit.UnifiedDiff, Does.Not.Contain("\r"));
+        });
+    }
+
+    [Test]
+    public void BuildSimulatedEdit_TreatsUnmarkedLinesAsContextYieldingNoChangeCounts() {
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit("Touch Config.cs", "untouched line");
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(edit!.AddedLineCount, Is.EqualTo(0));
+            Assert.That(edit.RemovedLineCount, Is.EqualTo(0));
+            Assert.That(edit.UnifiedDiff, Does.Contain(" untouched line"));
+        });
+    }
 
     [Test]
     public void TryExtractEditUnifiedDiff_MultiFileOutputWithoutDescriptorUsesFirstFile() {
