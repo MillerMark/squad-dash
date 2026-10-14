@@ -366,6 +366,11 @@
           "kind": "manual-correction",
           "summary": "Fixed IntelliSense crash on undo (bounds checking) and finally enabled embedded region editing via PreviewMouseLeftButtonDown handler that suppresses RichTextBox block selection and routes clicks to internal TextBox.",
           "recordedAt": "2026-10-13T14:57:57.1170296+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Implemented smart arrow-key navigation into embedded regions: Down/Up from above/below lands at START/END of region content; Left/Right entry lands at appropriate position. Eliminated dead-zone navigation with intelligent direction-aware caret positioning.",
+          "recordedAt": "2026-10-14T02:38:45.2494759+00:00"
         }
       ],
       "executionMode": "implementation",

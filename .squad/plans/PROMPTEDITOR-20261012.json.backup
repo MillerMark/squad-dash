@@ -361,6 +361,11 @@
           "kind": "manual-correction",
           "summary": "Fixed 4 bugs found in manual testing of embedded regions: made region content editable (removed IsReadOnly, wired TextChanged), fixed caret offset/placement to account for region length and preserve position across document rebuilds, ran fence conversion after programmatic prompt-text load/restore (not just live typing), and added explicit adjacent-region deletion to prevent a crash on Delete. Commit 2935907, full suite 7758/7762 passed (4 pre-existing unrelated failures), targeted 59/59 passed.",
           "recordedAt": "2026-10-13T12:44:36.2955744+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed IntelliSense crash on undo (bounds checking) and finally enabled embedded region editing via PreviewMouseLeftButtonDown handler that suppresses RichTextBox block selection and routes clicks to internal TextBox.",
+          "recordedAt": "2026-10-13T14:57:57.1170296+00:00"
         }
       ],
       "executionMode": "implementation",
