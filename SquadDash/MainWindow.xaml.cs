@@ -35063,6 +35063,14 @@ public partial class MainWindow : Window
             entry.OutputText    = string.IsNullOrWhiteSpace(output) ? null : output;
             entry.DetailContent = ToolTranscriptDetailContent.Build(new ToolTranscriptDetail(
                 descriptor, null, output, entry.StartedAt, entry.FinishedAt, null, true, true));
+
+            if (string.Equals(toolName, "edit", StringComparison.OrdinalIgnoreCase) &&
+                ToolTranscriptFormatter.BuildSimulatedEdit(description, output) is { } simulatedEdit)
+            {
+                entry.CapturedEdits  = new[] { simulatedEdit };
+                entry.IsSimulatedEdit = true;
+            }
+
             RenderToolEntry(entry);
 
             await Task.Delay(rng.Next(120, 300));
@@ -49691,14 +49699,23 @@ public partial class MainWindow : Window
                 entry.CapturedEdits,
                 async clickedEdit =>
                 {
-                    var originatingCall = new CapturedEditCall(
-                        entry.ToolCallId,
-                        entry.StartedAt,
-                        entry.CapturedEdits ?? Array.Empty<CapturedFileEdit>());
-                    var viewer = await CommitViewerWindow.CreateFromCapturedEditsAsync(
-                        originatingCall,
-                        clickedEdit.Path,
-                        () => BuildCapturedTurnEdits(entry.Turn));
+                    CommitViewerWindow viewer;
+                    if (entry.IsSimulatedEdit)
+                    {
+                        viewer = await CommitViewerWindow.CreateFromPatchAsync(
+                            clickedEdit.DisplayName, clickedEdit.UnifiedDiff);
+                    }
+                    else
+                    {
+                        var originatingCall = new CapturedEditCall(
+                            entry.ToolCallId,
+                            entry.StartedAt,
+                            entry.CapturedEdits ?? Array.Empty<CapturedFileEdit>());
+                        viewer = await CommitViewerWindow.CreateFromCapturedEditsAsync(
+                            originatingCall,
+                            clickedEdit.Path,
+                            () => BuildCapturedTurnEdits(entry.Turn));
+                    }
                     viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);
                     if (CanShowOwnedWindow())
                         viewer.Owner = this;

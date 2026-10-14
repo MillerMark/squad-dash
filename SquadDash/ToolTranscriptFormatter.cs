@@ -758,6 +758,45 @@ internal static class ToolTranscriptFormatter {
             (lines.Count == 0 ? string.Empty : "\n" + string.Join("\n", lines));
     }
 
+    /// <summary>
+    /// Builds a synthetic <see cref="CapturedFileEdit"/> for a guided-tour "edit" tool call whose
+    /// output carries only loose <c>- old</c>/<c>+ new</c> lines (no real unified-diff headers).
+    /// The filename is pulled from the tool <paramref name="description"/> (e.g. "Fix Foo.cs"), and the
+    /// loose lines are wrapped into a proper unified diff via <see cref="BuildCapturedHunk"/> so the
+    /// resulting edit renders identically to a real capture — same +N/-N chips and same diff viewer.
+    /// </summary>
+    internal static CapturedFileEdit? BuildSimulatedEdit(string? description, string? output) {
+        var path = ExtractSimulatedEditPath(description);
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        var diffLines = new List<string>();
+        foreach (var line in (output ?? string.Empty).ReplaceLineEndings("\n").Split('\n')) {
+            if (line.Length == 0)
+                continue;
+            diffLines.Add(line[0] is '+' or '-' or ' ' ? line : " " + line);
+        }
+        if (diffLines.Count == 0)
+            return null;
+
+        var patch = BuildCapturedHunk(path, diffLines, isNew: false);
+        var edits = TryExtractCapturedEdits(new ToolTranscriptDescriptor("edit", DisplayText: path), patch);
+        return edits.Count > 0 ? edits[0] : null;
+    }
+
+    private static string? ExtractSimulatedEditPath(string? description) {
+        if (string.IsNullOrWhiteSpace(description))
+            return null;
+        var tokens = description.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        for (var index = tokens.Length - 1; index >= 0; index--) {
+            var token = tokens[index].Trim('.', ',', ':', ';', '"', '\'', '`', '(', ')');
+            if (token.Length > 0 && token.Contains('.') &&
+                !token.EndsWith('.') && !token.EndsWith('/') && !token.EndsWith('\\'))
+                return token;
+        }
+        return null;
+    }
+
     internal static bool IsCapturedContentSnapshot(string? patch) =>
         patch?.ReplaceLineEndings("\n").Split('\n').Any(line =>
             line.StartsWith("@@ ", StringComparison.Ordinal) &&

@@ -466,6 +466,50 @@ internal sealed class ToolTranscriptFormatterTests {
     }
 
     [Test]
+    public void BuildSimulatedEdit_WrapsLooseDiffLinesIntoParseableUnifiedDiff() {
+        var output = "- var result = context.Items.FirstOrDefault().Value;\n" +
+                     "+ var result = context.Items.FirstOrDefault()?.Value ?? string.Empty;";
+
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit("Fix SchedulerService.cs", output);
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(edit!.Path, Is.EqualTo("SchedulerService.cs"));
+            Assert.That(edit.DisplayName, Is.EqualTo("SchedulerService.cs"));
+            Assert.That(edit.AddedLineCount, Is.EqualTo(1));
+            Assert.That(edit.RemovedLineCount, Is.EqualTo(1));
+            Assert.That(edit.IsNewFile, Is.False);
+            Assert.That(edit.IsDeletedFile, Is.False);
+            Assert.That(edit.UnifiedDiff, Does.Contain("@@ -1,1 +1,1 @@"));
+            Assert.That(edit.UnifiedDiff, Does.Contain("+++ b/SchedulerService.cs"));
+        });
+
+        // The simulated diff must round-trip through the real extractor so the diff viewer renders it identically.
+        var reparsed = ToolTranscriptFormatter.TryExtractCapturedEdits(
+            new ToolTranscriptDescriptor("edit", DisplayText: "SchedulerService.cs"), edit!.UnifiedDiff);
+        Assert.That(reparsed.Count, Is.EqualTo(1));
+        Assert.That((reparsed[0].AddedLineCount, reparsed[0].RemovedLineCount), Is.EqualTo((1, 1)));
+    }
+
+    [TestCase("Fix SchedulerService.cs", "SchedulerService.cs")]
+    [TestCase("Update TaskRunner.cs", "TaskRunner.cs")]
+    [TestCase("Rewrite src/Deeply/Nested/File.cs now", "src/Deeply/Nested/File.cs")]
+    public void BuildSimulatedEdit_ExtractsFileTokenFromDescription(string description, string expectedPath) {
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit(description, "+added line");
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.That(edit!.Path, Is.EqualTo(expectedPath));
+    }
+
+    [TestCase(null, "+added")]
+    [TestCase("", "+added")]
+    [TestCase("No filename here", "+added")]
+    [TestCase("Fix SchedulerService.cs", "")]
+    [TestCase("Fix SchedulerService.cs", null)]
+    public void BuildSimulatedEdit_ReturnsNullWhenPathOrBodyMissing(string? description, string? output) =>
+        Assert.That(ToolTranscriptFormatter.BuildSimulatedEdit(description, output), Is.Null);
+
+    [Test]
     public void TryExtractEditUnifiedDiff_MultiFileOutputWithoutDescriptorUsesFirstFile() {
         var output = CapturedEditPatch + "\n" + CapturedEditPatch.Replace("src/file.cs", "other/second.cs");
         var descriptor = new ToolTranscriptDescriptor("apply_patch");
