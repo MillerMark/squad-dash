@@ -2,7 +2,7 @@
   "planId": "PROMPTEDITOR-20261012",
   "revision": "75c5fd5dc168b7c4",
   "source": "tasks_json",
-  "lifecycleStatus": "awaiting-approval",
+  "lifecycleStatus": "approved",
   "title": "Upgrade Prompt Editor with Embedded Code Regions",
   "branch": "feature/prompt-editor-embedded-regions",
   "summary": "Convert the prompt box from a plain TextBox to a RichTextBox so it can host collapsible embedded code regions, add triple-backtick fence creation/collapse, and add Up/Down boundary navigation across those regions \u2014 all without regressing ordinary plain-text typing, voice dictation, or existing transcript code-block styling.",
@@ -371,6 +371,41 @@
           "kind": "manual-correction",
           "summary": "Implemented smart arrow-key navigation into embedded regions: Down/Up from above/below lands at START/END of region content; Left/Right entry lands at appropriate position. Eliminated dead-zone navigation with intelligent direction-aware caret positioning.",
           "recordedAt": "2026-10-14T02:38:45.2494759+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Lyra fixed embedded-fence bugs (c#/f#/dotted language tags, CRLF content normalization, indented markers via TrimEnd on both open and close) in commit 55fa2077; coordinator verified regex, symmetric TrimEnd, and 60 passing tests (8 new).",
+          "recordedAt": "2026-10-14T04:08:06.7260883+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Lyra registered user and system steering entries into thread.PromptParagraphs at correct document-order position (all three render paths incl. persisted reload) so prompt navigation, Alt\u002B? scan, and geometry now include steering stops; commit b961db6, 19 tests pass; coordinator verified.",
+          "recordedAt": "2026-10-14T08:11:13.1437502+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Lyra implemented Bug #2: variable-length embedded-region fences (outer = longest inner backtick run \u002B 1) with length-aware detection, close-matching, and unterminated-opener-to-end handling; copy and send share BuildFencedText; commit a73c8ec, 79 EmbeddedCodeRegion tests pass (coordinator-verified).",
+          "recordedAt": "2026-10-14T08:34:41.1882009+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Lyra replaced stateful inline-editor arrow logic with pure position-only EmbeddedCaretNavMath.Decide(text,caret,selection,key): Up always exits on first line and Down always exits on last line regardless of column (killing WPF desired-X hidden state), Left exits at index 0, Right at end; escape targets/insert-when-missing preserved; commit 939db2c, 159 Embedded tests pass incl. column-independence cases (coordinator-verified).",
+          "recordedAt": "2026-10-14T09:00:57.3573725+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed regression where copying a prompt-box selection spanning an embedded code region stripped the region: added GetSelectionFencedText serializer \u002B PromptTextBox DataObjectCopying handler reusing the GetPlainText block-walk, with 5 regression tests (commit 830ceca, 84 embedded-region tests pass, coordinator-verified).",
+          "recordedAt": "2026-10-14T09:47:54.3075886+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Redesigned the in-prompt embedded code-region editor: removed the collapse/expand toggle (region always expanded; trailing-fence now exits without collapsing), capped editor height at 50% of the prompt box max (host.MaxHeight/2, 130 fallback), enabled the standard vertical scrollbar, and moved the language label above a now-transparent outer container with the rectangle around only the editor; ToFencedText serialization unchanged; commit 15e3eb5, 87 embedded-region tests pass (coordinator-verified).",
+          "recordedAt": "2026-10-14T14:56:51.6513089+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Region editor styling tweaks: halved the editor rectangle\u0027s border contrast (BorderBrush at 50% opacity via a theme-safe Tag/DynamicResource-bound half-opacity SolidColorBrush, content/text unfaded), made the language label italic, and set its background to transparent. Commit 47cb611; new test LanguageLabel_IsItalicWithNoBackground; 88/88 EmbeddedCodeRegion tests pass; build clean.",
+          "recordedAt": "2026-10-14T15:07:55.6721004+00:00"
         }
       ],
       "executionMode": "implementation",
@@ -407,7 +442,9 @@
         "PROMPTEDITOR-20261012-002"
       ],
       "priority": "mid",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-10-14T15:50:48.1750882+00:00",
+      "completionSummary": "Up/Down caret boundary navigation across embedded code regions is already implemented and committed at HEAD a1452830; independently verified with 88/88 EmbeddedCodeRegion tests green and a clean build, so no source change was needed.",
       "agentAssignments": [
         {
           "agentHandle": "lyra-morn",
@@ -419,8 +456,169 @@
       "inputs": [
         "embedded-region-fence-contract"
       ],
+      "handoff": {
+        "summary": "Up/Down caret boundary navigation across embedded code regions is already implemented and committed at HEAD a1452830; independently verified with 88/88 EmbeddedCodeRegion tests green and a clean build, so no source change was needed.",
+        "changedFiles": [],
+        "verification": {
+          "status": "passed",
+          "command": "dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion\u0022",
+          "summary": "EmbeddedCodeRegion suite fully green on the evaluated HEAD a1452830; build succeeded with 0 warnings/0 errors.",
+          "tests": {
+            "total": 88,
+            "passed": 88,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        "submittedAt": "2026-10-14T15:47:20.2304226+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Verified Requirement 1 (Up at the first line below a region enters/passes it without stalling): PromptTextBox_KeyDown (MainWindow.xaml.cs:28054-28061) intercepts unmodified Up and calls RichTextBoxExtensions.TryFocusAdjacentEmbeddedCodeRegion(LogicalDirection.Backward), which locates the adjacent BlockUIContainer-hosted EmbeddedCodeRegionBlock via FindAdjacentEmbeddedCodeRegion (RichTextBoxExtensions.cs:431) and focuses its content.",
+          "Verified Requirement 2 (Down at the last line above a region behaves symmetrically): the same handler routes Down through LogicalDirection.Forward using block.ElementStart, with the smart-nav fallback TryNavigateIntoEmbeddedRegionWithDirection (RichTextBoxExtensions.cs:597) targeting the region\u0027s start/end position per direction.",
+          "Verified Requirement 3 (navigation past a region lands in the correct adjacent plain-text line): the dead-zone smart-nav path (MainWindow.xaml.cs:28066-28087) plus the pure, position-only EmbeddedCaretNavMath.Decide (EmbeddedCaretNavMath.cs:40, ExitForward/ExitBackward on first/last line) drive FocusHostOutsideRegion to the adjacent paragraph\u0027s ContentStart/ContentEnd.",
+          "Confirmed the key handler is actually wired via PreviewKeyDown=\u0022PromptTextBox_KeyDown\u0022 on PromptTextBox (MainWindow.xaml:3577), so the navigation logic is reachable at runtime.",
+          "Confirmed no manufactured edits: HEAD remains the task baseline a1452830 on the canonical branch with no pending source changes (only host-owned .squad/plans JSON is modified)."
+        ],
+        "baselineCommit": "a145283079d90c3981160f90949c31ea60a02495",
+        "completionKind": "verified-no-op",
+        "evaluatedCommit": "a145283079d90c3981160f90949c31ea60a02495",
+        "noOpEvidence": [
+          {
+            "requirement": "Pressing Up at the first line below a region moves the caret into/past the region instead of stalling.",
+            "observation": "Unmodified Up is intercepted and handled by focusing the adjacent embedded region via TryFocusAdjacentEmbeddedCodeRegion(Backward), with a dead-zone fallback that focuses the region content at its end position for Up.",
+            "locations": [
+              "SquadDash/MainWindow.xaml.cs:28054-28061",
+              "SquadDash/MainWindow.xaml.cs:28066-28087",
+              "SquadDash/RichTextBoxExtensions.cs:399",
+              "SquadDash/RichTextBoxExtensions.cs:431"
+            ]
+          },
+          {
+            "requirement": "Pressing Down at the last line above a region behaves symmetrically.",
+            "observation": "The same PromptTextBox_KeyDown path handles unmodified Down via LogicalDirection.Forward and the smart-nav decision targets the region start position for Down.",
+            "locations": [
+              "SquadDash/MainWindow.xaml.cs:28056",
+              "SquadDash/RichTextBoxExtensions.cs:544",
+              "SquadDash/RichTextBoxExtensions.cs:597"
+            ]
+          },
+          {
+            "requirement": "Navigation past a region lands the caret in the correct adjacent plain-text line.",
+            "observation": "Pure position-only exit decisions (ExitForward/ExitBackward on first/last line) drive focus to the adjacent host paragraph\u0027s ContentStart (forward) or ContentEnd (backward), creating a host paragraph if none exists.",
+            "locations": [
+              "SquadDash/EmbeddedCaretNavMath.cs:40",
+              "SquadDash/EmbeddedCaretNavMath.cs:58-69",
+              "SquadDash/EmbeddedCodeRegionBlock.cs:409",
+              "SquadDash/EmbeddedCodeRegionBlock.cs:444"
+            ]
+          },
+          {
+            "requirement": "No regression of existing embedded-region behavior; build green.",
+            "observation": "dotnet test with the EmbeddedCodeRegion filter reports 88 passed / 0 failed / 0 skipped and the solution builds with 0 warnings/0 errors.",
+            "locations": [
+              "SquadDash.Tests/EmbeddedCodeRegionTests.cs"
+            ]
+          }
+        ]
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "Verified no-op: Up/Down boundary navigation into, through, and out of expanded embedded code regions is already implemented, wired, and tested at the evaluated snapshot. HEAD still equals baseline a145283 with only host-owned .squad/plans JSON dirty. Entry (host-\u003Eregion) via PromptTextBox_KeyDown \u002B TryFocusAdjacentEmbeddedCodeRegion/TryNavigateIntoEmbeddedRegionWithDirection; exit (region-\u003Ehost) via content-box PreviewKeyDown \u002B pure EmbeddedCaretNavMath.Decide \u002B FocusHostOutsideRegion/FindHostCaretPointer. No collapse/expand feature exists, so only the expanded path is applicable and it works. 88 EmbeddedCodeRegion tests pass, build clean.",
+          "claimFindings": [
+            {
+              "claim": "HEAD unchanged and worktree has no task-owned source changes",
+              "disposition": "supported",
+              "evidence": "git rev-parse HEAD = a145283079d90c3981160f90949c31ea60a02495; git status --porcelain shows only \u0027 M .squad/plans/PROMPTEDITOR-20261012.json\u0027 and its .backup (host-owned). Branch feature/prompt-editor-embedded-regions active."
+            },
+            {
+              "claim": "Req1 (Up below region moves caret into/past region) implemented and wired",
+              "disposition": "supported",
+              "evidence": "MainWindow.xaml.cs:28054-28061 intercepts unmodified Up/Down and calls PromptTextBox.TryFocusAdjacentEmbeddedCodeRegion(Backward for Up); 28066-28087 computes simulated caretAfter and calls TryNavigateIntoEmbeddedRegionWithDirection. RichTextBoxExtensions.cs:399 TryFocusAdjacentEmbeddedCodeRegion and :431 FindAdjacentEmbeddedCodeRegion locate the BlockUIContainer-hosted EmbeddedCodeRegionBlock adjacent to the caret and call region.FocusContent()."
+            },
+            {
+              "claim": "Req2 (Down above region, symmetric)",
+              "disposition": "supported",
+              "evidence": "Same handler block at MainWindow.xaml.cs:28056 passes Forward for Key.Down. RichTextBoxExtensions.cs:544 FindRegionOnCaretParagraph and :597 TryNavigateIntoEmbeddedRegionWithDirection symmetrically detect the region on the destination paragraph and FocusContentAtPosition (0 for Down/Right, Content.Length for Up/Left)."
+            },
+            {
+              "claim": "Req3 (lands in correct adjacent plain-text line)",
+              "disposition": "supported",
+              "evidence": "EmbeddedCaretNavMath.Decide (EmbeddedCaretNavMath.cs:40,58-69) is a pure position-only decision returning ExitBackward on first line / ExitForward on last line. EmbeddedCodeRegionBlock.cs:409 FocusHostOutsideRegion and :444 FindHostCaretPointer move focus to the adjacent Paragraph\u0027s ContentStart (Forward) / ContentEnd (Backward), inserting a host paragraph via InsertHostParagraphWithoutUndo when none exists."
+            },
+            {
+              "claim": "Handler genuinely wired via PreviewKeyDown",
+              "disposition": "supported",
+              "evidence": "MainWindow.xaml:3577 PreviewKeyDown=\u0022PromptTextBox_KeyDown\u0022 on PromptTextBox; the exit side is wired via _contentBox.PreviewKeyDown in EmbeddedCodeRegionBlock.cs:127/175-198 consuming EmbeddedCaretNavMath.Decide."
+            },
+            {
+              "claim": "No collapse/expand feature leaves a collapsed boundary case unhandled",
+              "disposition": "supported",
+              "evidence": "grep for Collapse|Expand|IsExpanded|ToggleButton in EmbeddedCodeRegionBlock.cs returned no matches; only the expanded navigation path exists, so the \u0027collapsed or expanded\u0027 wording is satisfied vacuously."
+            },
+            {
+              "claim": "Tests: 88 passed / 0 failed / 0 skipped, clean build",
+              "disposition": "supported",
+              "evidence": "Ran dotnet test SquadDash.Tests with --filter FullyQualifiedName~EmbeddedCodeRegion using the prescribed DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR env var only: \u0027Failed: 0, Passed: 88, Skipped: 0, Total: 88\u0027; build produced no warnings/errors."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "Coverage genuinely exercises the boundary-navigation decision logic rather than passing trivially. EmbeddedCaretNavMathTests.cs directly asserts Decide() returns ExitBackward/ExitForward on first/last line and PassThrough for middle lines, selections, and non-boundary columns across empty, single-line, and multi-line text \u2014 the exact core of Req1/Req2/Req3. EmbeddedCodeRegionTests.cs adds integration coverage of FindAdjacentEmbeddedCodeRegion (adjacent true / non-adjacent null), FindRegionOnCaretParagraph (on-region vs off-region), and TryNavigateIntoEmbeddedRegionWithDirection_DownArrow_ReturnsTrue. The two MultilineRegion_*ShouldNotExit tests are weak (they assert content integrity, not the decision outcome), but the NavMath unit tests cover those non-exit middle-line cases properly, so the weakness is not a gap. Live WPF key routing cannot be fully proven headlessly, but per standard-level guidance the deterministic decision logic is covered and wired into the real PreviewKeyDown handlers, which is acceptable.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "a145283079d90c3981160f90949c31ea60a02495",
+          "completedAt": "2026-10-14T15:50:48.1147946+00:00"
+        }
+      ],
       "displayStepLabel": "3",
-      "executionMode": "implementation"
+      "commits": [],
+      "executionMode": "implementation",
+      "completionSummaryItems": [
+        "Verified Requirement 1 (Up at the first line below a region enters/passes it without stalling): PromptTextBox_KeyDown (MainWindow.xaml.cs:28054-28061) intercepts unmodified Up and calls RichTextBoxExtensions.TryFocusAdjacentEmbeddedCodeRegion(LogicalDirection.Backward), which locates the adjacent BlockUIContainer-hosted EmbeddedCodeRegionBlock via FindAdjacentEmbeddedCodeRegion (RichTextBoxExtensions.cs:431) and focuses its content.",
+        "Verified Requirement 2 (Down at the last line above a region behaves symmetrically): the same handler routes Down through LogicalDirection.Forward using block.ElementStart, with the smart-nav fallback TryNavigateIntoEmbeddedRegionWithDirection (RichTextBoxExtensions.cs:597) targeting the region\u0027s start/end position per direction.",
+        "Verified Requirement 3 (navigation past a region lands in the correct adjacent plain-text line): the dead-zone smart-nav path (MainWindow.xaml.cs:28066-28087) plus the pure, position-only EmbeddedCaretNavMath.Decide (EmbeddedCaretNavMath.cs:40, ExitForward/ExitBackward on first/last line) drive FocusHostOutsideRegion to the adjacent paragraph\u0027s ContentStart/ContentEnd.",
+        "Confirmed the key handler is actually wired via PreviewKeyDown=\u0022PromptTextBox_KeyDown\u0022 on PromptTextBox (MainWindow.xaml:3577), so the navigation logic is reachable at runtime.",
+        "Confirmed no manufactured edits: HEAD remains the task baseline a1452830 on the canonical branch with no pending source changes (only host-owned .squad/plans JSON is modified)."
+      ],
+      "completionKind": "verified-no-op",
+      "evaluatedCommit": "a145283079d90c3981160f90949c31ea60a02495",
+      "noOpEvidence": [
+        {
+          "requirement": "Pressing Up at the first line below a region moves the caret into/past the region instead of stalling.",
+          "observation": "Unmodified Up is intercepted and handled by focusing the adjacent embedded region via TryFocusAdjacentEmbeddedCodeRegion(Backward), with a dead-zone fallback that focuses the region content at its end position for Up.",
+          "locations": [
+            "SquadDash/MainWindow.xaml.cs:28054-28061",
+            "SquadDash/MainWindow.xaml.cs:28066-28087",
+            "SquadDash/RichTextBoxExtensions.cs:399",
+            "SquadDash/RichTextBoxExtensions.cs:431"
+          ]
+        },
+        {
+          "requirement": "Pressing Down at the last line above a region behaves symmetrically.",
+          "observation": "The same PromptTextBox_KeyDown path handles unmodified Down via LogicalDirection.Forward and the smart-nav decision targets the region start position for Down.",
+          "locations": [
+            "SquadDash/MainWindow.xaml.cs:28056",
+            "SquadDash/RichTextBoxExtensions.cs:544",
+            "SquadDash/RichTextBoxExtensions.cs:597"
+          ]
+        },
+        {
+          "requirement": "Navigation past a region lands the caret in the correct adjacent plain-text line.",
+          "observation": "Pure position-only exit decisions (ExitForward/ExitBackward on first/last line) drive focus to the adjacent host paragraph\u0027s ContentStart (forward) or ContentEnd (backward), creating a host paragraph if none exists.",
+          "locations": [
+            "SquadDash/EmbeddedCaretNavMath.cs:40",
+            "SquadDash/EmbeddedCaretNavMath.cs:58-69",
+            "SquadDash/EmbeddedCodeRegionBlock.cs:409",
+            "SquadDash/EmbeddedCodeRegionBlock.cs:444"
+          ]
+        },
+        {
+          "requirement": "No regression of existing embedded-region behavior; build green.",
+          "observation": "dotnet test with the EmbeddedCodeRegion filter reports 88 passed / 0 failed / 0 skipped and the solution builds with 0 warnings/0 errors.",
+          "locations": [
+            "SquadDash.Tests/EmbeddedCodeRegionTests.cs"
+          ]
+        }
+      ]
     }
   ],
   "approvalGates": [
@@ -431,9 +629,13 @@
         "PROMPTEDITOR-20261012-003"
       ],
       "beforeTaskIds": [],
-      "status": "pending",
+      "status": "approved",
+      "requestedAt": "2026-10-14T15:50:48.616307+00:00",
+      "resolvedAt": "2026-10-14T18:22:33.4864313+00:00",
       "planRevision": "75c5fd5dc168b7c4",
+      "notifiedAt": "2026-10-14T15:50:48.616307+00:00",
       "presentationAnchor": "task-after:PROMPTEDITOR-20261012-003",
+      "resolvedBy": "MillerMark",
       "proofRequirements": [
         {
           "requirementId": "voice-dictation-no-regression",
@@ -520,9 +722,103 @@
           "title": "Plain-text typing looks unchanged"
         }
       ],
+      "proofEvidence": [
+        {
+          "requirementId": "voice-dictation-no-regression",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm voice dictation still inserts dictated text correctly into the converted RichTextBox-based prompt editor. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "embedded-region-styling-matches-transcript",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm an embedded code region\u0027s visual styling matches how fenced code blocks are already rendered elsewhere in the transcript. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "backtick-create-and-collapse-works",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm typing a triple-backtick fence creates a collapsible embedded region and that collapsing/expanding it works interactively. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "arrow-navigation-works-live",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm Up/Down arrow-key navigation moves the caret correctly across an embedded region\u0027s top and bottom boundaries. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "paste-conversion-works-live",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm pasting text containing a triple-backtick fence converts it into a collapsible embedded region in the live editor. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "plain-text-typing-appearance-parity",
+          "proofType": "human-observation",
+          "summary": "MillerMark confirmed: Confirm ordinary plain-text typing in the converted RichTextBox-based prompt editor matches the pre-conversion TextBox experience, since a control-type migration can introduce subtle rendering differences that automated tests cannot truthfully rule out. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        }
+      ],
       "afterTaskIdsSpecified": true,
       "beforeTaskIdsSpecified": true,
-      "question": "Does the upgraded prompt editor preserve plain-text typing and voice dictation, render embedded regions consistent with transcript code blocks, support backtick-driven region creation/collapse and live paste conversion, and support correct Up/Down boundary navigation?"
+      "question": "Does the upgraded prompt editor preserve plain-text typing and voice dictation, render embedded regions consistent with transcript code blocks, support backtick-driven region creation/collapse and live paste conversion, and support correct Up/Down boundary navigation?",
+      "humanReviewSelections": [
+        {
+          "itemId": "voice-dictation-no-regression",
+          "isChecked": true,
+          "candidateCommit": "uncommitted-candidate",
+          "updatedAt": "2026-10-14T17:33:59.8979761+00:00",
+          "reviewTarget": "v1:ECB8214853656DBB8359FDD60355DF6353B615EF9F52700A8821BE572D3036D6"
+        },
+        {
+          "itemId": "embedded-region-styling-matches-transcript",
+          "isChecked": true,
+          "candidateCommit": "uncommitted-candidate",
+          "updatedAt": "2026-10-14T17:35:27.9791687+00:00",
+          "reviewTarget": "v1:ECB8214853656DBB8359FDD60355DF6353B615EF9F52700A8821BE572D3036D6"
+        },
+        {
+          "itemId": "backtick-create-and-collapse-works",
+          "isChecked": true,
+          "candidateCommit": "uncommitted-candidate",
+          "updatedAt": "2026-10-14T17:36:10.0437665+00:00",
+          "reviewTarget": "v1:ECB8214853656DBB8359FDD60355DF6353B615EF9F52700A8821BE572D3036D6"
+        },
+        {
+          "itemId": "arrow-navigation-works-live",
+          "isChecked": true,
+          "candidateCommit": "uncommitted-candidate",
+          "updatedAt": "2026-10-14T17:36:38.7923254+00:00",
+          "reviewTarget": "v1:ECB8214853656DBB8359FDD60355DF6353B615EF9F52700A8821BE572D3036D6"
+        },
+        {
+          "itemId": "paste-conversion-works-live",
+          "isChecked": true,
+          "candidateCommit": "uncommitted-candidate",
+          "updatedAt": "2026-10-14T17:36:52.1945057+00:00",
+          "reviewTarget": "v1:ECB8214853656DBB8359FDD60355DF6353B615EF9F52700A8821BE572D3036D6"
+        },
+        {
+          "itemId": "plain-text-typing-appearance-parity",
+          "isChecked": true,
+          "candidateCommit": "uncommitted-candidate",
+          "updatedAt": "2026-10-14T17:37:26.8263224+00:00",
+          "reviewTarget": "v1:ECB8214853656DBB8359FDD60355DF6353B615EF9F52700A8821BE572D3036D6"
+        }
+      ]
     },
     {
       "gateId": "PROMPTEDITOR-20261012-GATE-002",
@@ -533,25 +829,36 @@
       "beforeTaskIds": [
         "PROMPTEDITOR-20261012-003"
       ],
-      "status": "awaiting-approval",
+      "status": "approved",
       "requestedAt": "2026-10-13T04:40:01.1048676+00:00",
+      "resolvedAt": "2026-10-14T15:29:50.3110646+00:00",
       "planRevision": "75c5fd5dc168b7c4",
       "notifiedAt": "2026-10-13T04:40:01.1048676+00:00",
       "presentationAnchor": "task-after:PROMPTEDITOR-20261012-002",
+      "resolvedBy": "MillerMark",
       "afterTaskIdsSpecified": true,
       "beforeTaskIdsSpecified": true,
-      "question": "Has Add triple-backtick embedded region creation and collapse been reviewed and approved?"
+      "question": "Has Add triple-backtick embedded region creation and collapse been reviewed and approved?",
+      "humanReviewSelections": [
+        {
+          "itemId": "legacy#1",
+          "isChecked": true,
+          "candidateCommit": "7557739a0e76ba5fbeecce1a4f6bd6c302bfa634",
+          "updatedAt": "2026-10-14T15:29:46.0773853+00:00",
+          "reviewTarget": "v1:AC1CF17B803C6A98F5EC17B27D91BB3890729222E9B0830A4B20E2C3A887724C"
+        }
+      ]
     }
   ],
   "progress": {
-    "completedCount": 2,
+    "completedCount": 3,
     "totalCount": 3
   },
   "timestamps": {
     "createdAt": "2026-10-13T03:17:38.856862+00:00",
     "acceptedAt": "2026-10-13T03:17:38.856862+00:00",
     "startedAt": "2026-10-13T03:17:39.2006191+00:00",
-    "lastRunAt": "2026-10-13T04:40:01.4230022+00:00"
+    "lastRunAt": "2026-10-14T18:22:33.4864313+00:00"
   },
   "hostRevision": "75c5fd5dc168b7c4",
   "validations": [
@@ -578,8 +885,9 @@
         "dotnet test SquadDash.Tests/SquadDash.Tests.csproj"
       ],
       "revalidateAtCompletion": true,
-      "status": "pending"
+      "status": "ready"
     }
   ],
-  "revisionNumber": 1
+  "revisionNumber": 1,
+  "isPaused": true
 }
