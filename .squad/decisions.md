@@ -4,6 +4,165 @@
 
 ---
 
+### 2026-10-14 — AvalonEdit region-editor integration & theming strategy (AVALONEDIT-20261014-001)
+
+**Status:** Architecture contract. Lead Architect: Orion Vale. This is the integration and
+theming contract consumed by Task 002 (migration) and Task 004 (highlighting + theme). It does
+NOT implement the migration — it defines how the implementers must execute.
+
+**Context:** `SquadDash/EmbeddedCodeRegionBlock.cs` hosts the embedded code-region editor as a
+plain WPF `TextBox` inside a `RichTextBox` `BlockUIContainer`. We are replacing that `TextBox`
+with ICSharpCode AvalonEdit's `TextEditor` to gain real code editing (gutter-free monospace,
+future syntax highlighting). AvalonEdit's colors are NOT driven by WPF `DynamicResource`, so the
+existing `SetResourceReference`-to-`CodeSurface`/`CodeText` theming does not carry over and must
+be re-applied imperatively on every theme switch.
+
+**Verified repository facts (checked at HEAD 1eac95c6):**
+- Inner editor: `_contentBox` (`TextBox`) built at ~line 74; `CodeSurface`/`CodeText` applied via
+  `SetResourceReference` (lines 89–90); editor chrome `editorBorder` uses `SetResourceReference`
+  to `CodeSurface` + a `SubtleBorder`-via-`Tag` half-contrast border (lines 259–279).
+- Native-selection fix (commit 811809a0): the bubbling `MouseLeftButtonDownEvent` handler with
+  `handledEventsToo: true` (lines 105–123) lets the TextBox apply native caret/word-select/drag
+  selection, then collapses the host selection and marks handled so the host `RichTextBox` never
+  object-selects the `BlockUIContainer`. `MainWindow.PromptTextBox_PreviewMouseLeftButtonDown`
+  (line 27499) defers content-box clicks via `EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture`
+  (line 65). BOTH halves of this contract MUST be preserved and re-mapped.
+- Fenced copy/cut: `PreviewKeyDown` (lines 140–162) wraps the selection via
+  `EmbeddedFenceDetector.BuildFencedText` on Ctrl+C/Ctrl+X.
+- Boundary-exit nav: `PreviewKeyDown` (lines 165–241) uses `EmbeddedCaretNavMath.Decide(text,
+  caretIndex, selectionLength, key)` — a PURE function — plus Tab/Shift+Tab/Ctrl+Up/Ctrl+Down to
+  call `FocusHostOutsideRegion`.
+- Theme hook: `MainWindow.ApplyTheme` (line 55462) swaps `Themes/Light.xaml`↔`Dark.xaml` then
+  fans out `NotifyThemeChanged()` to many collections (lines 55528–55549). It does NOT currently
+  iterate embedded regions — a new fan-out call must be added here.
+- Palette source brushes: `CodeSurface`/`CodeText` in `Themes/Light.xaml` (lines 129, 180) and
+  `Themes/Dark.xaml` (lines 128, 179).
+- AvalonEdit is NOT referenced anywhere in the solution today.
+
+**Decision:**
+
+**0. Package (Task 002 adds it; named here for the contract).** Add PackageReference
+`ICSharpCode.AvalonEdit` to `SquadDash/SquadDash.csproj` only. Pin an explicit version compatible
+with the repo's .NET 10 preview target; do not float. No other project references it.
+
+**1. Editor host replacement — `TextEditor` for `TextBox`.**
+- Replace the `_contentBox` field with an `ICSharpCode.AvalonEdit.TextEditor` instance, kept
+  behind a NEW narrow seam `IRegionCodeEditor` (see §4) so `EmbeddedCodeRegionBlock` depends on
+  the seam, not on AvalonEdit types directly. The concrete `AvalonEditRegionEditor` wraps the
+  `TextEditor`.
+- Construction mapping (`TextBox` → `TextEditor`): `Text`→`Document.Text`; `AcceptsReturn`/
+  `AcceptsTab`→intrinsic; `TextWrapping.NoWrap`→`WordWrap=false`; scrollbars→`HorizontalScrollBarVisibility`/
+  `VerticalScrollBarVisibility`; `FontFamily=Consolas`,`FontSize=12`,`Padding`,`MaxHeight`→set on
+  `TextEditor`; `BorderThickness(0)`→`TextEditor.BorderThickness=0`. Disable AvalonEdit extras not
+  wanted in a prompt region: `ShowLineNumbers=false`, no folding, `Options.EnableHyperlinks=false`.
+- The `editorBorder` chrome (CornerRadius, half-contrast `SubtleBorder` line) stays on the WPF
+  `Border` wrapper and KEEPS its `SetResourceReference`/`Tag.Color` binding — that border is WPF
+  chrome, not AvalonEdit-painted, so `DynamicResource` theming still works for it. Only the
+  editor's OWN surface/text/highlight colors move to the imperative palette hook (§3).
+- `Content` sync: subscribe `TextEditor.TextChanged` (or `Document.TextChanged`) to the existing
+  `Content = editor.Text; TryCloseOnTrailingFenceLine();` logic. The instance-reuse invariant from
+  `EmbeddedCodeRegionManager.RenderSegments` (reattaching the same `BlockUIContainer`/child rather
+  than recreating) is preserved because we still host one long-lived control instance.
+
+**2. Input re-mapping (TextBox APIs → AvalonEdit `TextArea`/`Caret`/`Document`).**
+- *Native caret/mouse selection + the 811809a0 fix.* AvalonEdit already implements native caret
+  placement, double-click word-select, and click/double-click-drag selection inside its
+  `TextArea`. Re-attach the bubbling-stage, `handledEventsToo: true` `MouseLeftButtonDownEvent`
+  handler to the `TextEditor` (NOT the Preview stage), keeping the exact ordering: let AvalonEdit
+  apply the native gesture first, THEN `ClearHostSelection()` + ensure keyboard focus is within the
+  editor (`TextEditor.TextArea.Focus()` / `Keyboard.Focus(editor.TextArea)`), THEN `e.Handled =
+  true`. `MainWindow.PromptTextBox_PreviewMouseLeftButtonDown` is unchanged in shape: its visual-
+  tree walk still finds `EmbeddedCodeRegionBlock`; update the "is this the content editor?" test so
+  `hitContentTextBox` becomes "hit lands within the region's editor visual" (walk for the
+  `TextEditor`/`TextArea` instead of `TextBox`). `ShouldClaimRegionMouseGesture`'s boolean
+  contract is unchanged — only how its `hitContentTextBox` argument is computed changes.
+- *Caret/selection property mapping:* `CaretIndex`→`TextArea.Caret.Offset`; `SelectionStart`→
+  `SelectionStart` (TextEditor exposes it) or `TextArea.Selection`; `SelectionLength`→
+  `SelectionLength`; `SelectedText`→`SelectedText`; set-to-empty (`SelectedText = string.Empty`
+  for Cut, and selection-collapse) → `editor.SelectionLength = 0` / `TextArea.Selection =
+  Selection.Create(TextArea, off, off)`; `Text.Length`→`Document.TextLength`;
+  `GetCharacterIndexFromPoint`/`GetRectFromCharacterIndex` (used by `GetCaretIndexFromPoint`) →
+  `TextArea.TextView.GetPosition(point)` → `Document.GetOffset(TextViewPosition.Location)`.
+  `FocusContent()`/`FocusContentAtPosition(int)`/`FocusContentAtPoint(Point)` re-map by setting
+  `TextArea.Caret.Offset` and focusing `TextArea` (keep the `FocusManager.SetFocusedElement` +
+  `Keyboard.Focus` pair for the create-before-rendered case).
+- *Fenced Ctrl+C / Ctrl+X.* Keep the custom behavior. Prefer hooking AvalonEdit's command layer:
+  override/attach to the `TextArea`'s copy/cut via `TextArea.DefaultInputHandler` or a
+  `CommandBinding` for `ApplicationCommands.Copy`/`Cut`, OR retain the `PreviewKeyDown` Ctrl+C/X
+  guard on the `TextEditor`. On a non-empty selection, build `EmbeddedFenceDetector.BuildFencedText(
+  SelectedText, Language)`, `Clipboard.SetText(...)`, and for Cut delete the selection via the
+  document (`Document.Remove(SelectionStart, SelectionLength)`), then mark handled. Behavior parity
+  (selection → fenced clipboard) is the contract; command-binding vs. PreviewKeyDown is an
+  implementer choice but command-binding is preferred because AvalonEdit routes copy/cut through
+  commands.
+- *Up/Down (and Left/Right) boundary-exit.* `EmbeddedCaretNavMath.Decide(text, caretIndex,
+  selectionLength, key)` is a PURE function and MUST be reused unchanged. Attach the key handler to
+  `TextArea.PreviewKeyDown` (or `TextEditor.PreviewKeyDown`); feed it `Document.Text`,
+  `TextArea.Caret.Offset`, `SelectionLength`, `e.Key`. Tab/Shift+Tab/Ctrl+Up/Ctrl+Down exit rules
+  and `FocusHostOutsideRegion(LogicalDirection)` are unchanged. The nav-math decision table stays
+  authoritative; only the three input values are read from AvalonEdit instead of the TextBox.
+- *Trace parity:* keep the `EMBEDDED_CODE_*` trace lines, re-sourcing caret/selection from the
+  AvalonEdit APIs, so the existing diagnostic story survives the migration.
+
+**3. Theming — imperative per-editor palette push on each theme switch.**
+- AvalonEdit colors are set through `TextEditor.Foreground`/`Background` and (for Task 004)
+  `TextEditor.SyntaxHighlighting` / `HighlightingColor` entries — none of which honor
+  `DynamicResource`. Therefore DO NOT use `SetResourceReference` for the editor surface/text.
+- Define a small immutable palette record, e.g. `RegionEditorPalette(Brush Surface, Brush Text,
+  IReadOnlyDictionary<string, HighlightingColor> HighlightColors)`, produced by a NEW pluggable
+  `IRegionEditorPaletteSource` (see §4). The default source reads the CURRENT theme's brushes at
+  switch time: `Application.Current.TryFindResource("CodeSurface")`/`"CodeText"` (post-swap, so the
+  active `Light.xaml`/`Dark.xaml` values are read), returning them as the palette. Task 004 extends
+  the same source with the light/dark `HighlightingColor` sets without changing the hook.
+- NEW per-editor hook: `EmbeddedCodeRegionBlock.ApplyEditorTheme(RegionEditorPalette palette)` (and
+  on the seam, `IRegionCodeEditor.ApplyPalette(palette)`), which assigns `editor.Background =
+  palette.Surface; editor.Foreground = palette.Text;` and (Task 004) pushes `HighlightingColor`
+  entries into the active `IHighlightingDefinition`/`DocumentColorizingTransformer` and forces a
+  redraw (`TextArea.TextView.Redraw()`).
+- Wiring into `MainWindow.ApplyTheme`: AFTER the dictionary swap (so `CodeSurface`/`CodeText`
+  already resolve to the new theme) and alongside the existing `NotifyThemeChanged()` fan-out
+  (lines 55528–55549), add a fan-out that enumerates the prompt's embedded regions and calls
+  `ApplyEditorTheme` with a palette from the active `IRegionEditorPaletteSource`. Enumerate via the
+  existing FlowDocument-walk pattern already used across `RichTextBoxExtensions` (`PromptTextBox.
+  Document.Blocks` → `BlockUIContainer { Child: EmbeddedCodeRegionBlock region }`); expose it as a
+  helper (e.g. `RichTextBoxExtensions.EnumerateEmbeddedRegions(RichTextBox)`) so the ApplyTheme call
+  site stays one line. Newly created regions pull the current palette once at construction via the
+  same source, so a region created between switches is themed immediately.
+- Timing: mirror the existing `Dispatcher.InvokeAsync(..., DispatcherPriority.Render)` discipline
+  used elsewhere in `ApplyTheme` only if a region reports stale colors; the straightforward push is
+  synchronous because the palette reads post-swap resources directly rather than via deferred
+  `SetResourceReference` resolution.
+
+**4. Pluggability (keep host + palette source swappable; do NOT build v2).**
+- Two seams, both owned by `EmbeddedCodeRegionBlock`'s construction:
+  1. `IRegionCodeEditor` — abstracts the editor control (text get/set, caret/selection offsets,
+     focus, point→offset hit-testing, `ApplyPalette`, the `TextChanged` event). Concrete:
+     `AvalonEditRegionEditor`. This is what makes a future reuse (e.g. a Markdown-highlighting host)
+     possible without touching the region's input/nav/copy logic.
+  2. `IRegionEditorPaletteSource` — produces a `RegionEditorPalette` from the active theme.
+     Concrete: `ThemeResourcePaletteSource` (reads `CodeSurface`/`CodeText`; Task 004 adds the
+     highlight-color maps).
+- These seams are a thin boundary only. Explicitly OUT OF SCOPE for this plan: designing,
+  scheduling, or building any Markdown-highlighting v2, additional hosts, or additional palette
+  sources beyond the light/dark code palette. The seams exist so that work is not foreclosed — not
+  as an invitation to do it now.
+
+**Consumer checklist.**
+- Task 002 (migration): add the package (§0); replace the TextBox with `TextEditor` behind
+  `IRegionCodeEditor` (§1); re-map mouse/caret/selection incl. the 811809a0 fix, fenced copy/cut,
+  and `EmbeddedCaretNavMath`-driven boundary exit (§2); introduce `ApplyEditorTheme` + the
+  ApplyTheme fan-out reading `CodeSurface`/`CodeText` (§3, surface/text only).
+- Task 004 (highlighting + theme): implement light/dark `HighlightingColor` sets in
+  `IRegionEditorPaletteSource` and push them through the SAME `ApplyEditorTheme` hook; no new
+  theme-switch plumbing.
+
+**Constraints honored:** colors re-applied through the new per-editor `ApplyEditorTheme` hook
+invoked from `ApplyTheme`/`NotifyThemeChanged`, never via `SetResourceReference` for the editor
+surface/text/highlights; editor host and palette source are pluggable via `IRegionCodeEditor` /
+`IRegionEditorPaletteSource`; v2 Markdown reuse is enabled but neither designed nor scheduled here.
+
+---
+
 ### 2026-08-25 — Human UI approval checkpoints must have a reproducible review path
 
 **Context:** This repository develops SquadDash itself, so UI states that require human approval
