@@ -361,6 +361,20 @@ internal sealed class DefaultPromptInstructionProviderTests
         });
     }
 
+    [Test]
+    public void InboxInstruction_RequiresVisibleSummaryWhenResponseWouldOnlyBeInboxMessage()
+    {
+        var instruction = new DefaultPromptInstructionProvider().Get().InboxMessage;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(instruction, Does.Contain("When you send an INBOX_MESSAGE_JSON block"));
+            Assert.That(instruction, Does.Contain("otherwise contain no visible Markdown"));
+            Assert.That(instruction, Does.Contain("include 1-3 short visible Markdown sentences"));
+            Assert.That(instruction, Does.Contain("directing the user to the Inbox for more details"));
+        });
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void InboxInstruction_LiteralJsonExampleRendersThroughMessageCopyAndFind()
     {
