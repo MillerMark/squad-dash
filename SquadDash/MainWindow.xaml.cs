@@ -27954,6 +27954,32 @@ public partial class MainWindow : Window
                 }
             }
 
+            // Smart arrow-key navigation: detect when arrow key would land on a region's
+            // paragraph line (dead zone) and instead route focus directly into the region.
+            // Handles Up/Down/Left/Right arrows to enter regions with correct caret positioning.
+            if (modifiers == ModifierKeys.None && e.Key is Key.Up or Key.Down or Key.Left or Key.Right)
+            {
+                var caretBefore = PromptTextBox.CaretPosition;
+                
+                // Simulate the arrow key movement to find where caret would land
+                TextPointer? caretAfter = null;
+                if (e.Key == Key.Down)
+                    caretAfter = caretBefore.GetPositionAtOffset(0, LogicalDirection.Forward)?.GetLineStartPosition(1);
+                else if (e.Key == Key.Up)
+                    caretAfter = caretBefore.GetPositionAtOffset(0, LogicalDirection.Backward)?.GetLineStartPosition(-1);
+                else if (e.Key == Key.Right)
+                    caretAfter = caretBefore.GetPositionAtOffset(1, LogicalDirection.Forward);
+                else if (e.Key == Key.Left)
+                    caretAfter = caretBefore.GetPositionAtOffset(-1, LogicalDirection.Backward);
+
+                // Try smart navigation if we can predict the destination
+                if (caretAfter is not null && PromptTextBox.TryNavigateIntoEmbeddedRegionWithDirection(e.Key, caretBefore, caretAfter))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
             if (modifiers == ModifierKeys.None
                 && IsPrintableKey(e.Key)
                 && !((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && PromptTextBox.GetSelectionLength() > 0))

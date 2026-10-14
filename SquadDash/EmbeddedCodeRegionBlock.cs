@@ -324,6 +324,23 @@ public sealed class EmbeddedCodeRegionBlock : Border
         Trace($"EMBEDDED_CODE_FOCUS_END exit caret={_contentBox.CaretIndex} focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
     }
 
+    /// <summary>
+    /// Gives keyboard focus to this region's content box and places the caret at the specified
+    /// position within the text. Used for smart arrow-key navigation to enter the region with
+    /// caret at the correct position (start, end, or specific offset).
+    /// </summary>
+    public void FocusContentAtPosition(int caretPosition)
+    {
+        var clampedPosition = Math.Clamp(caretPosition, 0, _contentBox.Text.Length);
+        Trace($"EMBEDDED_CODE_FOCUS_POSITION enter position={caretPosition} clamped={clampedPosition} textLen={_contentBox.Text.Length} caretBefore={_contentBox.CaretIndex} visible={_contentBox.IsVisible}");
+        ClearHostSelection();
+        _contentBox.CaretIndex = clampedPosition;
+        _contentBox.SelectionLength = 0;
+        FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
+        Keyboard.Focus(_contentBox);
+        Trace($"EMBEDDED_CODE_FOCUS_POSITION exit caret={_contentBox.CaretIndex} focused={_contentBox.IsKeyboardFocusWithin}");
+    }
+
     internal void FocusContentAtPoint(Point pointInContentBox)
     {
         Trace($"EMBEDDED_CODE_FOCUS_POINT enter point=({pointInContentBox.X:F1},{pointInContentBox.Y:F1}) textLen={_contentBox.Text.Length} caretBefore={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} visible={_contentBox.IsVisible} enabled={_contentBox.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");

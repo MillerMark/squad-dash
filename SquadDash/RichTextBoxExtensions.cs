@@ -452,6 +452,121 @@ internal static class RichTextBoxExtensions
         return false;
     }
 
+    /// <summary>
+    /// Detects if the caret is on a region's paragraph line (the "dead zone") — positioned
+    /// before or after a BlockUIContainer that hosts an EmbeddedCodeRegionBlock, but not
+    /// actually inside the region's TextBox. This state occurs after pressing an arrow key
+    /// that would land on the region's line without entering the region.
+    /// 
+    /// Returns the region if found, null otherwise. Used to implement smart arrow-key
+    /// navigation that enters the region directly instead of landing in the dead zone.
+    /// </summary>
+    internal static EmbeddedCodeRegionBlock? FindRegionOnCaretParagraph(FlowDocument document, TextPointer caret)
+    {
+        if (caret is null)
+            return null;
+
+        var blocksList = document.Blocks.ToList();
+        for (var i = 0; i < blocksList.Count; i++)
+        {
+            var block = blocksList[i];
+            var isWithinBlock = caret.CompareTo(block.ElementStart) >= 0 && caret.CompareTo(block.ElementEnd) <= 0;
+            
+            if (!isWithinBlock)
+                continue;
+
+            // If caret is within a paragraph, check if the next or previous block is a region
+            if (block is Paragraph)
+            {
+                // Check if there's an embedded region on the same line
+                // This happens when the paragraph contains text before or after the region
+                
+                // Check adjacent blocks for regions
+                if (i + 1 < blocksList.Count && 
+                    blocksList[i + 1] is BlockUIContainer { Child: EmbeddedCodeRegionBlock region })
+                {
+                    return region;
+                }
+                if (i > 0 && 
+                    blocksList[i - 1] is BlockUIContainer { Child: EmbeddedCodeRegionBlock region2 })
+                {
+                    return region2;
+                }
+            }
+            // If caret is within a BlockUIContainer with a region, it's already inside
+            else if (block is BlockUIContainer { Child: EmbeddedCodeRegionBlock region3 })
+            {
+                return region3;
+            }
+
+            return null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Determines the direction of arrow key navigation and attempts to navigate smartly into
+    /// an embedded region. Detects if the caret would land in the dead zone (on a region's
+    /// paragraph line but outside the TextBox) and instead routes focus directly into the
+    /// region with correct caret positioning.
+    /// 
+    /// Returns true if navigation was handled (keystroke was intercepted), false if the
+    /// default RichTextBox behavior should take over.
+    /// </summary>
+    public static bool TryNavigateIntoEmbeddedRegionWithDirection(
+        this RichTextBox rtb, Key key, TextPointer? caretBefore, TextPointer? caretAfter)
+    {
+        if (!rtb.Selection.IsEmpty || caretBefore is null || caretAfter is null)
+            return false;
+
+        // Only handle arrow keys
+        if (key is not (Key.Up or Key.Down or Key.Left or Key.Right))
+            return false;
+
+        // Find if there's a region on the new caret position (dead zone detection)
+        var region = FindRegionOnCaretParagraph(rtb.Document, caretAfter);
+        if (region is null)
+            return false;
+
+        // Determine position within the region based on arrow direction
+        int targetPosition = key switch
+        {
+            // Down arrow from above or Right arrow from left → position at START
+            Key.Down or Key.Right => 0,
+            // Up arrow from below or Left arrow from right → position at END
+            Key.Up or Key.Left => region.Content.Length,
+            _ => 0,
+        };
+
+        SquadDashTrace.Write(
+            "UI",
+            $"EMBEDDED_CODE_SMART_NAV enter key={key} caretBefore-offset={GetCaretOffsetForTraceHelper(rtb, caretBefore)} caretAfter-offset={GetCaretOffsetForTraceHelper(rtb, caretAfter)} targetPosition={targetPosition}");
+
+        // Focus the region at the calculated position
+        region.FocusContentAtPosition(targetPosition);
+
+        SquadDashTrace.Write(
+            "UI",
+            $"EMBEDDED_CODE_SMART_NAV exit key={key} focused={DescribeInputObject(Keyboard.FocusedElement)}");
+
+        return true;
+    }
+
+    private static string GetCaretOffsetForTraceHelper(RichTextBox rtb, TextPointer? pointer)
+    {
+        if (pointer is null)
+            return "(null)";
+        try
+        {
+            return rtb.GetCharOffset(pointer).ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"error:{ex.GetType().Name}";
+        }
+    }
+
     // ── Text length and substring ─────────────────────────────────────────────
 
     public static int GetTextLength(this RichTextBox rtb)

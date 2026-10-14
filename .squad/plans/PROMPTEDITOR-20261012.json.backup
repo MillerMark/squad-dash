@@ -356,6 +356,13 @@
           "reason": "Commit produced within this step\u0027s host-recorded baseline range."
         }
       ],
+      "reviewActivity": [
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed 4 bugs found in manual testing of embedded regions: made region content editable (removed IsReadOnly, wired TextChanged), fixed caret offset/placement to account for region length and preserve position across document rebuilds, ran fence conversion after programmatic prompt-text load/restore (not just live typing), and added explicit adjacent-region deletion to prevent a crash on Delete. Commit 2935907, full suite 7758/7762 passed (4 pre-existing unrelated failures), targeted 59/59 passed.",
+          "recordedAt": "2026-10-13T12:44:36.2955744+00:00"
+        }
+      ],
       "executionMode": "implementation",
       "completionSummaryItems": [
         "Added EmbeddedFenceDetector for detecting complete triple-backtick fences (with optional language tag) in the prompt editor\u0027s line content",
