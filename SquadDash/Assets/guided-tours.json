@@ -104,7 +104,7 @@
         "commandAfter": "",
         "commandsBefore": [
           "InjectTranscriptTurn|Can you fix these bugs?|Working on it now. \\nThe user wants me to simulate an AI call that fixes simulated bugs.\\nMaking tool calls (simulated)...",
-          "InjectTranscriptTools: grep:Scan for missing None checks:Found 3 matches \u2014 cart.py:42, checkout.py:88, pricing.py:15;view:Inspect cart.py and pricing.py:existing.quantity += quantity   # existing may be None\\nreturn self.subtotal * (1 - discount.rate)   # discount may be None;edit:Fix cart.py:  existing = self.find(product.id)\\n- existing.quantity += quantity\\n+ if existing is None:\\n+     self.items.append(CartLine(product, quantity))\\n+ else:\\n+     existing.quantity += quantity;edit:Fix pricing.py:  discount = self.lookup(code)\\n- return self.subtotal * (1 - discount.rate)\\n+ if discount is None:\\n+     return self.subtotal\\n+ return self.subtotal * (1 - discount.rate);powershell:Run unit tests:All 47 tests passed"
+          "InjectTranscriptTools: grep:Scan for missing None checks:Found 3 matches \u2014 cart.py:42, checkout.py:88, pricing.py:15;view:Inspect cart.py and pricing.py:existing.quantity \u002B= quantity   # existing may be None\\nreturn self.subtotal * (1 - discount.rate)   # discount may be None;edit:Fix cart.py:  existing = self.find(product.id)\\n- existing.quantity \u002B= quantity\\n\u002B if existing is None:\\n\u002B     self.items.append(CartLine(product, quantity))\\n\u002B else:\\n\u002B     existing.quantity \u002B= quantity;edit:Fix pricing.py:  discount = self.lookup(code)\\n- return self.subtotal * (1 - discount.rate)\\n\u002B if discount is None:\\n\u002B     return self.subtotal\\n\u002B return self.subtotal * (1 - discount.rate);powershell:Run unit tests:All 47 tests passed"
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
@@ -126,14 +126,14 @@
         "advanceTrigger": "",
         "requiredContext": "",
         "requiredContextValue": true,
-        "targetOffsetX": 0.07451923076923064,
-        "targetOffsetY": 0.47807692307692223
+        "targetOffsetX": 0.15384615384615372,
+        "targetOffsetY": 0.4740384615384611
       },
       {
         "title": "Diffs",
-        "markdownText": "On the right you can see **lines added** and **removed**.\r\nClick the file name to see **diffs**.",
+        "markdownText": "On the right you can see **lines added** and **removed**.\r\nClick file names to see **diffs** as agents work.",
         "targetControlId": "TourInjectedLastToolEntry_edit",
-        "calloutPlacement": "North",
+        "calloutPlacement": "South",
         "preAction": "None",
         "commandBefore": "",
         "commandAfter": "",
@@ -142,8 +142,8 @@
         "advanceTrigger": "",
         "requiredContext": "",
         "requiredContextValue": true,
-        "targetOffsetX": 0.3629807692307691,
-        "targetOffsetY": 0.5013461538461532
+        "targetOffsetX": 0.5721153846153845,
+        "targetOffsetY": 0.5990384615384611
       },
       {
         "title": "Quick reply buttons",
