@@ -47868,8 +47868,7 @@ public partial class MainWindow : Window
     {
         _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
         {
-            var activeBox = ActiveTranscriptBox;
-            var sv = activeBox.Template?.FindName("PART_ContentHost", activeBox) as ScrollViewer;
+            var sv = ResolveActiveTranscriptScrollViewer();
             if (sv is null) return;
 
             var tp = paragraph.ContentStart;
@@ -48011,10 +48010,24 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RefreshActiveTranscriptScrollViewer()
+    /// <summary>
+    /// Resolves the ScrollViewer that actually scrolls the active transcript RichTextBox.
+    /// This MUST match the instance <see cref="ScrollToPromptParagraph"/> scrolls, so both
+    /// use the control-template content host (<c>PART_ContentHost</c>). A plain visual-tree
+    /// search can return a different (e.g. embedded-code-region) ScrollViewer or an orphaned
+    /// host after an in-place template rebuild, which desynchronises the nav geometry.
+    /// </summary>
+    private ScrollViewer? ResolveActiveTranscriptScrollViewer()
     {
         var activeBox = ActiveTranscriptBox;
-        var newScrollViewer = VisualTreeSearch.FindChild<ScrollViewer>(activeBox);
+        activeBox.ApplyTemplate();
+        return activeBox.Template?.FindName("PART_ContentHost", activeBox) as ScrollViewer
+            ?? VisualTreeSearch.FindChild<ScrollViewer>(activeBox);
+    }
+
+    private void RefreshActiveTranscriptScrollViewer()
+    {
+        var newScrollViewer = ResolveActiveTranscriptScrollViewer();
         if (ReferenceEquals(newScrollViewer, _transcriptScrollViewer))
             return;
 
@@ -48089,54 +48102,31 @@ public partial class MainWindow : Window
         if (_transcriptScrollViewer is null || thread.PromptParagraphs.Count == 0)
             return;
 
-        // A prompt is "above" (UP target) when it's scrolled above the viewport top.
-        // A prompt is a "below" (DOWN target) when it is:
-        //   (a) below the viewport top by more than the dead-zone, AND
-        //   (b) can actually be scrolled to the viewport top — i.e. its absolute Y is
-        //       within the scrollable range (≤ ScrollableHeight). Prompts near the very
-        //       bottom of the document cannot be placed at the top because the scroll
-        //       viewer hits its maximum offset; navigating to them would produce no
-        //       meaningful movement, so the ↓ button should be disabled for them.
-        const double DeadZone = 50.0;
         var sv         = _transcriptScrollViewer;
         var viewportTop    = sv.VerticalOffset;
         var scrollableMax  = sv.ScrollableHeight; // ExtentHeight − ViewportHeight
 
-        double bestAboveY = double.MinValue;
-        double bestBelowY = double.MaxValue;
-
+        // Project each prompt onto its absolute document-space Y. Unmeasurable prompts
+        // are passed through as NaN so the pure math skips them.
+        var promptAbsYs = new double[thread.PromptParagraphs.Count];
         for (int i = 0; i < thread.PromptParagraphs.Count; i++)
         {
             var para = thread.PromptParagraphs[i].Paragraph;
             var rect = para.ContentStart.GetCharacterRect(System.Windows.Documents.LogicalDirection.Forward);
-            if (rect.IsEmpty) continue;
-
-            // Absolute Y in the document.
-            var absY = viewportTop + rect.Top;
-
-            if (absY < viewportTop - DeadZone)
-            {
-                // Prompt is above the viewport — candidate for ↑ (go up/back).
-                // Pick the one with the LARGEST absoluteY (nearest from above).
-                if (absY > bestAboveY) { bestAboveY = absY; nearestAboveIdx = i; }
-            }
-            else if (absY > viewportTop + DeadZone && absY <= scrollableMax)
-            {
-                // Prompt is below the viewport top AND can be brought to the top
-                // (there is enough content below it to fill the viewport).
-                // Pick the one with the SMALLEST absoluteY (nearest from below).
-                if (absY < bestBelowY) { bestBelowY = absY; nearestBelowIdx = i; }
-            }
+            promptAbsYs[i] = rect.IsEmpty ? double.NaN : viewportTop + rect.Top;
         }
 
-        canGoUp   = nearestAboveIdx >= 0;
-        canGoDown = nearestBelowIdx >= 0;
+        var navState = PromptScrollNavMath.Compute(promptAbsYs, viewportTop, scrollableMax);
+        nearestAboveIdx = navState.NearestAboveIdx;
+        nearestBelowIdx = navState.NearestBelowIdx;
+        canGoUp   = navState.CanGoUp;
+        canGoDown = navState.CanGoDown;
 
         SquadDashTrace.Write(TraceCategory.TranscriptNav,
             $"GetScrollBasedNavState: viewportTop={viewportTop:F1} scrollableMax={scrollableMax:F1} " +
             $"prompts={thread.PromptParagraphs.Count} navIndex={thread.PromptNavIndex} " +
-            $"nearestAbove={nearestAboveIdx} (absY={bestAboveY:F1}) " +
-            $"nearestBelow={nearestBelowIdx} (absY={(nearestBelowIdx >= 0 ? bestBelowY : double.NaN):F1}) " +
+            $"nearestAbove={nearestAboveIdx} (absY={(nearestAboveIdx >= 0 ? promptAbsYs[nearestAboveIdx] : double.NaN):F1}) " +
+            $"nearestBelow={nearestBelowIdx} (absY={(nearestBelowIdx >= 0 ? promptAbsYs[nearestBelowIdx] : double.NaN):F1}) " +
             $"canGoUp={canGoUp} canGoDown={canGoDown}");
     }
 
@@ -48162,6 +48152,17 @@ public partial class MainWindow : Window
 
         bool canGoUp;
         bool canGoDown;
+        if (allowGeometry)
+        {
+            // Re-resolve the live content-host ScrollViewer before reading geometry. An
+            // in-place template rebuild (e.g. embedded code regions) or a transcript-box
+            // swap can orphan the cached instance, leaving it frozen at a stale offset
+            // (the classic symptom: viewportTop pinned at the old document bottom, which
+            // permanently disables ↓). This also moves the ScrollChanged subscription to
+            // the live viewer so the authoritative post-scroll recompute actually fires.
+            RefreshActiveTranscriptScrollViewer();
+        }
+
         if (allowGeometry && _transcriptScrollViewer is not null)
         {
             // Base enabled state on scroll position so that manual scrolling keeps

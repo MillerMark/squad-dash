@@ -62,6 +62,80 @@ internal sealed record InteractiveControlState(
     bool RunDoctorEnabled,
     bool InstallSquadEnabled);
 
+/// <summary>
+/// Result of the transcript prompt-navigation decision math. Indices are into the
+/// same prompt list that was passed to <see cref="PromptScrollNavMath.Compute"/>.
+/// </summary>
+internal readonly record struct PromptScrollNavState(int NearestAboveIdx, int NearestBelowIdx) {
+    public bool CanGoUp => NearestAboveIdx >= 0;
+    public bool CanGoDown => NearestBelowIdx >= 0;
+}
+
+/// <summary>
+/// Pure decision math for the transcript prompt-navigation (↑/↓) buttons.
+/// Separated from the live WPF <c>ScrollViewer</c> geometry in <c>MainWindow</c> so the
+/// above/below selection can be unit-tested with plain numbers.
+/// </summary>
+internal static class PromptScrollNavMath {
+    public const double DefaultDeadZone = 50.0;
+
+    // Smallest offset delta we still treat as "real" downward movement. Guards against
+    // floating-point noise when the clamped target offset essentially equals the
+    // current viewport top.
+    private const double MovementEpsilon = 0.5;
+
+    /// <summary>
+    /// Computes the nearest prompt above and below the current viewport top.
+    /// </summary>
+    /// <param name="promptAbsYs">
+    ///   Absolute document-space Y of each prompt paragraph's top. Entries that are
+    ///   <see cref="double.NaN"/> (geometry not currently measurable) are skipped.
+    /// </param>
+    /// <param name="viewportTop">Current vertical scroll offset.</param>
+    /// <param name="scrollableMax">Maximum scroll offset (ExtentHeight − ViewportHeight).</param>
+    /// <param name="deadZone">Half-height band around the viewport top treated as "here".</param>
+    public static PromptScrollNavState Compute(
+        IReadOnlyList<double> promptAbsYs,
+        double viewportTop,
+        double scrollableMax,
+        double deadZone = DefaultDeadZone) {
+        int nearestAboveIdx = -1;
+        int nearestBelowIdx = -1;
+        double bestAboveY = double.MinValue;
+        double bestBelowY = double.MaxValue;
+
+        for (int i = 0; i < promptAbsYs.Count; i++) {
+            double absY = promptAbsYs[i];
+            if (double.IsNaN(absY)) continue;
+
+            if (absY < viewportTop - deadZone) {
+                // Above the viewport top — candidate for ↑ (go back). Prefer the one
+                // closest to the viewport top (largest absolute Y).
+                if (absY > bestAboveY) {
+                    bestAboveY = absY;
+                    nearestAboveIdx = i;
+                }
+            } else if (absY > viewportTop + deadZone) {
+                // Below the viewport top — candidate for ↓ (go forward), but only when
+                // scrolling toward it actually moves the document down. The offset that
+                // brings the prompt to the viewport top equals its absolute Y clamped to
+                // the scrollable range; if that clamped offset is still greater than the
+                // current viewport top the move is meaningful. This intentionally keeps
+                // ↓ enabled for prompts in the final viewport-height (clamped to the
+                // document bottom) — scrolling to the bottom is legitimate downward
+                // navigation — while disabling it only when already pinned at the bottom.
+                double targetOffset = Math.Clamp(absY, 0.0, scrollableMax);
+                if (targetOffset > viewportTop + MovementEpsilon && absY < bestBelowY) {
+                    bestBelowY = absY;
+                    nearestBelowIdx = i;
+                }
+            }
+        }
+
+        return new PromptScrollNavState(nearestAboveIdx, nearestBelowIdx);
+    }
+}
+
 internal static class PromptInputBehavior {
     public static PromptInputAction ResolveAction(
         PromptInputKey key,
