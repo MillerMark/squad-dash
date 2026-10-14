@@ -62,6 +62,7 @@
     <Compile Include="..\SquadDash\PendingPlanGateEditor.cs" Link="Source\PendingPlanGateEditor.cs" />
     <Compile Include="..\SquadDash\PlanExecutionTransitionService.cs" Link="Source\PlanExecutionTransitionService.cs" />
     <Compile Include="..\SquadDash\PlanPauseTransitionCoordinator.cs" Link="Source\PlanPauseTransitionCoordinator.cs" />
+    <Compile Include="..\SquadDash\PlanPauseMenuPolicy.cs" Link="Source\PlanPauseMenuPolicy.cs" />
     <Compile Include="..\SquadDash\PlanApprovalControlLockPolicy.cs" Link="Source\PlanApprovalControlLockPolicy.cs" />
     <Compile Include="..\SquadDash\PlanApprovalHistoricalPresentationPolicy.cs" Link="Source\PlanApprovalHistoricalPresentationPolicy.cs" />
     <Compile Include="..\SquadDash\PlanConnectorAnchorDistributor.cs" Link="Source\PlanConnectorAnchorDistributor.cs" />

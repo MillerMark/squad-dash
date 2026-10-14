@@ -11730,6 +11730,9 @@ public partial class MainWindow : Window
         PlanRevisionApplyResult preview,
         TranscriptTurnView? ownerView)
     {
+        if (ShouldSuppressApprovalCardForPausedPlan(current.PlanId))
+            return;
+
         var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
         var stack = new StackPanel { Margin = new Thickness(4) };
 
@@ -18224,6 +18227,9 @@ public partial class MainWindow : Window
         ApprovalReviewSnapshot snapshot,
         ApprovalClickToken clickToken)
     {
+        if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId))
+            return;
+
         var activeGates = plan.ApprovalGates
             .Where(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)
             .ToArray();
@@ -21084,6 +21090,9 @@ public partial class MainWindow : Window
         bool showEndPlan = false,
         bool developerPreview = false)
     {
+        if (!developerPreview && ShouldSuppressApprovalCardForPausedPlan(plan.Group.GroupId))
+            return;
+
         var durablePlan = _planStore?.Load(plan.Group.GroupId);
         if (!developerPreview &&
             (durablePlan is null || !PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan)))
@@ -60426,6 +60435,7 @@ public partial class MainWindow : Window
                 },
                 archivePlan: ArchivePlan,
                 pausePlan: RequestPlanPauseAfterCurrentStep,
+                togglePlanPause: TogglePlanPauseFromMenu,
                 abortPlan: AbortCurrentPlanWork,
                 isPromptRunning: () => _isPromptRunning,
                 attachFollowUp: plan => AttachPlanFollowUp(plan),
@@ -60852,6 +60862,89 @@ public partial class MainWindow : Window
             RefreshOpenPlanViewersAfterPauseTransition,
             out persistedPlan,
             out error);
+    }
+
+    /// <summary>
+    /// Plans-panel-row "Pause plan"/"Resume plan" toggle. Flips <see cref="Plan.IsPaused"/> durably
+    /// (persist before any presentation change) via <see cref="PlanPauseTransitionCoordinator"/>.
+    /// On pause: removes any live approval/review card and, if the plan is the actively running one,
+    /// requests a safe pause at the next step boundary (never kills mid-flight work). On resume:
+    /// clears the boundary request and restores an approval card only if one is actually warranted.
+    /// </summary>
+    private void TogglePlanPauseFromMenu(Plan plan)
+    {
+        var current = _planStore?.Load(plan.PlanId) ?? plan;
+        var pause = !current.IsPaused;
+
+        if (!TrySetPlanPauseState(current, pause, out var updated, out var error))
+        {
+            ReportPlanActionIssue(
+                plan.PlanId,
+                pause ? "Pause not saved" : "Resume not saved",
+                error ?? "SquadDash could not save the pause state. The plan was not changed.");
+            return;
+        }
+
+        ClearPlanActionIssue(plan.PlanId);
+
+        if (pause)
+        {
+            RemoveApprovalCardsForPausedPlan(plan.PlanId);
+            if (string.Equals(_activeDecomposeGroupId, plan.PlanId, StringComparison.Ordinal) &&
+                IsLoopRunning &&
+                !_pausePlanAfterCurrentStepRequested)
+            {
+                _pausePlanAfterCurrentStepRequested = true;
+                ShowPlanPauseRequestedEntry(updated);
+            }
+        }
+        else
+        {
+            _pausePlanAfterCurrentStepRequested = false;
+            RemovePlanPauseRequestedEntries(plan.PlanId);
+            RefreshHumanReviewSurfaces(updated);
+        }
+    }
+
+    /// <summary>
+    /// Fully removes any live approval/review surface for a plan from the coordinator transcript:
+    /// the tracked gate-approval card(s), any decompose-recovery surface, the modeless review window,
+    /// and the attention callout. Used when a plan is paused so no stale approval card lingers.
+    /// </summary>
+    private void RemoveApprovalCardsForPausedPlan(string planId)
+    {
+        if (_approvalTranscriptCards.Remove(planId, out var cards))
+        {
+            foreach (var card in cards)
+            {
+                if (card.Container.Parent is FlowDocument document)
+                    document.Blocks.Remove(card.Container);
+            }
+        }
+
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+            CoordinatorThread.Document.Blocks, planId);
+
+        if (_openPlanApprovalReviewWindows.Remove(planId, out var reviewWindow))
+            reviewWindow.Close();
+
+        _approvalAttentionCallout?.Close();
+        _approvalAttentionCallout = null;
+
+        SquadDashTrace.Write("PlanPause",
+            $"Removed approval surface while plan is paused plan={planId}.");
+    }
+
+    /// <summary>
+    /// The single suppression gate every transcript approval/review-card insertion routes through.
+    /// Loads the durable plan and returns true when it is paused, so no card type can render — on a
+    /// live transition OR on startup rehydration — until the user explicitly resumes.
+    /// </summary>
+    private bool ShouldSuppressApprovalCardForPausedPlan(string planId)
+    {
+        if (string.IsNullOrWhiteSpace(planId))
+            return false;
+        return PlanPauseMenuPolicy.ShouldSuppressApprovalCard(_planStore?.Load(planId));
     }
 
     private void RefreshOpenPlanViewersAfterPauseTransition(Plan plan)
