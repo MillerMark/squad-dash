@@ -3566,6 +3566,7 @@
                              SpellCheck.IsEnabled="False"
                              UndoLimit="256"
                              TextOptions.TextFormattingMode="Display"
+                             IsDocumentEnabled="True"
                              IsInactiveSelectionHighlightEnabled="True"
                              Foreground="{DynamicResource LabelText}"
                              Background="{DynamicResource TextBoxBackground}"

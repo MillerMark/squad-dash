@@ -1014,6 +1014,7 @@ public partial class MainWindow : Window
             UIElement.PreviewMouseLeftButtonDownEvent,
             new MouseButtonEventHandler(PromptTextBox_PreviewMouseLeftButtonDown),
             handledEventsToo: true);
+        SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE_HANDLER registered handledEventsToo=True isDocumentEnabled=True");
         // Force plain-text paste — RichTextBox defaults to rich paste which would otherwise
         // let formatted clipboard content creep into the plain-text prompt editor.
         DataObject.AddPastingHandler(PromptTextBox, (s, e) =>
@@ -27404,17 +27405,29 @@ public partial class MainWindow : Window
             // If so, prevent RichTextBox's default selection and let the region handle focus.
             var clickPosition = e.GetPosition(PromptTextBox);
             var hitElement = PromptTextBox.InputHitTest(clickPosition) as DependencyObject;
+            var handledBefore = e.Handled;
+            SquadDashTrace.Write(
+                "UI",
+                $"PROMPT_EMBEDDED_CODE_MOUSE enter handled={handledBefore} point=({clickPosition.X:F1},{clickPosition.Y:F1}) original={DescribePromptInputObject(e.OriginalSource)} hit={DescribePromptInputObject(hitElement)} selectionEmpty={PromptTextBox.Selection.IsEmpty} selectionLength={GetPromptSelectionLengthForTrace()} caretOffset={GetPromptCaretOffsetForTrace()} focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
 
-            if (hitElement == null) return;
+            if (hitElement == null)
+            {
+                SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE exit reason=no-hit");
+                return;
+            }
 
             // Walk up the visual tree to find the EmbeddedCodeRegionBlock
             var current = hitElement;
             TextBox? targetTextBox = null;
             EmbeddedCodeRegionBlock? targetRegion = null;
             var hitToggle = false;
+            var path = new List<string>();
 
             while (current != null)
             {
+                if (path.Count < 16)
+                    path.Add(DescribePromptInputObject(current));
+
                 if (current is TextBox tb)
                     targetTextBox = tb;
 
@@ -27433,23 +27446,74 @@ public partial class MainWindow : Window
                     break;
             }
 
+            SquadDashTrace.Write(
+                "UI",
+                $"PROMPT_EMBEDDED_CODE_MOUSE path={string.Join(">", path)} targetRegion={targetRegion != null} targetTextBox={targetTextBox != null} hitToggle={hitToggle}");
+
             // RichTextBox treats BlockUIContainer as an embedded object unless the hosted
             // editor claims the mouse gesture. Route content clicks to the nested TextBox
             // caret explicitly; leave the collapse toggle alone.
             if (targetRegion != null && !hitToggle)
             {
                 if (targetTextBox != null)
-                    targetRegion.FocusContentAtPoint(e.GetPosition(targetTextBox));
+                {
+                    var textBoxPoint = e.GetPosition(targetTextBox);
+                    SquadDashTrace.Write("UI", $"PROMPT_EMBEDDED_CODE_MOUSE route=content-textbox point=({textBoxPoint.X:F1},{textBoxPoint.Y:F1})");
+                    targetRegion.FocusContentAtPoint(textBoxPoint);
+                }
                 else
+                {
+                    SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=region-focus-end");
                     targetRegion.FocusContent();
+                }
 
                 e.Handled = true;
+                SquadDashTrace.Write(
+                    "UI",
+                    $"PROMPT_EMBEDDED_CODE_MOUSE exit reason=focused-region handled=True focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
                 return;
             }
+
+            SquadDashTrace.Write("UI", $"PROMPT_EMBEDDED_CODE_MOUSE exit reason={(hitToggle ? "toggle" : "outside-region")} handled={e.Handled}");
         }
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(PromptTextBox_PreviewMouseLeftButtonDown), ex);
+        }
+    }
+
+    private static string DescribePromptInputObject(object? value)
+    {
+        if (value is null)
+            return "(null)";
+
+        var typeName = value.GetType().Name;
+        return value is FrameworkElement { Name.Length: > 0 } element
+            ? $"{typeName}#{element.Name}"
+            : typeName;
+    }
+
+    private string GetPromptCaretOffsetForTrace()
+    {
+        try
+        {
+            return PromptTextBox.GetCaretOffset().ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"error:{ex.GetType().Name}";
+        }
+    }
+
+    private string GetPromptSelectionLengthForTrace()
+    {
+        try
+        {
+            return PromptTextBox.GetSelectionLength().ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"error:{ex.GetType().Name}";
         }
     }
 

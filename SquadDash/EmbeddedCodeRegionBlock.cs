@@ -79,8 +79,11 @@ public sealed class EmbeddedCodeRegionBlock : Border
             UIElement.PreviewMouseLeftButtonDownEvent,
             new MouseButtonEventHandler((_, e) =>
             {
-                FocusContentAtPoint(e.GetPosition(_contentBox));
+                var point = e.GetPosition(_contentBox);
+                Trace($"EMBEDDED_CODE_CONTENT_MOUSE enter handled={e.Handled} point=({point.X:F1},{point.Y:F1}) caret={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} focused={_contentBox.IsKeyboardFocusWithin} source={DescribeInputObject(e.OriginalSource)}");
+                FocusContentAtPoint(point);
                 e.Handled = true;
+                Trace($"EMBEDDED_CODE_CONTENT_MOUSE exit handled=True caret={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
             }),
             handledEventsToo: true);
 
@@ -104,9 +107,17 @@ public sealed class EmbeddedCodeRegionBlock : Border
         // Allow navigation exits from the region: Tab or Down (at end) to move focus out
         _contentBox.PreviewKeyDown += (_, e) =>
         {
+            var traceNavigationKey = e.Key is Key.Tab or Key.Down or Key.Up;
+            if (traceNavigationKey)
+            {
+                Trace(
+                    $"EMBEDDED_CODE_KEY enter key={e.Key} modifiers={Keyboard.Modifiers} handled={e.Handled} caret={_contentBox.CaretIndex} line={GetCaretLineIndexForTrace()} lineCount={GetLineCountForTrace()} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength}");
+            }
+
             // Shift+Tab moves focus to the previous text position outside the region.
             if (e.Key == Key.Tab && (Keyboard.Modifiers & ModifierKeys.Shift) != 0)
             {
+                Trace("EMBEDDED_CODE_KEY_EXIT reason=shift-tab direction=Backward");
                 FocusHostOutsideRegion(LogicalDirection.Backward);
                 e.Handled = true;
                 return;
@@ -115,6 +126,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
             // Tab always moves focus to the next text position after the region.
             if (e.Key == Key.Tab)
             {
+                Trace("EMBEDDED_CODE_KEY_EXIT reason=tab direction=Forward");
                 FocusHostOutsideRegion(LogicalDirection.Forward);
                 e.Handled = true;
                 return;
@@ -123,6 +135,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
             // Ctrl+Down always moves focus out (convention for exiting nested editors)
             if (e.Key == Key.Down && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
+                Trace("EMBEDDED_CODE_KEY_EXIT reason=ctrl-down direction=Forward");
                 FocusHostOutsideRegion(LogicalDirection.Forward);
                 e.Handled = true;
                 return;
@@ -131,6 +144,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
             // Ctrl+Up always moves focus out (convention for exiting nested editors)
             if (e.Key == Key.Up && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
             {
+                Trace("EMBEDDED_CODE_KEY_EXIT reason=ctrl-up direction=Backward");
                 FocusHostOutsideRegion(LogicalDirection.Backward);
                 e.Handled = true;
                 return;
@@ -153,6 +167,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
                     // If caret is at or near the end of the last line, exit the region
                     if (_contentBox.CaretIndex >= lastLineStart + lastLineText.Length - 1)
                     {
+                        Trace($"EMBEDDED_CODE_KEY_EXIT reason=down-at-end direction=Forward lastLineStart={lastLineStart} lastLineLength={lastLineText.Length}");
                         FocusHostOutsideRegion(LogicalDirection.Forward);
                         e.Handled = true;
                     }
@@ -173,11 +188,15 @@ public sealed class EmbeddedCodeRegionBlock : Border
                     // If caret is at the beginning or early in the first line, exit the region
                     if (_contentBox.CaretIndex <= 1)
                     {
+                        Trace($"EMBEDDED_CODE_KEY_EXIT reason=up-at-start direction=Backward firstLineLength={firstLineLength}");
                         FocusHostOutsideRegion(LogicalDirection.Backward);
                         e.Handled = true;
                     }
                 }
             }
+
+            if (traceNavigationKey && !e.Handled)
+                Trace($"EMBEDDED_CODE_KEY pass-through key={e.Key} caret={_contentBox.CaretIndex} line={GetCaretLineIndexForTrace()}");
         };
 
         _summaryText = new TextBlock
@@ -227,16 +246,24 @@ public sealed class EmbeddedCodeRegionBlock : Border
         PreviewMouseLeftButtonDown += (sender, e) =>
         {
             var clickedElement = InputHitTest(e.GetPosition(this)) as DependencyObject;
+            Trace($"EMBEDDED_CODE_BORDER_MOUSE enter handled={e.Handled} hit={DescribeInputObject(clickedElement)} point=({e.GetPosition(this).X:F1},{e.GetPosition(this).Y:F1})");
             if (IsVisualAncestorOrSelf(clickedElement, _toggle))
+            {
+                Trace("EMBEDDED_CODE_BORDER_MOUSE exit reason=toggle");
                 return; // Let the toggle button handle its own click.
+            }
 
             if (IsVisualAncestorOrSelf(clickedElement, _contentBox))
+            {
+                Trace("EMBEDDED_CODE_BORDER_MOUSE exit reason=content-textbox");
                 return; // Let TextBox do normal caret placement, selection, and focus.
+            }
 
             // Header/background clicks focus the editor without selecting the whole hosted block.
             _contentBox.Focus();
             Keyboard.Focus(_contentBox);
             e.Handled = true;
+            Trace($"EMBEDDED_CODE_BORDER_MOUSE exit reason=header-focus handled=True focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         };
 
         SetCollapsed(startCollapsed);
@@ -282,6 +309,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     public void FocusContent()
     {
+        Trace($"EMBEDDED_CODE_FOCUS_END enter textLen={_contentBox.Text.Length} caretBefore={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} visible={_contentBox.IsVisible} enabled={_contentBox.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         ClearHostSelection();
         _contentBox.CaretIndex = _contentBox.Text.Length;
         // FocusManager.SetFocusedElement sets logical/keyboard focus within the control's
@@ -293,10 +321,12 @@ public sealed class EmbeddedCodeRegionBlock : Border
         // keyboard input focus, not just the logical bookkeeping.
         FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
         Keyboard.Focus(_contentBox);
+        Trace($"EMBEDDED_CODE_FOCUS_END exit caret={_contentBox.CaretIndex} focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
     }
 
     internal void FocusContentAtPoint(Point pointInContentBox)
     {
+        Trace($"EMBEDDED_CODE_FOCUS_POINT enter point=({pointInContentBox.X:F1},{pointInContentBox.Y:F1}) textLen={_contentBox.Text.Length} caretBefore={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} visible={_contentBox.IsVisible} enabled={_contentBox.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         ClearHostSelection();
         FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
         _contentBox.Focus();
@@ -305,16 +335,22 @@ public sealed class EmbeddedCodeRegionBlock : Border
         var caretIndex = GetCaretIndexFromPoint(pointInContentBox);
         _contentBox.CaretIndex = caretIndex;
         _contentBox.SelectionLength = 0;
+        Trace($"EMBEDDED_CODE_FOCUS_POINT exit caret={_contentBox.CaretIndex} focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
     }
 
     private void ClearHostSelection()
     {
         var host = _hostRichTextBox;
         if (host is null)
+        {
+            Trace("EMBEDDED_CODE_CLEAR_HOST_SELECTION skipped reason=no-host");
             return;
+        }
 
         var collapseTo = host.Selection.End;
+        Trace($"EMBEDDED_CODE_CLEAR_HOST_SELECTION enter selectionEmpty={host.Selection.IsEmpty} selectionLength={GetHostSelectionLengthForTrace(host)} caretOffset={GetHostCaretOffsetForTrace(host)}");
         host.Selection.Select(collapseTo, collapseTo);
+        Trace($"EMBEDDED_CODE_CLEAR_HOST_SELECTION exit selectionEmpty={host.Selection.IsEmpty} selectionLength={GetHostSelectionLengthForTrace(host)} caretOffset={GetHostCaretOffsetForTrace(host)}");
     }
 
     /// <summary>
@@ -374,6 +410,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         var host = _hostRichTextBox;
         if (host is null)
         {
+            Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE fallback=no-host direction={direction}");
             _contentBox.MoveFocus(new TraversalRequest(
                 direction == LogicalDirection.Forward
                     ? FocusNavigationDirection.Next
@@ -384,6 +421,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         var pointer = FindHostCaretPointer(host, direction);
         if (pointer is null)
         {
+            Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE fallback=no-pointer direction={direction} hostCaretOffset={GetHostCaretOffsetForTrace(host)}");
             _contentBox.MoveFocus(new TraversalRequest(
                 direction == LogicalDirection.Forward
                     ? FocusNavigationDirection.Next
@@ -391,12 +429,14 @@ public sealed class EmbeddedCodeRegionBlock : Border
             return;
         }
 
+        Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE schedule direction={direction} hostCaretOffset={GetHostCaretOffsetForTrace(host)}");
         host.Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
         {
             host.Focus();
             Keyboard.Focus(host);
             host.CaretPosition = pointer;
             host.Selection.Select(pointer, pointer);
+            Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE applied direction={direction} hostCaretOffset={GetHostCaretOffsetForTrace(host)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         });
     }
 
@@ -463,4 +503,50 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
         return false;
     }
+
+    private int GetCaretLineIndexForTrace()
+    {
+        var caret = Math.Clamp(_contentBox.CaretIndex, 0, _contentBox.Text.Length);
+        return _contentBox.Text[..caret].Count(c => c == '\n');
+    }
+
+    private int GetLineCountForTrace() =>
+        _contentBox.Text.Length == 0 ? 1 : _contentBox.Text.Count(c => c == '\n') + 1;
+
+    private static string GetHostCaretOffsetForTrace(RichTextBox host)
+    {
+        try
+        {
+            return host.GetCaretOffset().ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"error:{ex.GetType().Name}";
+        }
+    }
+
+    private static string GetHostSelectionLengthForTrace(RichTextBox host)
+    {
+        try
+        {
+            return host.GetSelectionLength().ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"error:{ex.GetType().Name}";
+        }
+    }
+
+    private static string DescribeInputObject(object? value)
+    {
+        if (value is null)
+            return "(null)";
+
+        var typeName = value.GetType().Name;
+        return value is FrameworkElement { Name.Length: > 0 } element
+            ? $"{typeName}#{element.Name}"
+            : typeName;
+    }
+
+    private static void Trace(string message) => SquadDashTrace.Write("UI", message);
 }

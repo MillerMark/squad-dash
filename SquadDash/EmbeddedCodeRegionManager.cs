@@ -4,6 +4,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
@@ -186,6 +187,8 @@ internal static class EmbeddedCodeRegionManager
         // the newly-created region if that's where the user's caret actually was (immediately
         // after typing/pasting the closing fence), rather than always jumping to document end.
         var caretOffset = rtb.GetCaretOffset();
+        var regionCount = segments.OfType<RegionSegment>().Count();
+        SquadDashTrace.Write("UI", $"EMBEDDED_CODE_RENDER begin segments={segments.Count} regions={regionCount} caretOffset={caretOffset} blocksBefore={rtb.Document.Blocks.Count}");
 
         var undoWasEnabled = rtb.IsUndoEnabled;
         if (undoWasEnabled)
@@ -225,6 +228,7 @@ internal static class EmbeddedCodeRegionManager
             }
 
             rtb.CaretPosition = ResolveCaretPointerAfterRebuild(rtb, caretOffset);
+            SquadDashTrace.Write("UI", $"EMBEDDED_CODE_RENDER assigned-caret caretOffset={rtb.GetCaretOffset()} blocksAfter={rtb.Document.Blocks.Count} focusRegion={regionToFocus != null}");
         }
         finally
         {
@@ -235,7 +239,15 @@ internal static class EmbeddedCodeRegionManager
         // Done after the undo-state finally block (and outside the try) so a focus-transfer
         // failure (e.g. no live visual tree in a headless test) can't leave IsUndoEnabled
         // incorrectly restored.
-        regionToFocus?.FocusContent();
+        if (regionToFocus is { } focusRegion)
+        {
+            focusRegion.FocusContent();
+            rtb.Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+            {
+                SquadDashTrace.Write("UI", "EMBEDDED_CODE_RENDER deferred-focus begin");
+                focusRegion.FocusContent();
+            });
+        }
     }
 
     private static void AddCaretLandingAfterRegionIfNeeded(RichTextBox rtb, List<Segment> segments, int regionSegmentIndex)
@@ -244,10 +256,12 @@ internal static class EmbeddedCodeRegionManager
             segments[regionSegmentIndex + 1] is TextSegment { Text: { Length: > 0 } text } &&
             text[0] == '\n')
         {
+            SquadDashTrace.Write("UI", $"EMBEDDED_CODE_LANDING skipped reason=following-text-starts-newline regionSegmentIndex={regionSegmentIndex}");
             return;
         }
 
         rtb.Document.Blocks.Add(RichTextBoxExtensions.CreateEmbeddedCodeRegionCaretLandingParagraph());
+        SquadDashTrace.Write("UI", $"EMBEDDED_CODE_LANDING added regionSegmentIndex={regionSegmentIndex} blocks={rtb.Document.Blocks.Count}");
     }
 
     /// Resolves the <see cref="TextPointer"/> to assign to <c>RichTextBox.CaretPosition</c>

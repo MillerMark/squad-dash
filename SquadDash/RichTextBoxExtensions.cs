@@ -5,6 +5,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 
 namespace SquadDash;
 
@@ -318,13 +319,25 @@ internal static class RichTextBoxExtensions
     public static bool TryFocusAdjacentEmbeddedCodeRegion(this RichTextBox rtb, LogicalDirection direction)
     {
         if (!rtb.Selection.IsEmpty)
+        {
+            SquadDashTrace.Write(
+                "UI",
+                $"EMBEDDED_CODE_HOST_ARROW exit reason=selection-not-empty direction={direction} selectionLength={GetSelectionLengthForTrace(rtb)} caretOffset={GetCaretOffsetForTrace(rtb)}");
             return false;
+        }
 
+        SquadDashTrace.Write(
+            "UI",
+            $"EMBEDDED_CODE_HOST_ARROW enter direction={direction} caretOffset={GetCaretOffsetForTrace(rtb)} focused={DescribeInputObject(Keyboard.FocusedElement)}");
         var block = FindAdjacentEmbeddedCodeRegion(rtb.Document, rtb.CaretPosition, direction);
         if (block?.Child is not EmbeddedCodeRegionBlock region)
+        {
+            SquadDashTrace.Write("UI", $"EMBEDDED_CODE_HOST_ARROW exit reason=no-adjacent-region direction={direction} caretOffset={GetCaretOffsetForTrace(rtb)}");
             return false;
+        }
 
         region.FocusContent();
+        SquadDashTrace.Write("UI", $"EMBEDDED_CODE_HOST_ARROW exit reason=focused-region direction={direction} caretOffset={GetCaretOffsetForTrace(rtb)} focused={DescribeInputObject(Keyboard.FocusedElement)}");
         return true;
     }
 
@@ -350,6 +363,41 @@ internal static class RichTextBoxExtensions
                 return block;
         }
         return null;
+    }
+
+    private static string GetCaretOffsetForTrace(RichTextBox rtb)
+    {
+        try
+        {
+            return rtb.GetCaretOffset().ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"error:{ex.GetType().Name}";
+        }
+    }
+
+    private static string GetSelectionLengthForTrace(RichTextBox rtb)
+    {
+        try
+        {
+            return rtb.GetSelectionLength().ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"error:{ex.GetType().Name}";
+        }
+    }
+
+    private static string DescribeInputObject(object? value)
+    {
+        if (value is null)
+            return "(null)";
+
+        var typeName = value.GetType().Name;
+        return value is FrameworkElement { Name.Length: > 0 } element
+            ? $"{typeName}#{element.Name}"
+            : typeName;
     }
 
     /// <summary>
