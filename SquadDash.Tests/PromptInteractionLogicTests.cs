@@ -1261,3 +1261,46 @@ internal sealed class PromptScrollNavMathTests {
         });
     }
 }
+
+// ── PromptRegistrationMath tests ──────────────────────────────────────────────
+
+[TestFixture]
+internal sealed class PromptRegistrationMathTests {
+
+    // A steering entry that occurs after every existing prompt appends at the end so
+    // Shift+click "latest" (PromptParagraphs[Count-1]) still lands on it.
+    [Test]
+    public void ResolveInsertionIndex_SteeringAfterLastPrompt_AppendsAtEnd() {
+        var existing = new[] { 10, 40, 90 };
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(existing, 150), Is.EqualTo(3));
+    }
+
+    // A steering entry mid-conversation sorts by its real document position, not at the end.
+    [Test]
+    public void ResolveInsertionIndex_SteeringMidConversation_InsertsInDocumentOrder() {
+        var existing = new[] { 10, 40, 90, 200 };
+        // Steering nested in the turn started by the prompt at offset 40 but before the
+        // next prompt at offset 90.
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(existing, 55), Is.EqualTo(2));
+    }
+
+    [Test]
+    public void ResolveInsertionIndex_EmptyList_InsertsAtZero() {
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(System.Array.Empty<int>(), 42),
+            Is.EqualTo(0));
+    }
+
+    [Test]
+    public void ResolveInsertionIndex_SteeringBeforeFirstPrompt_InsertsAtZero() {
+        var existing = new[] { 100, 200 };
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(existing, 50), Is.EqualTo(0));
+    }
+
+    // Among entries at an equal document position the steering entry is placed last, matching
+    // "a steering entry occurs after the prompt that started its turn".
+    [Test]
+    public void ResolveInsertionIndex_EqualPosition_PlacedAfterExisting() {
+        var existing = new[] { 10, 40, 90 };
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(existing, 40), Is.EqualTo(2));
+    }
+}

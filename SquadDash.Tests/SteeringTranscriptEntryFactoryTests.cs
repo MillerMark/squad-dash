@@ -157,12 +157,95 @@ internal sealed class SteeringTranscriptEntryFactoryTests
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void ResolveInsertionIndex_NestedSteeringParagraph_SortsByDocumentOrder()
+    {
+        var thread = new TranscriptThreadState("doc-order", TranscriptThreadKind.Agent, "Agent", Now);
+
+        var prompt1 = new Paragraph(new Run("First user prompt"));
+        thread.Document.Blocks.Add(prompt1);
+        var section1 = new Section();
+        thread.Document.Blocks.Add(section1);
+
+        var prompt2 = new Paragraph(new Run("Second user prompt"));
+        thread.Document.Blocks.Add(prompt2);
+        var section2 = new Section();
+        thread.Document.Blocks.Add(section2);
+
+        var existing = new[] { prompt1, prompt2 };
+
+        // Steering typed during turn 1 is nested in section1 (before prompt2 in document order).
+        var steeringMid = new Paragraph(new Run("Steering for turn 1"));
+        section1.Blocks.Add(steeringMid);
+        var midIndex = PromptRegistrationMath.ResolveInsertionIndex(
+            thread.Document.ContentStart, steeringMid, existing);
+
+        // Steering typed during the latest turn is nested in section2 (after both prompts).
+        var steeringLatest = new Paragraph(new Run("Steering for turn 2"));
+        section2.Blocks.Add(steeringLatest);
+        var latestIndex = PromptRegistrationMath.ResolveInsertionIndex(
+            thread.Document.ContentStart, steeringLatest, existing);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(midIndex, Is.EqualTo(1),
+                "A nested mid-conversation steering paragraph sorts between the two prompts.");
+            Assert.That(latestIndex, Is.EqualTo(2),
+                "Latest-turn steering appends at the end so Shift+click 'latest' lands on it.");
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RegisteredSteering_BecomesNavStopInDocumentOrder()
+    {
+        var thread = new TranscriptThreadState("nav-order", TranscriptThreadKind.Agent, "Agent", Now);
+
+        var prompt1 = new Paragraph(new Run("Prompt one"));
+        thread.Document.Blocks.Add(prompt1);
+        var section1 = new Section();
+        thread.Document.Blocks.Add(section1);
+        var prompt2 = new Paragraph(new Run("Prompt two"));
+        thread.Document.Blocks.Add(prompt2);
+
+        thread.PromptParagraphs.Add(new PromptEntry(prompt1, Now, "Prompt one"));
+        thread.PromptParagraphs.Add(new PromptEntry(prompt2, Now, "Prompt two"));
+
+        // Register a steering entry nested in turn 1 the same way MainWindow does.
+        var steering = new Paragraph(new Run("Steering mid"));
+        section1.Blocks.Add(steering);
+        var existing = thread.PromptParagraphs.Select(entry => entry.Paragraph).ToArray();
+        var index = PromptRegistrationMath.ResolveInsertionIndex(
+            thread.Document.ContentStart, steering, existing);
+        thread.PromptParagraphs.Insert(index, new PromptEntry(steering, Now, "Steering mid"));
+
+        var documentStart = thread.Document.ContentStart;
+        var offsets = thread.PromptParagraphs
+            .Select(entry => documentStart.GetOffsetToPosition(entry.Paragraph.ContentStart))
+            .ToArray();
+
+        // Model GetScrollBasedNavState: project the (list-ordered) prompts onto spaced
+        // document-space Ys and confirm the registered steering entry is the nearest stop
+        // both above and below a viewport sitting between prompt one and the steering entry.
+        var absYs = new[] { 100.0, 500.0, 900.0 };
+        var navState = PromptScrollNavMath.Compute(absYs, viewportTop: 300.0, scrollableMax: 2000.0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(thread.PromptParagraphs.Select(entry => entry.Title),
+                Is.EqualTo(new[] { "Prompt one", "Steering mid", "Prompt two" }));
+            Assert.That(offsets, Is.Ordered.Ascending,
+                "The list the nav geometry walks must stay in ascending document order.");
+            Assert.That(navState.NearestAboveIdx, Is.EqualTo(0));
+            Assert.That(navState.NearestBelowIdx, Is.EqualTo(1),
+                "↓ lands on the registered steering entry — it is no longer skipped.");
+        });
+    }
+
     private static TranscriptThreadState CreateThreadWithTurn(
         string id,
         string title,
         out TranscriptTurnView turn)
-    {
-        var thread = new TranscriptThreadState(id, TranscriptThreadKind.Agent, title, Now);
+    {        var thread = new TranscriptThreadState(id, TranscriptThreadKind.Agent, title, Now);
         var narrative = new Section();
         thread.Document.Blocks.Add(narrative);
         turn = new TranscriptTurnView(thread, "original prompt", Now, narrative, [narrative]);

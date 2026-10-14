@@ -3295,6 +3295,16 @@ public partial class MainWindow : Window
                 paragraph,
                 DateTimeOffset.Now,
                 AllocateNarrativeSequence(targetTurn));
+            // A user steering message is a prompt — register it as a navigable ↑/↓ stop with
+            // a derived nav title, matching ordinary user prompts (~44896).
+            var steeringTitle = string.IsNullOrWhiteSpace(displayPrompt)
+                ? null : NotesStore.DeriveTitle(displayPrompt);
+            var steeringInsertIndex = RegisterSteeringPromptNavStop(
+                targetThread, paragraph, DateTimeOffset.Now, steeringTitle);
+            if (targetThread.PromptNavIndex >= steeringInsertIndex)
+                targetThread.PromptNavIndex++;
+            if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, targetThread))
+                SyncPromptNavButtons();
             _conversationManager.PersistTranscriptTurnSnapshot(
                 targetThread,
                 targetTurn,
@@ -3451,6 +3461,14 @@ public partial class MainWindow : Window
                 DateTimeOffset.Now,
                 AllocateNarrativeSequence(turn),
                 isSystem: true);
+            // System steering is an injected prompt too; register it as a navigable stop with a
+            // null title, matching the system-injected-prompt convention at ~44897.
+            var systemSteeringInsertIndex = RegisterSteeringPromptNavStop(
+                thread, paragraph, DateTimeOffset.Now, title: null);
+            if (thread.PromptNavIndex >= systemSteeringInsertIndex)
+                thread.PromptNavIndex++;
+            if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
+                SyncPromptNavButtons();
             _conversationManager.PersistTranscriptTurnSnapshot(thread, turn, "system-steering-accepted");
             ScrollToEndIfAtBottom(thread);
             SquadDashTrace.Write("SystemSteering",
@@ -45412,6 +45430,11 @@ public partial class MainWindow : Window
                 MakeThemedToolTip("This prompt includes attachments. Click to view."),
                 isSystemSteering);
             view.NarrativeSection.Blocks.Add(paragraph);
+            // Re-register steering entries as navigation stops after a reload, mirroring the
+            // live paths. User steering keeps a derived title; system steering stays titleless.
+            var steeringTitle = isSystemSteering || string.IsNullOrWhiteSpace(display.Prompt)
+                ? null : NotesStore.DeriveTitle(display.Prompt);
+            RegisterSteeringPromptNavStop(view.OwnerThread, paragraph, notice.OccurredAt, steeringTitle);
             return;
         }
 
@@ -48177,6 +48200,34 @@ public partial class MainWindow : Window
 
         PromptNavUpButton.IsEnabled   = canGoUp;
         PromptNavDownButton.IsEnabled = canGoDown;
+    }
+
+    /// <summary>
+    /// Registers a steering paragraph as a prompt-navigation stop. A steering message is a
+    /// user prompt (or a system-injected prompt) and must be a navigable ↑/↓ stop like any
+    /// other prompt. Because steering paragraphs are rendered inside a turn's narrative
+    /// <see cref="System.Windows.Documents.Section"/> rather than as a top-level block, they
+    /// are inserted into <see cref="TranscriptThreadState.PromptParagraphs"/> at their true
+    /// document-order position (via <see cref="PromptRegistrationMath.ResolveInsertionIndex"/>)
+    /// so nearest-above/below geometry, Shift+click "latest", and the index-based fallbacks all
+    /// stay correct. The paragraph must already be attached to <paramref name="thread"/>'s
+    /// document before calling. Returns the index at which the entry was inserted.
+    /// </summary>
+    private static int RegisterSteeringPromptNavStop(
+        TranscriptThreadState thread,
+        System.Windows.Documents.Paragraph paragraph,
+        DateTimeOffset occurredAt,
+        string? title)
+    {
+        var documentStart = thread.Document.ContentStart;
+        var existingParagraphs = new System.Windows.Documents.Paragraph[thread.PromptParagraphs.Count];
+        for (int i = 0; i < existingParagraphs.Length; i++)
+            existingParagraphs[i] = thread.PromptParagraphs[i].Paragraph;
+
+        var insertIndex = PromptRegistrationMath.ResolveInsertionIndex(
+            documentStart, paragraph, existingParagraphs);
+        thread.PromptParagraphs.Insert(insertIndex, new PromptEntry(paragraph, occurredAt, title));
+        return insertIndex;
     }
 
     private static string FormatRelativeTime(DateTimeOffset timestamp)

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Windows.Documents;
 
 namespace SquadDash;
 
@@ -133,6 +134,52 @@ internal static class PromptScrollNavMath {
         }
 
         return new PromptScrollNavState(nearestAboveIdx, nearestBelowIdx);
+    }
+}
+
+/// <summary>
+/// Pure insertion-index math for registering a steering prompt into the ordered
+/// <c>PromptParagraphs</c> list. Steering entries are rendered inside a turn's narrative
+/// <c>Section</c> (not as a top-level document block), so they must be inserted at the
+/// position that keeps the list sorted by document order rather than blindly appended —
+/// otherwise Shift+click "latest", index-based fallbacks, and the batch-reorder on reload
+/// would see the list out of visual order.
+/// </summary>
+internal static class PromptRegistrationMath {
+    /// <summary>
+    /// Returns the index at which to insert an entry whose document-order position is
+    /// <paramref name="newPosition"/> so that <paramref name="existingPositions"/> (assumed
+    /// ascending in document order) stays sorted. Among entries at an equal position the new
+    /// entry is placed last, matching "a steering entry occurs after the prompt that started
+    /// its turn".
+    /// </summary>
+    public static int ResolveInsertionIndex(IReadOnlyList<int> existingPositions, int newPosition) {
+        int index = existingPositions.Count;
+        while (index > 0 && existingPositions[index - 1] > newPosition)
+            index--;
+        return index;
+    }
+
+    /// <summary>
+    /// Resolves the <see cref="ResolveInsertionIndex(IReadOnlyList{int}, int)"/> insertion
+    /// point for <paramref name="newParagraph"/> relative to <paramref name="existingParagraphs"/>
+    /// using live document-symbol offsets. Works for paragraphs nested inside a
+    /// <see cref="Section"/> as well as top-level blocks, because
+    /// <see cref="TextPointer.GetOffsetToPosition"/> is monotonic in document order.
+    /// </summary>
+    public static int ResolveInsertionIndex(
+        TextPointer documentStart,
+        Paragraph newParagraph,
+        IReadOnlyList<Paragraph> existingParagraphs) {
+        ArgumentNullException.ThrowIfNull(documentStart);
+        ArgumentNullException.ThrowIfNull(newParagraph);
+        ArgumentNullException.ThrowIfNull(existingParagraphs);
+
+        var newOffset = documentStart.GetOffsetToPosition(newParagraph.ContentStart);
+        var offsets = new int[existingParagraphs.Count];
+        for (int i = 0; i < offsets.Length; i++)
+            offsets[i] = documentStart.GetOffsetToPosition(existingParagraphs[i].ContentStart);
+        return ResolveInsertionIndex(offsets, newOffset);
     }
 }
 
