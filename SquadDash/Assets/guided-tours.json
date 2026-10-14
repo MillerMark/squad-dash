@@ -131,7 +131,7 @@
       },
       {
         "title": "Diffs",
-        "markdownText": "On the right you can see **lines added** (**\u002B1**) and **removed** (**-1**).\r\nClick the file name to see **diffs**.",
+        "markdownText": "On the right you can see **lines added** and **removed**.\r\nClick the file name to see **diffs**.",
         "targetControlId": "TourInjectedLastToolEntry_edit",
         "calloutPlacement": "North",
         "preAction": "None",
