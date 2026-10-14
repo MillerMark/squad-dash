@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,6 +9,7 @@ using System.Windows.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
+using VoiceHeuristics;
 
 namespace SquadDash;
 
@@ -351,6 +353,24 @@ public sealed class EmbeddedCodeRegionBlock : Border
         _editor.SelectionLength = 0;
         _editor.FocusEditor();
         Trace($"EMBEDDED_CODE_FOCUS_POSITION exit caret={_editor.CaretOffset} focused={_editor.IsKeyboardFocusWithin}");
+    }
+
+    /// <summary>
+    /// Inserts voice-dictated <paramref name="dictatedText"/> at this region's current caret
+    /// (applying the shared <see cref="VoiceInsertionHeuristics"/> leading-space / replacement
+    /// conditioning), so push-to-talk dictation while the region holds keyboard focus lands
+    /// INSIDE the region instead of leaking out to the host prompt. The editor's
+    /// <c>TextChanged</c>→<see cref="Content"/> sync keeps the model in step.
+    /// </summary>
+    public void InsertDictation(string dictatedText, IReadOnlyList<VoiceReplacementRule> replacementRules)
+    {
+        var selLength = _editor.SelectionLength;
+        var caret = selLength > 0 ? _editor.SelectionStart : _editor.CaretOffset;
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            _editor.Text, caret, selLength, dictatedText, replacementRules);
+        Trace($"EMBEDDED_CODE_DICTATION enter caret={caret} selection={selLength} textLen={_editor.TextLength} inserted-len={plan.ReplacedText.Length}");
+        _editor.InsertText(plan.ReplacedText);
+        Trace($"EMBEDDED_CODE_DICTATION exit caret={_editor.CaretOffset} textLen={_editor.TextLength}");
     }
 
     internal void FocusContentAtPoint(Point pointInContentBox)

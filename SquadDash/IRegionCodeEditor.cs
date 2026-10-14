@@ -99,6 +99,12 @@ public interface IRegionCodeEditor
     /// Removes the current selection from the document (used by the fenced Cut path).
     void RemoveSelectedText();
 
+    /// Inserts <paramref name="text"/> at the caret (replacing the current selection, if any)
+    /// and advances the caret to the end of the inserted text. Used by the voice-dictation path
+    /// so recognized text lands inside the focused region instead of the host prompt. Mirrors
+    /// how <see cref="RemoveSelectedText"/> mutates the document directly.
+    void InsertText(string text);
+
     /// Routes logical + keyboard focus into the editor's text-input surface. Safe to call before
     /// the control has been rendered (sets logical focus too), mirroring the TextBox-era behavior.
     void FocusEditor();

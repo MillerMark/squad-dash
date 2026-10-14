@@ -1043,6 +1043,136 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(region, Is.Not.Null);
     }
 
+    // ── Prediction-aware entry decision (entry-from-above AND entry-from-below) ─────────
+    // DecideRegionEntryFromPrediction wires the pure DecideRegionEntry to the live caret's
+    // fragile line prediction: forward keys trust the predicted landing block; backward keys
+    // (whose Up/Left prediction walks ACROSS the region) decide on the current block instead.
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_DownFromAbove_EntersRegionAtStart()
+    {
+        var (blocks, region) = BuildRegionSandwich();
+
+        // Down from the "before" paragraph: predicted landing resolves onto the block boundary,
+        // which FindCaretBlockIndex maps back to block 0 (first-match-wins).
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Down);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_RightFromAbove_EntersRegionAtStart()
+    {
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Right);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_UpFromBelow_CrossedPrediction_EntersRegionAtEnd()
+    {
+        // The reported bug: Up on the line below the region. The prediction crosses the region
+        // and resolves to block 1 (the region's own container) — unusable for forward logic, but
+        // the backward path decides on the current block (2) and enters at END.
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Up);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(region.Content.Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_UpFromBelow_NullPrediction_EntersRegionAtEnd()
+    {
+        // When the Up/Left line prediction walks off entirely (caretAfter was null → index -1),
+        // entry-from-below must still resolve to the region above at END.
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, -1, Key.Up);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(region.Content.Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_LeftFromBelow_AtStartOfLine_EntersRegionAtEnd()
+    {
+        var (blocks, region) = BuildRegionSandwich();
+
+        // Left at the start of the below-line crosses to the region (predicted block 1).
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Left);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(region.Content.Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_BackwardWithinParagraph_DoesNotEnter()
+    {
+        // A within-paragraph Up/Left on a wrapped host line (the prediction stays on the SAME
+        // block) must not prematurely jump into the region above.
+        var (blocks, _) = BuildRegionSandwich();
+
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Up), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Left), Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_BackwardFromAbove_DoesNotEnterRegionBelow()
+    {
+        // Symmetric guard: Up/Left from the line ABOVE the region must never drop DOWN into it.
+        var (blocks, _) = BuildRegionSandwich();
+
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, -1, Key.Up), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, -1, Key.Left), Is.Null);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_ForwardFromBelow_DoesNotEnterRegionAbove()
+    {
+        // Down/Right on the line below the region must not jump UP into it.
+        var (blocks, _) = BuildRegionSandwich();
+
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Down), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Right), Is.Null);
+    }
+
+    // ── Voice dictation targets the focused region (Bug 1) ─────────────────────────────
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void InsertDictation_AtEndOfRegion_InsertsInsideRegionContent()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("code", "");
+        region.FocusContentAtPosition(region.Content.Length);
+
+        region.InsertDictation("hello", Array.Empty<VoiceHeuristics.VoiceReplacementRule>());
+
+        // Dictation lands INSIDE the region (not lost to a host). The leading-space heuristic
+        // inserts a separator because the preceding char is a letter.
+        Assert.That(region.Content, Does.StartWith("code"));
+        Assert.That(region.Content, Does.EndWith("hello"));
+        Assert.That(region.Content.Length, Is.GreaterThan("code".Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void InsertDictation_IntoEmptyRegion_InsertsDictatedText()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("", "");
+
+        region.InsertDictation("alpha", Array.Empty<VoiceHeuristics.VoiceReplacementRule>());
+
+        Assert.That(region.Content, Does.Contain("alpha"));
+    }
     [Test, Apartment(ApartmentState.STA)]
     public void FocusContentAtPosition_StartPosition_PlacesCareAtStart()
     {

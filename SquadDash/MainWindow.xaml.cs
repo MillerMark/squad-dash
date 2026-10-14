@@ -28021,8 +28021,10 @@ public partial class MainWindow : Window
                 else if (e.Key == Key.Left)
                     caretAfter = caretBefore.GetPositionAtOffset(-1, LogicalDirection.Backward);
 
-                // Try smart navigation if we can predict the destination
-                if (caretAfter is not null && PromptTextBox.TryNavigateIntoEmbeddedRegionWithDirection(e.Key, caretBefore, caretAfter))
+                // Try smart navigation. caretAfter may be null (the backward Up/Left prediction
+                // can walk off across the region); TryNavigateIntoEmbeddedRegionWithDirection
+                // handles a null prediction for entry-from-below.
+                if (PromptTextBox.TryNavigateIntoEmbeddedRegionWithDirection(e.Key, caretBefore, caretAfter))
                 {
                     e.Handled = true;
                     return;
@@ -28327,22 +28329,39 @@ public partial class MainWindow : Window
         key is Key.LeftShift or Key.RightShift;
 
     private static bool IsInsideEmbeddedCodeRegion(object? value)
+        => FindEmbeddedCodeRegion(value) is not null;
+
+    /// <summary>
+    /// Walks up the visual/logical tree from <paramref name="value"/> and returns the enclosing
+    /// <see cref="EmbeddedCodeRegionBlock"/>, or <see langword="null"/> if the element is not
+    /// inside one. Shared by the keyboard-routing guards and the voice-insertion path so both
+    /// consistently detect "this element lives inside an embedded code region".
+    /// </summary>
+    private static EmbeddedCodeRegionBlock? FindEmbeddedCodeRegion(object? value)
     {
         if (value is not DependencyObject current)
-            return false;
+            return null;
 
         while (current is not null)
         {
-            if (current is EmbeddedCodeRegionBlock)
-                return true;
+            if (current is EmbeddedCodeRegionBlock region)
+                return region;
 
             current = current is Visual or System.Windows.Media.Media3D.Visual3D
                 ? VisualTreeHelper.GetParent(current)
                 : LogicalTreeHelper.GetParent(current);
         }
 
-        return false;
+        return null;
     }
+
+    /// <summary>
+    /// Returns the embedded code region that currently owns keyboard focus, or
+    /// <see langword="null"/> when focus is not inside a region. Used to route space/printable
+    /// keystrokes and voice dictation into the focused region instead of the host prompt.
+    /// </summary>
+    private static EmbeddedCodeRegionBlock? FocusedEmbeddedCodeRegion()
+        => FindEmbeddedCodeRegion(Keyboard.FocusedElement);
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
@@ -28642,6 +28661,7 @@ public partial class MainWindow : Window
             if (_transcriptFullScreenEnabled
                 && !_fullScreenPromptVisible
                 && Keyboard.FocusedElement is not TextBox
+                && !IsInsideEmbeddedCodeRegion(Keyboard.FocusedElement)
                 && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) == ModifierKeys.None
                 && IsPrintableKey(e.Key))
             {
@@ -29181,6 +29201,12 @@ public partial class MainWindow : Window
         if (PromptTextBox?.IsKeyboardFocusWithin != true || !IsPrintableKey(e.Key))
             return false;
 
+        // When a focused embedded code region is within PromptTextBox, IsKeyboardFocusWithin is
+        // still true — but the keystroke is destined for the region, not the host. Never hijack
+        // it into the host RichTextBox.
+        if (FocusedEmbeddedCodeRegion() is not null)
+            return false;
+
         var logicalModifiers = Keyboard.Modifiers;
         var physicalModifiers = NativeMethods.GetPhysicalModifierKeys();
         const ModifierKeys shortcutModifiers = ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows;
@@ -29638,6 +29664,18 @@ public partial class MainWindow : Window
                 i => i.Id == _activeTabId && i.SourceTag == TourDummyTag);
             if (activeItem is not null)
                 activeItem.HasSubstantialVoiceWork = true;
+        }
+
+        // When an embedded code region currently holds keyboard focus, dictation must land
+        // INSIDE that region's editor (at its caret) rather than the host prompt. Without this
+        // the recognized text would be inserted at the host RichTextBox's own caret, outside
+        // the region the user is clearly working in.
+        var focusedRegion = FocusedEmbeddedCodeRegion();
+        if (focusedRegion is not null)
+        {
+            SquadDashTrace.Write("UI", $"PROMPT_EMBEDDED_CODE_DICTATION routing-to-region words={CountWords(text)}");
+            focusedRegion.InsertDictation(text, _settingsSnapshot.VoiceReplacementRules);
+            return;
         }
 
         if (_pttTargetRichTextBox != null)

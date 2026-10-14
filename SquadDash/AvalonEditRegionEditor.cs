@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using ICSharpCode.AvalonEdit;
 
 namespace SquadDash;
@@ -93,6 +94,20 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         _editor.Document.Remove(_editor.SelectionStart, length);
     }
 
+    public void InsertText(string text)
+    {
+        text ??= string.Empty;
+        var selLength = _editor.SelectionLength;
+        var offset = selLength > 0 ? _editor.SelectionStart : _editor.TextArea.Caret.Offset;
+        offset = Math.Clamp(offset, 0, _editor.Document.TextLength);
+        if (selLength > 0)
+            _editor.Document.Replace(offset, selLength, text);
+        else
+            _editor.Document.Insert(offset, text);
+        _editor.TextArea.ClearSelection();
+        _editor.TextArea.Caret.Offset = Math.Clamp(offset + text.Length, 0, _editor.Document.TextLength);
+    }
+
     public void FocusEditor()
     {
         // FocusManager.SetFocusedElement sets logical/keyboard focus within the control's focus
@@ -104,6 +119,24 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_editor), textArea);
         textArea.Focus();
         Keyboard.Focus(textArea);
+
+        // If real OS keyboard focus did not land on the TextArea synchronously (the control may
+        // not yet be connected to a PresentationSource / visible), retry once after layout at
+        // Input priority. Without real keyboard focus on the TextArea, WPF routes KeyDown/
+        // TextInput (e.g. Space and printable keys) to the host RichTextBox instead of the
+        // region, so the character leaks outside the region. The retry establishes genuine
+        // keyboard ownership once the editor has rendered.
+        if (!textArea.IsKeyboardFocused)
+        {
+            textArea.Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+            {
+                if (textArea.IsKeyboardFocused)
+                    return;
+                FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_editor), textArea);
+                textArea.Focus();
+                Keyboard.Focus(textArea);
+            }));
+        }
     }
 
     public int GetOffsetFromPoint(Point pointInControl)

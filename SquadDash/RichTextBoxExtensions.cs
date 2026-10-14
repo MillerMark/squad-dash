@@ -596,6 +596,47 @@ internal static class RichTextBoxExtensions
     }
 
     /// <summary>
+    /// Direction-aware entry decision that accounts for the fragile line-prediction used by the
+    /// live caret, separated as a pure function so both entry-from-above and entry-from-below are
+    /// directly unit-testable.
+    /// <para>
+    /// FORWARD keys (Down/Right) decide on the PREDICTED landing block (<paramref name="caretAfterIndex"/>):
+    /// the downward line prediction is reliable (it does not cross the region's non-text
+    /// <c>BlockUIContainer</c>), and gating on it means a within-paragraph move does not
+    /// prematurely enter the region below.
+    /// </para>
+    /// <para>
+    /// BACKWARD keys (Up/Left) decide on the block the caret is actually on BEFORE the press
+    /// (<paramref name="caretBeforeIndex"/>). The Up/Left prediction walks ACROSS the region and
+    /// lands on the wrong side, so it cannot be trusted to find the region above. Entry still
+    /// requires the press to actually leave the current paragraph (the predicted landing, when
+    /// known, differs from the current block) so a within-paragraph Up/Left on a wrapped host
+    /// line does not jump into the region.
+    /// </para>
+    /// </summary>
+    internal static RegionEntryDecision? DecideRegionEntryFromPrediction(
+        IReadOnlyList<Block> blocks, int caretBeforeIndex, int caretAfterIndex, Key key)
+    {
+        var forward = key is Key.Down or Key.Right;
+        var backward = key is Key.Up or Key.Left;
+        if (!forward && !backward)
+            return null;
+
+        if (forward)
+            return DecideRegionEntry(blocks, caretAfterIndex, key);
+
+        // Backward: the predicted landing is unusable for finding the region above, but it is a
+        // reliable "did the press leave the current paragraph?" signal. When the prediction is
+        // known (>= 0) and stays on the same block, this was a within-paragraph move — do not
+        // enter. Otherwise (left the paragraph, or prediction unavailable because it walked off
+        // across the region) enter the region immediately above at END.
+        if (caretAfterIndex >= 0 && caretAfterIndex == caretBeforeIndex)
+            return null;
+
+        return DecideRegionEntry(blocks, caretBeforeIndex, key);
+    }
+
+    /// <summary>
     /// Returns the index of the first block whose element range contains <paramref name="caret"/>,
     /// or -1 if none. First-match-wins mirrors the boundary semantics of the original
     /// caret-paragraph scan (a position on a block boundary resolves to the earlier block).
@@ -656,7 +697,7 @@ internal static class RichTextBoxExtensions
     public static bool TryNavigateIntoEmbeddedRegionWithDirection(
         this RichTextBox rtb, Key key, TextPointer? caretBefore, TextPointer? caretAfter)
     {
-        if (!rtb.Selection.IsEmpty || caretBefore is null || caretAfter is null)
+        if (!rtb.Selection.IsEmpty || caretBefore is null)
             return false;
 
         // Only handle arrow keys
@@ -665,21 +706,22 @@ internal static class RichTextBoxExtensions
 
         var forward = key is Key.Down or Key.Right;
 
-        // Direction-aware dead-zone detection on the predicted landing paragraph.
+        // Resolve the block the caret is on BEFORE the press and (when predictable) the block it
+        // would land on AFTER. Entry-from-above is decided on the predicted landing; entry-from-
+        // below is decided on the current block because the backward prediction walks ACROSS the
+        // region's non-text BlockUIContainer and resolves to the wrong side.
         var blocksList = rtb.Document.Blocks.ToList();
-        var caretAfterIndex = FindCaretBlockIndex(blocksList, caretAfter);
-        var decision = DecideRegionEntry(blocksList, caretAfterIndex, key);
+        var caretBeforeIndex = FindCaretBlockIndex(blocksList, caretBefore);
+        var caretAfterIndex = caretAfter is null ? -1 : FindCaretBlockIndex(blocksList, caretAfter);
+        var decision = DecideRegionEntryFromPrediction(blocksList, caretBeforeIndex, caretAfterIndex, key);
         if (decision is null)
             return false;
 
         var region = decision.Value.Region;
 
-        // Guard against GetLineStartPosition walking ACROSS the region's non-text
-        // BlockUIContainer: the predicted caretAfter can resolve onto a paragraph on the WRONG
-        // side of the region, which would otherwise select the region against the direction of
-        // travel. Require the chosen region to lie on the correct side of the caret BEFORE the
-        // key press — forward keys may only enter a region positioned AFTER caretBefore,
-        // backward keys only a region positioned BEFORE caretBefore.
+        // Guard against entering a region on the WRONG side of the travel direction: forward keys
+        // may only enter a region positioned AFTER caretBefore, backward keys only a region
+        // positioned BEFORE caretBefore. (Preserves the strict directional invariant.)
         var container = FindContainerForRegion(rtb.Document, region);
         if (container is not null)
         {
