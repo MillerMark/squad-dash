@@ -14327,68 +14327,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OpenReviewCard(Plan displayedPlan, string taskId)
-    {
-        var current = _planStore?.Load(displayedPlan.PlanId) ?? displayedPlan;
-        var identity = new DecomposeRecoveryTag(current.PlanId, current.Revision, taskId);
-
-        Border? FindCard(bool requireLiveActions)
-        {
-            var sections = CoordinatorThread.Document.Blocks
-                .OfType<Section>()
-                .Where(candidate =>
-                    candidate.Tag is DecomposeRecoveryTag tag &&
-                    string.Equals(tag.GroupId, identity.GroupId, StringComparison.Ordinal) &&
-                    string.Equals(tag.Revision, identity.Revision, StringComparison.Ordinal) &&
-                    string.Equals(tag.TaskId, identity.TaskId, StringComparison.Ordinal))
-                .Reverse();
-            foreach (var section in sections)
-            {
-                var container = section.Blocks.OfType<BlockUIContainer>().FirstOrDefault(candidate =>
-                    candidate.Tag is DecomposeRecoveryCardTag cardTag &&
-                    cardTag.Identity == identity &&
-                    (!requireLiveActions || cardTag.ActionsPanel.Visibility == Visibility.Visible));
-                if (container?.Child is Border border) return border;
-            }
-            return null;
-        }
-
-        var card = FindCard(requireLiveActions: true);
-        if (card is null)
-        {
-            // Transcript cards are presentation state, not the source of truth. Reconstruct the
-            // card from the durable plan if transcript compaction or later activity removed it.
-            AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(current), taskId);
-            card = FindCard(requireLiveActions: true) ?? FindCard(requireLiveActions: false);
-        }
-
-        if (card is null)
-        {
-            ReportPlanActionIssue(
-                current.PlanId,
-                "Open review card",
-                "SquadDash could not reconstruct the review card from the current plan state.");
-            return;
-        }
-
-        OutputTextBox.Focus();
-        card.BringIntoView();
-        var highlight = new DoubleAnimation(
-            fromValue: 0.55,
-            toValue: 1,
-            duration: TimeSpan.FromMilliseconds(320))
-        {
-            AutoReverse = true,
-            RepeatBehavior = new RepeatBehavior(2),
-        };
-        highlight.Completed += (_, _) =>
-        {
-            card.BeginAnimation(UIElement.OpacityProperty, null);
-            card.Opacity = 1;
-        };
-        card.BeginAnimation(UIElement.OpacityProperty, highlight);
-    }
-
     private void OpenDecomposePlanViewer(
         PendingDecomposePlan plan,
         Plan? durablePlan = null,
@@ -14907,7 +14845,6 @@ public partial class MainWindow : Window
             onOpenTaskFileDiff: (task, path) => _ = OpenTaskFileDiffAsync(task, path),
             onContinueInterruptedTask: onContinueInterruptedTask,
             onReplanRemainingWork: onReplanRemainingWork,
-            onOpenReviewCard: (current, taskId) => OpenReviewCard(current, taskId),
             onReviewSelection: (item, isChecked) =>
                 RecordHumanReviewChecklistSelection(groupId, item, isChecked),
             onAddressUncheckedItems: (current, taskId, items) =>
@@ -41166,43 +41103,86 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.UI, "SessionGap: no shutdown time found — stripe skipped.");
         }
 
+        void TraceWorkspaceLoadPhase(string name, Action action)
+        {
+            var phaseSw = Stopwatch.StartNew();
+            try
+            {
+                action();
+            }
+            finally
+            {
+                phaseSw.Stop();
+                SquadDashTrace.Write(
+                    TraceCategory.Performance,
+                    $"LOAD_CONVERSATION_PHASE: {name} {phaseSw.ElapsedMilliseconds}ms");
+            }
+        }
+
+        async Task TraceWorkspaceLoadPhaseAsync(string name, Func<Task> action)
+        {
+            var phaseSw = Stopwatch.StartNew();
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                phaseSw.Stop();
+                SquadDashTrace.Write(
+                    TraceCategory.Performance,
+                    $"LOAD_CONVERSATION_PHASE: {name} {phaseSw.ElapsedMilliseconds}ms");
+            }
+        }
+
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace?.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
-        await _conversationManager.LoadWorkspaceConversationAsync();
+        await TraceWorkspaceLoadPhaseAsync(
+            "conversation-manager",
+            () => _conversationManager.LoadWorkspaceConversationAsync());
         _workspaceConversationHydrated = true;
-        if (_hasAuthoritativeBackgroundTaskSnapshot)
-            ReconcileRestoredIncompleteToolsFromBackgroundSnapshot();
+        TraceWorkspaceLoadPhase(
+            "background-task-reconcile",
+            () =>
+            {
+                if (_hasAuthoritativeBackgroundTaskSnapshot)
+                    ReconcileRestoredIncompleteToolsFromBackgroundSnapshot();
+            });
         // Recovery evidence lives in the persisted transcript, which is workspace-hydrated only
         // here. Reconcile it before rebuilding any recovery card or Inbox action.
-        await ReconcileInterruptedPlanTaskEvidenceAsync();
-        ReconcileDecomposeRecoveryInboxMessages();
+        await TraceWorkspaceLoadPhaseAsync(
+            "interrupted-plan-evidence",
+            () => ReconcileInterruptedPlanTaskEvidenceAsync());
+        TraceWorkspaceLoadPhase("recovery-inbox-reconcile", () => ReconcileDecomposeRecoveryInboxMessages());
         // Repair durable state only after the workspace-scoped execution envelope is loaded,
         // but before rebuilding approval/recovery controls from that state.
-        RepairStalePlanExecutingState();
-        ReconcileCollectedPendingPlans();
+        TraceWorkspaceLoadPhase("stale-plan-repair", () => RepairStalePlanExecutingState());
+        TraceWorkspaceLoadPhase("collected-plan-reconcile", () => ReconcileCollectedPendingPlans());
         // TASKS_JSON can be followed by an empty/system turn, so the plan-producing turn
         // is not necessarily the last persisted turn. Rebuild approval actions from the
         // durable pending-plan store after hydration and state repair instead of inferring
         // ownership from transcript position.
-        RestorePendingDecomposeApprovalSurfaces(promoteUnaddressedToInbox: true);
+        TraceWorkspaceLoadPhase(
+            "pending-decompose-approval-surfaces",
+            () => RestorePendingDecomposeApprovalSurfaces(promoteUnaddressedToInbox: true));
         // Transcript hydration replaces the document. Restore durable approval cards only
         // after that replacement so a restart cannot silently erase the required action.
-        RestoreAwaitingApprovalGateUI();
+        TraceWorkspaceLoadPhase("awaiting-approval-gates", () => RestoreAwaitingApprovalGateUI());
         // Pending plan-revision cards are also live WPF controls. Restoring them before
         // LoadWorkspaceConversationAsync adds them to the document that hydration discards.
         // Restore after checkpoint cards so the unresolved revision action remains visible.
-        RestorePendingPlanRevisionApprovalCards();
+        TraceWorkspaceLoadPhase("pending-plan-revision-cards", () => RestorePendingPlanRevisionApprovalCards());
         // Interrupted-plan actions are live WPF controls and are not serialized with the
         // narrative. Reconstruct them only after hydration (and stale-state repair), or the
         // document replacement above will silently erase them during every restart.
-        RestoreInterruptedPlanRecoverySurfaces();
-        RestoreFailedPlanValidationRecoverySurface();
-        RestoreRejectedPlanRevisionRecoverySurface();
-        RestoreInterruptedPromptRecoverySurface();
-        RestorePendingPlanContinuation();
+        TraceWorkspaceLoadPhase("interrupted-plan-recovery-surfaces", () => RestoreInterruptedPlanRecoverySurfaces());
+        TraceWorkspaceLoadPhase("failed-plan-validation-recovery", () => RestoreFailedPlanValidationRecoverySurface());
+        TraceWorkspaceLoadPhase("rejected-plan-revision-recovery", () => RestoreRejectedPlanRevisionRecoverySurface());
+        TraceWorkspaceLoadPhase("interrupted-prompt-recovery", () => RestoreInterruptedPromptRecoverySurface());
+        TraceWorkspaceLoadPhase("pending-plan-continuation", () => RestorePendingPlanContinuation());
         // A queued semantic preflight and its candidate correlation are one durable operation.
         // Restore the correlation before queue hydration can dispatch the recovered prompt.
-        RestorePendingPlanHumanProofCoverageReview();
+        TraceWorkspaceLoadPhase("human-proof-coverage-review", () => RestorePendingPlanHumanProofCoverageReview());
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
         _ = Dispatcher.BeginInvoke(
@@ -45316,6 +45296,7 @@ public partial class MainWindow : Window
 
     private void RenderPersistedTurn(TranscriptThreadState thread, TranscriptTurnRecord turn, bool isLastTurn = false)
     {
+        var renderSw = Stopwatch.StartNew();
         // Session-boundary markers are rendered as a stripe separator, not as AI content.
         if (turn.IsSessionBoundary)
         {
@@ -45325,6 +45306,7 @@ public partial class MainWindow : Window
                     turn.SessionBoundaryOfflineDuration ?? TimeSpan.Zero,
                     turn.SessionBoundaryStartupTime,
                     turn.SessionBoundaryAppVersion);
+            TraceSlowPersistedTurnRender(thread, turn, renderSw, isSessionBoundary: true);
             return;
         }
 
@@ -45395,6 +45377,31 @@ public partial class MainWindow : Window
                 foreach (var report in turn.AgentReports)
                     AppendAgentReportButton(report.AgentLabel, report.ReportPath, view);
         }
+
+        TraceSlowPersistedTurnRender(thread, turn, renderSw, isSessionBoundary: false);
+    }
+
+    private static void TraceSlowPersistedTurnRender(
+        TranscriptThreadState thread,
+        TranscriptTurnRecord turn,
+        Stopwatch renderSw,
+        bool isSessionBoundary)
+    {
+        renderSw.Stop();
+        if (renderSw.ElapsedMilliseconds < 50)
+            return;
+
+        var responseSegments = turn.GetResponseSegments().Count();
+        var hostNotices = turn.GetHostNotices().Count();
+        var codeFenceCount = CountOccurrences(turn.ResponseText ?? string.Empty, "```");
+        SquadDashTrace.Write(
+            TraceCategory.Performance,
+            $"PERSISTED_TURN_RENDER_SLOW: {renderSw.ElapsedMilliseconds}ms " +
+            $"thread={thread.ThreadId} kind={thread.Kind} boundary={isSessionBoundary} " +
+            $"promptChars={turn.Prompt?.Length ?? 0} responseChars={turn.ResponseText?.Length ?? 0} " +
+            $"thinkingChars={turn.ThinkingText?.Length ?? 0} tools={turn.Tools.Count} " +
+            $"segments={responseSegments} hostNotices={hostNotices} codeFences={codeFenceCount} " +
+            $"agentReports={turn.AgentReports?.Count ?? 0}");
     }
 
     private bool RenderStructuredPersistedNarrative(TranscriptTurnView view, TranscriptTurnRecord turn, bool isLastTurn = false)
@@ -45734,6 +45741,7 @@ public partial class MainWindow : Window
 
     private void RenderResponseEntry(TranscriptResponseEntry entry)
     {
+        var renderSw = Stopwatch.StartNew();
         var rawText = entry.RawTextBuilder.ToString();
 
         // Scan for fusion patterns: sentence-ending punctuation immediately followed by
@@ -45807,7 +45815,41 @@ public partial class MainWindow : Window
             entry.Section.Blocks.Add(newBlocks[i]);
         for (int i = shared; i < oldBlocks.Count; i++)
             entry.Section.Blocks.Remove(oldBlocks[i]);
+
+        renderSw.Stop();
+        if (renderSw.ElapsedMilliseconds >= 40)
+        {
+            var codeFenceCount = CountOccurrences(rawText, "```");
+            var lineCount = rawText.Count(static value => value == '\n') + 1;
+            SquadDashTrace.Write(
+                TraceCategory.Performance,
+                $"RESPONSE_RENDER_SLOW: {renderSw.ElapsedMilliseconds}ms " +
+                $"thread={entry.Turn.OwnerThread.ThreadId} kind={entry.Turn.OwnerThread.Kind} " +
+                $"seq={entry.Sequence} chars={rawText.Length} lines={lineCount} " +
+                $"blocks={newBlocks.Count} oldBlocks={oldBlocks.Count} " +
+                $"quickReplies={entry.AllowQuickReplies} protocolJson={protocolJsonBlocks.Count} " +
+                $"codeFences={codeFenceCount} hasDiagnostics={ContainsDiagnosticsText(rawText)}");
+        }
     }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(value))
+            return 0;
+
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+        return count;
+    }
+
+    private static bool ContainsDiagnosticsText(string text) =>
+        text.Contains("diagnostic", StringComparison.OrdinalIgnoreCase) ||
+        text.Contains("diagnostics", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Scans <paramref name="rawText"/> for patterns where sentence-ending punctuation
@@ -49433,6 +49475,8 @@ public partial class MainWindow : Window
         block.Turn.ToolEntries.Add(entry);
         block.ToolEntries.Add(entry);
 
+        expander.Expanded += (_, _) => EnsureToolDetailText(entry);
+
         // Refresh the coordinator intent label when a new tool entry arrives for it.
         if (entry.Turn.OwnerThread.Kind == TranscriptThreadKind.Coordinator)
             RestartCoordinatorIntentDebounce();
@@ -49640,7 +49684,19 @@ public partial class MainWindow : Window
             entry.IsCompleted && !entry.Success ? "ToolFailureText" : "ToolBodyText");
         entry.MessageTextBlock.Inlines.Clear();
         RenderToolMessage(entry);
-        entry.DetailTextBox.Text = entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
+        if (entry.Expander.IsExpanded)
+            EnsureToolDetailText(entry);
+    }
+
+    private void EnsureToolDetailText(ToolTranscriptEntry entry)
+    {
+        var detailText = BuildToolDetailText(entry);
+        if (!string.Equals(entry.DetailTextBox.Text, detailText, StringComparison.Ordinal))
+            entry.DetailTextBox.Text = detailText;
+    }
+
+    private static string BuildToolDetailText(ToolTranscriptEntry entry) =>
+        entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
             entry.Descriptor,
             entry.ArgsJson,
             entry.OutputText,
@@ -49649,7 +49705,6 @@ public partial class MainWindow : Window
             entry.ProgressText,
             entry.IsCompleted,
             entry.Success));
-    }
 
     private void RenderToolMessage(ToolTranscriptEntry entry)
     {
@@ -49817,15 +49872,7 @@ public partial class MainWindow : Window
 
             ShowTextWindow(
                 $"{ToolTranscriptFormatter.HumanizeToolName(entry.Descriptor.ToolName)} Tool Details",
-                entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
-                    entry.Descriptor,
-                    entry.ArgsJson,
-                    entry.OutputText,
-                    entry.StartedAt,
-                    entry.FinishedAt,
-                    entry.ProgressText,
-                    entry.IsCompleted,
-                    entry.Success)));
+                BuildToolDetailText(entry));
         }
         catch (Exception ex)
         {
@@ -49835,17 +49882,6 @@ public partial class MainWindow : Window
 
     private ContextMenu CreateToolBlockContextMenu(ToolTranscriptEntry entry)
     {
-        string GetDetailText() =>
-            entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
-                entry.Descriptor,
-                entry.ArgsJson,
-                entry.OutputText,
-                entry.StartedAt,
-                entry.FinishedAt,
-                entry.ProgressText,
-                entry.IsCompleted,
-                entry.Success));
-
         var openDetailsItem = new MenuItem
         {
             Header = "Open Details Window",
@@ -49857,7 +49893,7 @@ public partial class MainWindow : Window
             {
                 ShowTextWindow(
                     $"{ToolTranscriptFormatter.HumanizeToolName(entry.Descriptor.ToolName)} Tool Details",
-                    GetDetailText());
+                    BuildToolDetailText(entry));
             }
             catch (Exception ex)
             {
@@ -49874,7 +49910,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                var text = GetDetailText();
+                var text = BuildToolDetailText(entry);
                 if (!string.IsNullOrEmpty(text))
                     Clipboard.SetText(text);
             }

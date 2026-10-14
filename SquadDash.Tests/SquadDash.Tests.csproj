@@ -545,6 +545,7 @@
     <Compile Include="..\SquadDash\Plan.cs" Link="Source\Plan.cs" />
     <Compile Include="..\SquadDash\PlanRecoveryPresentation.cs" Link="Source\PlanRecoveryPresentation.cs" />
     <Compile Include="..\SquadDash\PlanReviewAttentionPresentation.cs" Link="Source\PlanReviewAttentionPresentation.cs" />
+    <Compile Include="..\SquadDash\PlanReviewBannerPresentation.cs" Link="Source\PlanReviewBannerPresentation.cs" />
     <Compile Include="..\SquadDash\CommitViewerLayout.cs" Link="Source\CommitViewerLayout.cs" />
     <Compile Include="..\SquadDash\CommitViewerGit.cs" Link="Source\CommitViewerGit.cs" />
     <Compile Include="..\SquadDash\PlanTaskFileDiffResolver.cs" Link="Source\PlanTaskFileDiffResolver.cs" />

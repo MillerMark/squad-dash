@@ -56,7 +56,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<PlanTask, string>? _onOpenTaskFileDiff;
     private readonly Action<Plan>? _onContinueInterruptedTask;
     private readonly Action<Plan>? _onReplanRemainingWork;
-    private readonly Action<Plan, string>? _onOpenReviewCard;
     private readonly Action<PlanHumanReviewChecklistItem, bool>? _onReviewSelection;
     private readonly Action<Plan, string, IReadOnlyList<PlanHumanReviewChecklistItem>>? _onAddressUncheckedItems;
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
@@ -260,7 +259,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<PlanTask, string>? onOpenTaskFileDiff = null,
         Action<Plan>? onContinueInterruptedTask = null,
         Action<Plan>? onReplanRemainingWork = null,
-        Action<Plan, string>? onOpenReviewCard = null,
         Action<PlanHumanReviewChecklistItem, bool>? onReviewSelection = null,
         Action<Plan, string, IReadOnlyList<PlanHumanReviewChecklistItem>>? onAddressUncheckedItems = null,
         Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit = null,
@@ -317,7 +315,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onOpenTaskFileDiff = onOpenTaskFileDiff;
         _onContinueInterruptedTask = onContinueInterruptedTask;
         _onReplanRemainingWork = onReplanRemainingWork;
-        _onOpenReviewCard = onOpenReviewCard;
         _onReviewSelection = onReviewSelection;
         _onAddressUncheckedItems = onAddressUncheckedItems;
         _resolveAgentAvatar = resolveAgentAvatar;
@@ -1202,173 +1199,143 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else if (!reviewChangeActive)
             {
-            var reviewCard = new StackPanel();
-            var reviewTitle = new TextBlock
-            {
-                Text = reviewAttention.Title,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 3),
-            };
-            reviewTitle.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
-            reviewTitle.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
-            reviewCard.Children.Add(reviewTitle);
+                var banner = PlanReviewBannerPresentation.Create(reviewAttention);
+                var reviewCard = new Grid();
+                reviewCard.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                reviewCard.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var reviewSummary = new TextBlock
-            {
-                Text = reviewAttention.Summary,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 7),
-            };
-            reviewSummary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-            reviewCard.Children.Add(reviewSummary);
-
-            var verifyLabel = new TextBlock
-            {
-                Text = "Verify the Following:",
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 3),
-            };
-            verifyLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-            reviewCard.Children.Add(verifyLabel);
-
-            var currentChecks = reviewAttention.Checklist.ToDictionary(
-                item => item.ItemId, item => item.IsChecked, StringComparer.Ordinal);
-            Button? completeReviewButton = null;
-            Button? addressUncheckedButton = null;
-            void RefreshReviewActions()
-            {
-                if (completeReviewButton is not null)
-                    completeReviewButton.IsEnabled = currentChecks.Count > 0 && currentChecks.Values.All(value => value);
-                if (addressUncheckedButton is not null)
-                    addressUncheckedButton.IsEnabled = currentChecks.Values.Any(value => !value);
-            }
-
-            foreach (var item in reviewAttention.Checklist)
-            {
-                var itemStack = new StackPanel { Margin = new Thickness(4, 2, 0, 5) };
-                var checkBox = new CheckBox
+                var reviewText = new StackPanel
                 {
-                    Content = item.Text,
-                    IsChecked = item.IsChecked,
+                    Margin = new Thickness(0, 0, 12, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var reviewTitle = new TextBlock
+                {
+                    Text = banner.Title,
                     FontWeight = FontWeights.SemiBold,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        "Check this only after personally verifying the statement."),
+                    Margin = new Thickness(0, 0, 0, 2),
                 };
-                checkBox.Checked += (_, _) =>
-                {
-                    currentChecks[item.ItemId] = true;
-                    _onReviewSelection?.Invoke(item, true);
-                    RefreshReviewActions();
-                };
-                checkBox.Unchecked += (_, _) =>
-                {
-                    currentChecks[item.ItemId] = false;
-                    _onReviewSelection?.Invoke(item, false);
-                    RefreshReviewActions();
-                };
-                itemStack.Children.Add(checkBox);
+                reviewTitle.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                reviewTitle.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+                reviewText.Children.Add(reviewTitle);
 
-                var requirement = PlanReviewAttentionPresentationResolver.FindRequirement(reviewAttention, item);
-                if (requirement?.VerificationRecipe is { } recipe)
+                var reviewSummary = new TextBlock
                 {
-                    var recipeText = new TextBlock
-                    {
-                        Text = $"Setup: {recipe.Setup}\nOpen: {recipe.Open}\nObserve: {recipe.Observe}\nCleanup: {recipe.Cleanup}",
-                        TextWrapping = TextWrapping.Wrap,
-                        Margin = new Thickness(22, 3, 0, 0),
-                    };
-                    recipeText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                    recipeText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                    itemStack.Children.Add(recipeText);
+                    Text = banner.Summary,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 3),
+                };
+                reviewSummary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+                reviewSummary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                reviewText.Children.Add(reviewSummary);
+
+                var progressText = new TextBlock
+                {
+                    Text = banner.ProgressText,
+                    TextWrapping = TextWrapping.Wrap,
+                };
+                progressText.SetResourceReference(TextBlock.ForegroundProperty,
+                    banner.AllItemsChecked ? "PriorityLow" : "SubtleText");
+                progressText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                reviewText.Children.Add(progressText);
+
+                var transcriptNote = new TextBlock
+                {
+                    Text = durablePlan.IsPaused
+                        ? "Paused plans hide the transcript review card. Use these review controls here, or resume the plan to show the transcript card."
+                        : "The transcript also has the live review card.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 0),
+                };
+                transcriptNote.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                transcriptNote.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                reviewText.Children.Add(transcriptNote);
+                reviewCard.Children.Add(reviewText);
+
+                var currentChecks = reviewAttention.Checklist.ToDictionary(
+                    item => item.ItemId, item => item.IsChecked, StringComparer.Ordinal);
+                Button? completeReviewButton = null;
+                Button? addressUncheckedButton = null;
+                void RefreshReviewActions()
+                {
+                    if (completeReviewButton is not null)
+                        completeReviewButton.IsEnabled = currentChecks.Count > 0 && currentChecks.Values.All(value => value);
+                    if (addressUncheckedButton is not null)
+                        addressUncheckedButton.IsEnabled = currentChecks.Values.Any(value => !value);
                 }
-                reviewCard.Children.Add(itemStack);
-            }
 
-            var reviewActions = new WrapPanel { Margin = new Thickness(0, 5, 0, 0) };
-            if (onAdoptVerifiedCommitRange is not null)
-            {
-                var capturedPlan = durablePlan;
-                var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
-                    capturedPlan,
-                    [reviewAttention.Gate.GateId]);
-                completeReviewButton = TranscriptQuickReplyFactory.CreateButton(
-                    primaryAction.Label,
-                    quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip(
-                        $"Enabled after every review item is checked. {primaryAction.Hint}"));
-                completeReviewButton.Click += async (_, _) =>
+                var reviewActions = new WrapPanel
                 {
-                    ClearActionStatus();
-                    reviewActions.IsEnabled = false;
-                    try
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(reviewActions, 1);
+                if (onAdoptVerifiedCommitRange is not null)
+                {
+                    var capturedPlan = durablePlan;
+                    var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
+                        capturedPlan,
+                        [reviewAttention.Gate.GateId]);
+                    completeReviewButton = TranscriptQuickReplyFactory.CreateButton(
+                        primaryAction.Label,
+                        quickReplyFontSize,
+                        toolTip: ToolTipHelper.MakeThemedToolTip(
+                            $"Enabled after every review item is checked. {primaryAction.Hint}"));
+                    completeReviewButton.Click += async (_, _) =>
                     {
-                        if (await onAdoptVerifiedCommitRange(capturedPlan)) Close();
-                        else
+                        ClearActionStatus();
+                        reviewActions.IsEnabled = false;
+                        try
+                        {
+                            if (await onAdoptVerifiedCommitRange(capturedPlan)) Close();
+                            else
+                            {
+                                reviewActions.IsEnabled = true;
+                                EnsureActionStatus("The review could not be completed. The plan remains at this checkpoint.");
+                            }
+                        }
+                        catch (Exception ex)
                         {
                             reviewActions.IsEnabled = true;
-                            EnsureActionStatus("The review could not be completed. The plan remains at this checkpoint.");
+                            SquadDashTrace.Write(TraceCategory.General, $"Complete plan review failed: {ex}");
+                            ShowActionStatus("Review could not be completed", ex.Message);
                         }
-                    }
-                    catch (Exception ex)
+                    };
+                    reviewActions.Children.Add(completeReviewButton);
+                }
+                if (_onAddressUncheckedItems is not null)
+                {
+                    addressUncheckedButton = TranscriptQuickReplyFactory.CreateButton(
+                        "✎ Address Unchecked Items…",
+                        quickReplyFontSize,
+                        toolTip: ToolTipHelper.MakeThemedToolTip(
+                            "Create an editable prompt containing the unchecked review items."));
+                    addressUncheckedButton.Click += (_, _) =>
                     {
-                        reviewActions.IsEnabled = true;
-                        SquadDashTrace.Write(TraceCategory.General, $"Complete plan review failed: {ex}");
-                        ShowActionStatus("Review could not be completed", ex.Message);
-                    }
-                };
-                reviewActions.Children.Add(completeReviewButton);
-            }
-            if (_onAddressUncheckedItems is not null)
-            {
-                addressUncheckedButton = TranscriptQuickReplyFactory.CreateButton(
-                    "✎ Address Unchecked Items…",
-                    quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Create an editable prompt containing the unchecked review items."));
-                addressUncheckedButton.Click += (_, _) =>
-                {
-                    var currentItems = reviewAttention.Checklist.Select(item => item with
-                    {
-                        IsChecked = currentChecks[item.ItemId],
-                    }).ToArray();
-                    _onAddressUncheckedItems(durablePlan, reviewAttention.Task.TaskId, currentItems);
-                };
-                reviewActions.Children.Add(addressUncheckedButton);
-            }
-            if (_onOpenReviewCard is not null)
-            {
-                var openCardText = new TextBlock
-                {
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(8, 4, 4, 4),
-                    FontSize = quickReplyFontSize,
-                };
-                var openCardLink = new Hyperlink(new Run("Open Review Card"))
-                {
-                    Cursor = Cursors.Hand,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        "Open, scroll to, and highlight the corresponding transcript review card."),
-                };
-                openCardLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-                openCardLink.Click += (_, _) =>
-                    _onOpenReviewCard(durablePlan, reviewAttention.Task.TaskId);
-                openCardText.Inlines.Add(openCardLink);
-                reviewActions.Children.Add(openCardText);
-            }
-            RefreshReviewActions();
-            reviewCard.Children.Add(reviewActions);
+                        var currentItems = reviewAttention.Checklist.Select(item => item with
+                        {
+                            IsChecked = currentChecks[item.ItemId],
+                        }).ToArray();
+                        _onAddressUncheckedItems(durablePlan, reviewAttention.Task.TaskId, currentItems);
+                    };
+                    reviewActions.Children.Add(addressUncheckedButton);
+                }
+                RefreshReviewActions();
+                if (reviewActions.Children.Count > 0)
+                    reviewCard.Children.Add(reviewActions);
 
-            var reviewBorder = new Border
-            {
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(10, 8, 10, 8),
-                Margin = new Thickness(0, 4, 0, 8),
-                Child = reviewCard,
-            };
-            reviewBorder.SetResourceReference(Border.BorderBrushProperty, "PriorityMid");
-            reviewBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
-            header.Children.Add(reviewBorder);
+                var reviewBorder = new Border
+                {
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(10, 7, 10, 7),
+                    Margin = new Thickness(0, 4, 0, 6),
+                    Child = reviewCard,
+                };
+                reviewBorder.SetResourceReference(Border.BorderBrushProperty, "PriorityMid");
+                reviewBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+                header.Children.Add(reviewBorder);
             }
         }
 
