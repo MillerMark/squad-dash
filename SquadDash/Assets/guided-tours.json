@@ -104,7 +104,7 @@
         "commandAfter": "",
         "commandsBefore": [
           "InjectTranscriptTurn|Can you fix these bugs?|Working on it now. \\nThe user wants me to simulate an AI call that fixes simulated bugs.\\nMaking tool calls (simulated)...",
-          "InjectTranscriptTools: grep:Scan for null dereference patterns:Found 3 matches \u2014 SchedulerService.cs:47, TaskRunner.cs:112, ConfigLoader.cs:23;view:Inspect SchedulerService.cs (lines 44\u201352):var result = context.Items.FirstOrDefault().Value; // no null check\\nif (task.Callback.Invoke()) { // potential null ref;edit:Fix SchedulerService.cs:- var result = context.Items.FirstOrDefault().Value;\\n\u002B var result = context.Items.FirstOrDefault()?.Value ?? string.Empty;;edit:Fix TaskRunner.cs:- if (task.Callback.Invoke()) {\\n\u002B if (task.Callback?.Invoke() == true) {;powershell:Run unit tests:All 47 tests passed"
+          "InjectTranscriptTools: grep:Scan for missing None checks:Found 3 matches \u2014 cart.py:42, checkout.py:88, pricing.py:15;view:Inspect cart.py and pricing.py:existing.quantity += quantity   # existing may be None\\nreturn self.subtotal * (1 - discount.rate)   # discount may be None;edit:Fix cart.py:  existing = self.find(product.id)\\n- existing.quantity += quantity\\n+ if existing is None:\\n+     self.items.append(CartLine(product, quantity))\\n+ else:\\n+     existing.quantity += quantity;edit:Fix pricing.py:  discount = self.lookup(code)\\n- return self.subtotal * (1 - discount.rate)\\n+ if discount is None:\\n+     return self.subtotal\\n+ return self.subtotal * (1 - discount.rate);powershell:Run unit tests:All 47 tests passed"
         ],
         "commandsAfter": [],
         "advanceTrigger": "",
@@ -131,7 +131,7 @@
       },
       {
         "title": "Diffs",
-        "markdownText": "On the right you can see **lines added** (**\u002B1**) and **removed** (**-1**).\r\nHover over **edits** to see **diffs**.",
+        "markdownText": "On the right you can see **lines added** (**\u002B1**) and **removed** (**-1**).\r\nClick the file name to see **diffs**.",
         "targetControlId": "TourInjectedLastToolEntry_edit",
         "calloutPlacement": "North",
         "preAction": "None",
