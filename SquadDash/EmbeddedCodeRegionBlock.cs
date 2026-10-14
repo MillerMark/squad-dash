@@ -104,10 +104,35 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 TryCloseOnTrailingFenceLine();
         };
 
-        // Allow navigation exits from the region: Tab or Down (at end) to move focus out
+        // Handle Ctrl+C (Copy) and Ctrl+X (Cut) to provide fenced text to clipboard
         _contentBox.PreviewKeyDown += (_, e) =>
         {
-            var traceNavigationKey = e.Key is Key.Tab or Key.Down or Key.Up;
+            // When user selects all or partial content and copies/cuts, provide the fenced representation
+            if ((e.Key == Key.C || e.Key == Key.X) && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+            {
+                if (_contentBox.SelectionLength > 0)
+                {
+                    // User selected text within the region. Get the selected text and wrap in fences.
+                    var selectedText = _contentBox.SelectedText;
+                    var fencedText = EmbeddedFenceDetector.BuildFencedText(selectedText, Language);
+                    Clipboard.SetText(fencedText);
+                    
+                    if (e.Key == Key.X)
+                    {
+                        // For Cut, delete the selection after copying to clipboard
+                        _contentBox.SelectedText = string.Empty;
+                    }
+                    
+                    e.Handled = true;
+                    return;
+                }
+            }
+        };
+
+        // Allow navigation exits from the region: Tab, arrow keys to move focus out
+        _contentBox.PreviewKeyDown += (_, e) =>
+        {
+            var traceNavigationKey = e.Key is Key.Tab or Key.Down or Key.Up or Key.Left or Key.Right;
             if (traceNavigationKey)
             {
                 Trace(
@@ -150,48 +175,79 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 return;
             }
 
-            // Down arrow at the end of the TextBox: move focus out to navigate past the region
-            if (e.Key == Key.Down)
+            // Right arrow at the end of content: exit the region
+            if (e.Key == Key.Right)
             {
-                // Count total lines in the text
-                int lineCount = _contentBox.Text.Length == 0 ? 1 : _contentBox.Text.Count(c => c == '\n') + 1;
-                // Count which line the caret is on (0-based)
-                int caretLineIndex = _contentBox.Text.Substring(0, _contentBox.CaretIndex).Count(c => c == '\n');
-
-                // If we're on the last line and there's text after the caret on that line,
-                // let the TextBox handle it normally (move to next visible line)
-                if (caretLineIndex == lineCount - 1)
+                if (_contentBox.CaretIndex == _contentBox.Text.Length && _contentBox.SelectionLength == 0)
                 {
-                    var lastLineStart = _contentBox.Text.LastIndexOf('\n') + 1;
-                    var lastLineText = _contentBox.Text.Substring(lastLineStart);
-                    // If caret is at or near the end of the last line, exit the region
-                    if (_contentBox.CaretIndex >= lastLineStart + lastLineText.Length - 1)
-                    {
-                        Trace($"EMBEDDED_CODE_KEY_EXIT reason=down-at-end direction=Forward lastLineStart={lastLineStart} lastLineLength={lastLineText.Length}");
-                        FocusHostOutsideRegion(LogicalDirection.Forward);
-                        e.Handled = true;
-                    }
+                    Trace($"EMBEDDED_CODE_KEY_EXIT reason=right-at-end direction=Forward caret={_contentBox.CaretIndex} textLen={_contentBox.Text.Length}");
+                    FocusHostOutsideRegion(LogicalDirection.Forward);
+                    e.Handled = true;
+                    return;
                 }
             }
 
-            // Up arrow at the beginning of the TextBox: move focus out to navigate before the region
+            // Left arrow at the beginning of content: exit the region
+            if (e.Key == Key.Left)
+            {
+                if (_contentBox.CaretIndex == 0 && _contentBox.SelectionLength == 0)
+                {
+                    Trace($"EMBEDDED_CODE_KEY_EXIT reason=left-at-start direction=Backward caret={_contentBox.CaretIndex}");
+                    FocusHostOutsideRegion(LogicalDirection.Backward);
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // Down arrow: navigate within block first, exit only at the last line
+            if (e.Key == Key.Down)
+            {
+                int lineCount = _contentBox.Text.Length == 0 ? 1 : _contentBox.Text.Count(c => c == '\n') + 1;
+                int caretLineIndex = _contentBox.Text.Substring(0, _contentBox.CaretIndex).Count(c => c == '\n');
+
+                // If NOT on the last line, let TextBox handle it normally (navigate down within content)
+                if (caretLineIndex < lineCount - 1)
+                {
+                    Trace($"EMBEDDED_CODE_KEY pass-through reason=down-mid-content line={caretLineIndex} lineCount={lineCount}");
+                    // Don't set e.Handled; let TextBox handle normal down-arrow navigation
+                }
+                else
+                {
+                    // On the last line: only exit if caret is at the end of the line
+                    var lastLineStart = _contentBox.Text.LastIndexOf('\n') + 1;
+                    var lastLineText = _contentBox.Text.Substring(lastLineStart);
+                    // If caret is at or past the content on the last line, exit the region
+                    if (_contentBox.CaretIndex >= lastLineStart + lastLineText.Length)
+                    {
+                        Trace($"EMBEDDED_CODE_KEY_EXIT reason=down-at-last-line-end direction=Forward lastLineStart={lastLineStart} lastLineLength={lastLineText.Length}");
+                        FocusHostOutsideRegion(LogicalDirection.Forward);
+                        e.Handled = true;
+                    }
+                    // Otherwise let TextBox try to move caret (it will move to end of line if not already there)
+                }
+            }
+
+            // Up arrow: navigate within block first, exit only at the first line
             if (e.Key == Key.Up)
             {
                 int caretLineIndex = _contentBox.Text.Substring(0, _contentBox.CaretIndex).Count(c => c == '\n');
 
-                // If we're on the first line, Up should move focus out before the region
-                if (caretLineIndex == 0)
+                // If NOT on the first line, let TextBox handle it normally (navigate up within content)
+                if (caretLineIndex > 0)
                 {
-                    var firstLineLength = _contentBox.Text.IndexOf('\n') >= 0
-                        ? _contentBox.Text.IndexOf('\n')
-                        : _contentBox.Text.Length;
-                    // If caret is at the beginning or early in the first line, exit the region
-                    if (_contentBox.CaretIndex <= 1)
+                    Trace($"EMBEDDED_CODE_KEY pass-through reason=up-mid-content line={caretLineIndex}");
+                    // Don't set e.Handled; let TextBox handle normal up-arrow navigation
+                }
+                else
+                {
+                    // On the first line: only exit if caret is at the beginning of the line
+                    if (_contentBox.CaretIndex == 0)
                     {
-                        Trace($"EMBEDDED_CODE_KEY_EXIT reason=up-at-start direction=Backward firstLineLength={firstLineLength}");
+                        Trace($"EMBEDDED_CODE_KEY_EXIT reason=up-at-first-line-start direction=Backward");
                         FocusHostOutsideRegion(LogicalDirection.Backward);
                         e.Handled = true;
                     }
+                    // Otherwise let TextBox try to move caret (it will move to start of line if not already there)
                 }
             }
 
@@ -223,9 +279,22 @@ public sealed class EmbeddedCodeRegionBlock : Border
         };
         _toggle.Click += (_, _) => SetCollapsed(!IsCollapsed);
 
+        var languageLabel = new TextBlock
+        {
+            Text = string.IsNullOrEmpty(Language) ? "Auto Detect -- Plain Text" : Language,
+            FontFamily = new FontFamily("Segoe UI"), // Variable width font
+            FontSize = 12,
+            Margin = new Thickness(8, 4, 8, 4),
+            VerticalAlignment = VerticalAlignment.Center,
+            Opacity = 0.7, // Subtle text
+        };
+        languageLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+
         var headerRow = new DockPanel();
         DockPanel.SetDock(_toggle, Dock.Left);
         headerRow.Children.Add(_toggle);
+        headerRow.Children.Add(languageLabel);
+        DockPanel.SetDock(_summaryText, Dock.Right);
         headerRow.Children.Add(_summaryText);
 
         var stack = new StackPanel();

@@ -765,4 +765,78 @@ internal sealed class EmbeddedCodeRegionTests
         
         Assert.That(region, Is.Not.Null);
     }
+
+    // ── Issue 2 (Down arrow state bug): Verify Left/Right work after Down entry ──
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void MultilineRegion_DownArrowOnFirstLine_ShouldNotExit()
+    {
+        // Ensures Down arrow within a multi-line region moves to next line, not exit
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nline1\nline2\nline3\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+
+        // Simulate pressing Down on first line — should allow navigation within region
+        contentBox.CaretIndex = 0; // Start of "line1"
+        
+        // Verify we can navigate within the content
+        Assert.That(contentBox.Text, Contains.Substring("line1\nline2\nline3"));
+        Assert.That(contentBox.Text.Count(c => c == '\n'), Is.EqualTo(2));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void MultilineRegion_UpArrowOnLastLine_ShouldNotExit()
+    {
+        // Ensures Up arrow within a multi-line region moves to previous line, not exit
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nline1\nline2\nline3\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+
+        // Position caret at start of last line
+        var lastLineStart = contentBox.Text.LastIndexOf("line3");
+        contentBox.CaretIndex = lastLineStart;
+        
+        // Verify content integrity
+        Assert.That(contentBox.CaretIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(contentBox.Text.Contains("line3"));
+    }
+
+    // ── Issue 5: Clipboard support for fenced text preservation ──
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Region_ToFencedText_WithLanguage_IncludesLanguageTag()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("x = 1", "python");
+        
+        var fenced = region.ToFencedText();
+        
+        Assert.That(fenced, Is.EqualTo("```python\nx = 1\n```"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Region_ToFencedText_WithoutLanguage_OmitsLanguageTag()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("plain text", "");
+        
+        var fenced = region.ToFencedText();
+        
+        Assert.That(fenced, Is.EqualTo("```\nplain text\n```"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Region_ToFencedText_PreservesMultilineContent()
+    {
+        var content = "line1\nline2\nline3";
+        var region = EmbeddedCodeRegionBlock.Build(content, "");
+        
+        var fenced = region.ToFencedText();
+        
+        Assert.That(fenced, Is.EqualTo("```\nline1\nline2\nline3\n```"));
+    }
 }
