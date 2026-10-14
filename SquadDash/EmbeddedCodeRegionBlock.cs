@@ -12,7 +12,7 @@ using System.Windows.Media.Media3D;
 namespace SquadDash;
 
 /// <summary>
-/// A collapsible embedded code region hosted inside a plain-text <see cref="RichTextBox"/>'s
+/// An embedded code region hosted inside a plain-text <see cref="RichTextBox"/>'s
 /// <see cref="System.Windows.Documents.FlowDocument"/> via a
 /// <see cref="System.Windows.Documents.BlockUIContainer"/>. Created by
 /// <see cref="EmbeddedCodeRegionManager"/> when the user types or pastes a triple-backtick
@@ -37,18 +37,14 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// Optional language tag (e.g. "python"). Empty string means no language tag.
     public new string Language { get; set; }
 
-    public bool IsCollapsed { get; private set; }
-
     private readonly TextBox _contentBox;
-    private readonly TextBlock _summaryText;
-    private readonly ToggleButton _toggle;
     private RichTextBox? _hostRichTextBox;
     private bool _isClosingFromTrailingFenceLine;
 
-    public static EmbeddedCodeRegionBlock Build(string content, string language, bool startCollapsed = false)
-        => new(content, language, startCollapsed);
+    public static EmbeddedCodeRegionBlock Build(string content, string language)
+        => new(content, language);
 
-    private EmbeddedCodeRegionBlock(string content, string language, bool startCollapsed)
+    private EmbeddedCodeRegionBlock(string content, string language)
     {
         Content = content ?? string.Empty;
         Language = language ?? string.Empty;
@@ -61,12 +57,13 @@ public sealed class EmbeddedCodeRegionBlock : Border
             AcceptsTab = true,
             TextWrapping = TextWrapping.NoWrap,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             FontFamily = new FontFamily("Consolas"),
             FontSize = 12,
             BorderThickness = new Thickness(0),
             Padding = new Thickness(8),
             Margin = new Thickness(0),
+            MaxHeight = 130,
         };
         _contentBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         _contentBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
@@ -98,10 +95,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         _contentBox.TextChanged += (_, _) =>
         {
             Content = _contentBox.Text;
-            if (IsCollapsed)
-                UpdateSummaryText();
-            else
-                TryCloseOnTrailingFenceLine();
+            TryCloseOnTrailingFenceLine();
         };
 
         // Handle Ctrl+C (Copy) and Ctrl+X (Cut) to provide fenced text to clipboard
@@ -208,30 +202,6 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 Trace($"EMBEDDED_CODE_KEY pass-through key={e.Key} caret={_contentBox.CaretIndex} line={GetCaretLineIndexForTrace()}");
         };
 
-        _summaryText = new TextBlock
-        {
-            FontFamily = new FontFamily("Consolas"),
-            FontStyle = FontStyles.Italic,
-            FontSize = 12,
-            Margin = new Thickness(8, 6, 8, 6),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-        };
-        _summaryText.SetResourceReference(TextBlock.ForegroundProperty, "CodeText");
-
-        _toggle = new ToggleButton
-        {
-            Content = "▾",
-            Width = 20,
-            Height = 20,
-            Padding = new Thickness(0),
-            Margin = new Thickness(4, 2, 4, 2),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Top,
-            Focusable = false,
-            ToolTip = "Collapse/expand embedded code region",
-        };
-        _toggle.Click += (_, _) => SetCollapsed(!IsCollapsed);
-
         var languageLabel = new TextBlock
         {
             Text = string.IsNullOrEmpty(Language) ? "Auto Detect -- Plain Text" : Language,
@@ -243,78 +213,56 @@ public sealed class EmbeddedCodeRegionBlock : Border
         };
         languageLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
 
-        var headerRow = new DockPanel();
-        DockPanel.SetDock(_toggle, Dock.Left);
-        headerRow.Children.Add(_toggle);
-        headerRow.Children.Add(languageLabel);
-        DockPanel.SetDock(_summaryText, Dock.Right);
-        headerRow.Children.Add(_summaryText);
+        // The editor rectangle chrome now lives on an INNER border so the label can sit
+        // visually above (outside) it. The outer EmbeddedCodeRegionBlock itself stays
+        // transparent (see below).
+        var editorBorder = new Border
+        {
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            Child = _contentBox,
+        };
+        editorBorder.SetResourceReference(BackgroundProperty, "CodeSurface");
+        editorBorder.SetResourceReference(BorderBrushProperty, "SubtleBorder");
 
         var stack = new StackPanel();
-        stack.Children.Add(headerRow);
-        stack.Children.Add(_contentBox);
+        stack.Children.Add(languageLabel);
+        stack.Children.Add(editorBorder);
 
-        BorderThickness = new Thickness(1);
-        CornerRadius = new CornerRadius(3);
+        // The outer element (this Border) is purely a transparent layout host now; the
+        // visible editor chrome is painted by the inner editorBorder above.
+        BorderThickness = new Thickness(0);
         Margin = new Thickness(0, 2, 0, 2);
-        SetResourceReference(BackgroundProperty, "CodeSurface");
-        SetResourceReference(BorderBrushProperty, "SubtleBorder");
         Child = stack;
 
-        // Route clicks on the Border/header to the content TextBox to enable editing.
-        // Clicks on the TextBox itself are handled above. This PreviewMouseDown on the
-        // Border ensures that even if a click lands on the header area, we still focus
-        // the content box (unless the user specifically clicked the toggle button).
+        // Route clicks on the transparent outer area or the language label to the content
+        // TextBox to enable editing. Clicks on the TextBox itself are handled above. This
+        // PreviewMouseDown ensures that even if a click lands on the label or background, we
+        // still focus the content box instead of selecting the whole hosted BlockUIContainer.
         PreviewMouseLeftButtonDown += (sender, e) =>
         {
             var clickedElement = InputHitTest(e.GetPosition(this)) as DependencyObject;
             Trace($"EMBEDDED_CODE_BORDER_MOUSE enter handled={e.Handled} hit={DescribeInputObject(clickedElement)} point=({e.GetPosition(this).X:F1},{e.GetPosition(this).Y:F1})");
-            if (IsVisualAncestorOrSelf(clickedElement, _toggle))
-            {
-                Trace("EMBEDDED_CODE_BORDER_MOUSE exit reason=toggle");
-                return; // Let the toggle button handle its own click.
-            }
-
             if (IsVisualAncestorOrSelf(clickedElement, _contentBox))
             {
                 Trace("EMBEDDED_CODE_BORDER_MOUSE exit reason=content-textbox");
                 return; // Let TextBox do normal caret placement, selection, and focus.
             }
 
-            // Header/background clicks focus the editor without selecting the whole hosted block.
+            // Label/background clicks focus the editor without selecting the whole hosted block.
             _contentBox.Focus();
             Keyboard.Focus(_contentBox);
             e.Handled = true;
             Trace($"EMBEDDED_CODE_BORDER_MOUSE exit reason=header-focus handled=True focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         };
-
-        SetCollapsed(startCollapsed);
     }
 
     internal void AttachHost(RichTextBox hostRichTextBox)
     {
         _hostRichTextBox = hostRichTextBox;
-    }
-
-    /// Toggles between the compact single-line summary and the full fenced content.
-    public void SetCollapsed(bool collapsed)
-    {
-        IsCollapsed = collapsed;
-        _toggle.Content = collapsed ? "▸" : "▾";
-        _toggle.IsChecked = collapsed;
-        _contentBox.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
-        _summaryText.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
-        UpdateSummaryText();
-    }
-
-    /// Refreshes the collapsed-state summary line's line count (recomputed from the current
-    /// <see cref="Content"/>) so edits made while collapsed — or just before re-collapsing —
-    /// are reflected the next time the summary is shown.
-    private void UpdateSummaryText()
-    {
-        var lineCount = Content.Length == 0 ? 0 : Content.Split('\n').Length;
-        var languageTag = string.IsNullOrEmpty(Language) ? "" : $" ({Language})";
-        _summaryText.Text = $"``` {lineCount} line{(lineCount == 1 ? "" : "s")} of code{languageTag} — click to expand";
+        _contentBox.MaxHeight = (double.IsNaN(hostRichTextBox.MaxHeight) || double.IsInfinity(hostRichTextBox.MaxHeight))
+            ? 130
+            : hostRichTextBox.MaxHeight / 2.0;
     }
 
     /// Serializes this region back into an equivalent triple-backtick fenced block:
@@ -396,11 +344,11 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// Judgment call for "how does the user finish an instantly-opened region": if the last
     /// line the user typed into the content box is a bare closing ``` by itself, treat that
     /// as "done" — strip the marker line back out of <see cref="Content"/> (it's implicit in
-    /// <see cref="ToFencedText"/> already), collapse the region to its compact summary, and
-    /// move keyboard focus back out to whatever's next in the surrounding prompt so ordinary
-    /// typing resumes immediately after the region, mirroring how a pasted/complete fence
-    /// already behaves. Guarded against re-entrancy because it mutates <c>_contentBox.Text</c>
-    /// from within that same TextBox's own TextChanged handler.
+    /// <see cref="ToFencedText"/> already) and move keyboard focus back out to whatever's next
+    /// in the surrounding prompt so ordinary typing resumes immediately after the region,
+    /// mirroring how a pasted/complete fence already behaves. The region stays expanded.
+    /// Guarded against re-entrancy because it mutates <c>_contentBox.Text</c> from within that
+    /// same TextBox's own TextChanged handler.
     /// </summary>
     private void TryCloseOnTrailingFenceLine()
     {
@@ -415,7 +363,6 @@ public sealed class EmbeddedCodeRegionBlock : Border
             var withoutClosingLine = string.Join("\n", lines.Take(lines.Length - 1));
             Content = withoutClosingLine;
             _contentBox.Text = withoutClosingLine;
-            SetCollapsed(true);
             FocusHostOutsideRegion(LogicalDirection.Forward);
         }
         finally

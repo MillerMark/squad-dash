@@ -103,27 +103,38 @@ internal sealed class EmbeddedCodeRegionTests
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
 
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
-        Assert.That(region.IsCollapsed, Is.False);
+
+        // The region is always expanded: no collapse/expand toggle button exists anywhere in
+        // its visual tree, and the content editor is visible.
+        Assert.That(FindDescendant<System.Windows.Controls.Primitives.ToggleButton>(region), Is.Null,
+            "collapse/expand toggle button must be gone");
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        Assert.That(contentBox.Visibility, Is.EqualTo(Visibility.Visible));
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void CollapseThenExpand_TogglesIsCollapsed_ContentUnaffected()
+    public void LanguageLabel_SitsAboveEditorBorder_NotInsideIt()
     {
         var rtb = new RichTextBox();
-        rtb.SetPlainText("```\nhello\nworld\n```");
+        rtb.SetPlainText("```python\nhello\n```");
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
 
-        region.SetCollapsed(true);
-        Assert.That(region.IsCollapsed, Is.True);
-        Assert.That(region.Content, Is.EqualTo("hello\nworld"));
+        // Outer element is a transparent layout host: no border chrome painted on it.
+        Assert.That(region.BorderThickness, Is.EqualTo(new Thickness(0)));
 
-        region.SetCollapsed(false);
-        Assert.That(region.IsCollapsed, Is.False);
-        Assert.That(region.Content, Is.EqualTo("hello\nworld"));
+        var stack = (StackPanel)region.Child;
+        var label = (TextBlock)stack.Children[0];
+        var editorBorder = (Border)stack.Children[1];
 
-        // Collapse state never changes the serialized fenced form.
-        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nhello\nworld\n```"));
+        Assert.That(label.Text, Is.EqualTo("python"));
+        // The label is a sibling ABOVE the editor rectangle, never a descendant of it.
+        Assert.That(FindDescendant<TextBlock>(editorBorder), Is.Null,
+            "language label must not live inside the editor border");
+        Assert.That(editorBorder.Child, Is.InstanceOf<TextBox>());
+
+        // Serialized form is unaffected by the chrome restructure.
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```python\nhello\n```"));
     }
 
     // ── Contract Example 2: region-serializes-with-language-tag ─────────────────
@@ -405,7 +416,7 @@ internal sealed class EmbeddedCodeRegionTests
 
         // Simulate the user editing inside the region's content box directly (as opposed to
         // setting Content programmatically, which the old read-only TextBox could never do).
-        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
         Assert.That(contentBox.IsReadOnly, Is.False, "content box must be editable, not read-only");
 
         contentBox.Text = "edited content";
@@ -426,7 +437,7 @@ internal sealed class EmbeddedCodeRegionTests
 
         var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
         var region = (EmbeddedCodeRegionBlock)container.Child;
-        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
         contentBox.Text = "edited before rebuild";
 
         // Replace the trailing plain text with a brand-new fence, forcing another
@@ -669,14 +680,13 @@ internal sealed class EmbeddedCodeRegionTests
 
         Assert.That(region.Content, Is.EqualTo(""), "region must be created empty, not waiting for pasted content");
         Assert.That(region.Language, Is.EqualTo(""));
-        Assert.That(region.IsCollapsed, Is.False, "region must appear expanded immediately, not collapsed");
 
         // A live keyboard-focus assertion without a real window/PresentationSource: calling
         // Focus() on a control outside a visual root can't acquire true OS keyboard focus,
         // but it does still set WPF's own logical IsFocused state within the control's focus
         // scope — which is exactly what FocusContent (called by TryConvertOpenFence's
         // render step) is proven here to have done.
-        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
         Assert.That(contentBox.IsFocused, Is.True, "caret must be focused into the content box immediately");
     }
 
@@ -694,9 +704,8 @@ internal sealed class EmbeddedCodeRegionTests
 
         Assert.That(region.Content, Is.EqualTo(""));
         Assert.That(region.Language, Is.EqualTo("python"));
-        Assert.That(region.IsCollapsed, Is.False);
 
-        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
         Assert.That(contentBox.IsFocused, Is.True);
     }
 
@@ -749,24 +758,25 @@ internal sealed class EmbeddedCodeRegionTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void TypingClosingFenceLineInsideContentBox_CollapsesRegion_AndStripsMarkerFromContent()
+    public void TypingClosingFenceLineInsideContentBox_StripsMarkerFromContent_RegionStaysExpanded()
     {
         // Judgment call for "how does the user finish an instantly-opened region": typing a
         // bare ``` as its own last line inside the content box ends it — the marker line is
-        // stripped back out of Content (ToFencedText already supplies the closing marker)
-        // and the region collapses to its compact summary.
+        // stripped back out of Content (ToFencedText already supplies the closing marker).
+        // The region stays expanded (collapse was removed); the caret exits below the region.
         var rtb = new RichTextBox();
         rtb.SetPlainText("```");
         EmbeddedCodeRegionManager.TryConvertOpenFence(rtb);
 
         var container = (BlockUIContainer)rtb.Document.Blocks.FirstBlock!;
         var region = (EmbeddedCodeRegionBlock)container.Child;
-        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
 
         contentBox.Text = "x = 1\n```";
 
         Assert.That(region.Content, Is.EqualTo("x = 1"));
-        Assert.That(region.IsCollapsed, Is.True);
+        Assert.That(contentBox.Visibility, Is.EqualTo(Visibility.Visible), "region stays expanded, not collapsed");
+        Assert.That(FindDescendant<System.Windows.Controls.Primitives.ToggleButton>(region), Is.Null);
         Assert.That(rtb.Document.Blocks.Count, Is.EqualTo(2), "closing the region should leave a caret landing paragraph after it");
         Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nx = 1\n```"));
     }
@@ -871,7 +881,7 @@ internal sealed class EmbeddedCodeRegionTests
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
 
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
-        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
 
         // Simulate pressing Down on first line — should allow navigation within region
         contentBox.CaretIndex = 0; // Start of "line1"
@@ -890,7 +900,7 @@ internal sealed class EmbeddedCodeRegionTests
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
 
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
-        var contentBox = (TextBox)((StackPanel)region.Child).Children[1];
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
 
         // Position caret at start of last line
         var lastLineStart = contentBox.Text.LastIndexOf("line3");
@@ -1242,5 +1252,67 @@ internal sealed class EmbeddedCodeRegionTests
         var reparsedRegion = (EmbeddedCodeRegionBlock)reparsed.Document.Blocks
             .OfType<BlockUIContainer>().First().Child;
         Assert.That(reparsedRegion.Content, Is.EqualTo("```\ninner\n```"));
+    }
+
+    // ── Editor chrome: height cap & scrollbar (prompt-editor-embedded-regions UI pass) ──
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void AttachHost_HostMaxHeight260_ContentEditorCapAtHalf()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nhello\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+
+        var host = new RichTextBox { MaxHeight = 260 };
+        region.AttachHost(host);
+
+        Assert.That(contentBox.MaxHeight, Is.EqualTo(130),
+            "content editor height caps at half the host RichTextBox's MaxHeight");
+        Assert.That(contentBox.VerticalScrollBarVisibility, Is.EqualTo(ScrollBarVisibility.Auto),
+            "a vertical scrollbar must appear when content exceeds the cap");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void AttachHost_HostMaxHeightUnset_FallsBackTo130()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nhello\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+
+        // A default RichTextBox has MaxHeight == PositiveInfinity, so the fallback cap applies.
+        var host = new RichTextBox();
+        Assert.That(double.IsInfinity(host.MaxHeight) || double.IsNaN(host.MaxHeight), Is.True);
+        region.AttachHost(host);
+
+        Assert.That(contentBox.MaxHeight, Is.EqualTo(130));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void BeforeAttachHost_ContentEditorHasDefault130Cap()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("hello", "");
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+        Assert.That(contentBox.MaxHeight, Is.EqualTo(130));
+    }
+
+    // Depth-first visual-tree search for the first descendant of type <typeparamref name="T"/>.
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        var count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+                return match;
+            var nested = FindDescendant<T>(child);
+            if (nested is not null)
+                return nested;
+        }
+
+        return null;
     }
 }
