@@ -28017,6 +28017,13 @@ public partial class MainWindow : Window
             _suppressPromptNextTextInput = false;
 
             var modifiers = Keyboard.Modifiers;
+            if (IsInsideEmbeddedCodeRegion(e.OriginalSource) || IsInsideEmbeddedCodeRegion(Keyboard.FocusedElement))
+            {
+                SquadDashTrace.Write(
+                    "UI",
+                    $"PROMPT_EMBEDDED_CODE_KEY pass-through key={e.Key} modifiers={modifiers} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
+                return;
+            }
 
             if (modifiers == ModifierKeys.None
                 && e.Key is Key.Delete or Key.Back
@@ -28375,6 +28382,24 @@ public partial class MainWindow : Window
 
     private static bool IsShiftKey(Key key) =>
         key is Key.LeftShift or Key.RightShift;
+
+    private static bool IsInsideEmbeddedCodeRegion(object? value)
+    {
+        if (value is not DependencyObject current)
+            return false;
+
+        while (current is not null)
+        {
+            if (current is EmbeddedCodeRegionBlock)
+                return true;
+
+            current = current is Visual or System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(current)
+                : LogicalTreeHelper.GetParent(current);
+        }
+
+        return false;
+    }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
