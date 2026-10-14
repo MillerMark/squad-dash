@@ -27550,21 +27550,24 @@ public partial class MainWindow : Window
                 $"PROMPT_EMBEDDED_CODE_MOUSE path={string.Join(">", path)} targetRegion={targetRegion != null} targetTextBox={targetTextBox != null} hitToggle={hitToggle}");
 
             // RichTextBox treats BlockUIContainer as an embedded object unless the hosted
-            // editor claims the mouse gesture. Route content clicks to the nested TextBox
-            // caret explicitly; leave the collapse toggle alone.
+            // editor claims the mouse gesture. For a click that landed on the nested content
+            // TextBox we must NOT handle this (Preview) event: the TextBox implements native
+            // caret placement, double-click word-select, click-drag and double-click-drag
+            // selection on the bubbling MouseLeftButtonDown, which marking Preview handled would
+            // suppress. The region's own bubbling handler stops the gesture reaching the host, so
+            // no object-selection occurs. We only claim clicks on region chrome (no nested editor
+            // or toggle under the cursor), where there is no native text selection to preserve.
             if (targetRegion != null && !hitToggle)
             {
-                if (targetTextBox != null)
+                if (!EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
+                        hitRegion: true, hitToggle: hitToggle, hitContentTextBox: targetTextBox != null))
                 {
-                    var textBoxPoint = e.GetPosition(targetTextBox);
-                    SquadDashTrace.Write("UI", $"PROMPT_EMBEDDED_CODE_MOUSE route=content-textbox point=({textBoxPoint.X:F1},{textBoxPoint.Y:F1})");
-                    targetRegion.FocusContentAtPoint(textBoxPoint);
+                    SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=content-textbox-native");
+                    return; // Let the nested TextBox select natively.
                 }
-                else
-                {
-                    SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=region-focus-end");
-                    targetRegion.FocusContent();
-                }
+
+                SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=region-focus-end");
+                targetRegion.FocusContent();
 
                 e.Handled = true;
                 SquadDashTrace.Write(

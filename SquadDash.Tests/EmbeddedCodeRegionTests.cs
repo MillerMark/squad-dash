@@ -868,6 +868,91 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(region, Is.Not.Null);
     }
 
+    // ── Mouse text selection inside the region (double-click word-select / click-drag) ──
+    //
+    // Regression guard for the bug where the host RichTextBox's Preview handler and the
+    // content box's own Preview handler both claimed every left-button-down, suppressing the
+    // nested TextBox's native caret/double-click/drag selection. The pure predicate below
+    // encodes the host's decision, and the STA test proves the content box's mouse handler no
+    // longer collapses an in-progress selection.
+
+    [Test]
+    public void ShouldClaimRegionMouseGesture_ContentTextBoxClick_IsNotClaimed()
+    {
+        // Click landed on the nested TextBox → host must leave the gesture alone so the TextBox
+        // performs native selection (double-click word-select, click-drag, double-click-drag).
+        Assert.That(
+            EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
+                hitRegion: true, hitToggle: false, hitContentTextBox: true),
+            Is.False);
+    }
+
+    [Test]
+    public void ShouldClaimRegionMouseGesture_RegionChromeClick_IsClaimed()
+    {
+        // Click landed on region chrome (background/label), no nested editor under the cursor →
+        // host claims the gesture to focus the region's content.
+        Assert.That(
+            EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
+                hitRegion: true, hitToggle: false, hitContentTextBox: false),
+            Is.True);
+    }
+
+    [Test]
+    public void ShouldClaimRegionMouseGesture_ToggleClick_IsNotClaimed()
+    {
+        // The collapse/expand toggle owns its own click; the region must never claim it.
+        Assert.That(
+            EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
+                hitRegion: true, hitToggle: true, hitContentTextBox: false),
+            Is.False);
+    }
+
+    [Test]
+    public void ShouldClaimRegionMouseGesture_OutsideAnyRegion_IsNotClaimed()
+    {
+        Assert.That(
+            EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
+                hitRegion: false, hitToggle: false, hitContentTextBox: false),
+            Is.False);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ContentBoxMouseLeftButtonDown_DoesNotCollapseExistingSelection()
+    {
+        // Simulates the TextBox's native mouse handling having already selected a word (e.g. a
+        // double-click), then the region's bubbling MouseLeftButtonDown handler running. The
+        // handler must claim the gesture (so the host never object-selects the BlockUIContainer)
+        // WITHOUT resetting the caret/selection the TextBox just applied — the old Preview
+        // handler called FocusContentAtPoint, which collapsed the selection and broke dragging.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nhello world\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+        var contentBox = (TextBox)((Border)((StackPanel)region.Child).Children[1]).Child;
+
+        // Pretend the TextBox's native handling selected the word "world".
+        contentBox.Select(6, 5);
+        Assert.That(contentBox.SelectedText, Is.EqualTo("world"));
+
+        var args = new System.Windows.Input.MouseButtonEventArgs(
+            System.Windows.Input.InputManager.Current.PrimaryMouseDevice,
+            0,
+            System.Windows.Input.MouseButton.Left)
+        {
+            RoutedEvent = UIElement.MouseLeftButtonDownEvent,
+            Source = contentBox,
+        };
+        contentBox.RaiseEvent(args);
+
+        // Gesture claimed (host won't object-select) and native selection left intact.
+        Assert.That(args.Handled, Is.True);
+        Assert.That(contentBox.SelectionStart, Is.EqualTo(6));
+        Assert.That(contentBox.SelectionLength, Is.EqualTo(5));
+        Assert.That(contentBox.SelectedText, Is.EqualTo("world"));
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void TryNavigateIntoEmbeddedRegionWithDirection_DownArrow_ReturnsTrue()
     {

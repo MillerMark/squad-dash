@@ -44,6 +44,27 @@ public sealed class EmbeddedCodeRegionBlock : Border
     public static EmbeddedCodeRegionBlock Build(string content, string language)
         => new(content, language);
 
+    /// <summary>
+    /// Decides whether the host prompt <see cref="RichTextBox"/>'s
+    /// <c>PreviewMouseLeftButtonDown</c> should claim (mark handled + force focus) a left-click
+    /// that landed inside an embedded code region.
+    /// <para>
+    /// Returns <c>false</c> when the click landed on the region's nested content
+    /// <see cref="TextBox"/> (<paramref name="hitContentTextBox"/>) or on the collapse toggle
+    /// (<paramref name="hitToggle"/>). For a content-box click the host MUST NOT handle the
+    /// Preview event: doing so suppresses the bubbling <c>MouseLeftButtonDown</c> the TextBox
+    /// relies on for native caret placement, double-click word-select, click-drag and
+    /// double-click-drag selection — the regression this guard previously caused.
+    /// </para>
+    /// <para>
+    /// Returns <c>true</c> only for clicks on region chrome (background/label) with no nested
+    /// editor or toggle under the cursor, where there is no native text selection to preserve
+    /// and the gesture should instead focus the region's content.
+    /// </para>
+    /// </summary>
+    public static bool ShouldClaimRegionMouseGesture(bool hitRegion, bool hitToggle, bool hitContentTextBox)
+        => hitRegion && !hitToggle && !hitContentTextBox;
+
     private EmbeddedCodeRegionBlock(string content, string language)
     {
         Content = content ?? string.Empty;
@@ -68,17 +89,34 @@ public sealed class EmbeddedCodeRegionBlock : Border
         _contentBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         _contentBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
 
-        // Hosted controls inside a RichTextBox's BlockUIContainer need to claim the mouse
-        // gesture explicitly. If the event reaches the host RichTextBox unhandled, WPF
-        // selects the entire BlockUIContainer as an object instead of placing the nested
-        // editor caret.
+        // Hosted controls inside a RichTextBox's BlockUIContainer must stop the left-button
+        // gesture from reaching the host RichTextBox — otherwise WPF object-selects the whole
+        // BlockUIContainer instead of leaving the nested editor's caret/selection intact.
+        //
+        // The subtlety: we must NOT do this at the Preview (tunneling) stage, and we must NOT
+        // reset the caret/selection ourselves. WPF's TextBox implements single-click caret,
+        // double-click word-select, click-drag and double-click-drag selection on the BUBBLING
+        // MouseLeftButtonDown it receives. Marking the gesture handled at Preview (or calling
+        // FocusContentAtPoint, which collapses the selection) cancels all of that native
+        // behavior — that was the selection bug. So we attach at the bubbling stage with
+        // handledEventsToo: by the time this runs the TextBox has already applied the user's
+        // native gesture, and we only need to (a) keep the host's own selection collapsed and
+        // (b) mark the event handled so it never bubbles up to the host for object-selection.
         _contentBox.AddHandler(
-            UIElement.PreviewMouseLeftButtonDownEvent,
+            UIElement.MouseLeftButtonDownEvent,
             new MouseButtonEventHandler((_, e) =>
             {
                 var point = e.GetPosition(_contentBox);
                 Trace($"EMBEDDED_CODE_CONTENT_MOUSE enter handled={e.Handled} point=({point.X:F1},{point.Y:F1}) caret={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} focused={_contentBox.IsKeyboardFocusWithin} source={DescribeInputObject(e.OriginalSource)}");
-                FocusContentAtPoint(point);
+                // Collapse the host RichTextBox selection, and ensure keyboard focus has landed
+                // in the region — but deliberately leave _contentBox's caret/selection exactly
+                // as the TextBox's native handling just set them, so native text selection works.
+                ClearHostSelection();
+                if (!_contentBox.IsKeyboardFocusWithin)
+                {
+                    FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_contentBox), _contentBox);
+                    Keyboard.Focus(_contentBox);
+                }
                 e.Handled = true;
                 Trace($"EMBEDDED_CODE_CONTENT_MOUSE exit handled=True caret={_contentBox.CaretIndex} selection={_contentBox.SelectionStart}+{_contentBox.SelectionLength} focused={_contentBox.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
             }),
