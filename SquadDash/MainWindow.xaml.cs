@@ -55,7 +55,7 @@ public partial class MainWindow : Window
     // Precision (Mac trackpad) scrolling: dampen the sub-notch delta stream so slow
     // two-finger drags move a few pixels at a time instead of flying. Mouse notches
     // (exact multiples of 120) bypass this entirely and keep WPF's default behavior.
-    private const double PrecisionScrollSensitivity = 0.40;
+    private const double PrecisionScrollSensitivity = 2.40;
     private const double PromptFontSizeMin = 12;
     private const double PromptFontSizeMax = 30;
     private const double PromptFontSizeStep = 1;
