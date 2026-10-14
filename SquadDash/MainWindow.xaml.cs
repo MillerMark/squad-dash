@@ -52,6 +52,10 @@ public partial class MainWindow : Window
     private const double TranscriptFontSizeMin = 11;
     private const double TranscriptFontSizeMax = 28;
     private const double TranscriptFontSizeStep = 1;
+    // Precision (Mac trackpad) scrolling: dampen the sub-notch delta stream so slow
+    // two-finger drags move a few pixels at a time instead of flying. Mouse notches
+    // (exact multiples of 120) bypass this entirely and keep WPF's default behavior.
+    private const double PrecisionScrollSensitivity = 0.40;
     private const double PromptFontSizeMin = 12;
     private const double PromptFontSizeMax = 30;
     private const double PromptFontSizeStep = 1;
@@ -26616,6 +26620,7 @@ public partial class MainWindow : Window
             if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
                 FocusTranscriptForInactiveSelectionScroll(rtb);
+                TryPrecisionTrackpadScroll(rtb, e);
                 return;
             }
 
@@ -26663,6 +26668,42 @@ public partial class MainWindow : Window
 
         _ = rtb.Focus();
         _ = Keyboard.Focus(rtb);
+    }
+
+    /// <summary>
+    /// Smooths high-frequency precision-trackpad scrolling (e.g. a Mac trackpad
+    /// forwarded through Parallels/VMware) without altering the physical-mouse feel.
+    ///
+    /// <para>
+    /// A physical mouse delivers one clean 120-unit notch per detent, so
+    /// <see cref="MouseWheelEventArgs.Delta"/> is always an exact multiple of 120.
+    /// A precision trackpad instead emits a stream of small, often sub-120 deltas.
+    /// We use that granularity as the discriminator: multiples of 120 fall through
+    /// untouched (WPF's default <see cref="SystemParameters.WheelScrollLines"/>
+    /// behavior), while non-multiples are scrolled ourselves by a dampened pixel
+    /// amount so slow drags move precisely.
+    /// </para>
+    /// </summary>
+    private void TryPrecisionTrackpadScroll(RichTextBox rtb, MouseWheelEventArgs e)
+    {
+        // Exact 120-multiple => physical mouse notch. Leave the Windows+mouse path
+        // completely unchanged by falling through to WPF's default scrolling.
+        if (e.Delta == 0 || e.Delta % Mouse.MouseWheelDeltaForOneLine == 0)
+            return;
+
+        var sv = rtb.Template?.FindName("PART_ContentHost", rtb) as ScrollViewer;
+        if (sv is null)
+            return;
+
+        // Convert the raw delta into a dampened pixel offset. One font-line of pixels
+        // per full 120-unit notch, scaled down by the sensitivity factor.
+        double lineHeight = _transcriptFontSize * 1.3;
+        double pixels = (e.Delta / (double)Mouse.MouseWheelDeltaForOneLine)
+                        * lineHeight
+                        * PrecisionScrollSensitivity;
+
+        sv.ScrollToVerticalOffset(sv.VerticalOffset - pixels);
+        e.Handled = true;
     }
 
     /// <summary>
