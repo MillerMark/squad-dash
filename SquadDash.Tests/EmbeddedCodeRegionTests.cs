@@ -829,14 +829,105 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(fenced, Is.EqualTo("```\nplain text\n```"));
     }
 
-    [Test, Apartment(ApartmentState.STA)]
-    public void Region_ToFencedText_PreservesMultilineContent()
+    // ── Regression: bugs #1 (language-tag with '#'/'.'), #3 (CRLF), #4 (indentation) ──
+
+    [Test]
+    public void FindFirstFence_LanguageTagWithHash_IsRecognizedAndCaptured()
     {
-        var content = "line1\nline2\nline3";
-        var region = EmbeddedCodeRegionBlock.Build(content, "");
-        
-        var fenced = region.ToFencedText();
-        
-        Assert.That(fenced, Is.EqualTo("```\nline1\nline2\nline3\n```"));
+        var lines = new[] { "```c#", "int x = 1;", "```" };
+        var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.Language, Is.EqualTo("c#"));
+    }
+
+    [Test]
+    public void FindFirstFence_LanguageTagWithDot_IsRecognizedAndCaptured()
+    {
+        var lines = new[] { "```asp.net", "<% %>", "```" };
+        var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.Language, Is.EqualTo("asp.net"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FenceWithHashLanguageTag_RoundTripsThroughConversionAndSerialization()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```f#\nlet x = 1\n```");
+        Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(rtb), Is.True);
+
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+        Assert.That(region.Language, Is.EqualTo("f#"));
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```f#\nlet x = 1\n```"));
+    }
+
+    [Test]
+    public void FindOpenFenceWithNoClose_LanguageTagWithHash_CapturesLanguage()
+    {
+        var lines = new[] { "```c#" };
+        var open = EmbeddedFenceDetector.FindOpenFenceWithNoClose(lines);
+
+        Assert.That(open, Is.Not.Null);
+        Assert.That(open!.Value.Language, Is.EqualTo("c#"));
+    }
+
+    [Test]
+    public void ExtractContent_CrlfPastedBlock_HasNoStrayCarriageReturns()
+    {
+        // Simulates CRLF-pasted text split on '\n': each line retains a trailing '\r'.
+        var lines = "```\r\nline1\r\nline2\r\n```".Split('\n');
+        var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+
+        Assert.That(fence, Is.Not.Null);
+        var content = fence!.Value.ExtractContent(lines);
+        Assert.That(content, Does.Not.Contain("\r"));
+        Assert.That(content, Is.EqualTo("line1\nline2"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void CrlfPastedFence_ConvertsAndRoundTripsWithoutStrayCarriageReturns()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\r\n```python\r\nx = 1\r\ny = 2\r\n```\r\nafter");
+        while (EmbeddedCodeRegionManager.TryConvertNextFence(rtb)) { }
+
+        var region = (EmbeddedCodeRegionBlock)rtb.Document.Blocks
+            .OfType<BlockUIContainer>().First().Child;
+        Assert.That(region.Content, Does.Not.Contain("\r"));
+        Assert.That(region.Content, Is.EqualTo("x = 1\ny = 2"));
+        Assert.That(rtb.GetPlainText(), Does.Not.Contain("\r"));
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("before\n```python\nx = 1\ny = 2\n```\nafter"));
+    }
+
+    [Test]
+    public void FindFirstFence_IndentedOpeningMarker_IsNotTreatedAsFence()
+    {
+        // An indented ``` (e.g. inside a list item or block-quote) is literal text, not a
+        // fence marker — so no region is created and the indentation is preserved.
+        var lines = new[] { "- item", "    ```", "    code", "    ```" };
+        Assert.That(EmbeddedFenceDetector.FindFirstFence(lines), Is.Null);
+    }
+
+    [Test]
+    public void FindFirstFence_IndentedClosingMarker_IsNotTreatedAsClose()
+    {
+        // Opening marker is at column 0, but the only candidate close is indented, so the
+        // fence is considered incomplete (no column-0 close) and is not recognized.
+        var lines = new[] { "```", "code", "    ```" };
+        Assert.That(EmbeddedFenceDetector.FindFirstFence(lines), Is.Null);
+    }
+
+    [Test]
+    public void FindFirstFence_OpeningMarkerWithTrailingWhitespace_StillRecognized()
+    {
+        // Trailing whitespace after the language tag is tolerated (TrimEnd), unlike leading
+        // indentation.
+        var lines = new[] { "```python   ", "x = 1", "```  " };
+        var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.Language, Is.EqualTo("python"));
     }
 }

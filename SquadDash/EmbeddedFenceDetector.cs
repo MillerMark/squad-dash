@@ -12,15 +12,20 @@ namespace SquadDash;
 internal static class EmbeddedFenceDetector
 {
     // A fence-opening line is "```" optionally followed immediately by a language tag
-    // (letters, digits, underscore, plus, hyphen — e.g. "```python", "```c++"). Nothing else
-    // may follow on that line.
-    private static readonly Regex FenceOpenRegex = new(@"^```([A-Za-z0-9_+\-]*)$", RegexOptions.Compiled);
+    // (letters, digits, underscore, plus, hyphen, dot, hash — e.g. "```python", "```c++",
+    // "```c#", "```f#", "```asp.net"). Nothing else may follow on that line. Leading
+    // indentation is NOT allowed: callers match against a TrimEnd()'d line so an indented
+    // marker (e.g. inside a list or block-quote) is treated as literal text, not a fence.
+    private static readonly Regex FenceOpenRegex = new(@"^```([A-Za-z0-9_+.#\-]*)$", RegexOptions.Compiled);
 
     internal readonly record struct FenceSpan(int OpenLineIndex, int CloseLineIndex, string Language)
     {
-        /// Joins the lines strictly between the opening and closing fence markers.
+        /// Joins the lines strictly between the opening and closing fence markers. Any
+        /// carriage returns left over from CRLF-pasted text are stripped so region content
+        /// never carries stray '\r' characters (keeping GetPlainText round-trips exact).
         public string ExtractContent(string[] lines)
-            => string.Join("\n", lines.Skip(OpenLineIndex + 1).Take(CloseLineIndex - OpenLineIndex - 1));
+            => string.Join("\n", lines.Skip(OpenLineIndex + 1).Take(CloseLineIndex - OpenLineIndex - 1))
+                .Replace("\r", string.Empty);
     }
 
     /// <summary>
@@ -33,12 +38,12 @@ internal static class EmbeddedFenceDetector
     {
         for (var i = 0; i < lines.Length; i++)
         {
-            var openMatch = FenceOpenRegex.Match(lines[i].Trim());
+            var openMatch = FenceOpenRegex.Match(lines[i].TrimEnd());
             if (!openMatch.Success) continue;
 
             for (var j = i + 1; j < lines.Length; j++)
             {
-                if (lines[j].Trim() != "```") continue;
+                if (lines[j].TrimEnd() != "```") continue;
                 return new FenceSpan(i, j, openMatch.Groups[1].Value);
             }
             // Opening marker found but no closing marker yet — fence is incomplete.
@@ -63,7 +68,7 @@ internal static class EmbeddedFenceDetector
         var i = 0;
         while (i < lines.Length)
         {
-            var openMatch = FenceOpenRegex.Match(lines[i].Trim());
+            var openMatch = FenceOpenRegex.Match(lines[i].TrimEnd());
             if (!openMatch.Success)
             {
                 i++;
@@ -73,7 +78,7 @@ internal static class EmbeddedFenceDetector
             var closeLineIndex = -1;
             for (var j = i + 1; j < lines.Length; j++)
             {
-                if (lines[j].Trim() != "```") continue;
+                if (lines[j].TrimEnd() != "```") continue;
                 closeLineIndex = j;
                 break;
             }
@@ -95,7 +100,7 @@ internal static class EmbeddedFenceDetector
     /// </summary>
     internal static string BuildFencedText(string content, string? language)
     {
-        var normalized = (content ?? string.Empty).Replace("\r\n", "\n");
+        var normalized = (content ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
         return string.IsNullOrEmpty(language)
             ? $"```\n{normalized}\n```"
             : $"```{language}\n{normalized}\n```";

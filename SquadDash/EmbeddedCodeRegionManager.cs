@@ -69,7 +69,7 @@ internal static class EmbeddedCodeRegionManager
         {
             if (segments[s] is not TextSegment textSeg) continue;
 
-            var lines = textSeg.Text.Split('\n');
+            var lines = NormalizeNewlines(textSeg.Text).Split('\n');
             var fence = EmbeddedFenceDetector.FindFirstFence(lines);
             if (fence is null) continue;
 
@@ -110,7 +110,7 @@ internal static class EmbeddedCodeRegionManager
         {
             if (segments[s] is not TextSegment textSeg) continue;
 
-            var lines = textSeg.Text.Split('\n');
+            var lines = NormalizeNewlines(textSeg.Text).Split('\n');
             var openFence = EmbeddedFenceDetector.FindOpenFenceWithNoClose(lines);
             if (openFence is null) continue;
 
@@ -137,6 +137,12 @@ internal static class EmbeddedCodeRegionManager
 
         return false;
     }
+
+    /// Collapses CRLF and lone CR into LF so fence detection, content extraction, and the
+    /// before/after plain-text segments never carry stray '\r' from pasted (e.g. Windows
+    /// clipboard) text.
+    private static string NormalizeNewlines(string text)
+        => text.Replace("\r\n", "\n").Replace("\r", "\n");
 
     private static List<Segment> ExtractSegments(RichTextBox rtb)
     {
