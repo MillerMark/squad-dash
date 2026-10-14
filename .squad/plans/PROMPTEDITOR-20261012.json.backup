@@ -2,7 +2,7 @@
   "planId": "PROMPTEDITOR-20261012",
   "revision": "75c5fd5dc168b7c4",
   "source": "tasks_json",
-  "lifecycleStatus": "awaiting-approval",
+  "lifecycleStatus": "approved",
   "title": "Upgrade Prompt Editor with Embedded Code Regions",
   "branch": "feature/prompt-editor-embedded-regions",
   "summary": "Convert the prompt box from a plain TextBox to a RichTextBox so it can host collapsible embedded code regions, add triple-backtick fence creation/collapse, and add Up/Down boundary navigation across those regions \u2014 all without regressing ordinary plain-text typing, voice dictation, or existing transcript code-block styling.",
@@ -629,11 +629,13 @@
         "PROMPTEDITOR-20261012-003"
       ],
       "beforeTaskIds": [],
-      "status": "awaiting-approval",
+      "status": "approved",
       "requestedAt": "2026-10-14T15:50:48.616307+00:00",
+      "resolvedAt": "2026-10-14T18:22:33.4864313+00:00",
       "planRevision": "75c5fd5dc168b7c4",
       "notifiedAt": "2026-10-14T15:50:48.616307+00:00",
       "presentationAnchor": "task-after:PROMPTEDITOR-20261012-003",
+      "resolvedBy": "MillerMark",
       "proofRequirements": [
         {
           "requirementId": "voice-dictation-no-regression",
@@ -718,6 +720,56 @@
             "cleanup": "Clear the prompt box."
           },
           "title": "Plain-text typing looks unchanged"
+        }
+      ],
+      "proofEvidence": [
+        {
+          "requirementId": "voice-dictation-no-regression",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm voice dictation still inserts dictated text correctly into the converted RichTextBox-based prompt editor. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "embedded-region-styling-matches-transcript",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm an embedded code region\u0027s visual styling matches how fenced code blocks are already rendered elsewhere in the transcript. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "backtick-create-and-collapse-works",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm typing a triple-backtick fence creates a collapsible embedded region and that collapsing/expanding it works interactively. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "arrow-navigation-works-live",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm Up/Down arrow-key navigation moves the caret correctly across an embedded region\u0027s top and bottom boundaries. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "paste-conversion-works-live",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Confirm pasting text containing a triple-backtick fence converts it into a collapsible embedded region in the live editor. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "plain-text-typing-appearance-parity",
+          "proofType": "human-observation",
+          "summary": "MillerMark confirmed: Confirm ordinary plain-text typing in the converted RichTextBox-based prompt editor matches the pre-conversion TextBox experience, since a control-type migration can introduce subtle rendering differences that automated tests cannot truthfully rule out. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTEDITOR-20261012/PROMPTEDITOR-20261012-GATE-001"
+          ]
         }
       ],
       "afterTaskIdsSpecified": true,
@@ -806,7 +858,7 @@
     "createdAt": "2026-10-13T03:17:38.856862+00:00",
     "acceptedAt": "2026-10-13T03:17:38.856862+00:00",
     "startedAt": "2026-10-13T03:17:39.2006191+00:00",
-    "lastRunAt": "2026-10-14T17:37:26.8263224+00:00"
+    "lastRunAt": "2026-10-14T18:22:33.4864313+00:00"
   },
   "hostRevision": "75c5fd5dc168b7c4",
   "validations": [

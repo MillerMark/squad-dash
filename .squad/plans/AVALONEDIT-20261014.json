@@ -1,0 +1,838 @@
+{
+  "planId": "AVALONEDIT-20261014",
+  "revision": "24893cd57beac24a",
+  "source": "tasks_json",
+  "lifecycleStatus": "awaiting-approval",
+  "title": "AvalonEdit Region Editor \u0026 Language Picker",
+  "branch": "feature/avalonedit-region-editor",
+  "summary": "Replace the plain TextBox in SquadDash\u0027s inline embedded code-region editor with AvalonEdit, make the region\u0027s language label a clickable picker, and add theme-aware syntax highlighting for built-in plus bundled custom grammars. Each stage must leave the prompt editor fully usable, re-prove the native selection/copy/arrow-navigation behavior stabilized in commit 811809a0, and gate every human-observable outcome (selection, caret, copy/paste, popup placement, live highlighting, light/dark color correctness) behind a human approval checkpoint. Keep the editor host reusable and the highlighting palette pluggable for a future Markdown-editing reuse, but add no v2 tasks.",
+  "tasks": [
+    {
+      "taskId": "AVALONEDIT-20261014-001",
+      "title": "Define AvalonEdit integration and theming strategy",
+      "description": "Produce the architecture decision that lets Lyra migrate the embedded code-region editor safely, without making this task the feature implementer.\n\n## Observable outcome\n\nA concise written strategy (committed where the team keeps architecture notes) that the migration task consumes, covering: how AvalonEdit\u0027s TextEditor replaces the BlockUIContainer-hosted TextBox in EmbeddedCodeRegionBlock; how native caret/mouse selection, the custom Ctrl\u002BC/Ctrl\u002BX fenced copy, and Up/Down arrow boundary-exit navigation re-map from TextBox APIs onto AvalonEdit TextArea/Caret/Document; and how light/dark HighlightingColor palettes are pushed into the editor on each theme switch, given AvalonEdit colors are not WPF DynamicResource-driven.\n\n## Constraints\n\nAvalonEdit colors must be re-applied through a new per-editor hook invoked from MainWindow.ApplyTheme / NotifyThemeChanged rather than relying on SetResourceReference. Keep the editor host and the palette source pluggable so a future Markdown-highlighting reuse is not foreclosed, but do not design or schedule that v2 work.\n\n## Consumers\n\nTasks 002 and 004 consume this strategy as their integration and theming contract.",
+      "dependsOn": [],
+      "priority": "high",
+      "status": "complete",
+      "commit": "bfc04a4a2f33e89c7d40842d10f646f1cba0504c",
+      "completedAt": "2026-10-14T21:37:37.9373319+00:00",
+      "completionSummary": "Authored the AvalonEdit integration and theming strategy into .squad/decisions.md so the migration and highlighting tasks have a concrete integration/theming contract.",
+      "agentAssignments": [
+        {
+          "agentHandle": "orion-vale",
+          "role": "Author the AvalonEdit integration and theme re-application strategy",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "avalonedit-integration-strategy",
+          "description": "Agreed approach for hosting AvalonEdit in EmbeddedCodeRegionBlock, re-plumbing selection/copy/navigation, and re-applying light/dark highlight palettes on theme switch."
+        }
+      ],
+      "displayStepLabel": "1",
+      "commits": [
+        {
+          "commit": "bfc04a4a2f33e89c7d40842d10f646f1cba0504c",
+          "relation": "task",
+          "reason": "Commit observed within this step\u0027s host-recorded baseline range."
+        }
+      ],
+      "executionMode": "implementation",
+      "verificationLevel": "lightweight",
+      "completionSummaryItems": [
+        "Verified live code at HEAD: EmbeddedCodeRegionBlock TextBox/mouse/copy/boundary-nav surface, MainWindow.ApplyTheme \u002B NotifyThemeChanged fan-out, PromptTextBox_PreviewMouseLeftButtonDown (811809a0 native-selection fix), and CodeSurface/CodeText brushes in Light.xaml/Dark.xaml.",
+        "Authored the AvalonEdit integration and theming strategy in .squad/decisions.md covering editor host replacement (AvalonEdit TextEditor behind an IRegionCodeEditor seam replacing the BlockUIContainer-hosted TextBox), input re-mapping (native caret/mouse selection preserving the 811809a0 bubbling handledEventsToo fix and ShouldClaimRegionMouseGesture, fenced Ctrl\u002BC/Ctrl\u002BX, and EmbeddedCaretNavMath-driven Up/Down boundary-exit onto TextArea/Caret/Document), and an imperative per-editor HighlightingColor palette push.",
+        "Specified the ICSharpCode.AvalonEdit package addition as a Step 2 (migration) action rather than performing it in this architecture task.",
+        "Defined a new per-editor ApplyEditorTheme(palette) hook invoked from MainWindow.ApplyTheme reading post-swap CodeSurface/CodeText, explicitly replacing SetResourceReference for editor surface/text/highlight colors since AvalonEdit colors are not DynamicResource-driven.",
+        "Kept the editor host and palette source pluggable via IRegionCodeEditor and IRegionEditorPaletteSource seams while explicitly scoping out the v2 Markdown-reuse work.",
+        "Included consumer checklists so the migration task and the highlighting/theme task can execute directly against the contract."
+      ],
+      "completionKind": "changed"
+    },
+    {
+      "taskId": "AVALONEDIT-20261014-002",
+      "title": "Replace region TextBox with AvalonEdit editor",
+      "description": "Stage 1. Replace the plain Consolas TextBox inside EmbeddedCodeRegionBlock with AvalonEdit\u0027s TextEditor, introducing the new \u0060ICSharpCode.AvalonEdit\u0060 NuGet dependency (first use in the solution), and re-plumb every region behavior currently wired against TextBox APIs. No syntax colors in this stage.\n\n## Observable outcome\n\nTyping three backticks in the prompt RichTextBox still creates an embedded code region, now backed by AvalonEdit, with: working single-click caret placement and caret movement; double-click word selection; click-drag range selection; double-click-drag word-wise extension; the custom Ctrl\u002BC / Ctrl\u002BX fenced copy/cut; Up/Down arrow boundary-exit navigation that leaves the region; TextChanged to Content sync; focus routing into and out of the region; and theme-following background/foreground via the strategy\u0027s palette hook (plain editor colors only). The re-plumbed selection gesture must preserve the behavior stabilized in commit 811809a0, including the pure claim predicate (currently ShouldClaimRegionMouseGesture) and the bubbling-stage host-selection collapse in both EmbeddedCodeRegionBlock and MainWindow.PromptTextBox_PreviewMouseLeftButtonDown.\n\n## Serialization\n\nLand the fence serialization convention here: an explicit language serializes as a three-backtick fence followed by the language token; Auto detect serializes as a bare three-backtick fence with no language token; Plain text serializes with the reserved token text. Round-tripping a region must preserve its mode.\n\n## Consumers\n\nThe production prompt editor consumes the migrated control. Tasks 003 and 004 build the picker and highlighting on this host; task 007 adds headless regression coverage.",
+      "dependsOn": [
+        "AVALONEDIT-20261014-001"
+      ],
+      "priority": "critical",
+      "status": "human-review-required",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Migrate the embedded code-region editor from TextBox to AvalonEdit and re-plumb selection, fenced copy/cut, arrow boundary-exit navigation, content sync, focus, and theme-following colors",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "avalonedit-region-host",
+          "description": "AvalonEdit-backed embedded code-region editor host with re-plumbed selection, fenced copy/cut, arrow boundary-exit navigation, content sync, focus routing, and theme-following plain colors."
+        },
+        {
+          "outputId": "fence-serialization-convention",
+          "description": "Serialization mapping between region mode (explicit language, Auto detect, Plain text) and the fence tag (language token, no token, reserved text token), with mode-preserving round-trip."
+        }
+      ],
+      "inputs": [
+        "avalonedit-integration-strategy"
+      ],
+      "proofRequirements": [
+        {
+          "requirementId": "stage1-build",
+          "proofType": "build",
+          "description": "The solution builds with the new ICSharpCode.AvalonEdit package reference resolved and the migrated EmbeddedCodeRegionBlock compiling against AvalonEdit APIs."
+        }
+      ],
+      "handoff": {
+        "commit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+        "summary": "Migrated the embedded code-region editor from a plain TextBox to AvalonEdit\u0027s TextEditor behind the IRegionCodeEditor seam, re-plumbing selection, fenced copy/cut, arrow boundary-exit, content sync, focus, theme colors, and landing the fence serialization convention.",
+        "changedFiles": [
+          "SquadDash.Tests/EmbeddedCodeRegionTests.cs",
+          "SquadDash.Tests/SquadDash.Tests.csproj",
+          "SquadDash/AvalonEditRegionEditor.cs",
+          "SquadDash/EmbeddedCodeRegionBlock.cs",
+          "SquadDash/IRegionCodeEditor.cs",
+          "SquadDash/MainWindow.xaml.cs",
+          "SquadDash/RichTextBoxExtensions.cs",
+          "SquadDash/SquadDash.csproj"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav|FullyQualifiedName~Serialization\u0022 -v minimal",
+          "summary": "All targeted embedded-region, caret-nav, and serialization round-trip tests pass; coordinator independently rebuilt SquadDash.csproj to a green 0-error build. Pre-existing change-unrelated flaky session-store fixture tests fail intermittently in the full run and were confirmed failing on the stashed baseline.",
+          "tests": {
+            "total": 229,
+            "passed": 229,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        "submittedAt": "2026-10-14T22:06:31.4211296+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Added ICSharpCode.AvalonEdit PackageReference to SquadDash.csproj (first use in the solution) and to the source-linking SquadDash.Tests.csproj; the configured feed only offers 4.3.0-alpha-00000000 (a genuine net45 AvalonEdit assembly consumed via AssetTargetFallback, benign NU1701 warning).",
+          "Introduced the IRegionCodeEditor seam plus concrete AvalonEditRegionEditor wrapping AvalonEdit\u0027s TextEditor, replacing the plain Consolas TextBox content box, with a RegionEditorPalette record and pluggable IRegionEditorPaletteSource/ThemeResourcePaletteSource reading post-swap CodeSurface/CodeText.",
+          "Re-mapped native caret placement, word selection, click-drag, and double-click-drag word-wise extension onto AvalonEdit while preserving the commit 811809a0 bubbling handledEventsToo host-selection collapse and the unchanged ShouldClaimRegionMouseGesture claim predicate in both EmbeddedCodeRegionBlock and MainWindow.PromptTextBox_PreviewMouseLeftButtonDown.",
+          "Re-plumbed fenced Ctrl\u002BC/Ctrl\u002BX onto the editor (fenced-text copy, Document.Remove for cut), EmbeddedCaretNavMath-driven Up/Down boundary-exit navigation, TextChanged to Content sync, and focus routing onto AvalonEdit\u0027s TextArea.",
+          "Added EmbeddedCodeRegionBlock.ApplyEditorTheme and a MainWindow.ApplyTheme per-region fan-out using the active palette source and RichTextBoxExtensions.EnumerateEmbeddedRegions, imperatively pushing editor surface/text colors rather than SetResourceReference.",
+          "Landed the fence serialization convention with round-trip tests for explicit-language (\u0060\u0060\u0060\u002Btoken), auto-detect (bare \u0060\u0060\u0060), and plain-text (reserved token text) modes, and migrated existing region tests to the AvalonEdit editor.",
+          "Confirmed the solution builds green with the AvalonEdit reference resolved and verified the 8 full-suite failures are pre-existing flaky session-store fixture tests by reproducing them on the stashed baseline."
+        ],
+        "baselineCommit": "bfc04a4a2f33e89c7d40842d10f646f1cba0504c",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "human-review-required",
+          "summary": "Step 2 genuinely replaces the Consolas TextBox with AvalonEdit\u0027s TextEditor behind the new IRegionCodeEditor seam. Production construction (EmbeddedCodeRegionBlock ctor line 75) builds an AvalonEditRegionEditor as the live content control; no stray TextBox content box remains (only doc-comments and the host RichTextBox mention TextBox). The 811809a0 selection fix is preserved: the pure predicate ShouldClaimRegionMouseGesture is unchanged, the bubbling-stage host-selection collapse (handledEventsToo:true \u2192 ClearHostSelection, leaving caret/selection intact) is present in EmbeddedCodeRegionBlock, and MainWindow.PromptTextBox_PreviewMouseLeftButtonDown now hit-tests TextEditor/TextArea instead of TextBox. Fenced Ctrl\u002BC/Ctrl\u002BX, Up/Down boundary exit via EmbeddedCaretNavMath, TextChanged\u2192Content sync, focus routing to TextArea, and imperative theme push via ApplyEditorTheme/EnumerateEmbeddedRegions reading CodeSurface/CodeText are all wired to AvalonEdit APIs. Serialization for all three modes round-trips in tests and production. Build (stage1-build proof) succeeds with ICSharpCode.AvalonEdit resolved (expected NU1701/AssetTargetFallback warnings only); 229 targeted tests pass. deferredWork:[] is appropriate \u2014 no this-task requirement was dropped and no later consumer (highlighting/picker/auto-detect) is falsely claimed wired. Verdict is human-review-required ONLY because the observable visual/interactive outcomes (caret appearance, drag-selection feel, focus feel, on-screen theme colors) can be established solely by the later human checkpoint and must not be asserted by me.",
+          "claimFindings": [
+            {
+              "claim": "AvalonEditRegionEditor/IRegionCodeEditor replaces the TextBox in the production construction path (not dead code)",
+              "disposition": "supported",
+              "evidence": "EmbeddedCodeRegionBlock.cs:40-41,75-76 constructs \u0060_editor = new AvalonEditRegionEditor(Content)\u0060 and uses \u0060_editorControl = _editor.Control\u0060 as the editorBorder.Child (line 250). Grep for TextBox in the file yields only doc-comments and the host RichTextBox; the old \u0060_contentBox\u0060 field is gone."
+            },
+            {
+              "claim": "811809a0 selection fix preserved \u2014 pure predicate intact AND bubbling-stage host-selection collapse in BOTH EmbeddedCodeRegionBlock and MainWindow, now hit-testing the AvalonEdit visual",
+              "disposition": "supported",
+              "evidence": "ShouldClaimRegionMouseGesture (EmbeddedCodeRegionBlock.cs:66-67) unchanged pure predicate. Bubbling handler added via AddHandler(MouseLeftButtonDownEvent, \u2026, handledEventsToo:true) calls ClearHostSelection() and sets e.Handled without touching caret/selection (lines 95-110). MainWindow.xaml.cs diff: hit walk now sets hitContentEditor when current is TextEditor or TextArea and passes it as hitContentTextBox to ShouldClaimRegionMouseGesture (lines ~27530-27566)."
+            },
+            {
+              "claim": "Fenced Ctrl\u002BC/Ctrl\u002BX copy builds fenced text and cut mutates the document",
+              "disposition": "supported",
+              "evidence": "PreviewKeyDown on _editorControl (lines 127-149) builds EmbeddedFenceDetector.BuildFencedText(selectedText, Language) and, for Cut, calls _editor.RemoveSelectedText() which executes _editor.Document.Remove(SelectionStart, SelectionLength) (AvalonEditRegionEditor.cs:88-94)."
+            },
+            {
+              "claim": "Up/Down boundary-exit driven by EmbeddedCaretNavMath against AvalonEdit caret/offset",
+              "disposition": "supported",
+              "evidence": "EmbeddedCodeRegionBlock.cs:200-224 calls EmbeddedCaretNavMath.Decide(_editor.Text, _editor.CaretOffset, _editor.SelectionLength, e.Key) where CaretOffset maps to TextArea.Caret.Offset."
+            },
+            {
+              "claim": "TextChanged\u2192Content sync and focus routing to TextArea present in production",
+              "disposition": "supported",
+              "evidence": "AvalonEditRegionEditor forwards TextEditor.TextChanged (ctor line 43); EmbeddedCodeRegionBlock.cs:120-124 sets Content=_editor.Text on change. FocusEditor targets _editor.TextArea via FocusManager.SetFocusedElement \u002B Keyboard.Focus (AvalonEditRegionEditor.cs:96-107)."
+            },
+            {
+              "claim": "Theme push: ApplyEditorTheme invoked from MainWindow.ApplyTheme fan-out over EnumerateEmbeddedRegions, reading post-swap CodeSurface/CodeText imperatively",
+              "disposition": "supported",
+              "evidence": "MainWindow.xaml.cs ApplyTheme diff: after dictionary swap, _regionEditorPaletteSource.CreatePalette() then foreach EnumerateEmbeddedRegions(PromptTextBox) \u2192 region.ApplyEditorTheme(palette). ThemeResourcePaletteSource reads TryFindResource(\u0027CodeSurface\u0027/\u0027CodeText\u0027) (IRegionCodeEditor.cs:50-56); ApplyPalette sets _editor.Background/Foreground directly, not SetResourceReference (AvalonEditRegionEditor.cs:121-128)."
+            },
+            {
+              "claim": "All three serialization modes round-trip (explicit / auto-detect bare / plain-text \u0027text\u0027) in tests and production serializer",
+              "disposition": "supported",
+              "evidence": "BuildFencedText emits \u0060{fence}{languageTag}\\n{content}\\n{fence}\u0060 (EmbeddedFenceDetector.cs:118-124): explicit\u2192\u0060\u0060\u0060csharp, empty\u2192bare \u0060\u0060\u0060, \u0027text\u0027\u2192\u0060\u0060\u0060text. Tests Serialization_ExplicitLanguageFence/_AutoDetect/_PlainText assert exact strings and re-parse Language via FindFirstFence; all pass."
+            },
+            {
+              "claim": "Tests would fail if behavior broke (non-tautological)",
+              "disposition": "supported",
+              "evidence": "Serialization tests assert exact fence strings and reparsed Language; content-editor tests assert editorBorder.Child Is.InstanceOf\u003CTextEditor\u003E and TextArea.IsFocused; a regression to TextBox or wrong fence token would fail compilation or assertions. 229 targeted tests pass."
+            },
+            {
+              "claim": "stage1-build proof: solution builds with ICSharpCode.AvalonEdit resolved and migrated EmbeddedCodeRegionBlock compiling against AvalonEdit APIs",
+              "disposition": "supported",
+              "evidence": "dotnet build SquadDash\\SquadDash.csproj \u2192 Build succeeded, 0 errors, only NU1701 AssetTargetFallback warnings (documented/expected in csproj)."
+            },
+            {
+              "claim": "The region now delivers the described on-screen visual/interactive behaviors (caret appearance, click-drag/double-click-drag selection feel, focus feel, rendered theme colors)",
+              "disposition": "unclear",
+              "evidence": "These are human-observable outcomes that cannot be established by build/tests or code inspection alone. The production paths are correctly wired to the corresponding AvalonEdit APIs, making them plausible, but final confirmation is reserved for the later human approval checkpoint; not asserted here."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "Targeted suite (~EmbeddedCodeRegion|~EmbeddedCaretNav|~Serialization) = 229 passed, 0 failed. Three new parameter-style serialization tests exercise the exact explicit/auto-detect/plain-text fence forms and round-trip the mode via FindFirstFence \u2014 non-tautological and would fail on a wrong token or dropped mode. Existing region tests were correctly re-pointed from TextBox to AvalonEdit TextEditor (GetContentEditor helper, TextArea.IsFocused, CaretOffset, Select), so they still prove focus/caret/content-sync against the new control. No pre-existing flaky session-store/fixture failures surfaced in this filtered run. Deterministic coverage is adequate; the purely visual/interactive behaviors are intentionally out of automated scope and gated to human review.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "completedAt": "2026-10-14T22:12:01.4671576+00:00"
+        }
+      ],
+      "displayStepLabel": "2",
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced",
+      "contractExamples": [
+        {
+          "exampleId": "explicit-language-fence",
+          "title": "Explicit language writes a language tag",
+          "input": "Region mode = explicit language csharp, Content = int x = 1;",
+          "expectedBehavior": "Serialized region opens with a three-backtick fence immediately followed by the token csharp and closes with a three-backtick fence.",
+          "language": "text"
+        },
+        {
+          "exampleId": "auto-detect-no-tag",
+          "title": "Auto detect omits the fence tag",
+          "input": "Region mode = Auto detect, Language field empty",
+          "expectedBehavior": "Serialized region opens with a bare three-backtick fence with no language token following it.",
+          "language": "text"
+        },
+        {
+          "exampleId": "plain-text-marker",
+          "title": "Plain text uses reserved marker",
+          "input": "Region mode = Plain text",
+          "expectedBehavior": "Serialized region opens with a three-backtick fence immediately followed by the reserved token text.",
+          "language": "text"
+        }
+      ]
+    },
+    {
+      "taskId": "AVALONEDIT-20261014-003",
+      "title": "Add clickable language picker popup",
+      "description": "Stage 2. Turn the static language label (currently the \u0022Auto Detect -- Plain Text\u0022 TextBlock) into a clickable trigger that opens a WPF Popup positioned directly below the label.\n\n## Observable outcome\n\nClicking the label opens a Popup listing, in order, Auto detect, Plain text, then every supported grammar. Selecting an item updates the region\u0027s mode and visible label and writes through to the fence tag using the serialization convention from task 002 (explicit language token, bare fence for Auto detect, reserved text token for Plain text). The selected mode persists across serialization round-trips and sets the mode later highlighting stages consume. No syntax colors are required to prove the picker.\n\n## Consumers\n\nTask 004\u0027s highlighting and auto-detect logic consume the selected mode via the picker-mode output; task 008 adds headless coverage of the write-through and persistence.",
+      "dependsOn": [
+        "AVALONEDIT-20261014-002"
+      ],
+      "priority": "high",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Implement the clickable language-label Popup picker and fence write-through",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "language-picker-mode",
+          "description": "User-selectable region mode (Auto detect, Plain text, or an explicit grammar) surfaced from the label Popup and written through to the fence tag, consumed by the highlighting and auto-detect logic."
+        }
+      ],
+      "inputs": [
+        "fence-serialization-convention"
+      ],
+      "displayStepLabel": "3",
+      "executionMode": "implementation"
+    },
+    {
+      "taskId": "AVALONEDIT-20261014-007",
+      "title": "Regression coverage for region migration logic",
+      "description": "Add focused headless NUnit coverage in SquadDash.Tests for the deterministic logic re-plumbed by the Stage 1 migration, so the human interaction gate is backed by stable automated proof of the testable parts.\n\n## Observable outcome\n\nNew or updated tests pass covering: the fence serialization convention round-trip for all three modes (explicit language token, bare fence for Auto detect, reserved text token for Plain text); the pure mouse-gesture claim predicate (currently ShouldClaimRegionMouseGesture) re-expressed against the AvalonEdit host; the TextChanged-to-Content synchronization; and the Up/Down arrow boundary-exit decision logic. Tests run via the existing \u0060dotnet test\u0060 path for SquadDash.Tests.\n\n## Consumers\n\nThese tests become the regression safety net that later highlighting stages rely on to confirm Stage 1 behavior is not regressed.",
+      "dependsOn": [
+        "AVALONEDIT-20261014-002"
+      ],
+      "priority": "high",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "vesper-knox",
+          "role": "Author headless regression tests for the migrated region logic",
+          "allowGenericChildren": true
+        }
+      ],
+      "parallelEligible": true,
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "stage1-regression-suite",
+          "description": "Headless coverage of fence serialization round-trip, the mouse-gesture claim predicate, content sync, and arrow boundary-exit decision logic."
+        }
+      ],
+      "inputs": [
+        "avalonedit-region-host",
+        "fence-serialization-convention"
+      ],
+      "proofRequirements": [
+        {
+          "requirementId": "stage1-logic-tests",
+          "proofType": "automated-test",
+          "description": "Run the new SquadDash.Tests cases covering fence serialization round-trip, the gesture claim predicate, content sync, and arrow boundary-exit logic, and report pass counts."
+        }
+      ],
+      "displayStepLabel": "4",
+      "executionMode": "implementation"
+    },
+    {
+      "taskId": "AVALONEDIT-20261014-004",
+      "title": "Highlight built-in grammars with theme-aware palettes",
+      "description": "Stage 3. Apply automatic syntax highlighting for AvalonEdit\u0027s standard built-in grammars, with distinct light and dark HighlightingColor palettes, and implement the Auto-detect content heuristic.\n\n## Observable outcome\n\nWhen a region\u0027s mode resolves to a built-in grammar, the editor renders syntax colors. A new per-editor theme hook, invoked from MainWindow.ApplyTheme via NotifyThemeChanged, re-pushes the correct light or dark HighlightingColor palette into every open region editor on each theme switch (AvalonEdit colors are not DynamicResource-driven). Auto-detect resolves the grammar from the fence tag first; when the fence tag is empty it runs a debounced content heuristic after text changes, so while the region is in Auto-detect mode the applied highlighting updates live as the user types. When the user picks Plain text or any explicit language tag, the mode is pinned and the heuristic does not run on further changes.\n\n## Constraints\n\nKeep the palette source pluggable (a future Markdown scheme must be able to register without reworking this engine). Preserve the Stage 1 selection, copy, navigation, and sync behavior.\n\n## Consumers\n\nThe production region editor consumes the highlighting engine, theme hook, and auto-detect engine. Tasks 005 and 006 register custom grammars and palettes through the same engine and hook; task 008 covers the heuristic and pinning logic headlessly.",
+      "dependsOn": [
+        "AVALONEDIT-20261014-003"
+      ],
+      "priority": "high",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Implement built-in-grammar highlighting, theme palette hook, and auto-detect heuristic",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "highlighting-engine",
+          "description": "Pluggable AvalonEdit highlighting application that maps a resolved region grammar to active HighlightingDefinition and colors."
+        },
+        {
+          "outputId": "theme-palette-hook",
+          "description": "Per-editor light/dark HighlightingColor palette re-application invoked from MainWindow.ApplyTheme via NotifyThemeChanged on each theme switch."
+        },
+        {
+          "outputId": "auto-detect-engine",
+          "description": "Fence-tag-first grammar resolution with a debounced live content heuristic for empty tags, pinned off when Plain text or an explicit language is chosen."
+        }
+      ],
+      "inputs": [
+        "avalonedit-region-host",
+        "language-picker-mode"
+      ],
+      "displayStepLabel": "5",
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced"
+    },
+    {
+      "taskId": "AVALONEDIT-20261014-005",
+      "title": "Bundle custom grammars: JSON, TypeScript, YAML, SQL",
+      "description": "Stage 4. Add and bundle custom AvalonEdit .xshd highlighting grammars for JSON, TypeScript, YAML, and SQL, registered with the picker list, the highlighting engine, and the light/dark palette hook from task 004.\n\n## Observable outcome\n\nEach of JSON, TypeScript, YAML, and SQL appears in the language picker and, when selected or auto-detected, renders its own syntax highlighting with correct light and dark colors in a region. The grammars load from embedded resources without runtime exceptions.\n\n## Consumers\n\nThe production region editor and picker consume the four new grammars through the existing engine and hook. The following human validation gate uses copy-ready sample snippets to confirm per-language color correctness and allows iterative palette tuning.",
+      "dependsOn": [
+        "AVALONEDIT-20261014-004"
+      ],
+      "priority": "mid",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Add and register the JSON, TypeScript, YAML, and SQL .xshd grammars",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "custom-grammars-batch-one",
+          "description": "Bundled .xshd grammars for JSON, TypeScript, YAML, and SQL registered with the picker, highlighting engine, and theme palette hook."
+        }
+      ],
+      "inputs": [
+        "highlighting-engine",
+        "theme-palette-hook"
+      ],
+      "displayStepLabel": "6",
+      "executionMode": "implementation"
+    },
+    {
+      "taskId": "AVALONEDIT-20261014-008",
+      "title": "Regression coverage for picker and auto-detect logic",
+      "description": "Add focused headless NUnit coverage in SquadDash.Tests for the deterministic logic behind the language picker write-through and the auto-detect engine.\n\n## Observable outcome\n\nNew or updated tests pass covering: picker selection writing the correct fence tag for each mode and persisting across a serialization round-trip; auto-detect resolving the grammar from the fence tag first; auto-detect falling back to the content heuristic only when the fence tag is empty; and the heuristic being pinned off (not re-running on text changes) once Plain text or an explicit language is selected. Tests run via the existing \u0060dotnet test\u0060 path for SquadDash.Tests.\n\n## Consumers\n\nThese tests back the Stage 2 and Stage 3 human gates with automated proof of the non-visual logic, letting the gates focus on strictly human-observable rendering.",
+      "dependsOn": [
+        "AVALONEDIT-20261014-004"
+      ],
+      "priority": "mid",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "vesper-knox",
+          "role": "Author headless regression tests for picker write-through and auto-detect resolution/pinning",
+          "allowGenericChildren": true
+        }
+      ],
+      "parallelEligible": true,
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "picker-autodetect-regression-suite",
+          "description": "Headless coverage of picker fence write-through persistence and auto-detect fence-first resolution, empty-tag heuristic fallback, and pinned-off behavior."
+        }
+      ],
+      "inputs": [
+        "language-picker-mode",
+        "auto-detect-engine"
+      ],
+      "proofRequirements": [
+        {
+          "requirementId": "picker-autodetect-tests",
+          "proofType": "automated-test",
+          "description": "Run the new SquadDash.Tests cases covering picker write-through persistence and auto-detect resolution and pinning, and report pass counts."
+        }
+      ],
+      "displayStepLabel": "7",
+      "executionMode": "implementation"
+    },
+    {
+      "taskId": "AVALONEDIT-20261014-006",
+      "title": "Bundle custom grammars: Go, Rust, Bash, Markdown",
+      "description": "Stage 5. Add and bundle custom AvalonEdit .xshd highlighting grammars for Go, Rust, Bash, and Markdown, registered with the picker list, the highlighting engine, and the light/dark palette hook.\n\n## Observable outcome\n\nEach of Go, Rust, Bash, and Markdown appears in the language picker and, when selected or auto-detected, renders its own syntax highlighting with correct light and dark colors in a region. The grammars load from embedded resources without runtime exceptions.\n\n## Consumers\n\nThe production region editor and picker consume the four new grammars through the existing engine and hook. The following human validation gate uses copy-ready sample snippets to confirm per-language color correctness and allows iterative palette tuning. Keep the Markdown grammar registration path reusable, but add no further v2 Markdown-editor work.",
+      "dependsOn": [
+        "AVALONEDIT-20261014-005"
+      ],
+      "priority": "mid",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Add and register the Go, Rust, Bash, and Markdown .xshd grammars",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "custom-grammars-batch-two",
+          "description": "Bundled .xshd grammars for Go, Rust, Bash, and Markdown registered with the picker, highlighting engine, and theme palette hook."
+        }
+      ],
+      "inputs": [
+        "highlighting-engine",
+        "theme-palette-hook"
+      ],
+      "displayStepLabel": "8",
+      "executionMode": "implementation"
+    }
+  ],
+  "approvalGates": [
+    {
+      "gateId": "AVALONEDIT-20261014-GATE-001",
+      "message": "Stage 1 mandatory review: manually verify native AvalonEdit caret, selection, fenced copy/paste, and arrow boundary navigation before any picker or highlighting work begins",
+      "afterTaskIds": [
+        "AVALONEDIT-20261014-002"
+      ],
+      "beforeTaskIds": [
+        "AVALONEDIT-20261014-003"
+      ],
+      "status": "awaiting-approval",
+      "requestedAt": "2026-10-14T22:12:01.4825279+00:00",
+      "planRevision": "24893cd57beac24a",
+      "notifiedAt": "2026-10-14T22:12:01.4825279+00:00",
+      "presentationAnchor": "task-before:AVALONEDIT-20261014-003",
+      "proofRequirements": [
+        {
+          "requirementId": "single-click-caret",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a single click inside the region places the caret at the clicked position.",
+          "question": "Does a single click inside the region place the caret at the clicked position?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Build and launch SquadDash from this branch and focus the main prompt.",
+            "open": "Type three backticks on their own line in the prompt to create an embedded code region, then type a few lines of sample text into it.",
+            "observe": "Single-click at several spots and confirm the caret lands where you clicked.",
+            "cleanup": "Delete the region text or discard the draft prompt."
+          },
+          "title": "Single-click places caret"
+        },
+        {
+          "requirementId": "double-click-word-select",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms double-clicking a word selects exactly that word.",
+          "question": "Does double-clicking a word select exactly that word?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Use the region created above.",
+            "open": "Double-click a word in the region.",
+            "observe": "Confirm the whole word, and only that word, becomes selected.",
+            "cleanup": "Click elsewhere to clear the selection."
+          },
+          "title": "Double-click selects a word"
+        },
+        {
+          "requirementId": "click-drag-select",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms pressing and dragging selects a contiguous range of text.",
+          "question": "Does pressing and dragging select a contiguous text range?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Use the region created above.",
+            "open": "Press the left mouse button in the region and drag across several characters and lines.",
+            "observe": "Confirm a contiguous range is selected that tracks the drag.",
+            "cleanup": "Click elsewhere to clear the selection."
+          },
+          "title": "Click-drag selects a range"
+        },
+        {
+          "requirementId": "double-click-drag-extend",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms double-click then drag extends the selection word by word.",
+          "question": "Does double-click-then-drag extend the selection word by word?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Use the region created above.",
+            "open": "Double-click a word and, without releasing on the second press, drag across adjacent words.",
+            "observe": "Confirm the selection grows in whole-word increments.",
+            "cleanup": "Click elsewhere to clear the selection."
+          },
+          "title": "Double-click-drag extends by word"
+        },
+        {
+          "requirementId": "arrow-boundary-exit",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms Up at the first line and Down at the last line move the caret out of the region into the surrounding prompt.",
+          "question": "Do Up at the top and Down at the bottom move the caret out of the region?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Use the region created above with text above and below it in the prompt.",
+            "open": "Place the caret on the first line and press Up, then place it on the last line and press Down.",
+            "observe": "Confirm the caret leaves the region into the surrounding prompt text in both directions.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Arrow keys exit at boundary"
+        },
+        {
+          "requirementId": "fenced-copy-cut",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms Ctrl\u002BC and Ctrl\u002BX place the region content as a fenced block on the clipboard.",
+          "question": "Do Ctrl\u002BC and Ctrl\u002BX place the region content on the clipboard as a fenced block?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Use the region created above.",
+            "open": "Select text in the region and press Ctrl\u002BC, then paste into any plain text editor; repeat with Ctrl\u002BX.",
+            "observe": "Confirm the clipboard contents are wrapped as a fenced code block (three-backtick fence) and that Ctrl\u002BX also removes the text.",
+            "cleanup": "Discard the draft prompt and clipboard contents."
+          },
+          "title": "Ctrl\u002BC and Ctrl\u002BX copy fenced block"
+        },
+        {
+          "requirementId": "paste-fenced-back",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms pasting a previously copied fenced block back into the prompt reconstitutes a region.",
+          "question": "Does pasting a copied fenced block back into the prompt reconstitute a code region?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Use the fenced block copied in the previous step.",
+            "open": "Place the caret in the prompt outside any region and paste.",
+            "observe": "Confirm the pasted fenced block reconstitutes an embedded code region with its content.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Paste re-inserts fenced block"
+        }
+      ],
+      "afterTaskIdsSpecified": true,
+      "beforeTaskIdsSpecified": true,
+      "question": "Does the migrated AvalonEdit region editor behave correctly for caret, selection, copy/paste, and arrow boundary navigation?"
+    },
+    {
+      "gateId": "AVALONEDIT-20261014-GATE-002",
+      "message": "Stage 2 review: confirm the language-label picker opens directly below the label and updates the region mode",
+      "afterTaskIds": [
+        "AVALONEDIT-20261014-003"
+      ],
+      "beforeTaskIds": [
+        "AVALONEDIT-20261014-004"
+      ],
+      "status": "pending",
+      "planRevision": "24893cd57beac24a",
+      "presentationAnchor": "task-after:AVALONEDIT-20261014-003",
+      "proofRequirements": [
+        {
+          "requirementId": "popup-below-label",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms clicking the language label opens a Popup positioned directly below it listing Auto detect, Plain text, then the grammars.",
+          "question": "Does clicking the label open a picker Popup directly below it?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Build and launch SquadDash from this branch and create an embedded code region in the prompt.",
+            "open": "Click the language label on the region.",
+            "observe": "Confirm a Popup appears directly below the label, starting with Auto detect, then Plain text, then the supported grammars.",
+            "cleanup": "Press Escape to close the Popup and discard the draft prompt."
+          },
+          "title": "Popup opens below label"
+        },
+        {
+          "requirementId": "selection-updates-label",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms choosing an item in the Popup updates the visible region label to the chosen mode.",
+          "question": "Does choosing a picker item update the region label to that mode?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Use the region and open Popup from above.",
+            "open": "Select a specific language, then reopen and select Plain text, then Auto detect.",
+            "observe": "Confirm the visible label changes to match each chosen mode.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Selection updates the label"
+        }
+      ],
+      "afterTaskIdsSpecified": true,
+      "beforeTaskIdsSpecified": true,
+      "question": "Does the language picker open directly below the label and update the selected mode?"
+    },
+    {
+      "gateId": "AVALONEDIT-20261014-GATE-003",
+      "message": "Stage 3 review: confirm built-in-grammar highlighting, light/dark correctness, live auto-detect, and pinned Plain text",
+      "afterTaskIds": [
+        "AVALONEDIT-20261014-004"
+      ],
+      "beforeTaskIds": [
+        "AVALONEDIT-20261014-005"
+      ],
+      "status": "pending",
+      "planRevision": "24893cd57beac24a",
+      "presentationAnchor": "task-before:AVALONEDIT-20261014-005",
+      "proofRequirements": [
+        {
+          "requirementId": "live-autodetect-highlight",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms that in Auto detect mode, typing recognizable code applies syntax highlighting live as they type.",
+          "question": "In Auto detect, does typing recognizable code apply highlighting live while typing?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Build and launch SquadDash from this branch and create a region with the picker set to Auto detect.",
+            "open": "Type a few lines of a recognizable built-in language (for example a short C# method).",
+            "observe": "Confirm syntax colors appear and update as you type, without manually selecting a language.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Auto-detect highlights live"
+        },
+        {
+          "requirementId": "light-theme-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms highlighting colors are correct and readable in the Light theme.",
+          "question": "Are highlighting colors correct and readable in the Light theme?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Switch SquadDash to the Light theme and create a region with recognizable highlighted code.",
+            "open": "View the region.",
+            "observe": "Confirm keyword, string, comment, and other tokens use the correct, readable light palette.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Colors correct in light theme"
+        },
+        {
+          "requirementId": "dark-theme-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms highlighting colors are correct and readable in the Dark theme.",
+          "question": "Are highlighting colors correct and readable in the Dark theme?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Switch SquadDash to the Dark theme and create a region with recognizable highlighted code.",
+            "open": "View the region.",
+            "observe": "Confirm tokens use the correct, readable dark palette.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Colors correct in dark theme"
+        },
+        {
+          "requirementId": "theme-switch-reapplies",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms switching themes while a region is open re-applies the correct palette to the open editor.",
+          "question": "Does switching theme while a region is open re-apply the correct highlight colors to it?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Open a region with highlighted code.",
+            "open": "Toggle between Light and Dark themes while the region stays open.",
+            "observe": "Confirm the highlight colors immediately update to the newly selected theme\u0027s palette.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Theme switch re-applies colors"
+        },
+        {
+          "requirementId": "plain-text-pins-off",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms selecting Plain text stops highlighting from changing as they continue typing.",
+          "question": "After selecting Plain text, does highlighting stop changing as you keep typing?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Create a region and type recognizable code so highlighting appears in Auto detect.",
+            "open": "Open the picker and select Plain text, then keep typing more code.",
+            "observe": "Confirm no syntax highlighting is applied or updated while typing under Plain text.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Plain text pins off auto-detect"
+        }
+      ],
+      "afterTaskIdsSpecified": true,
+      "beforeTaskIdsSpecified": true,
+      "question": "Does built-in-grammar highlighting render correctly in both themes, update live in auto-detect, and stop when Plain text is pinned?"
+    },
+    {
+      "gateId": "AVALONEDIT-20261014-GATE-004",
+      "message": "Stage 4 validation: paste the provided sample snippets and confirm per-language highlighting for JSON, TypeScript, YAML, and SQL; request palette tweaks and the agent will iterate until you are satisfied",
+      "afterTaskIds": [
+        "AVALONEDIT-20261014-005"
+      ],
+      "beforeTaskIds": [
+        "AVALONEDIT-20261014-006"
+      ],
+      "status": "pending",
+      "planRevision": "24893cd57beac24a",
+      "presentationAnchor": "task-after:AVALONEDIT-20261014-005",
+      "proofRequirements": [
+        {
+          "requirementId": "json-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer pastes the JSON sample and confirms keys, strings, numbers, booleans, and punctuation are distinctly and correctly colored; may request tweaks for the agent to iterate on.",
+          "question": "Does the JSON sample render correct, distinct syntax highlighting?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Build and launch SquadDash from this branch, create a region, and set the picker to JSON.",
+            "open": "Paste this sample into the region: {\u0022name\u0022:\u0022squad\u0022,\u0022count\u0022:3,\u0022enabled\u0022:true,\u0022tags\u0022:[\u0022a\u0022,\u0022b\u0022]}",
+            "observe": "Confirm keys, string values, numbers, booleans, and brackets are distinctly and correctly colored in the current theme.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "JSON highlights correctly"
+        },
+        {
+          "requirementId": "typescript-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer pastes the TypeScript sample and confirms keywords, types, strings, and comments are distinctly and correctly colored; may request tweaks.",
+          "question": "Does the TypeScript sample render correct, distinct syntax highlighting?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Set the region picker to TypeScript.",
+            "open": "Paste this sample: const greet = (name: string): string =\u003E \u0060hi ${name}\u0060; // comment",
+            "observe": "Confirm keywords, the type annotation, template string, and comment are distinctly and correctly colored.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "TypeScript highlights correctly"
+        },
+        {
+          "requirementId": "yaml-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer pastes the YAML sample and confirms keys, values, comments, and list markers are distinctly and correctly colored; may request tweaks.",
+          "question": "Does the YAML sample render correct, distinct syntax highlighting?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Set the region picker to YAML.",
+            "open": "Paste this sample: name: squad\\nitems:\\n  - one\\n  - two  # trailing comment",
+            "observe": "Confirm keys, values, the list markers, and the comment are distinctly and correctly colored.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "YAML highlights correctly"
+        },
+        {
+          "requirementId": "sql-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer pastes the SQL sample and confirms keywords, strings, and identifiers are distinctly and correctly colored; may request tweaks.",
+          "question": "Does the SQL sample render correct, distinct syntax highlighting?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Set the region picker to SQL.",
+            "open": "Paste this sample: SELECT id, name FROM users WHERE name = \u0027ada\u0027 ORDER BY id;",
+            "observe": "Confirm SQL keywords, the string literal, and identifiers are distinctly and correctly colored.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "SQL highlights correctly"
+        }
+      ],
+      "afterTaskIdsSpecified": true,
+      "beforeTaskIdsSpecified": true,
+      "question": "Do JSON, TypeScript, YAML, and SQL each render correct syntax highlighting from the sample snippets?"
+    },
+    {
+      "gateId": "AVALONEDIT-20261014-GATE-005",
+      "message": "Stage 5 validation: paste the provided sample snippets and confirm per-language highlighting for Go, Rust, Bash, and Markdown; request palette tweaks and the agent will iterate until you are satisfied",
+      "afterTaskIds": [
+        "AVALONEDIT-20261014-006"
+      ],
+      "beforeTaskIds": [],
+      "status": "pending",
+      "planRevision": "24893cd57beac24a",
+      "presentationAnchor": "task-after:AVALONEDIT-20261014-006",
+      "proofRequirements": [
+        {
+          "requirementId": "go-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer pastes the Go sample and confirms keywords, strings, and comments are distinctly and correctly colored; may request tweaks.",
+          "question": "Does the Go sample render correct, distinct syntax highlighting?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Build and launch SquadDash from this branch, create a region, and set the picker to Go.",
+            "open": "Paste this sample: func main() { msg := \u0022hi\u0022; fmt.Println(msg) } // entry",
+            "observe": "Confirm keywords, the string, and the comment are distinctly and correctly colored.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Go highlights correctly"
+        },
+        {
+          "requirementId": "rust-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer pastes the Rust sample and confirms keywords, macros, strings, and comments are distinctly and correctly colored; may request tweaks.",
+          "question": "Does the Rust sample render correct, distinct syntax highlighting?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Set the region picker to Rust.",
+            "open": "Paste this sample: fn main() { let name = \u0022ada\u0022; println!(\u0022hi {}\u0022, name); } // run",
+            "observe": "Confirm keywords, the macro, the string, and the comment are distinctly and correctly colored.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Rust highlights correctly"
+        },
+        {
+          "requirementId": "bash-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer pastes the Bash sample and confirms keywords, strings, variables, and comments are distinctly and correctly colored; may request tweaks.",
+          "question": "Does the Bash sample render correct, distinct syntax highlighting?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Set the region picker to Bash.",
+            "open": "Paste this sample: for f in *.txt; do echo \u0022$f\u0022; done # loop",
+            "observe": "Confirm keywords, the string, the variable expansion, and the comment are distinctly and correctly colored.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Bash highlights correctly"
+        },
+        {
+          "requirementId": "markdown-colors",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer pastes the Markdown sample and confirms headings, bold, inline code, and list markers are distinctly and correctly colored; may request tweaks.",
+          "question": "Does the Markdown sample render correct, distinct syntax highlighting?",
+          "accessMode": "recipe",
+          "verificationRecipe": {
+            "setup": "Set the region picker to Markdown.",
+            "open": "Paste this sample: # Title\\n\\n- **bold** item with \u0060inline code\u0060\\n- second item",
+            "observe": "Confirm the heading, bold text, inline code, and list markers are distinctly and correctly colored.",
+            "cleanup": "Discard the draft prompt."
+          },
+          "title": "Markdown highlights correctly"
+        }
+      ],
+      "afterTaskIdsSpecified": true,
+      "beforeTaskIdsSpecified": true,
+      "question": "Do Go, Rust, Bash, and Markdown each render correct syntax highlighting from the sample snippets?"
+    }
+  ],
+  "progress": {
+    "completedCount": 1,
+    "totalCount": 8
+  },
+  "timestamps": {
+    "createdAt": "2026-10-14T21:33:35.2850529+00:00",
+    "acceptedAt": "2026-10-14T21:33:35.2850529+00:00",
+    "startedAt": "2026-10-14T21:33:35.9201922+00:00",
+    "lastRunAt": "2026-10-14T22:12:01.4825279+00:00"
+  },
+  "hostRevision": "24893cd57beac24a",
+  "validations": [],
+  "revisionNumber": 1
+}

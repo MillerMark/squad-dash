@@ -2,7 +2,7 @@
   "planId": "PROMPTEDITOR-20261012",
   "revision": "75c5fd5dc168b7c4",
   "source": "tasks_json",
-  "lifecycleStatus": "approved",
+  "lifecycleStatus": "archived",
   "title": "Upgrade Prompt Editor with Embedded Code Regions",
   "branch": "feature/prompt-editor-embedded-regions",
   "summary": "Convert the prompt box from a plain TextBox to a RichTextBox so it can host collapsible embedded code regions, add triple-backtick fence creation/collapse, and add Up/Down boundary navigation across those regions \u2014 all without regressing ordinary plain-text typing, voice dictation, or existing transcript code-block styling.",
@@ -858,6 +858,7 @@
     "createdAt": "2026-10-13T03:17:38.856862+00:00",
     "acceptedAt": "2026-10-13T03:17:38.856862+00:00",
     "startedAt": "2026-10-13T03:17:39.2006191+00:00",
+    "archivedAt": "2026-10-14T22:38:12.5683972+00:00",
     "lastRunAt": "2026-10-14T18:22:33.4864313+00:00"
   },
   "hostRevision": "75c5fd5dc168b7c4",
