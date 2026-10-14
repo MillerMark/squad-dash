@@ -175,79 +175,32 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 return;
             }
 
-            // Right arrow at the end of content: exit the region
-            if (e.Key == Key.Right)
+            // Unmodified Left/Right/Up/Down: a PURE, position-only decision that depends solely on
+            // (text, caretIndex, selectionLength, key) — never on how the caret entered the region or
+            // WPF's remembered desired-X column. See EmbeddedCaretNavMath for the decision table.
+            if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
             {
-                if (_contentBox.CaretIndex == _contentBox.Text.Length && _contentBox.SelectionLength == 0)
-                {
-                    Trace($"EMBEDDED_CODE_KEY_EXIT reason=right-at-end direction=Forward caret={_contentBox.CaretIndex} textLen={_contentBox.Text.Length}");
-                    FocusHostOutsideRegion(LogicalDirection.Forward);
-                    e.Handled = true;
-                    return;
-                }
-            }
+                var decision = EmbeddedCaretNavMath.Decide(
+                    _contentBox.Text, _contentBox.CaretIndex, _contentBox.SelectionLength, e.Key);
 
-            // Left arrow at the beginning of content: exit the region
-            if (e.Key == Key.Left)
-            {
-                if (_contentBox.CaretIndex == 0 && _contentBox.SelectionLength == 0)
+                switch (decision)
                 {
-                    Trace($"EMBEDDED_CODE_KEY_EXIT reason=left-at-start direction=Backward caret={_contentBox.CaretIndex}");
-                    FocusHostOutsideRegion(LogicalDirection.Backward);
-                    e.Handled = true;
-                    return;
-                }
-            }
-
-            // Down arrow: navigate within block first, exit only at the last line
-            if (e.Key == Key.Down)
-            {
-                int lineCount = _contentBox.Text.Length == 0 ? 1 : _contentBox.Text.Count(c => c == '\n') + 1;
-                int caretLineIndex = _contentBox.Text.Substring(0, _contentBox.CaretIndex).Count(c => c == '\n');
-
-                // If NOT on the last line, let TextBox handle it normally (navigate down within content)
-                if (caretLineIndex < lineCount - 1)
-                {
-                    Trace($"EMBEDDED_CODE_KEY pass-through reason=down-mid-content line={caretLineIndex} lineCount={lineCount}");
-                    // Don't set e.Handled; let TextBox handle normal down-arrow navigation
-                }
-                else
-                {
-                    // On the last line: only exit if caret is at the end of the line
-                    var lastLineStart = _contentBox.Text.LastIndexOf('\n') + 1;
-                    var lastLineText = _contentBox.Text.Substring(lastLineStart);
-                    // If caret is at or past the content on the last line, exit the region
-                    if (_contentBox.CaretIndex >= lastLineStart + lastLineText.Length)
-                    {
-                        Trace($"EMBEDDED_CODE_KEY_EXIT reason=down-at-last-line-end direction=Forward lastLineStart={lastLineStart} lastLineLength={lastLineText.Length}");
-                        FocusHostOutsideRegion(LogicalDirection.Forward);
-                        e.Handled = true;
-                    }
-                    // Otherwise let TextBox try to move caret (it will move to end of line if not already there)
-                }
-            }
-
-            // Up arrow: navigate within block first, exit only at the first line
-            if (e.Key == Key.Up)
-            {
-                int caretLineIndex = _contentBox.Text.Substring(0, _contentBox.CaretIndex).Count(c => c == '\n');
-
-                // If NOT on the first line, let TextBox handle it normally (navigate up within content)
-                if (caretLineIndex > 0)
-                {
-                    Trace($"EMBEDDED_CODE_KEY pass-through reason=up-mid-content line={caretLineIndex}");
-                    // Don't set e.Handled; let TextBox handle normal up-arrow navigation
-                }
-                else
-                {
-                    // On the first line: only exit if caret is at the beginning of the line
-                    if (_contentBox.CaretIndex == 0)
-                    {
-                        Trace($"EMBEDDED_CODE_KEY_EXIT reason=up-at-first-line-start direction=Backward");
+                    case EmbeddedCaretNavMath.Decision.ExitBackward:
+                        Trace($"EMBEDDED_CODE_KEY_EXIT reason={e.Key}-exit direction=Backward caret={_contentBox.CaretIndex} textLen={_contentBox.Text.Length}");
                         FocusHostOutsideRegion(LogicalDirection.Backward);
                         e.Handled = true;
-                    }
-                    // Otherwise let TextBox try to move caret (it will move to start of line if not already there)
+                        return;
+
+                    case EmbeddedCaretNavMath.Decision.ExitForward:
+                        Trace($"EMBEDDED_CODE_KEY_EXIT reason={e.Key}-exit direction=Forward caret={_contentBox.CaretIndex} textLen={_contentBox.Text.Length}");
+                        FocusHostOutsideRegion(LogicalDirection.Forward);
+                        e.Handled = true;
+                        return;
+
+                    case EmbeddedCaretNavMath.Decision.PassThrough:
+                        Trace($"EMBEDDED_CODE_KEY pass-through reason={e.Key}-within-region caret={_contentBox.CaretIndex} line={GetCaretLineIndexForTrace()}");
+                        // Don't set e.Handled; let the TextBox move the caret within the region.
+                        break;
                 }
             }
 
