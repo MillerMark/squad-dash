@@ -116,17 +116,21 @@ internal static class EmbeddedCodeRegionManager
 
             var span = openFence.Value;
             var before = string.Join("\n", lines.Take(span.LineIndex));
-            var after = string.Join("\n", lines.Skip(span.LineIndex + 1));
+
+            // Unterminated opener: grab everything from the line after the opener through the
+            // end of input as region content so no typed/pasted content is ever silently lost.
+            // When nothing follows the opener (the user just typed "```" / "```<lang>"), this is
+            // the empty string — preserving the instant-empty-region UX.
+            var content = string.Join("\n", lines.Skip(span.LineIndex + 1)).Replace("\r", string.Empty);
 
             var replacement = new List<Segment>();
             if (before.Length > 0) replacement.Add(new TextSegment { Text = before });
             replacement.Add(new RegionSegment
             {
-                NewContent = "",
+                NewContent = content,
                 NewLanguage = span.Language,
                 FocusContentAfterRender = true,
             });
-            if (after.Length > 0) replacement.Add(new TextSegment { Text = after });
 
             segments.RemoveAt(s);
             segments.InsertRange(s, replacement);

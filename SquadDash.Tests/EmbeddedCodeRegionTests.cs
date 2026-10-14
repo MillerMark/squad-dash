@@ -930,4 +930,223 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(fence, Is.Not.Null);
         Assert.That(fence!.Value.Language, Is.EqualTo("python"));
     }
+
+    // ── Bug #2: variable-length fences for lossless round-trip ───────────────────
+
+    // Serializes content, re-parses it with the detector, and returns the extracted content —
+    // the full copy/send → re-detect round-trip for a single region.
+    private static (string ExtractedContent, string Language, int FenceLength) RoundTrip(string content, string? language)
+    {
+        var fenced = EmbeddedFenceDetector.BuildFencedText(content, language);
+        var lines = fenced.Split('\n');
+        var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+        Assert.That(fence, Is.Not.Null, "serialized block must re-parse as a complete fence");
+        return (fence!.Value.ExtractContent(lines), fence.Value.Language, fence.Value.FenceLength);
+    }
+
+    private static int OpenFenceLength(string content)
+        => EmbeddedFenceDetector.BuildFencedText(content, null).Split('\n')[0].Length;
+
+    [Test]
+    public void BuildFencedText_ContentWithBareThreeBacktickLine_UsesFourBacktickOuterFence()
+    {
+        var text = EmbeddedFenceDetector.BuildFencedText("```", null);
+        Assert.That(text, Is.EqualTo("````\n```\n````"));
+    }
+
+    [Test]
+    public void RoundTrip_ContentWithBareThreeBacktickLine_IsLossless()
+    {
+        var (content, language, fenceLength) = RoundTrip("```", null);
+        Assert.That(content, Is.EqualTo("```"));
+        Assert.That(language, Is.EqualTo(""));
+        Assert.That(fenceLength, Is.EqualTo(4));
+    }
+
+    [Test]
+    public void RoundTrip_ContentWithNestedFencedBlock_IsLossless()
+    {
+        var nested = "```python\nprint('hi')\n```";
+        var (content, _, fenceLength) = RoundTrip(nested, null);
+        Assert.That(content, Is.EqualTo(nested));
+        Assert.That(fenceLength, Is.GreaterThanOrEqualTo(4));
+    }
+
+    [Test]
+    public void RoundTrip_ContentWithTwentyBacktickLine_UsesTwentyOneBacktickOuterFence()
+    {
+        var twenty = new string('`', 20);
+        var (content, _, fenceLength) = RoundTrip(twenty, null);
+        Assert.That(content, Is.EqualTo(twenty));
+        Assert.That(fenceLength, Is.EqualTo(21));
+    }
+
+    [Test]
+    public void RoundTrip_InlineBackticksWithinTextLine_IsLossless()
+    {
+        var (content, _, fenceLength) = RoundTrip("use `code` inline here", null);
+        Assert.That(content, Is.EqualTo("use `code` inline here"));
+        Assert.That(fenceLength, Is.EqualTo(3), "inline single backticks never force the outer fence past 3");
+    }
+
+    [Test]
+    public void RoundTrip_EmptyContent_IsLossless()
+    {
+        var (content, _, fenceLength) = RoundTrip("", null);
+        Assert.That(content, Is.EqualTo(""));
+        Assert.That(fenceLength, Is.EqualTo(3));
+    }
+
+    [Test]
+    public void RoundTrip_WhitespaceOnlyContent_IsLossless()
+    {
+        var (content, _, fenceLength) = RoundTrip("   \n\t\n   ", null);
+        Assert.That(content, Is.EqualTo("   \n\t\n   "));
+        Assert.That(fenceLength, Is.EqualTo(3));
+    }
+
+    [Test]
+    public void RoundTrip_LanguageTagPreservedWithLongerFence()
+    {
+        var (content, language, fenceLength) = RoundTrip("```\ninner", "python");
+        Assert.That(content, Is.EqualTo("```\ninner"));
+        Assert.That(language, Is.EqualTo("python"));
+        Assert.That(fenceLength, Is.EqualTo(4));
+    }
+
+    [Test]
+    public void RoundTrip_CrlfContent_IsNormalizedAndLossless()
+    {
+        var (content, _, _) = RoundTrip("a\r\nb\rc", null);
+        Assert.That(content, Does.Not.Contain("\r"));
+        Assert.That(content, Is.EqualTo("a\nb\nc"));
+    }
+
+    [Test]
+    public void LongestBacktickRun_CountsLongestConsecutiveRunAnywhere()
+    {
+        Assert.That(EmbeddedFenceDetector.LongestBacktickRun(""), Is.EqualTo(0));
+        Assert.That(EmbeddedFenceDetector.LongestBacktickRun("no ticks"), Is.EqualTo(0));
+        Assert.That(EmbeddedFenceDetector.LongestBacktickRun("a `` b ``` c"), Is.EqualTo(3));
+        Assert.That(EmbeddedFenceDetector.LongestBacktickRun("```\ntext\n`````"), Is.EqualTo(5));
+    }
+
+    [Test]
+    public void BuildFencedText_FenceLengthMath_AtBoundaries()
+    {
+        Assert.That(OpenFenceLength(""), Is.EqualTo(3), "0 backticks -> 3");
+        Assert.That(OpenFenceLength("```"), Is.EqualTo(4), "3 backticks -> 4");
+        Assert.That(OpenFenceLength("````"), Is.EqualTo(5), "4 backticks -> 5");
+        Assert.That(OpenFenceLength(new string('`', 20)), Is.EqualTo(21), "20 backticks -> 21");
+    }
+
+    [Test]
+    public void FindFirstFence_ParsesFourBacktickFence_CapturingLengthAndLanguage()
+    {
+        var lines = new[] { "````python", "```", "still code", "````" };
+        var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.FenceLength, Is.EqualTo(4));
+        Assert.That(fence.Value.Language, Is.EqualTo("python"));
+        Assert.That(fence.Value.OpenLineIndex, Is.EqualTo(0));
+        Assert.That(fence.Value.CloseLineIndex, Is.EqualTo(3));
+        Assert.That(fence.Value.ExtractContent(lines), Is.EqualTo("```\nstill code"));
+    }
+
+    [Test]
+    public void FindFirstFence_ParsesFiveBacktickFence()
+    {
+        var lines = new[] { "`````", "````", "code", "`````" };
+        var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.FenceLength, Is.EqualTo(5));
+        Assert.That(fence.Value.ExtractContent(lines), Is.EqualTo("````\ncode"));
+    }
+
+    [Test]
+    public void FindFirstFence_ShorterBareBacktickLine_DoesNotClose_LongerLineCloses()
+    {
+        // Opener is 4 backticks: an inner 3-backtick line must NOT close the fence; only the
+        // later 4-backtick line does.
+        var lines = new[] { "````", "```", "````" };
+        var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.FenceLength, Is.EqualTo(4));
+        Assert.That(fence.Value.CloseLineIndex, Is.EqualTo(2));
+        Assert.That(fence.Value.ExtractContent(lines), Is.EqualTo("```"));
+    }
+
+    [Test]
+    public void FindFirstFence_CloseLongerThanOpener_StillCloses()
+    {
+        // A bare-backtick line strictly longer than the opener still qualifies as a close.
+        var lines = new[] { "```", "code", "`````" };
+        var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+
+        Assert.That(fence, Is.Not.Null);
+        Assert.That(fence!.Value.FenceLength, Is.EqualTo(3));
+        Assert.That(fence.Value.CloseLineIndex, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void FindFirstFence_OnlyShorterBareBacktickLines_ReturnsNull()
+    {
+        // Opener is 4 backticks; the only later bare-backtick line is 3 — too short to close.
+        var lines = new[] { "````", "code", "```" };
+        Assert.That(EmbeddedFenceDetector.FindFirstFence(lines), Is.Null);
+    }
+
+    [Test]
+    public void FindOpenFenceWithNoClose_FourBacktickOpenerWithOnlyShorterTicks_IsUnterminated()
+    {
+        var lines = new[] { "````", "```", "trailing" };
+        var open = EmbeddedFenceDetector.FindOpenFenceWithNoClose(lines);
+
+        Assert.That(open, Is.Not.Null);
+        Assert.That(open!.Value.LineIndex, Is.EqualTo(0));
+        Assert.That(open.Value.FenceLength, Is.EqualTo(4));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryConvertOpenFence_UnterminatedOpenerWithContent_ConsumesThroughEndOfInput()
+    {
+        // User requirement: if there is no closing fence before end-of-input, grab everything
+        // from the line after the opener through the end of the prompt as region content —
+        // nothing is silently dropped.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nhello\nworld");
+
+        Assert.That(EmbeddedCodeRegionManager.TryConvertOpenFence(rtb), Is.True);
+
+        var region = (EmbeddedCodeRegionBlock)rtb.Document.Blocks
+            .OfType<BlockUIContainer>().First().Child;
+        Assert.That(region.Content, Is.EqualTo("hello\nworld"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FenceContainingBareBacktickLine_RoundTripsThroughRichTextBox()
+    {
+        // End-to-end: a pasted region whose content contains a bare ``` line must survive a
+        // full convert -> GetPlainText (copy/send) -> reconvert cycle without truncation.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("````\n```\ninner\n```\n````");
+        while (EmbeddedCodeRegionManager.TryConvertNextFence(rtb)) { }
+
+        var region = (EmbeddedCodeRegionBlock)rtb.Document.Blocks
+            .OfType<BlockUIContainer>().First().Child;
+        Assert.That(region.Content, Is.EqualTo("```\ninner\n```"));
+
+        var serialized = rtb.GetPlainText();
+        Assert.That(serialized, Is.EqualTo("````\n```\ninner\n```\n````"));
+
+        var reparsed = new RichTextBox();
+        reparsed.SetPlainText(serialized);
+        while (EmbeddedCodeRegionManager.TryConvertNextFence(reparsed)) { }
+        var reparsedRegion = (EmbeddedCodeRegionBlock)reparsed.Document.Blocks
+            .OfType<BlockUIContainer>().First().Child;
+        Assert.That(reparsedRegion.Content, Is.EqualTo("```\ninner\n```"));
+    }
 }
