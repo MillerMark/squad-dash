@@ -140,11 +140,30 @@ public sealed class EmbeddedCodeRegionBlock : Border
         _editorControl.GotKeyboardFocus += (_, _) => ActiveRegion = this;
         _editorControl.LostKeyboardFocus += (_, e) =>
         {
+            var newFocus = e.NewFocus as DependencyObject;
+            var focusStayedInRegion = newFocus is not null && IsVisualAncestorOrSelf(newFocus, this);
+
+            // "Only one live selection at a time": when keyboard focus genuinely leaves this region
+            // — to the host prompt (clicking/selecting outside) or to any other control — collapse
+            // this region's own selection to a zero-length caret so two highlighted selections can't
+            // coexist. This is computed independently of the ActiveRegion leak-defense bookkeeping
+            // below and runs EVEN in the "host grabbed focus" branch, because losing keyboard focus
+            // to the host is exactly the "caret moved outside" case that must be cleared. It is
+            // selection-only (SelectionLength=0 maps to TextArea.ClearSelection) — the region text
+            // and caret position are untouched. We never clear while focus stays within this same
+            // region, so in-region selecting and fenced Ctrl+C/Ctrl+X (read while focused) are
+            // unaffected.
+            if (!focusStayedInRegion && _editor.SelectionLength > 0)
+            {
+                _editor.SelectionLength = 0;
+                Trace("EMBEDDED_CODE_SELECTION_CLEARED reason=lost-focus");
+            }
+
             if (!ReferenceEquals(ActiveRegion, this))
                 return;
-            if (e.NewFocus is not DependencyObject newFocus)
+            if (newFocus is null)
                 return;
-            if (IsVisualAncestorOrSelf(newFocus, this))
+            if (focusStayedInRegion)
                 return; // Still inside this region.
             if (_hostRichTextBox is not null && IsVisualAncestorOrSelf(newFocus, _hostRichTextBox))
                 return; // Host prompt grabbed focus — keep active so the net can redirect typing.
@@ -591,6 +610,16 @@ public sealed class EmbeddedCodeRegionBlock : Border
         // leaving the region, so it is no longer the active region for the typing-safety net.
         if (ReferenceEquals(ActiveRegion, this))
             ActiveRegion = null;
+
+        // Collapse this region's own selection immediately on a keyboard-driven exit so the exit is
+        // deterministic and there is no timing gap waiting for the async LostKeyboardFocus to fire.
+        // Selection-only (SelectionLength=0 maps to TextArea.ClearSelection) — the region text is
+        // never changed and the caret position is preserved. "Only one live selection at a time."
+        if (_editor.SelectionLength > 0)
+        {
+            _editor.SelectionLength = 0;
+            Trace("EMBEDDED_CODE_SELECTION_CLEARED reason=exit");
+        }
 
         var host = _hostRichTextBox;
         if (host is null)

@@ -849,6 +849,110 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nx = 1\n```"));
     }
 
+    // ── "Only one live selection at a time": clearing the region selection on exit ──────
+    // When the caret leaves the region (keyboard-driven exit, or focus moving to the host /
+    // another control), the region's own highlighted selection must collapse to a zero-length
+    // caret so it can't coexist with a host-prompt selection. Text must never change.
+
+    private static (RichTextBox host, EmbeddedCodeRegionBlock region, ICSharpCode.AvalonEdit.TextEditor editor) BuildFocusedRegion()
+    {
+        var (_, region) = BuildRegionSandwich();
+        var host = (RichTextBox)typeof(EmbeddedCodeRegionBlock)
+            .GetField("_hostRichTextBox", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(region)!;
+        var editor = GetContentEditor(region);
+        return (host, region, editor);
+    }
+
+    private static void RaiseLostKeyboardFocus(ICSharpCode.AvalonEdit.TextEditor editor, IInputElement? newFocus)
+    {
+        var args = new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice, Environment.TickCount, editor.TextArea, newFocus)
+        {
+            RoutedEvent = Keyboard.LostKeyboardFocusEvent,
+        };
+        editor.RaiseEvent(args);
+    }
+
+    private static void InvokeFocusHostOutsideRegion(EmbeddedCodeRegionBlock region, LogicalDirection direction)
+    {
+        typeof(EmbeddedCodeRegionBlock)
+            .GetMethod("FocusHostOutsideRegion", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(region, new object[] { direction, false });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void LostKeyboardFocus_FocusLeavesRegionToHost_CollapsesRegionSelection_TextUnchanged()
+    {
+        // Covers "clicking outside" and "selecting outside": keyboard focus moves from the
+        // region to the host prompt. The region's selection must collapse; text is untouched.
+        var (host, region, editor) = BuildFocusedRegion();
+        editor.Select(0, editor.Document.TextLength);
+        Assert.That(editor.SelectionLength, Is.GreaterThan(0), "precondition: region has a live selection");
+
+        RaiseLostKeyboardFocus(editor, host);
+
+        Assert.That(editor.SelectionLength, Is.EqualTo(0), "region selection must collapse when focus leaves to the host");
+        Assert.That(editor.Text, Is.EqualTo(region.Content), "clearing the selection must NOT change the region text");
+        Assert.That(editor.CaretOffset, Is.InRange(0, editor.Document.TextLength));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void InRegionSelection_WithoutAnyExit_IsPreserved_SoFencedCopyCutStillSeesIt()
+    {
+        // Regression guard: the collapse is exit-only. Absent any exit (no FocusHostOutsideRegion,
+        // no focus leaving the region), an in-region selection must survive untouched — this is the
+        // precondition the fenced Ctrl+C / Ctrl+X path relies on (it reads SelectedText while the
+        // region is still focused, before any exit). Nothing here should spontaneously clear it.
+        // (The live "focus moved to another element still inside the region" case is driven by the
+        // real visual tree and is human-verified; a headless editor has no applied template, so its
+        // TextArea is not yet a visual descendant of the block for IsVisualAncestorOrSelf to see.)
+        var (_, _, editor) = BuildFocusedRegion();
+        editor.Select(0, editor.Document.TextLength);
+
+        Assert.That(editor.SelectionLength, Is.GreaterThan(0));
+        Assert.That(editor.SelectedText, Is.EqualTo(editor.Text), "fenced copy/cut must still see the full selection");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void LostKeyboardFocus_NoSelection_IsCleanNoOp()
+    {
+        var (host, region, editor) = BuildFocusedRegion();
+        editor.TextArea.ClearSelection();
+        Assert.That(editor.SelectionLength, Is.EqualTo(0));
+
+        Assert.DoesNotThrow(() => RaiseLostKeyboardFocus(editor, host));
+
+        Assert.That(editor.SelectionLength, Is.EqualTo(0));
+        Assert.That(editor.Text, Is.EqualTo(region.Content));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FocusHostOutsideRegion_WithSelection_CollapsesSelection_TextUnchanged()
+    {
+        // Covers "arrow-navigating out": the deliberate keyboard boundary exit collapses the
+        // region selection immediately (deterministic, no async-focus timing gap).
+        var (_, region, editor) = BuildFocusedRegion();
+        editor.Select(0, editor.Document.TextLength);
+        Assert.That(editor.SelectionLength, Is.GreaterThan(0));
+
+        InvokeFocusHostOutsideRegion(region, LogicalDirection.Forward);
+
+        Assert.That(editor.SelectionLength, Is.EqualTo(0), "keyboard exit must collapse the region selection");
+        Assert.That(editor.Text, Is.EqualTo(region.Content), "exit must NOT change the region text");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FocusHostOutsideRegion_NoSelection_IsCleanNoOp()
+    {
+        var (_, region, editor) = BuildFocusedRegion();
+        editor.TextArea.ClearSelection();
+
+        Assert.DoesNotThrow(() => InvokeFocusHostOutsideRegion(region, LogicalDirection.Forward));
+
+        Assert.That(editor.SelectionLength, Is.EqualTo(0));
+        Assert.That(editor.Text, Is.EqualTo(region.Content));
+    }
+
     // ── Smart arrow-key navigation ─────────────────────────────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]
