@@ -491,10 +491,24 @@ public partial class MainWindow : Window
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
     private bool _isConvertingEmbeddedCodeRegion;
-    // Single-authority prompt undo/redo timeline (PROMPTUNDO-20261015-003). Owns the one shared
-    // snapshot history spanning host text AND every embedded region; driven exclusively by the
-    // Ctrl+Z/Ctrl+Y router in Window_PreviewKeyDown and fed by host + in-region edit hooks.
+    // Per-tab single-authority prompt undo/redo (PROMPTUNDO-20261015-004). Each queue tab AND the
+    // Active Draft own an independent snapshot timeline; _promptUndoHistories holds them keyed by tab
+    // id (the Active Draft uses ActiveDraftUndoKey = ""), and _promptUndoHistory always points at the
+    // history for the tab currently shown in the prompt box. A tab's timeline travels WITH its prompt:
+    // queuing the active draft migrates its history onto the new queued item (and the draft gets a
+    // fresh empty one), switching tabs re-points _promptUndoHistory at the target tab's preserved
+    // timeline, and sending clears the active timeline. Each timeline spans host text AND every
+    // embedded region; the active one is driven by the Ctrl+Z/Ctrl+Y router in Window_PreviewKeyDown
+    // and fed by the host + in-region edit hooks.
+    private const string ActiveDraftUndoKey = "";
+    private readonly Dictionary<string, PromptUndoHistory> _promptUndoHistories = new(StringComparer.Ordinal);
     private PromptUndoHistory _promptUndoHistory = null!;
+    // True once the per-tab undo registry is wired (end of ctor), so programmatic buffer loads before
+    // that point are ignored by the undo machinery.
+    private bool _promptUndoReady;
+    // Set true around programmatic prompt-buffer swaps (tab switch, draft restore, clear) so the
+    // TextChanged/region-edit hooks do NOT record the swap itself as a user edit on any timeline.
+    private bool _suppressPromptUndoCapture;
     // Guards against piling up duplicate deferred embedded-code-region conversion callbacks
     // (see PromptTextBox_TextChanged) when several keystrokes land before the first one runs.
     private bool _embeddedCodeRegionConversionScheduled;
@@ -1056,6 +1070,8 @@ public partial class MainWindow : Window
         PromptTextBox.IsUndoEnabled = false;
         _promptUndoHistory = new PromptUndoHistory(PromptTextBox);
         _promptUndoHistory.CaptureBaseline();
+        _promptUndoHistories[ActiveDraftUndoKey] = _promptUndoHistory;
+        _promptUndoReady = true;
         EmbeddedCodeRegionBlock.AnyRegionContentEdited += OnEmbeddedRegionContentEdited;
         TranscriptTitleSpinner.PreviewMouseLeftButtonUp +=
             TranscriptTitleSpinner_PreviewMouseLeftButtonUp;
@@ -1691,7 +1707,7 @@ public partial class MainWindow : Window
             getSettingsSnapshot: () => _settingsSnapshot);
 
         _promptBoxStateController = new PromptBoxStateController(
-            clearPromptTextBox: () => ClearPromptTextBoxLogicalBuffer("prompt-executed"),
+            clearPromptTextBox: () => ClearPromptTextBoxLogicalBuffer("prompt-executed", resetUndoHistory: true),
             focusPromptTextBox: () => PromptTextBox.Focus(),
             getIsEnabled:       () => PromptTextBox.IsEnabled,
             getQueueCount:      () => _promptQueue.Count,
@@ -2995,6 +3011,11 @@ public partial class MainWindow : Window
             _followUpAttachments[item.Id] = draftList;
         }
 
+        // The Active Draft's undo/redo timeline travels with the prompt it owns: hand it to the new
+        // queued item so switching back to that tab restores its history, then ClearPrompt... below
+        // gives the now-empty draft a fresh timeline (PROMPTUNDO-20261015-004).
+        MigratePromptUndoHistory(ActiveDraftUndoKey, item.Id);
+
         ClearPromptTextBoxLogicalBuffer("enqueue-current");
         SyncQueuePanel();
         UpdateFollowUpStrip();
@@ -3059,6 +3080,10 @@ public partial class MainWindow : Window
                 _followUpAttachments.Remove("");
                 _followUpAttachments[item.Id] = draftList;
             }
+
+            // Same ownership transfer as EnqueueCurrentPrompt: the draft's undo timeline follows it to
+            // the front-of-queue item; the cleared draft then gets a fresh one (PROMPTUNDO-20261015-004).
+            MigratePromptUndoHistory(ActiveDraftUndoKey, item.Id);
 
             ClearPromptTextBoxLogicalBuffer("prioritize-draft");
             UpdateFollowUpStrip();
@@ -3645,7 +3670,7 @@ public partial class MainWindow : Window
         MarkAttachmentsSubmitted(draft.Attachments);
         if (draftIsVisible)
         {
-            ClearPromptTextBoxLogicalBuffer("steering-accepted");
+            ClearPromptTextBoxLogicalBuffer("steering-accepted", resetUndoHistory: true);
         }
         else
         {
@@ -4806,6 +4831,9 @@ public partial class MainWindow : Window
             _queuePreEditDraft = null;
             ApplyPromptEditorLockState();
         }
+        // Drop undo/redo timelines for tabs that no longer exist (dispatched/removed), keeping the
+        // Active Draft and every live queue item (PROMPTUNDO-20261015-004).
+        PrunePromptUndoHistories();
         SetPromptStripVisibilityPreservingViewports(
             QueueTabBorder,
             items.Count > 0 || IsQueueDispatchHeld ? Visibility.Visible : Visibility.Collapsed,
@@ -27638,6 +27666,11 @@ public partial class MainWindow : Window
     {
         try
         {
+            // A click repositions the caret (and may change which region owns focus) — a non-typing
+            // action that ends any in-progress coalescing burst so the next edit starts a fresh undo
+            // entry (PROMPTUNDO-20261015-004).
+            _promptUndoHistory?.CloseCoalescingWindow();
+
             // Detect if the click landed inside an embedded code region's TextBox.
             // If so, prevent RichTextBox's default selection and let the region handle focus.
             var clickPosition = e.GetPosition(PromptTextBox);
@@ -27783,46 +27816,69 @@ public partial class MainWindow : Window
             region.ApplyEditorFontSize(_promptFontSize);
     }
 
-    private void ClearPromptTextBoxLogicalBuffer(string reason) =>
-        SetPromptTextBoxLogicalBuffer(string.Empty, 0, 0, 0, reason);
+    private void ClearPromptTextBoxLogicalBuffer(string reason, bool resetUndoHistory = false) =>
+        SetPromptTextBoxLogicalBuffer(string.Empty, 0, 0, 0, reason, resetUndoHistory);
 
     private void SetPromptTextBoxLogicalBuffer(
         string text,
         int caretIndex,
         int selectionStart = 0,
         int selectionLength = 0,
-        string reason = "load")
+        string reason = "load",
+        bool resetUndoHistory = false)
     {
         text ??= string.Empty;
         var normalizedCaret = Math.Clamp(caretIndex, 0, text.Length);
         var normalizedSelectionStart = Math.Clamp(selectionStart, 0, text.Length);
         var normalizedSelectionLength = Math.Clamp(selectionLength, 0, text.Length - normalizedSelectionStart);
 
-        PromptTextBox.SetPlainText(text);
-
-        // Convert any already-fenced content into collapsible regions as part of every
-        // programmatic load/restore — not just live typing. PromptTextBox_TextChanged's own
-        // conversion call is skipped whenever _conversationManager.IsApplyingHistoryEntry is
-        // true (which it is for the entire duration of a draft/history restore via
-        // ApplyPromptText), so without this, fences loaded at startup would stay raw text
-        // until the user caused an unrelated TextChanged event.
-        if (!_isConvertingEmbeddedCodeRegion)
+        // Every programmatic buffer swap (tab switch, draft restore, clear) must NOT be recorded as a
+        // user edit on any per-tab undo timeline — the target tab's timeline already reflects its
+        // content, or is (re)baselined explicitly below. Suppress capture for the whole swap.
+        var previousSuppress = _suppressPromptUndoCapture;
+        _suppressPromptUndoCapture = true;
+        try
         {
-            _isConvertingEmbeddedCodeRegion = true;
-            try
+            PromptTextBox.SetPlainText(text);
+
+            // Convert any already-fenced content into collapsible regions as part of every
+            // programmatic load/restore — not just live typing. PromptTextBox_TextChanged's own
+            // conversion call is skipped whenever _conversationManager.IsApplyingHistoryEntry is
+            // true (which it is for the entire duration of a draft/history restore via
+            // ApplyPromptText), so without this, fences loaded at startup would stay raw text
+            // until the user caused an unrelated TextChanged event.
+            if (!_isConvertingEmbeddedCodeRegion)
             {
-                while (EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox)) { }
+                _isConvertingEmbeddedCodeRegion = true;
+                try
+                {
+                    while (EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox)) { }
+                }
+                finally
+                {
+                    _isConvertingEmbeddedCodeRegion = false;
+                }
             }
-            finally
-            {
-                _isConvertingEmbeddedCodeRegion = false;
-            }
+
+            if (normalizedSelectionLength > 0)
+                PromptTextBox.SelectRange(normalizedSelectionStart, normalizedSelectionLength);
+            else
+                PromptTextBox.SetCaretOffset(normalizedCaret);
+        }
+        finally
+        {
+            _suppressPromptUndoCapture = previousSuppress;
         }
 
-        if (normalizedSelectionLength > 0)
-            PromptTextBox.SelectRange(normalizedSelectionStart, normalizedSelectionLength);
-        else
-            PromptTextBox.SetCaretOffset(normalizedCaret);
+        // Re-point the active timeline at the tab now shown in the box (creating + baselining a fresh
+        // one the first time a tab is seen), then — on send/steering — clear it so the just-sent
+        // prompt leaves no stale undo history behind.
+        if (_promptUndoReady && !_suppressPromptUndoCapture)
+        {
+            ActivatePromptUndoHistoryForCurrentTab();
+            if (resetUndoHistory)
+                _promptUndoHistory.Clear();
+        }
 
         var undoWasEnabled = PromptTextBox.IsUndoEnabled;
         if (undoWasEnabled)
@@ -28633,7 +28689,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (_promptUndoHistory is null || _promptUndoHistory.IsApplying || _isConvertingEmbeddedCodeRegion)
+            if (_promptUndoHistory is null || _promptUndoHistory.IsApplying || _isConvertingEmbeddedCodeRegion || _suppressPromptUndoCapture)
                 return;
             _promptUndoHistory.PushSnapshot();
         }
@@ -28641,6 +28697,71 @@ public partial class MainWindow : Window
         {
             HandleUiCallbackException(nameof(OnEmbeddedRegionContentEdited), ex);
         }
+    }
+
+    /// Key identifying the prompt undo/redo timeline for the tab currently shown in the box: the
+    /// active queued item id, or <see cref="ActiveDraftUndoKey"/> for the Active Draft.
+    private string CurrentUndoKey => _activeTabId ?? ActiveDraftUndoKey;
+
+    /// <summary>
+    /// Re-points <see cref="_promptUndoHistory"/> at the undo/redo timeline owned by the tab now
+    /// shown in the prompt box (PROMPTUNDO-20261015-004). The first time a tab is seen a fresh
+    /// timeline is created and baselined against the prompt's current content; thereafter the tab's
+    /// preserved timeline is reused as-is, so switching tabs restores that tab's exact undo history.
+    /// </summary>
+    private void ActivatePromptUndoHistoryForCurrentTab()
+    {
+        if (!_promptUndoReady)
+            return;
+
+        var key = CurrentUndoKey;
+        if (!_promptUndoHistories.TryGetValue(key, out var history))
+        {
+            history = new PromptUndoHistory(PromptTextBox);
+            history.CaptureBaseline();
+            _promptUndoHistories[key] = history;
+        }
+        _promptUndoHistory = history;
+    }
+
+    /// <summary>
+    /// Moves a tab's undo/redo timeline from one key to another (PROMPTUNDO-20261015-004) so that
+    /// queuing the Active Draft carries its history onto the new queued item. The moved timeline's
+    /// coalescing window is closed so the queue transition never folds into a later in-place edit.
+    /// </summary>
+    private void MigratePromptUndoHistory(string fromKey, string toKey)
+    {
+        if (!_promptUndoReady || string.Equals(fromKey, toKey, StringComparison.Ordinal))
+            return;
+
+        if (_promptUndoHistories.TryGetValue(fromKey, out var history))
+        {
+            history.CloseCoalescingWindow();
+            _promptUndoHistories[toKey] = history;
+            _promptUndoHistories.Remove(fromKey);
+        }
+    }
+
+    /// <summary>
+    /// Drops undo/redo timelines whose tab no longer exists (PROMPTUNDO-20261015-004): anything that
+    /// is not the Active Draft and not a current queue item. Called after every queue sync so
+    /// dispatched/removed tabs do not leak their histories. Guarantees the active key always has a
+    /// live timeline afterwards.
+    /// </summary>
+    private void PrunePromptUndoHistories()
+    {
+        if (!_promptUndoReady)
+            return;
+
+        var live = new HashSet<string>(StringComparer.Ordinal) { ActiveDraftUndoKey };
+        foreach (var item in _promptQueue.Items)
+            live.Add(item.Id);
+
+        foreach (var key in _promptUndoHistories.Keys.Where(k => !live.Contains(k)).ToList())
+            _promptUndoHistories.Remove(key);
+
+        if (!_promptUndoHistories.ContainsKey(CurrentUndoKey))
+            ActivatePromptUndoHistoryForCurrentTab();
     }
 
     /// <summary>
@@ -28653,6 +28774,16 @@ public partial class MainWindow : Window
         => PromptTextBox.IsKeyboardFocusWithin
            || ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)
            || IsInsideEmbeddedCodeRegion(Keyboard.FocusedElement);
+
+    /// True for keys that move the caret / change focus without editing text, which therefore close
+    /// an undo coalescing window (PROMPTUNDO-20261015-004). Deliberately excludes Backspace/Delete,
+    /// which ARE edits and must keep coalescing.
+    private static bool IsCaretNavigationKey(Key key) => key switch
+    {
+        Key.Left or Key.Right or Key.Up or Key.Down
+            or Key.Home or Key.End or Key.PageUp or Key.PageDown or Key.Tab => true,
+        _ => false,
+    };
 
     /// <summary>
     /// Single-authority Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z router (PROMPTUNDO-20261015-003, §1/§5).
@@ -28708,6 +28839,12 @@ public partial class MainWindow : Window
             // host text or inside an embedded region.
             if (TryRoutePromptUndoRedo(e))
                 return;
+
+            // A caret-navigation key (arrows/Home/End/PageUp/PageDown/Tab) moves the caret or changes
+            // region focus without editing text — a coalescing boundary, so close the active tab's
+            // window and let the key proceed normally (PROMPTUNDO-20261015-004).
+            if (_promptUndoHistory is not null && IsCaretNavigationKey(e.Key) && PromptOwnsUndoContext())
+                _promptUndoHistory.CloseCoalescingWindow();
 
             // ── Tour shortcut routing ─────────────────────────────────────────────
             // When a guided-tour step sets a shortcut target (e.g. PromptTextBox for
@@ -30270,7 +30407,7 @@ public partial class MainWindow : Window
             // restore itself raises TextChanged) and while an embedded-code-region fence conversion
             // is rebuilding the document — the pre-conversion keystroke already captured the
             // equivalent flat serialization, since a region round-trips to its exact fenced text.
-            if (_promptUndoHistory is not null && !_promptUndoHistory.IsApplying && !_isConvertingEmbeddedCodeRegion)
+            if (_promptUndoHistory is not null && !_promptUndoHistory.IsApplying && !_isConvertingEmbeddedCodeRegion && !_suppressPromptUndoCapture)
                 _promptUndoHistory.PushSnapshot();
 
             // Convert any triple-backtick fence that just became complete (closing ``` typed

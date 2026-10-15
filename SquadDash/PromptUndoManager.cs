@@ -271,12 +271,22 @@ public static class PromptUndoManager
 /// <para>
 /// Routing (which keys reach this class) and native/per-region undo suppression are wired in
 /// <c>MainWindow</c>. Rapid-edit coalescing and clear-on-send are Step 4
-/// (PROMPTUNDO-20261015-004); this class pushes one entry per observed edit boundary and exposes
-/// <see cref="Clear"/> for Step 4 to call on send.
+/// (PROMPTUNDO-20261015-004): successive text-changing <see cref="PushSnapshot"/> calls that land
+/// within <see cref="CoalesceWindowMs"/> of each other collapse into the single open entry (so one
+/// Ctrl+Z reverses a whole typing burst instead of one character at a time), while
+/// <see cref="CloseCoalescingWindow"/> lets the host end a burst on any non-typing action (caret
+/// move, selection change, region focus change) and <see cref="Clear"/> is called on send so a
+/// fresh prompt starts with an empty history.
 /// </para>
 /// </summary>
 public sealed class PromptUndoHistory
 {
+    // Debounce window (milliseconds): consecutive text-changing pushes that occur within this span
+    // of the previous one collapse into the current entry instead of appending a new one. Chosen so
+    // an ordinary typing burst (keystrokes tens-to-low-hundreds of ms apart) folds into one undo
+    // step, while a deliberate pause starts a fresh step.
+    private const long CoalesceWindowMs = 600;
+
     private readonly RichTextBox _prompt;
     private readonly List<PromptSnapshot> _entries = new();
 
@@ -287,6 +297,13 @@ public sealed class PromptUndoHistory
     // Re-entrancy guard: true while ApplySnapshot is rebuilding the document. Any TextChanged /
     // region-edit notification that fires during a restore must NOT be recorded as a new user edit.
     private bool _isApplying;
+
+    // Coalescing window state. _coalesceOpen is true while the newest entry is still accepting
+    // in-place burst updates; _coalesceIndex pins which entry that is; _lastEditTicks timestamps the
+    // last coalesced push so the window can expire on a pause.
+    private bool _coalesceOpen;
+    private int _coalesceIndex = -1;
+    private long _lastEditTicks;
 
     public PromptUndoHistory(RichTextBox prompt)
         => _prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
@@ -314,14 +331,20 @@ public sealed class PromptUndoHistory
         _entries.Clear();
         _entries.Add(PromptUndoManager.CaptureSnapshot(_prompt));
         _index = 0;
+        // A fresh baseline is a hard boundary: no burst may fold back into the discarded timeline.
+        _coalesceOpen = false;
+        _coalesceIndex = -1;
     }
 
     /// <summary>
     /// Records the prompt's CURRENT state as the newest committed entry. If the serialized text is
     /// unchanged from the live entry (e.g. a pure caret/selection move), the existing entry's
-    /// selection is refreshed in place instead of growing the timeline. Any redo tail ahead of the
-    /// current index is discarded (a fresh edit forks the future). No-ops while a restore is in
-    /// flight.
+    /// selection is refreshed in place instead of growing the timeline. Rapid consecutive
+    /// text-changing pushes (PROMPTUNDO-20261015-004) collapse into the single open entry while they
+    /// land within <see cref="CoalesceWindowMs"/> of one another, so one Undo reverses a whole
+    /// typing burst rather than one character at a time; the open entry always holds the LATEST
+    /// burst state and the pre-burst state stays one step back. Any redo tail ahead of the current
+    /// index is discarded (a fresh edit forks the future). No-ops while a restore is in flight.
     /// </summary>
     public void PushSnapshot()
     {
@@ -340,8 +363,27 @@ public sealed class PromptUndoHistory
         {
             // Text identical — only the caret/anchor may have moved. Keep the single entry and
             // refresh its selection so a later undo restores the latest caret, without adding a
-            // redundant history step.
+            // redundant history step. A pure caret/selection move is a coalescing boundary, so the
+            // next real edit must start a new entry.
             _entries[_index] = snapshot;
+            _coalesceOpen = false;
+            return;
+        }
+
+        var now = Environment.TickCount64;
+        var withinCoalesceWindow =
+            _coalesceOpen &&
+            _index == _coalesceIndex &&
+            _index == _entries.Count - 1 &&
+            (now - _lastEditTicks) <= CoalesceWindowMs;
+
+        if (withinCoalesceWindow)
+        {
+            // Rapid contiguous edit: fold it into the open entry rather than appending, so the whole
+            // burst is one undo step. The entry carries the newest state (end-of-burst caret); the
+            // pre-burst snapshot remains at _index - 1, so a single Undo lands there.
+            _entries[_index] = snapshot;
+            _lastEditTicks = now;
             return;
         }
 
@@ -350,7 +392,21 @@ public sealed class PromptUndoHistory
 
         _entries.Add(snapshot);
         _index = _entries.Count - 1;
+
+        // Open a fresh coalescing window anchored on this new entry; subsequent rapid edits fold in.
+        _coalesceOpen = true;
+        _coalesceIndex = _index;
+        _lastEditTicks = now;
     }
+
+    /// <summary>
+    /// Ends the current coalescing window so the NEXT edit starts a fresh undo entry instead of
+    /// folding into the open one (PROMPTUNDO-20261015-004). The host calls this on any non-typing
+    /// action that breaks an edit burst — a caret move, selection change, or region focus change —
+    /// mirroring the implicit close that <see cref="Undo"/>/<see cref="Redo"/> and clear-on-send
+    /// already perform. Idempotent.
+    /// </summary>
+    public void CloseCoalescingWindow() => _coalesceOpen = false;
 
     /// Moves one step back in the timeline and restores that snapshot. Returns false (no-op) at the
     /// oldest entry.
@@ -382,6 +438,9 @@ public sealed class PromptUndoHistory
 
     private void Apply(PromptSnapshot snapshot)
     {
+        // Undo/redo is itself a non-typing action: close any coalescing window so the next edit
+        // after a restore begins a fresh entry instead of folding into the restored one.
+        _coalesceOpen = false;
         _isApplying = true;
         try
         {
