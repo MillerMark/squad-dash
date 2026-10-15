@@ -22,6 +22,9 @@ internal sealed record TranscriptApprovalCardTag(string PlanId, string GateId, i
 /// </summary>
 internal static class TranscriptApprovalCardBuilder
 {
+    internal const string ReviewItemNoteToolTipText =
+        "Notes for unapproved or unanswered items inform the fix, while notes for approved items can be revisited on plan completion.";
+
     internal static FrameworkElement? FindContextMenuOwner(
         DependencyObject? element,
         string menuHeader)
@@ -293,7 +296,7 @@ internal static class TranscriptApprovalCardBuilder
                 var choicePanel = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
-                    Margin = new Thickness(0, 1, 8, 0),
+                    Margin = new Thickness(0, 1, 10, 0),
                     VerticalAlignment = VerticalAlignment.Top,
                 };
                 choicePanel.Children.Add(yesChoice.CheckBox);
@@ -314,7 +317,7 @@ internal static class TranscriptApprovalCardBuilder
                     FontSize = fontSize - 1,
                     Padding = new Thickness(6, 2, 6, 2),
                     BorderThickness = new Thickness(1),
-                    ToolTip = ToolTipHelper.MakeThemedToolTip("Optional note for this verification item. Double-tap Ctrl while focused to dictate."),
+                    ToolTip = ToolTipHelper.MakeThemedToolTip(ReviewItemNoteToolTipText),
                 };
                 ConfigureNoteEditor(itemNoteBox);
                 AttachNoteEditorMouseFocusHandlers(itemNoteBox);
@@ -1179,7 +1182,7 @@ internal static class TranscriptApprovalCardBuilder
     {
         var boxSize = Math.Round(fontSize * 1.1);
         icon.Visibility = Visibility.Hidden;
-        icon.Margin = new Thickness(label == "No" ? 3 : 2);
+        icon.Margin = new Thickness(2);
 
         var iconHost = new Border
         {
@@ -1216,7 +1219,7 @@ internal static class TranscriptApprovalCardBuilder
             IsEnabled = isEnabled,
             Cursor = isEnabled ? Cursors.Hand : Cursors.Arrow,
             Template = BuildContentOnlyCheckBoxTemplate(),
-            Margin = new Thickness(0, 0, 10, 0),
+            Margin = new Thickness(0, 0, label == "Yes" ? 12 : 10, 0),
             VerticalAlignment = VerticalAlignment.Center,
             ToolTip = ToolTipHelper.MakeThemedToolTip(label == "Yes"
                 ? "Mark this item approved."

@@ -494,6 +494,8 @@ public class TranscriptApprovalCardBuilderTests
         var questionText = itemContainer.Children.OfType<TextBlock>()
             .Single(text => AutomationProperties.GetName(text) == "Approval question");
         var checklistRow = itemContainer.Children.OfType<Grid>().Single();
+        var choicePanel = checklistRow.Children.OfType<StackPanel>().Single();
+        var choiceBoxes = choicePanel.Children.OfType<CheckBox>().ToArray();
         var noteHost = checklistRow.Children.OfType<Grid>().Single();
         var noteBox = noteHost.Children.OfType<TextBox>().Single();
         var notePlaceholder = noteHost.Children.OfType<TextBlock>()
@@ -507,6 +509,11 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(itemContainer.Children.IndexOf(questionText), Is.EqualTo(0),
                 "Wrapped checklist text should have the full card width above the controls row.");
             Assert.That(checklistRow.ColumnDefinitions[1].Width.IsStar, Is.True);
+            Assert.That(choicePanel.Margin.Right, Is.EqualTo(10));
+            Assert.That(choiceBoxes[0].Margin.Right, Is.EqualTo(12));
+            Assert.That(choiceBoxes[1].Margin.Right, Is.EqualTo(10));
+            Assert.That(((TextBlock)((ToolTip)noteBox.ToolTip).Content).Text,
+                Is.EqualTo(TranscriptApprovalCardBuilder.ReviewItemNoteToolTipText));
             Assert.That(noteBox.Foreground, Is.Not.Null);
             Assert.That(notePlaceholder.Visibility, Is.EqualTo(Visibility.Visible));
             Assert.That(cardBorder.HorizontalAlignment, Is.EqualTo(HorizontalAlignment.Stretch));

@@ -130,7 +130,7 @@ internal static class InboxApprovalChecklistPresenter
         var choices = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(8, 3, 0, 2),
+            Margin = new Thickness(8, 6, 0, 2),
         };
         root.Children.Add(choices);
 
@@ -147,7 +147,7 @@ internal static class InboxApprovalChecklistPresenter
         choices.Children.Add(yesChoice.CheckBox);
         choices.Children.Add(noChoice.CheckBox);
 
-        var noteRow = new Grid { Margin = new Thickness(8, 2, 0, 0) };
+        var noteRow = new Grid { Margin = new Thickness(8, 4, 0, 0) };
         var noteBox = new TextBox
         {
             Text = response.Note ?? string.Empty,
@@ -163,7 +163,7 @@ internal static class InboxApprovalChecklistPresenter
             Padding = new Thickness(6, 3, 6, 3),
             BorderThickness = new Thickness(1),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            ToolTip = ToolTipHelper.MakeThemedToolTip("Optional note. Double-tap Ctrl while focused to dictate."),
+            ToolTip = ToolTipHelper.MakeThemedToolTip(TranscriptApprovalCardBuilder.ReviewItemNoteToolTipText),
         };
         TranscriptApprovalCardBuilder.ConfigureNoteEditor(noteBox);
         noteBox.SetResourceReference(TextBox.BackgroundProperty, "ApprovalFieldSurface");
@@ -292,7 +292,7 @@ internal static class InboxApprovalChecklistPresenter
     {
         var boxSize = Math.Round(fontSize * 1.2);
         icon.Visibility = Visibility.Hidden;
-        icon.Margin = new Thickness(label == "No" ? 3 : 2);
+        icon.Margin = new Thickness(2);
 
         var iconHost = new Border
         {

@@ -331,7 +331,11 @@ not required. Use the exact property names below; do not substitute familiar sho
   heading. `question` is
   optional for stored-plan compatibility, but supply it for every human-only requirement. Every
   human-only requirement must be atomic: its `question` must contain exactly one independently
-  verifiable true/false claim, where true means the check passed and false means it failed. If a
+  verifiable true/false claim, where true means the check passed and false means it failed. Phrase
+  every human-review question as an affirmative pass condition: the reviewer choosing Yes must mean
+  the requirement is satisfied, and choosing No or leaving it unanswered must mean the item is not
+  approved. Never write a question whose desired passing answer is No, such as "Did you see any
+  bugs?"; rewrite it as "Does the reviewed result appear free of bugs or regressions?". If a
   reviewer must check three outcomes, emit three proof requirements with three stable IDs; never
   bundle them into one question. Example: `Does clicking an item show a selection highlight?`.
   If a human observation was already accepted at an earlier gate and no later work can invalidate it,
@@ -477,7 +481,9 @@ not required. Use the exact property names below; do not substitute familiar sho
   use `[]` only for a final human proof checkpoint with explicit `proofRequirements`.
 - `approvalGates[].question`: required in every newly proposed explicit human approval gate (the
   host only treats it as optional while reading older stored plans). Ask the concrete approval question in plain language;
-  do not merely restate the gate message or say “Confirm this works.” SquadDash features this
+  do not merely restate the gate message or say “Confirm this works.” This question follows the same
+  affirmative pass-condition rule as human proof questions: Yes approves, while No or unanswered is
+  unapproved. SquadDash features this
   question in the approval card and gives the reviewer a shortcut to open the plan.
 - `approvalGates[].proofRequirements`: optional human-only proof contracts using the same object
   shape. Approval records the reviewer's identity, note, time, and a durable internal attestation.

@@ -57,8 +57,10 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(boxes[0].IsChecked, Is.True);
             Assert.That(boxes[1].IsChecked, Is.False);
             Assert.That(noteBox, Is.Not.Null);
-            Assert.That(choices.Margin.Top, Is.EqualTo(3));
-            Assert.That(noteRow.Margin.Top, Is.EqualTo(2));
+            Assert.That(choices.Margin.Top, Is.EqualTo(6));
+            Assert.That(noteRow.Margin.Top, Is.EqualTo(4));
+            Assert.That(((TextBlock)((ToolTip)noteBox.ToolTip).Content).Text,
+                Is.EqualTo(TranscriptApprovalCardBuilder.ReviewItemNoteToolTipText));
             Assert.That(notePlaceholder.Visibility, Is.EqualTo(Visibility.Visible));
         });
         noteBox.Text = "Needs follow-up";
@@ -66,6 +68,8 @@ internal sealed class InboxApprovalChecklistPresenterTests
 
         var yesContent = (StackPanel)boxes[0].Content;
         var yesBorder = yesContent.Children.OfType<Border>().Single();
+        var noContent = (StackPanel)boxes[1].Content;
+        var noBorder = noContent.Children.OfType<Border>().Single();
         var list = document.Blocks.OfType<List>()
             .Single(candidate => candidate.MarkerStyle == TextMarkerStyle.None);
         var orderedLists = document.Blocks.OfType<List>()
@@ -80,6 +84,7 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(yesBorder.BorderThickness, Is.EqualTo(new Thickness(1.5)));
             Assert.That(yesBorder.CornerRadius, Is.EqualTo(new CornerRadius(2)));
             Assert.That(((Viewbox)yesBorder.Child).Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(((Viewbox)noBorder.Child).Margin, Is.EqualTo(new Thickness(2)));
             Assert.That(root.Margin.Top,
                 Is.EqualTo(2 + (expectedFontSize * InboxApprovalChecklistPresenter.ChecklistTopSpacingScale)));
             Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
