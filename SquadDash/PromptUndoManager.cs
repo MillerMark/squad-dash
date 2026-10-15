@@ -80,19 +80,22 @@ public static class PromptUndoManager
     /// selection is used directly. Selection direction is preserved (§4).
     /// </summary>
     public static PromptSnapshot CaptureSnapshot(RichTextBox prompt)
+        => CaptureSnapshot(prompt, null);
+
+    internal static PromptSnapshot CaptureSnapshot(RichTextBox prompt, EmbeddedCodeRegionBlock? editingRegion)
     {
         ArgumentNullException.ThrowIfNull(prompt);
 
         var serialized = prompt.GetPlainText();
-        var (caret, anchor) = CaptureAbsoluteSelection(prompt);
+        var (caret, anchor) = CaptureAbsoluteSelection(prompt, editingRegion);
         return new PromptSnapshot(serialized, caret, anchor);
     }
 
     /// Captures the current selection as absolute (caretOffset, anchorOffset) in the flat space.
-    private static (int caret, int anchor) CaptureAbsoluteSelection(RichTextBox prompt)
+    private static (int caret, int anchor) CaptureAbsoluteSelection(RichTextBox prompt, EmbeddedCodeRegionBlock? editingRegion)
     {
-        var active = EmbeddedCodeRegionBlock.ActiveRegion;
-        if (active is not null && active.IsAttachedToHost() && active.HasContentKeyboardFocus)
+        var active = editingRegion ?? EmbeddedCodeRegionBlock.ActiveRegion;
+        if (active is not null && (editingRegion is not null || (active.IsAttachedToHost() && active.HasContentKeyboardFocus)))
         {
             var spanStart = TryGetRegionSpanStart(prompt, active);
             if (spanStart >= 0)
@@ -169,7 +172,6 @@ public static class PromptUndoManager
             // Host-text selection or collapsed host caret. TextSelection.Select(anchor, moving)
             // places the caret at the moving end, so forward/backward direction is preserved.
             prompt.Selection.Select(anchor.HostPointer, caret.HostPointer);
-            prompt.CaretPosition = caret.HostPointer;
             prompt.Focus();
             return;
         }
@@ -185,7 +187,6 @@ public static class PromptUndoManager
         var anchorPointer = anchor.HostPointer ?? prompt.GetTextPointerAt(anchor.AbsoluteOffset);
         var caretPointer = caret.HostPointer ?? prompt.GetTextPointerAt(caret.AbsoluteOffset);
         prompt.Selection.Select(anchorPointer, caretPointer);
-        prompt.CaretPosition = caretPointer;
         prompt.Focus();
     }
 
@@ -246,7 +247,7 @@ public static class PromptUndoManager
     }
 
     /// Absolute fenced-span start of a specific region, or -1 if it is not in the document.
-    private static int TryGetRegionSpanStart(RichTextBox prompt, EmbeddedCodeRegionBlock target)
+    internal static int TryGetRegionSpanStart(RichTextBox prompt, EmbeddedCodeRegionBlock target)
     {
         foreach (var (region, spanStart) in EnumerateRegionSpans(prompt))
         {
@@ -337,6 +338,37 @@ public sealed class PromptUndoHistory
     }
 
     /// <summary>
+    /// Refreshes the current entry BEFORE an edit without committing text or discarding redo.
+    /// Host SelectionChanged also fires during edits: a text mismatch must never overwrite the
+    /// pre-edit entry with post-edit offsets. Region update-start notifications identify their
+    /// source explicitly because redirected input need not have OS focus inside that editor.
+    /// </summary>
+    public void RefreshSelection(EmbeddedCodeRegionBlock? editingRegion = null)
+    {
+        if (_isApplying || _index < 0 ||
+            (editingRegion is not null && PromptUndoManager.TryGetRegionSpanStart(_prompt, editingRegion) < 0))
+            return;
+
+        // A region deliberately collapses the host selection when taking/repairing focus.
+        // That host notification is not the user's selection and must not replace region offsets.
+        if (editingRegion is null && _prompt.Selection.IsEmpty &&
+            EmbeddedCodeRegionBlock.ActiveRegion is { } active &&
+            PromptUndoManager.TryGetRegionSpanStart(_prompt, active) >= 0)
+            return;
+
+        var snapshot = PromptUndoManager.CaptureSnapshot(_prompt, editingRegion);
+        var current = _entries[_index];
+        if (!string.Equals(current.SerializedText, snapshot.SerializedText, StringComparison.Ordinal))
+            return;
+
+        // Collapsed host notifications include the caret advance at the end of typing. Those
+        // must not end a burst; explicit host mouse/navigation handlers already mark boundaries.
+        if (snapshot != current && (!snapshot.IsCollapsed || editingRegion is not null))
+            CloseCoalescingWindow();
+        _entries[_index] = snapshot;
+    }
+
+    /// <summary>
     /// Records the prompt's CURRENT state as the newest committed entry. If the serialized text is
     /// unchanged from the live entry (e.g. a pure caret/selection move), the existing entry's
     /// selection is refreshed in place instead of growing the timeline. Rapid consecutive
@@ -346,9 +378,10 @@ public sealed class PromptUndoHistory
     /// burst state and the pre-burst state stays one step back. Any redo tail ahead of the current
     /// index is discarded (a fresh edit forks the future). No-ops while a restore is in flight.
     /// </summary>
-    public void PushSnapshot()
+    public void PushSnapshot(EmbeddedCodeRegionBlock? editingRegion = null)
     {
-        if (_isApplying)
+        if (_isApplying ||
+            (editingRegion is not null && PromptUndoManager.TryGetRegionSpanStart(_prompt, editingRegion) < 0))
             return;
 
         if (_index < 0)
@@ -357,7 +390,11 @@ public sealed class PromptUndoHistory
             return;
         }
 
-        var snapshot = PromptUndoManager.CaptureSnapshot(_prompt);
+        // Completing a trailing fence intentionally exits the region before notifying us.
+        // Preserve that host landing point rather than forcing the caret back into the editor.
+        var selectionRegion = editingRegion is not null &&
+            ReferenceEquals(EmbeddedCodeRegionBlock.ActiveRegion, editingRegion) ? editingRegion : null;
+        var snapshot = PromptUndoManager.CaptureSnapshot(_prompt, selectionRegion);
 
         if (string.Equals(_entries[_index].SerializedText, snapshot.SerializedText, StringComparison.Ordinal))
         {

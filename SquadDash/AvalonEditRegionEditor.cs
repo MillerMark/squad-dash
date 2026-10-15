@@ -19,6 +19,7 @@ namespace SquadDash;
 public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 {
     private readonly TextEditor _editor;
+    private bool _textChangedDuringUpdate;
 
     public AvalonEditRegionEditor(string initialText)
     {
@@ -48,10 +49,18 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         // MainWindow's window preview-key router before they can reach AvalonEdit at all).
         _editor.Document.UndoStack.SizeLimit = 0;
 
-        // AvalonEdit raises TextChanged on the TextEditor; forward it verbatim through the seam.
-        _editor.TextChanged += (s, e) => TextChanged?.Invoke(this, e);
+        _editor.Document.UpdateStarted += (_, e) => TextChanging?.Invoke(this, e);
+        _editor.TextChanged += (_, _) => _textChangedDuringUpdate = true;
+        _editor.Document.UpdateFinished += (_, e) =>
+        {
+            if (!_textChangedDuringUpdate)
+                return;
+            _textChangedDuringUpdate = false;
+            TextChanged?.Invoke(this, e);
+        };
     }
 
+    public event EventHandler? TextChanging;
     public event EventHandler? TextChanged;
 
     public Control Control => _editor;
@@ -136,6 +145,7 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     public void InsertText(string text)
     {
+        using var update = _editor.Document.RunUpdate();
         text ??= string.Empty;
         var selLength = _editor.SelectionLength;
         var offset = selLength > 0 ? _editor.SelectionStart : _editor.TextArea.Caret.Offset;

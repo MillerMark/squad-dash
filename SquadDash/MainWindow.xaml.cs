@@ -1073,6 +1073,8 @@ public partial class MainWindow : Window
         _promptUndoHistory.CaptureBaseline();
         _promptUndoHistories[ActiveDraftUndoKey] = _promptUndoHistory;
         _promptUndoReady = true;
+        PromptTextBox.SelectionChanged += PromptTextBox_UndoSelectionChanged;
+        EmbeddedCodeRegionBlock.AnyRegionContentEditing += OnEmbeddedRegionContentEditing;
         EmbeddedCodeRegionBlock.AnyRegionContentEdited += OnEmbeddedRegionContentEdited;
         TranscriptTitleSpinner.PreviewMouseLeftButtonUp +=
             TranscriptTitleSpinner_PreviewMouseLeftButtonUp;
@@ -28883,6 +28885,21 @@ public partial class MainWindow : Window
     private static EmbeddedCodeRegionBlock? FocusedEmbeddedCodeRegion()
         => FindEmbeddedCodeRegion(Keyboard.FocusedElement);
 
+    private void PromptTextBox_UndoSelectionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_promptUndoHistory is null || _promptUndoHistory.IsApplying || _isConvertingEmbeddedCodeRegion || _suppressPromptUndoCapture)
+            return;
+        _promptUndoHistory.RefreshSelection();
+    }
+
+    private void OnEmbeddedRegionContentEditing(object? sender, EventArgs e)
+    {
+        if (_promptUndoHistory is null || _promptUndoHistory.IsApplying || _isConvertingEmbeddedCodeRegion || _suppressPromptUndoCapture)
+            return;
+        if (sender is EmbeddedCodeRegionBlock region)
+            _promptUndoHistory.RefreshSelection(region);
+    }
+
     /// <summary>
     /// Pushes a snapshot onto the single-authority prompt undo/redo timeline when text changes
     /// INSIDE an embedded code region (PROMPTUNDO-20261015-003). A nested AvalonEdit's own edits
@@ -28897,7 +28914,8 @@ public partial class MainWindow : Window
         {
             if (_promptUndoHistory is null || _promptUndoHistory.IsApplying || _isConvertingEmbeddedCodeRegion || _suppressPromptUndoCapture)
                 return;
-            _promptUndoHistory.PushSnapshot();
+            if (sender is EmbeddedCodeRegionBlock region)
+                _promptUndoHistory.PushSnapshot(region);
         }
         catch (Exception ex)
         {

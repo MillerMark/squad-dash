@@ -137,7 +137,10 @@ public interface IRegionCodeEditor
     /// Applies <paramref name="palette"/> to the editor's own surface/text colors.
     void ApplyPalette(RegionEditorPalette palette);
 
-    /// Raised whenever the editor text changes (drives <see cref="EmbeddedCodeRegionBlock"/>
-    /// content sync).
+    /// Raised before a document update, while the pre-edit selection is still intact.
+    event EventHandler TextChanging;
+
+    /// Raised after a text-changing document update completes, including its caret/selection moves
+    /// (drives <see cref="EmbeddedCodeRegionBlock"/> content sync).
     event EventHandler TextChanged;
 }

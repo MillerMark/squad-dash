@@ -135,15 +135,8 @@ internal sealed class EmbeddedCodeRegionFlatOffsetUndoTests
         // Direction guarantee (§4): the active caret restores on the moving (higher) end.
         Assert.That(rtb.GetCaretOffset(), Is.EqualTo(caret), "forward selection restores the caret on the higher end");
 
-        // KNOWN PRODUCTION DEFECT (reported, PROMPTUNDO-20261015 Step 2 ApplySnapshot): the live host
-        // SELECTION SPAN is not preserved — ApplySnapshot does `Selection.Select(anchor, caret)` and
-        // then `CaretPosition = caret`, and setting RichTextBox.CaretPosition COLLAPSES the selection
-        // to an insertion point (verified: Select(0,5) → len 5, then CaretPosition=end → len 0). So
-        // only the caret survives for host-text selections; the anchor/range is lost. The absolute
-        // anchor/caret/direction still round-trip correctly in the snapshot MODEL and via
-        // ResolveAbsoluteOffset (asserted above); this test does NOT assert the restored span because
-        // the current code does not restore it (asserting the collapse would break once it is fixed).
-        Assert.That(snapshot.AnchorOffset, Is.EqualTo(anchor), "snapshot still carries the forward anchor for a correct future restore");
+        Assert.That(rtb.Selection.Text, Is.EqualTo("Hello"));
+        Assert.That(PromptUndoManager.CaptureSnapshot(rtb), Is.EqualTo(snapshot));
     }
 
     // ── Case 2: backward host selection (both endpoints in host text, anchor > caret) ───
@@ -172,10 +165,8 @@ internal sealed class EmbeddedCodeRegionFlatOffsetUndoTests
         // end, proving the active caret end is preserved rather than canonicalized to a forward span.
         Assert.That(rtb.GetCaretOffset(), Is.EqualTo(caret), "backward selection restores the caret on the lower end");
 
-        // KNOWN PRODUCTION DEFECT (see the forward-selection test): the live host SELECTION SPAN is
-        // not preserved because ApplySnapshot's trailing `CaretPosition = caret` collapses the
-        // selection. The absolute anchor/caret/direction still round-trip in the snapshot model.
-        Assert.That(snapshot.AnchorOffset, Is.EqualTo(anchor), "snapshot still carries the backward anchor for a correct future restore");
+        Assert.That(rtb.Selection.Text, Is.EqualTo("Hello"));
+        Assert.That(PromptUndoManager.CaptureSnapshot(rtb), Is.EqualTo(snapshot));
     }
 
     // ── Case 3: collapsed caret (anchor == caret) ───────────────────────────────

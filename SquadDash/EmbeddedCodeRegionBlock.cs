@@ -69,6 +69,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     internal static event EventHandler? AnyRegionContentEdited;
 
+    /// Raised before a region document update, while its original selection and text still exist.
+    internal static event EventHandler? AnyRegionContentEditing;
+
     /// Clears <see cref="ActiveRegion"/> unconditionally. Called when a host-prompt gesture makes
     /// clear the user has left region editing (e.g. a click landing outside every region).
     internal static void ClearActiveRegion() => ActiveRegion = null;
@@ -216,6 +219,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         // because those rebuilds reattach this exact same BlockUIContainer/control instance
         // (see EmbeddedCodeRegionManager.RenderSegments's ExistingContainer branch) rather
         // than recreating it, in-progress edits are never lost across a rebuild.
+        _editor.TextChanging += (_, _) => AnyRegionContentEditing?.Invoke(this, EventArgs.Empty);
         _editor.TextChanged += (_, _) =>
         {
             Content = _editor.Text;
