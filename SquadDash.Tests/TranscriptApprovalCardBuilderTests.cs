@@ -489,7 +489,8 @@ public class TranscriptApprovalCardBuilderTests
             .Single(border => border.ContextMenu is not null);
         var questionStack = (StackPanel)questionSurface.Child;
         var checklistRow = questionStack.Children.OfType<Grid>().First();
-        var questionText = checklistRow.Children.OfType<TextBlock>().Single();
+        var questionText = checklistRow.Children.OfType<TextBlock>()
+            .Single(text => AutomationProperties.GetName(text) == "Approval question");
         var cardBorder = (Border)card.Container.Child;
 
         Assert.Multiple(() =>

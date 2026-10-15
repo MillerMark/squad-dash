@@ -1353,8 +1353,10 @@ internal sealed class ApprovalIntegrationTests
 
         var msg = _inbox.GetById("approval-gate-PLAN-001");
         Assert.That(msg!.Read, Is.True, "An acted-on approval request should be marked read even while another gate remains");
-        Assert.That(msg.Actions, Is.Empty,
-            "Unchecked active gates are completed directly in the Inbox body");
+        Assert.That(msg.Actions, Has.Count.EqualTo(1));
+        Assert.That(msg.Actions[0].RouteMode,
+            Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode),
+            "Unchecked active gates can now be addressed as unapproved items from the Inbox action.");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

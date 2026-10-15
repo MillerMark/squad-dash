@@ -21302,6 +21302,8 @@ public partial class MainWindow : Window
         var current = _planStore?.Load(planId);
         if (current is null) return;
         var normalized = response.Normalized();
+        var previous = ResolveHumanReviewItemResponse(current, item);
+        var answerChanged = previous.IsApproved != normalized.IsApproved;
         var updated = PlanStoreUpdater.ApplyGateHumanReviewResponse(
             current,
             item.GateId,
@@ -21311,22 +21313,38 @@ public partial class MainWindow : Window
             item.CandidateCommit,
             item.ReviewTarget);
         if (ReferenceEquals(updated, current)) return;
-        if (!TryPublishPlanProgress(updated, out var saveError))
+        if (answerChanged)
         {
-            ReportPlanActionIssue(
-                planId,
-                "Save human review",
-                saveError ?? "SquadDash could not save this verification selection.");
-            return;
+            if (!TryPublishPlanProgress(updated, out var saveError))
+            {
+                ReportPlanActionIssue(
+                    planId,
+                    "Save human review",
+                    saveError ?? "SquadDash could not save this verification selection.");
+                return;
+            }
+        }
+        else
+        {
+            try
+            {
+                _planStore!.Save(updated);
+            }
+            catch (Exception ex)
+            {
+                ReportPlanActionIssue(
+                    planId,
+                    "Save human review note",
+                    "SquadDash could not save this verification note. " + ex.Message);
+                return;
+            }
         }
 
-        if (_approvalTranscriptCards.TryGetValue(planId, out var cards))
-            foreach (var card in cards)
-                card.SetChecklistResponse(item, normalized);
+        SynchronizeHumanReviewResponseSurfaces(planId, item, normalized);
 
         try
         {
-            if (_planApprovalRuntime is not null && _inboxStore is not null)
+            if (answerChanged && _planApprovalRuntime is not null && _inboxStore is not null)
             {
                 await _planApprovalRuntime.Requests.RefreshFromPlanAsync(updated);
                 var messageId = DurableApprovalRequestManager.BuildMessageId(planId);
@@ -21337,7 +21355,8 @@ public partial class MainWindow : Window
                 RefreshOpenPlanBoundInboxWindows(planId, exceptMessageId: messageId);
             }
 
-            if (_openPlanApprovalReviewWindows.ContainsKey(planId) &&
+            if (answerChanged &&
+                _openPlanApprovalReviewWindows.ContainsKey(planId) &&
                 _planApprovalRuntime?.Actions.GetCurrentToken(planId) is { } token &&
                 updated.ApprovalGates.FirstOrDefault(gate =>
                     gate.Status == PlanGateStatus.AwaitingApproval) is { } gate)
@@ -21356,6 +21375,37 @@ public partial class MainWindow : Window
                 "Approval",
                 $"Could not synchronize human-review selection plan={planId} item={item.ItemId}: {ex.Message}");
         }
+    }
+
+    private static PlanHumanReviewItemResponse ResolveHumanReviewItemResponse(
+        Plan plan,
+        PlanHumanReviewChecklistItem item)
+    {
+        var storedItem = PlanHumanReviewChecklist.Build(
+                plan,
+                plan.ApprovalGates.Where(gate => string.Equals(gate.GateId, item.GateId, StringComparison.Ordinal)).ToArray())
+            .FirstOrDefault(candidate =>
+                string.Equals(candidate.GateId, item.GateId, StringComparison.Ordinal) &&
+                string.Equals(candidate.ItemId, item.ItemId, StringComparison.Ordinal));
+        return PlanHumanReviewItemResponse.FromItem(storedItem ?? item).Normalized();
+    }
+
+    private void SynchronizeHumanReviewResponseSurfaces(
+        string planId,
+        PlanHumanReviewChecklistItem item,
+        PlanHumanReviewItemResponse response)
+    {
+        var normalized = response.Normalized();
+        if (_approvalTranscriptCards.TryGetValue(planId, out var cards))
+            foreach (var card in cards)
+                card.SetChecklistResponse(item, normalized);
+
+        if (_openPlanApprovalReviewWindows.TryGetValue(planId, out var reviewWindow))
+            reviewWindow.SetChecklistResponse(item, normalized);
+
+        foreach (var window in _openInboxWindows.Where(candidate =>
+                     string.Equals(candidate.PlanGroupId, planId, StringComparison.Ordinal)).ToArray())
+            window.SetHumanReviewChecklistResponse(planId, item, normalized);
     }
 
     private void RefreshOpenPlanBoundInboxWindows(string planId, string? exceptMessageId = null)

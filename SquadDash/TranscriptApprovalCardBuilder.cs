@@ -9,6 +9,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
@@ -277,6 +278,7 @@ internal static class TranscriptApprovalCardBuilder
                 var response = checklistResponses[responseKey].Normalized();
                 var persistedResponse = response;
                 var suppressNoteUpdate = false;
+                DispatcherTimer? noteUpdateTimer = null;
 
                 var yesChoice = BuildChecklistChoice(
                     "Yes",
@@ -403,20 +405,52 @@ internal static class TranscriptApprovalCardBuilder
                     var normalized = next.Normalized();
                     response = normalized;
                     checklistResponses[responseKey] = normalized;
-                    if (updateNoteBox && !string.Equals(itemNoteBox.Text, normalized.Note ?? string.Empty, StringComparison.Ordinal))
+                    if (updateNoteBox)
                     {
-                        suppressNoteUpdate = true;
-                        itemNoteBox.Text = normalized.Note ?? string.Empty;
-                        suppressNoteUpdate = false;
+                        var desiredText = normalized.Note ?? string.Empty;
+                        var focusedTextMatches = itemNoteBox.IsKeyboardFocusWithin &&
+                            string.Equals(
+                                PlanHumanReviewItemResponse.NormalizeNote(itemNoteBox.Text) ?? string.Empty,
+                                desiredText,
+                                StringComparison.Ordinal);
+                        if (!focusedTextMatches && !string.Equals(itemNoteBox.Text, desiredText, StringComparison.Ordinal))
+                        {
+                            suppressNoteUpdate = true;
+                            itemNoteBox.Text = desiredText;
+                            suppressNoteUpdate = false;
+                        }
                     }
                     RefreshResponseVisuals();
                     UpdateApprovalAvailability();
-                    if (notify && !Equals(normalized, persistedResponse))
+                    if (!notify)
+                    {
+                        persistedResponse = normalized;
+                        return;
+                    }
+                    if (!Equals(normalized, persistedResponse))
                         NotifyResponseChanged(normalized);
+                }
+
+                void FlushNoteChange(bool updateNoteBox)
+                {
+                    noteUpdateTimer?.Stop();
+                    ApplyResponse(CurrentNormalizedResponse(), notify: true, updateNoteBox);
+                }
+
+                void ScheduleNoteChange()
+                {
+                    noteUpdateTimer ??= new DispatcherTimer(
+                        TimeSpan.FromMilliseconds(450),
+                        DispatcherPriority.Background,
+                        (_, _) => FlushNoteChange(updateNoteBox: false),
+                        itemNoteBox.Dispatcher);
+                    noteUpdateTimer.Stop();
+                    noteUpdateTimer.Start();
                 }
 
                 void SetAnswer(bool? value, bool notify)
                 {
+                    noteUpdateTimer?.Stop();
                     response = response with
                     {
                         IsApproved = response.IsApproved == value ? null : value,
@@ -433,21 +467,29 @@ internal static class TranscriptApprovalCardBuilder
                         return;
                     response = response with { Note = itemNoteBox.Text };
                     checklistResponses[responseKey] = CurrentNormalizedResponse();
+                    ScheduleNoteChange();
                 };
                 itemNoteBox.LostFocus += (_, _) =>
                 {
-                    var normalized = CurrentNormalizedResponse();
-                    ApplyResponse(normalized, notify: true, updateNoteBox: true);
+                    FlushNoteChange(updateNoteBox: true);
                 };
 
                 RefreshResponseVisuals();
                 checklistBoxes.Add(value =>
-                    ApplyResponse(new PlanHumanReviewItemResponse(value ? true : null, itemNoteBox.Text), notify: true, updateNoteBox: false));
+                {
+                    noteUpdateTimer?.Stop();
+                    ApplyResponse(new PlanHumanReviewItemResponse(value ? true : null, itemNoteBox.Text), notify: true, updateNoteBox: false);
+                });
                 externalChecklistSetters[responseKey] =
-                    value => ApplyResponse(new PlanHumanReviewItemResponse(value ? true : null, response.Note), notify: false, updateNoteBox: true);
+                    value =>
+                    {
+                        noteUpdateTimer?.Stop();
+                        ApplyResponse(new PlanHumanReviewItemResponse(value ? true : null, response.Note), notify: false, updateNoteBox: true);
+                    };
                 checklistResponseSetters[responseKey] =
                     next =>
                     {
+                        noteUpdateTimer?.Stop();
                         ApplyResponse(next, notify: false, updateNoteBox: true);
                     };
                 questionStack.Children.Add(itemRow);

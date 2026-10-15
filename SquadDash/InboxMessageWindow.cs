@@ -58,6 +58,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Func<string, Plan?>? _loadPlan;
     private readonly Action<string, PlanHumanReviewChecklistItem, bool>? _onHumanReviewSelectionChanged;
     private readonly Action<string, PlanHumanReviewChecklistItem, PlanHumanReviewItemResponse>? _onHumanReviewResponseChanged;
+    private readonly Dictionary<string, Action<PlanHumanReviewItemResponse>> _humanReviewResponseSetters = new(StringComparer.Ordinal);
     private readonly PttTextBoxAttachment _pttAttachment;
     private double _bodyFontSize;
     private bool _markedRead;
@@ -923,9 +924,10 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private FlowDocument BuildBodyDocument(InboxMessage message)
     {
         DetachBodyDocument();
+        _humanReviewResponseSetters.Clear();
         var document = BuildRenderedBodyDocument(message, _bodyFontSize, _workspaceFolder, _detailStateStore,
             _loadPlan, OpenInlineBodyLink, _openCommit, _openDecomposePlan,
-            _onHumanReviewSelectionChanged, _onHumanReviewResponseChanged);
+            _onHumanReviewSelectionChanged, _onHumanReviewResponseChanged, _humanReviewResponseSetters);
         _renderedBody = document;
         MarkdownVisibleContent.State(document).VisibilityChanged += OnDetailVisibilityChanged;
         foreach (var (_, viewer) in MarkdownVisibleContent.Documents(document, visibleOnly: false))
@@ -945,7 +947,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Func<string, Plan?>? loadPlan, Action<string>? onLinkClicked, Action<string>? openCommit,
         Action<InboxAttachment>? openPlan,
         Action<string, PlanHumanReviewChecklistItem, bool>? onSelectionChanged,
-        Action<string, PlanHumanReviewChecklistItem, PlanHumanReviewItemResponse>? onResponseChanged = null)
+        Action<string, PlanHumanReviewChecklistItem, PlanHumanReviewItemResponse>? onResponseChanged = null,
+        IDictionary<string, Action<PlanHumanReviewItemResponse>>? responseSetters = null)
     {
         var body = message.Body ?? string.Empty;
         var binding = ManualTestKitApprovalBinding.Read(message);
@@ -986,10 +989,33 @@ internal sealed class InboxMessageWindow : ChromedWindow
                     onSelectionChanged?.Invoke(plan.PlanId, item, response.IsApproved == true);
                 },
                 fontSize,
-                isEnabled: gates.All(gate => gate.Status == PlanGateStatus.AwaitingApproval));
+                isEnabled: gates.All(gate => gate.Status == PlanGateStatus.AwaitingApproval),
+                responseSetters);
         }
 
         return document;
+    }
+
+    internal void SetHumanReviewChecklistResponse(
+        string planId,
+        PlanHumanReviewChecklistItem item,
+        PlanHumanReviewItemResponse response)
+    {
+        if (!string.Equals(PlanGroupId, planId, StringComparison.Ordinal))
+            return;
+
+        void Apply()
+        {
+            if (_humanReviewResponseSetters.TryGetValue(
+                    InboxApprovalChecklistPresenter.BuildResponseKey(item),
+                    out var setter))
+                setter(response);
+        }
+
+        if (Dispatcher.CheckAccess())
+            Apply();
+        else
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)Apply);
     }
 
     internal string GetRenderedMessageText() => BuildMessageClipboardText(_message, _bodyViewer.Document);

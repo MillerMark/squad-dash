@@ -75,8 +75,10 @@ public class DurableApprovalRequestManagerTests
         Assert.That(msg!.Subject, Does.Contain("Test Plan"));
         Assert.That(msg.Read, Is.False);
         Assert.That(msg.Priority, Is.EqualTo("high"));
-        Assert.That(msg.Actions, Is.Empty,
-            "The Inbox message itself is the review surface; approval appears after its checks are complete");
+        Assert.That(msg.Actions, Has.Count.EqualTo(1));
+        Assert.That(msg.Actions[0].RouteMode,
+            Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode),
+            "Unchecked review items can now be sent back as unapproved instead of hiding all actions.");
     }
 
     [Test]
@@ -208,7 +210,9 @@ public class DurableApprovalRequestManagerTests
 
         var msg = _inbox.GetById("approval-gate-PLAN-001");
         Assert.That(msg!.Read, Is.False);
-        Assert.That(msg.Actions, Is.Empty);
+        Assert.That(msg.Actions, Has.Count.EqualTo(1));
+        Assert.That(msg.Actions[0].RouteMode,
+            Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
     }
 
     [Test]
@@ -674,7 +678,7 @@ public class DurableApprovalRequestManagerTests
                 Assert.That(message.Actions, Has.Count.EqualTo(missingRecipe ? 0 : 1));
                 if (!missingRecipe)
                     Assert.That(message.Actions[0].RouteMode,
-                        Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
+                        Is.EqualTo(DurableApprovalRequestManager.ApprovalRouteMode));
             });
         }
     }

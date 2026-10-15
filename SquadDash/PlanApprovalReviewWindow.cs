@@ -102,6 +102,13 @@ internal sealed class PlanApprovalReviewWindow : ChromedWindow
         ShowStatus(status);
     }
 
+    internal void SetChecklistResponse(
+        PlanHumanReviewChecklistItem item,
+        PlanHumanReviewItemResponse response)
+    {
+        _card?.SetChecklistResponse(item, response);
+    }
+
     internal void ShowStatus(string status)
     {
         _status.Text = status;

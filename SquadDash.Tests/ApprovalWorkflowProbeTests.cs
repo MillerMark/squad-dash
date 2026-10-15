@@ -217,8 +217,10 @@ internal sealed class ApprovalWorkflowProbeTests
         var msgAfter = _inbox.GetById(id);
         Assert.That(msgAfter, Is.Not.Null, "Message still exists after refresh");
         Assert.That(msgAfter!.Id, Is.EqualTo(id), "Message ID unchanged after evidence refresh");
-        Assert.That(msgAfter.Actions, Is.Empty,
-            "The refreshed message keeps its unchecked review controls inline");
+        Assert.That(msgAfter.Actions, Has.Count.EqualTo(1));
+        Assert.That(msgAfter.Actions[0].RouteMode,
+            Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode),
+            "The refreshed message keeps its unapproved-item action available.");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

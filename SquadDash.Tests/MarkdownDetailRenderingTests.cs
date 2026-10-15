@@ -475,7 +475,7 @@ internal sealed class MarkdownDetailRenderingTests
                 var rendered = window.GetRenderedMessageText();
                 Assert.That(rendered, Is.EqualTo(
                     InboxMessageWindow.BuildStoredMessageVisibleText(message, folder, _ => plan, store)));
-                Assert.That(rendered, Does.Contain("[ ] Does it appear?").And.Contain("Cell")
+                Assert.That(rendered, Does.Contain("[Unanswered] Does it appear?").And.Contain("Cell")
                     .And.Not.Contain("utc-time:").And.Not.Contain("approval-check:"));
                 Assert.That(window.SelectAndScrollToText("Does it appear?"), Is.True);
                 Assert.That(MarkdownVisibleContent.Find(viewer.Document, "Cell"), Is.Not.Null);

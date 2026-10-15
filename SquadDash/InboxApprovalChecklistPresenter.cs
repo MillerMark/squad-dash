@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
@@ -25,7 +26,8 @@ internal static class InboxApprovalChecklistPresenter
         IReadOnlyList<PlanHumanReviewChecklistItem> items,
         Action<PlanHumanReviewChecklistItem, PlanHumanReviewItemResponse> onResponseChanged,
         double fontSize,
-        bool isEnabled = true)
+        bool isEnabled = true,
+        IDictionary<string, Action<PlanHumanReviewItemResponse>>? responseSetters = null)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(items);
@@ -55,10 +57,11 @@ internal static class InboxApprovalChecklistPresenter
                 isEnabled);
 
             paragraph.Inlines.Clear();
-            paragraph.Inlines.Add(new InlineUIContainer(control)
+            paragraph.Inlines.Add(new InlineUIContainer(control.Element)
             {
                 BaselineAlignment = BaselineAlignment.Center,
             });
+            responseSetters?[BuildResponseKey(item)] = control.SetResponse;
             if (parentList is not null)
                 checklistLists.Add(parentList);
             checklistParagraphs.Add(paragraph);
@@ -91,7 +94,7 @@ internal static class InboxApprovalChecklistPresenter
         return attached;
     }
 
-    private static FrameworkElement BuildChecklistItemControl(
+    private static (FrameworkElement Element, Action<PlanHumanReviewItemResponse> SetResponse) BuildChecklistItemControl(
         PlanHumanReviewChecklistItem item,
         Action<PlanHumanReviewItemResponse> onResponseChanged,
         double fontSize,
@@ -101,6 +104,7 @@ internal static class InboxApprovalChecklistPresenter
         var response = PlanHumanReviewItemResponse.FromItem(item).Normalized();
         var persistedResponse = response;
         var suppressNoteUpdate = false;
+        DispatcherTimer? noteUpdateTimer = null;
 
         var root = new StackPanel
         {
@@ -202,20 +206,64 @@ internal static class InboxApprovalChecklistPresenter
             UpdateSemanticText();
         }
 
+        void ApplyResponse(PlanHumanReviewItemResponse next, bool notify, bool updateNoteBox)
+        {
+            var normalized = next.Normalized();
+            response = normalized;
+            if (updateNoteBox)
+            {
+                var desiredText = normalized.Note ?? string.Empty;
+                var focusedTextMatches = noteBox.IsKeyboardFocusWithin &&
+                    string.Equals(
+                        PlanHumanReviewItemResponse.NormalizeNote(noteBox.Text) ?? string.Empty,
+                        desiredText,
+                        StringComparison.Ordinal);
+                if (!focusedTextMatches && !string.Equals(noteBox.Text, desiredText, StringComparison.Ordinal))
+                {
+                    suppressNoteUpdate = true;
+                    noteBox.Text = desiredText;
+                    suppressNoteUpdate = false;
+                }
+            }
+            RefreshChoiceVisuals();
+            if (!notify)
+            {
+                persistedResponse = normalized;
+                return;
+            }
+            if (Equals(normalized, persistedResponse))
+                return;
+            persistedResponse = normalized;
+            onResponseChanged(normalized);
+        }
+
+        void FlushNoteChange(bool updateNoteBox)
+        {
+            noteUpdateTimer?.Stop();
+            ApplyResponse(new PlanHumanReviewItemResponse(response.IsApproved, noteBox.Text), notify: true, updateNoteBox);
+        }
+
+        void ScheduleNoteChange()
+        {
+            noteUpdateTimer ??= new DispatcherTimer(
+                TimeSpan.FromMilliseconds(450),
+                DispatcherPriority.Background,
+                (_, _) => FlushNoteChange(updateNoteBox: false),
+                noteBox.Dispatcher);
+            noteUpdateTimer.Stop();
+            noteUpdateTimer.Start();
+        }
+
         void SetAnswer(bool? value, bool notify)
         {
+            noteUpdateTimer?.Stop();
             response = response with
             {
                 IsApproved = response.IsApproved == value ? null : value,
                 Note = PlanHumanReviewItemResponse.NormalizeNote(noteBox.Text),
             };
 
-            RefreshChoiceVisuals();
-            if (!notify)
-                return;
-
-            persistedResponse = response.Normalized();
-            onResponseChanged(persistedResponse);
+            ApplyResponse(response, notify, updateNoteBox: false);
         }
 
         yesChoice.CheckBox.Click += (_, _) => SetAnswer(true, notify: true);
@@ -225,25 +273,19 @@ internal static class InboxApprovalChecklistPresenter
             if (suppressNoteUpdate) return;
             response = response with { Note = noteBox.Text };
             UpdateSemanticText();
+            ScheduleNoteChange();
         };
         noteBox.LostFocus += (_, _) =>
         {
-            var normalized = PlanHumanReviewItemResponse.NormalizeNote(noteBox.Text);
-            if (string.Equals(normalized, persistedResponse.Note, StringComparison.Ordinal))
-                return;
-
-            suppressNoteUpdate = true;
-            noteBox.Text = normalized ?? string.Empty;
-            suppressNoteUpdate = false;
-            response = response with { Note = normalized };
-            persistedResponse = response.Normalized();
-            UpdateSemanticText();
-            onResponseChanged(persistedResponse);
+            FlushNoteChange(updateNoteBox: true);
         };
 
         RefreshChoiceVisuals();
-        return root;
+        return (root, next => ApplyResponse(next, notify: false, updateNoteBox: true));
     }
+
+    internal static string BuildResponseKey(PlanHumanReviewChecklistItem item) =>
+        item.GateId + "\0" + item.ItemId;
 
     private static (CheckBox CheckBox, Border Border, Viewbox Icon) BuildChoice(
         string label,
