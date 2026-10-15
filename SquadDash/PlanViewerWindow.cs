@@ -204,6 +204,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public bool IsActive { get; set; }
     }
     private SelectedElementIdentity? _selectedElement;
+    // Remembers, per clicked element, the inspector scroll position as a 0..1 fraction of the
+    // scrollable height. In-memory only (not persisted to the plan file) by design.
+    private readonly Dictionary<SelectedElementIdentity, double> _inspectorScrollFractions = new();
+    // The element whose content is currently rendered in the inspector; used to know whose scroll
+    // fraction to save when the inspector swaps to a different element.
+    private SelectedElementIdentity? _inspectorRenderedElement;
     private (Border border, Thickness original)? _selectionBorderState;
     private TextBlock? _selectedStageTitleBlock; // stage title whose Foreground was overridden on selection
     private FrameworkElement? _selectionGlowElement;
@@ -6687,6 +6693,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_detailDocument is null)
             return;
 
+        // Before swapping to a different element, remember the outgoing element's scroll position.
+        if (_inspectorRenderedElement is not null && !Equals(_inspectorRenderedElement, _selectedElement))
+            SaveInspectorScrollFraction(_inspectorRenderedElement);
+
         _descriptionSession?.Dispose();
         _descriptionSession = null;
         MarkdownVisibleContent.Detach(_detailDocument);
@@ -6698,6 +6708,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_isInspectorEditing && TryPopulateStagedEditor())
         {
             PrependInspectorToolbar();
+            // The staged editor is a TextBox, not the FlowDocument; don't track its scroll.
+            _inspectorRenderedElement = null;
             return;
         }
 
@@ -6745,6 +6757,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             AppendActiveReviewNote();
             PrependInspectorToolbar();
+            _inspectorRenderedElement = _selectedElement;
+            RestoreInspectorScrollFraction(_selectedElement);
             return;
         }
 
@@ -6847,6 +6861,104 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         AppendActiveReviewNote();
         PrependInspectorToolbar();
+        _inspectorRenderedElement = _selectedElement;
+        RestoreInspectorScrollFraction(_selectedElement);
+    }
+
+    // Walks the FlowDocumentScrollViewer's template to its inner ScrollViewer (PART_ContentHost),
+    // which exposes VerticalOffset / ScrollableHeight / ScrollToVerticalOffset.
+    private bool TryGetInspectorScrollViewer(out ScrollViewer scrollViewer)
+    {
+        scrollViewer = null!;
+        if (_detailViewer is null)
+            return false;
+        _detailViewer.ApplyTemplate();
+        var found = FindDescendantScrollViewer(_detailViewer);
+        if (found is null)
+            return false;
+        scrollViewer = found;
+        return true;
+    }
+
+    private static ScrollViewer? FindDescendantScrollViewer(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is ScrollViewer sv)
+                return sv;
+            var nested = FindDescendantScrollViewer(child);
+            if (nested is not null)
+                return nested;
+        }
+        return null;
+    }
+
+    // Stores the outgoing element's current scroll position as a 0..1 fraction of scrollable height.
+    private void SaveInspectorScrollFraction(SelectedElementIdentity outgoing)
+    {
+        if (!TryGetInspectorScrollViewer(out var sv))
+            return;
+        var fraction = sv.ScrollableHeight > 0 ? sv.VerticalOffset / sv.ScrollableHeight : 0.0;
+        _inspectorScrollFractions[outgoing] = Math.Clamp(fraction, 0.0, 1.0);
+    }
+
+    // Restores the incoming element's remembered scroll position (or scrolls to top when none).
+    // Deferred to Loaded priority so the FlowDocument has been measured before we read ScrollableHeight.
+    private void RestoreInspectorScrollFraction(SelectedElementIdentity? incoming)
+    {
+        if (incoming is null || _detailViewer is null)
+            return;
+        var target = incoming;
+        _detailViewer.Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Loaded,
+            new Action(() => ApplyInspectorScrollRestore(target)));
+    }
+
+    private void ApplyInspectorScrollRestore(SelectedElementIdentity target)
+    {
+        if (_isViewerClosed)
+            return;
+        // The selection may have changed again before this deferred apply ran.
+        if (!Equals(_inspectorRenderedElement, target))
+            return;
+        if (!TryGetInspectorScrollViewer(out var sv))
+            return;
+
+        if (!_inspectorScrollFractions.TryGetValue(target, out var fraction))
+        {
+            // No remembered position: read this element from the beginning.
+            sv.ScrollToVerticalOffset(0);
+            return;
+        }
+
+        if (sv.ScrollableHeight > 0)
+        {
+            // Overshoot (shorter content than before) clamps to the bottom via Math.Min.
+            var offset = fraction * sv.ScrollableHeight;
+            sv.ScrollToVerticalOffset(Math.Min(offset, sv.ScrollableHeight));
+            return;
+        }
+
+        // A non-trivial fraction was saved but the document has not yet produced a scrollable
+        // extent (async FlowDocument layout). Apply once, when the extent first appears.
+        if (fraction <= 0)
+            return;
+        void OnScrollChanged(object? _, ScrollChangedEventArgs e)
+        {
+            if (!Equals(_inspectorRenderedElement, target))
+            {
+                sv.ScrollChanged -= OnScrollChanged;
+                return;
+            }
+            if (sv.ScrollableHeight <= 0)
+                return;
+            sv.ScrollChanged -= OnScrollChanged;
+            var offset = fraction * sv.ScrollableHeight;
+            sv.ScrollToVerticalOffset(Math.Min(offset, sv.ScrollableHeight));
+        }
+        sv.ScrollChanged += OnScrollChanged;
     }
 
     private void PrependInspectorToolbar()
