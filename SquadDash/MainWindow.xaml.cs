@@ -27572,6 +27572,14 @@ public partial class MainWindow : Window
         PromptTextBox.FontSize = _promptFontSize;
         IntelliSenseList.FontSize = _promptFontSize;
         IntelliSenseList.MaxHeight = (_promptFontSize + 4) * 8;
+
+        // AvalonEdit-backed embedded code regions do NOT follow WPF font inheritance (their point
+        // size is set imperatively on the TextEditor), so push the current prompt font size onto
+        // each region's editor now — 1:1, so code regions render at the same point size as the
+        // surrounding prompt text. Newly created / rehydrated regions pick up the same size at
+        // AttachHost time (which reads the host's FontSize, set just above).
+        foreach (var region in RichTextBoxExtensions.EnumerateEmbeddedRegions(PromptTextBox))
+            region.ApplyEditorFontSize(_promptFontSize);
     }
 
     private void ClearPromptTextBoxLogicalBuffer(string reason) =>

@@ -101,6 +101,12 @@ public interface IRegionCodeEditor
     /// Maximum rendered height of the editor control.
     double MaxHeight { get; set; }
 
+    /// Point size the editor renders its text at. Driven by the host so an embedded code region
+    /// scales together with the surrounding prompt text when the user Ctrl+wheels the prompt font
+    /// size (see <c>MainWindow.ApplyPromptFontSize</c>). Only the size changes — the monospace
+    /// font family is left untouched.
+    double EditorFontSize { get; set; }
+
     /// Removes the current selection from the document (used by the fenced Cut path).
     void RemoveSelectedText();
 

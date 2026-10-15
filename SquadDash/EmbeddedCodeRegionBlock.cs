@@ -373,6 +373,28 @@ public sealed class EmbeddedCodeRegionBlock : Border
         _editor.MaxHeight = (double.IsNaN(hostRichTextBox.MaxHeight) || double.IsInfinity(hostRichTextBox.MaxHeight))
             ? 130
             : hostRichTextBox.MaxHeight / 2.0;
+
+        // Code regions render at the SAME point size as the surrounding prompt text (1:1). The
+        // host RichTextBox's FontSize already tracks the prompt font size (set by
+        // MainWindow.ApplyPromptFontSize), so a region that is newly created OR rehydrated after
+        // the user zoomed the prompt picks up the current size here, at attach time, rather than
+        // staying at the hardcoded construction default until the next ApplyPromptFontSize.
+        var hostFontSize = hostRichTextBox.FontSize;
+        if (!double.IsNaN(hostFontSize) && hostFontSize > 0)
+            _editor.EditorFontSize = hostFontSize;
+    }
+
+    /// <summary>
+    /// Sets this region editor's point size so code regions scale together with the surrounding
+    /// prompt text. Called from <c>MainWindow.ApplyPromptFontSize</c>'s per-region fan-out when
+    /// the user Ctrl+wheels the prompt font size (AvalonEdit font size is not DynamicResource-
+    /// driven, so it must be pushed imperatively — mirrors <see cref="ApplyEditorTheme"/>).
+    /// </summary>
+    public void ApplyEditorFontSize(double fontSize)
+    {
+        if (double.IsNaN(fontSize) || fontSize <= 0)
+            return;
+        _editor.EditorFontSize = fontSize;
     }
 
     /// <summary>

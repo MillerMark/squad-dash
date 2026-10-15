@@ -88,6 +88,15 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         set => _editor.MaxHeight = value;
     }
 
+    public double EditorFontSize
+    {
+        // Setting TextEditor.FontSize re-measures the TextArea/document and repaints the view
+        // automatically — no explicit redraw needed. The Consolas family set in the constructor
+        // is preserved; only the point size tracks the host prompt.
+        get => _editor.FontSize;
+        set => _editor.FontSize = value;
+    }
+
     public void RemoveSelectedText()
     {
         var length = _editor.SelectionLength;

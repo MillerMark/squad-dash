@@ -2131,6 +2131,64 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(contentBox.MaxHeight, Is.EqualTo(130));
     }
 
+    // ── Font scaling: region editor tracks the prompt font size ─────────────────────────
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void EditorFontSize_SetThroughSeam_UpdatesUnderlyingEditorAndReadsBack()
+    {
+        var editor = new AvalonEditRegionEditor("code");
+
+        editor.EditorFontSize = 22;
+
+        Assert.That(editor.EditorFontSize, Is.EqualTo(22));
+        Assert.That(editor.Control, Is.InstanceOf<ICSharpCode.AvalonEdit.TextEditor>());
+        Assert.That(((ICSharpCode.AvalonEdit.TextEditor)editor.Control).FontSize, Is.EqualTo(22));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ApplyEditorFontSize_PropagatesToUnderlyingEditor()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("def foo():\n    pass", "python");
+        var contentBox = GetContentEditor(region);
+
+        region.ApplyEditorFontSize(26);
+
+        Assert.That(contentBox.FontSize, Is.EqualTo(26),
+            "pushing a font size through the region must resize the hosted AvalonEdit editor");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ApplyEditorFontSize_IgnoresNonPositiveValues()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("x = 1", "");
+        var contentBox = GetContentEditor(region);
+        var original = contentBox.FontSize;
+
+        region.ApplyEditorFontSize(0);
+        region.ApplyEditorFontSize(-5);
+        region.ApplyEditorFontSize(double.NaN);
+
+        Assert.That(contentBox.FontSize, Is.EqualTo(original),
+            "invalid sizes must be ignored so the editor never collapses to an unreadable size");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void AttachHost_AdoptsHostFontSize_SoRegionsCreatedAfterZoomPickUpCurrentSize()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nhello\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+        var contentBox = GetContentEditor(region);
+
+        // Host prompt was zoomed to 24 (ApplyPromptFontSize sets PromptTextBox.FontSize); a region
+        // attached afterwards must render at that size, not the hardcoded construction default.
+        var host = new RichTextBox { FontSize = 24 };
+        region.AttachHost(host);
+
+        Assert.That(contentBox.FontSize, Is.EqualTo(24));
+    }
+
     // The region's content editor is now an AvalonEdit TextEditor hosted inside the editor
     // border (the second child of the region's StackPanel).
     private static ICSharpCode.AvalonEdit.TextEditor GetContentEditor(EmbeddedCodeRegionBlock region)
