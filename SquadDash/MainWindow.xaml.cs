@@ -13623,6 +13623,161 @@ public partial class MainWindow : Window
             $"Queued plan start plan={plan.PlanId} title='{plan.DisplayName}' queueCount={_promptQueue.Count}.");
     }
 
+    private static bool IsInitialPlanExecutionAction(string? action) =>
+        string.Equals(action, "execute-active-branch", StringComparison.Ordinal) ||
+        string.Equals(action, "execute-new-branch", StringComparison.Ordinal);
+
+    private bool IsPendingPlanExecutionPreflightActive(PendingDecomposePlan plan)
+    {
+        if (_currentWorkspace is null) return false;
+        var current = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+            .Load(plan.Group.GroupId);
+        return current is not null &&
+               string.Equals(current.Revision, plan.Revision, StringComparison.Ordinal) &&
+               TranscriptQuickReplyFactory.ContainsPlanPreflightRecovery(
+                   CoordinatorThread.Document.Blocks,
+                   plan.Group.GroupId,
+                   plan.Revision,
+                   IsInitialPlanExecutionAction);
+    }
+
+    private void RefreshPendingPlanExecutionPreflightViewers(string groupId)
+    {
+        foreach (var entry in _openPlanViewerWindows.Where(entry =>
+                     string.Equals(entry.GroupId, groupId, StringComparison.Ordinal)))
+            entry.Window.NotifyPendingPlanExecutionPreflightChanged();
+    }
+
+    private BlockUIContainer CreatePlanPreflightReceiptContainer(
+        string groupId,
+        string revision,
+        string titleText,
+        string messageText)
+    {
+        var stack = new StackPanel();
+        var title = new TextBlock
+        {
+            Text = titleText,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = _transcriptFontSize,
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        stack.Children.Add(title);
+
+        var message = new TextBlock
+        {
+            Text = messageText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+            FontSize = _transcriptFontSize,
+        };
+        message.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        stack.Children.Add(message);
+
+        var card = new Border
+        {
+            Child = stack,
+            CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 10, 12, 10),
+            MaxWidth = 760,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "TranscriptSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+        return TranscriptQuickReplyFactory.CreateContainer(
+            card,
+            new PlanPreflightRecoveryReceiptTag(groupId, revision, DateTimeOffset.Now));
+    }
+
+    private bool ReplacePlanPreflightRecoveryCards(
+        BlockCollection blocks,
+        string groupId,
+        string revision,
+        Func<PlanPreflightRecoveryTag, bool> predicate,
+        Func<BlockUIContainer> replacementFactory)
+    {
+        var replaced = false;
+        foreach (var block in blocks.ToArray())
+        {
+            if (block is BlockUIContainer { Tag: PlanPreflightRecoveryTag tag } &&
+                string.Equals(tag.GroupId, groupId, StringComparison.Ordinal) &&
+                string.Equals(tag.Revision, revision, StringComparison.Ordinal) &&
+                predicate(tag))
+            {
+                blocks.InsertBefore(block, replacementFactory());
+                blocks.Remove(block);
+                replaced = true;
+                continue;
+            }
+
+            if (block is Section section)
+                replaced |= ReplacePlanPreflightRecoveryCards(
+                    section.Blocks,
+                    groupId,
+                    revision,
+                    predicate,
+                    replacementFactory);
+        }
+
+        return replaced;
+    }
+
+    private void RetirePlanExecutionPreflightAfterCollection(PendingDecomposePlan plan, Plan collectedPlan)
+    {
+        var replaced = ReplacePlanPreflightRecoveryCards(
+            CoordinatorThread.Document.Blocks,
+            plan.Group.GroupId,
+            plan.Revision,
+            tag => IsInitialPlanExecutionAction(tag.Action),
+            () => CreatePlanPreflightReceiptContainer(
+                plan.Group.GroupId,
+                plan.Revision,
+                "Plan added to Plans",
+                $"\"{collectedPlan.DisplayName}\" is saved in the Plans panel. Start it there when you're ready."));
+        if (replaced)
+            RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
+    }
+
+    private bool TryResolveStalePlanPreflightReceipt(
+        PendingDecomposePlan plan,
+        out string title,
+        out string message)
+    {
+        title = string.Empty;
+        message = string.Empty;
+        if (_currentWorkspace is null) return false;
+
+        var currentPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+            .Load(plan.Group.GroupId);
+        if (currentPlan is not null &&
+            string.Equals(currentPlan.Revision, plan.Revision, StringComparison.Ordinal))
+            return false;
+
+        var durable = _planStore?.Load(plan.Group.GroupId)
+            ?? new PlanStore(_currentWorkspace.SquadFolderPath).Load(plan.Group.GroupId);
+        if (durable is not null &&
+            string.Equals(durable.Revision, plan.Revision, StringComparison.Ordinal))
+        {
+            title = "Plan added to Plans";
+            message = $"\"{durable.DisplayName}\" is already saved in the Plans panel. Start it there when you're ready.";
+            return true;
+        }
+
+        title = currentPlan is not null ? "Plan changed" : "Plan action resolved";
+        message = currentPlan is not null
+            ? "This recovery card belongs to an older plan revision. Use the controls on the latest plan response."
+            : "This pending plan approval is no longer active. Use the latest plan response or the Plans panel.";
+        return true;
+    }
+
+    private static bool IsStalePlanPreflightException(Exception ex) =>
+        ex is InvalidOperationException &&
+        (ex.Message.Contains("task-plan approval is stale", StringComparison.OrdinalIgnoreCase) ||
+         ex.Message.Contains("newer revision", StringComparison.OrdinalIgnoreCase) ||
+         ex.Message.Contains("no longer active", StringComparison.OrdinalIgnoreCase));
+
     private void ShowTranscriptPlanPreflightRecovery(
         PendingDecomposePlan plan,
         string action,
@@ -13800,8 +13955,9 @@ public partial class MainWindow : Window
         card.SetResourceReference(Border.BorderBrushProperty, "PlanPreflightWarningBorder");
         var container = TranscriptQuickReplyFactory.CreateContainer(
             card,
-            new PlanPreflightRecoveryTag(plan.Group.GroupId, plan.Revision));
+            new PlanPreflightRecoveryTag(plan.Group.GroupId, plan.Revision, action));
         blocks.Add(container);
+        RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
         sourceActionsPanel?.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
 
         DispatcherTimer? timer = null;
@@ -13810,6 +13966,7 @@ public partial class MainWindow : Window
             timer?.Stop();
             if (blocks.Contains(container))
                 blocks.Remove(container);
+            RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
             sourceActionsPanel?.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Visible);
         };
         viewChangesLink.Click += (_, _) => _ = ShowPlanPreflightChangesAsync(exception);
@@ -13860,6 +14017,7 @@ public partial class MainWindow : Window
                     readiness.FontWeight = FontWeights.Normal;
                     card.SetResourceReference(Border.BackgroundProperty, "TranscriptSurface");
                     card.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+                    RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
                     return;
                 }
                 buttons.IsEnabled = true;
@@ -13875,6 +14033,29 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
+                if (IsStalePlanPreflightException(ex) &&
+                    TryResolveStalePlanPreflightReceipt(plan, out var receiptTitle, out var receiptMessage))
+                {
+                    timer?.Stop();
+                    container.Tag = new PlanPreflightRecoveryReceiptTag(
+                        plan.Group.GroupId,
+                        plan.Revision,
+                        DateTimeOffset.Now);
+                    title.Text = receiptTitle;
+                    title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+                    summary.Visibility = Visibility.Collapsed;
+                    files.Visibility = Visibility.Collapsed;
+                    details.Visibility = Visibility.Collapsed;
+                    utilities.Visibility = Visibility.Collapsed;
+                    copyButton.Visibility = Visibility.Collapsed;
+                    buttons.Visibility = Visibility.Collapsed;
+                    readiness.Text = receiptMessage;
+                    readiness.FontWeight = FontWeights.Normal;
+                    card.SetResourceReference(Border.BackgroundProperty, "TranscriptSurface");
+                    card.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+                    RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
+                    return;
+                }
                 buttons.IsEnabled = true;
                 readiness.Text = "Retry failed. Expand technical details or review the error output.";
                 HandleUiCallbackException("Decompose plan", ex);
@@ -14009,7 +14190,10 @@ public partial class MainWindow : Window
                     _inboxStore?.MarkActionUsed(messageId, "Add to Plans");
                     _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []);
                     if (result.Plan is { } collectedPlan)
+                    {
                         _plansPanelController?.RevealCollectedPlan(collectedPlan);
+                        RetirePlanExecutionPreflightAfterCollection(plan, collectedPlan);
+                    }
                     AppendLine($"✅ Plan \"{group.GroupTitle}\" saved to Plans. Launch it when you're ready.");
                     return true;
                 case CollectionOutcome.StaleRevisionRejected:
@@ -14872,6 +15056,7 @@ public partial class MainWindow : Window
             resolveInterruptedActionSet: ResolveInterruptedActionSet,
             onOpenInterruptedChanges: current =>
                 _ = OpenInterruptedTaskReviewAsync(current.PlanId, current.Revision),
+            isPendingPlanExecutionPreflightActive: IsPendingPlanExecutionPreflightActive,
             squadFolderPath: _currentWorkspace?.SquadFolderPath,
             onDescriptionLinkClicked: HandleTranscriptLinkClick,
             onOpenWorkMetrics: (kind, workItemId) =>

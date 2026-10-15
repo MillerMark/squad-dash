@@ -235,6 +235,42 @@ internal sealed class TranscriptQuickReplyFactoryTests
     }
 
     [Test]
+    public void ContainsPlanPreflightRecovery_MatchesRevisionAndAction()
+    {
+        var document = new FlowDocument();
+        var section = new Section();
+        section.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
+            new Border(),
+            new PlanPreflightRecoveryTag("PLAN-WAIT", "revision-1", "execute-active-branch")));
+        document.Blocks.Add(section);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                TranscriptQuickReplyFactory.ContainsPlanPreflightRecovery(
+                    document.Blocks,
+                    "PLAN-WAIT",
+                    "revision-1",
+                    action => string.Equals(action, "execute-active-branch", StringComparison.Ordinal)),
+                Is.True);
+            Assert.That(
+                TranscriptQuickReplyFactory.ContainsPlanPreflightRecovery(
+                    document.Blocks,
+                    "PLAN-WAIT",
+                    "revision-1",
+                    action => string.Equals(action, "collect", StringComparison.Ordinal)),
+                Is.False);
+            Assert.That(
+                TranscriptQuickReplyFactory.ContainsPlanPreflightRecovery(
+                    document.Blocks,
+                    "PLAN-WAIT",
+                    "obsolete",
+                    _ => true),
+                Is.False);
+        });
+    }
+
+    [Test]
     public void ReplacePendingDecomposeApprovalSurfaceWithInboxBanner_PreservesOriginalPlanTurnPosition()
     {
         var document = new FlowDocument();

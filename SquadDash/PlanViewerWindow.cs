@@ -72,6 +72,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onReviewValidation;
     private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
     private readonly Func<IReadOnlyList<RosterAgent>>? _getAssignableAgents;
+    private readonly Func<PendingDecomposePlan, bool>? _isPendingPlanExecutionPreflightActive;
     private readonly Action<string>? _onDescriptionLinkClicked;
     private readonly Action<string, string>? _onOpenWorkMetrics;
     private PttTextBoxAttachment? _pttAttachment;
@@ -271,6 +272,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
         Func<Plan, PlanRecoveryActionSetPresentation?>? resolveInterruptedActionSet = null,
         Action<Plan>? onOpenInterruptedChanges = null,
+        Func<PendingDecomposePlan, bool>? isPendingPlanExecutionPreflightActive = null,
         double lineThicknessMultiplier = 1.0,
         string? squadFolderPath = null,
         Action<string>? onDescriptionLinkClicked = null,
@@ -331,6 +333,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onReviewValidation = onReviewValidation;
         _getSettings = getSettings;
         _getAssignableAgents = getAssignableAgents;
+        _isPendingPlanExecutionPreflightActive = isPendingPlanExecutionPreflightActive;
         _onDescriptionLinkClicked = onDescriptionLinkClicked;
         _onOpenWorkMetrics = onOpenWorkMetrics;
         _squadFolderPath = squadFolderPath;
@@ -801,6 +804,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             RebuildPreservingScroll(_plan, _durablePlan);
     }
 
+    internal void NotifyPendingPlanExecutionPreflightChanged()
+    {
+        if (_plan is not null)
+            RebuildPreservingScroll(_plan, _durablePlan);
+    }
+
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
         DetachDescriptionDocuments();
@@ -1030,66 +1039,82 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (applyAction is not null)
         {
             var actionRegion = new StackPanel();
-            var actionsPanel = new WrapPanel
+            var startPreflightActive = _isPendingPlanExecutionPreflightActive?.Invoke(plan) == true;
+            if (startPreflightActive)
             {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 0, 0, 8),
-            };
-            var recoveryHost = new ContentControl
-            {
-                Visibility = Visibility.Collapsed,
-                Margin = new Thickness(0, 0, 0, 8),
-            };
-            foreach (var action in DecomposePlanInbox.BuildActionDefinitions(plan, activeBranch))
-            {
-                var capturedAction = action;
-                var button = TranscriptQuickReplyFactory.CreateButton(
-                    action.Label,
-                    quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip(action.Hint));
-                button.Focusable = false;
-                button.Click += async (_, _) =>
+                var status = new TextBlock
                 {
-                    ClearActionStatus();
-                    actionsPanel.IsEnabled = false;
-                    try
+                    Text = "Start is waiting for a clean workspace. Use the recovery card in the transcript to retry or dismiss it.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 8),
+                };
+                status.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                actionRegion.Children.Add(status);
+            }
+            else
+            {
+                var actionsPanel = new WrapPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 0, 0, 8),
+                };
+                var recoveryHost = new ContentControl
+                {
+                    Visibility = Visibility.Collapsed,
+                    Margin = new Thickness(0, 0, 0, 8),
+                };
+                foreach (var action in DecomposePlanInbox.BuildActionDefinitions(plan, activeBranch))
+                {
+                    var capturedAction = action;
+                    var button = TranscriptQuickReplyFactory.CreateButton(
+                        action.Label,
+                        quickReplyFontSize,
+                        toolTip: ToolTipHelper.MakeThemedToolTip(action.Hint));
+                    button.Focusable = false;
+                    button.Click += async (_, _) =>
                     {
-                        if (await applyAction(capturedAction))
-                            Close();
-                        else
+                        ClearActionStatus();
+                        actionsPanel.IsEnabled = false;
+                        try
+                        {
+                            if (await applyAction(capturedAction))
+                                Close();
+                            else
+                            {
+                                actionsPanel.IsEnabled = true;
+                                EnsureActionStatus("The plan action could not be completed. Review the current plan state and try again.");
+                            }
+                        }
+                        catch (PlanPreflightBlockedException blocked)
+                        {
+                            ShowPlanPreflightRecovery(
+                                blocked,
+                                actionsPanel,
+                                recoveryHost,
+                                async () =>
+                                {
+                                    if (blocked.RequiresRepositoryInitialization &&
+                                        (_initializeRepository is null || !await _initializeRepository()))
+                                        return false;
+                                    if (!await applyAction(capturedAction)) return false;
+                                    Close();
+                                    return true;
+                                });
+                        }
+                        catch (Exception ex)
                         {
                             actionsPanel.IsEnabled = true;
-                            EnsureActionStatus("The plan action could not be completed. Review the current plan state and try again.");
+                            SquadDashTrace.Write(TraceCategory.General,
+                                $"Plan viewer action '{capturedAction.Action}' failed: {ex}");
+                            ShowActionStatus("Plan action failed", ex.Message);
                         }
-                    }
-                    catch (PlanPreflightBlockedException blocked)
-                    {
-                        ShowPlanPreflightRecovery(
-                            blocked,
-                            actionsPanel,
-                            recoveryHost,
-                            async () =>
-                            {
-                                if (blocked.RequiresRepositoryInitialization &&
-                                    (_initializeRepository is null || !await _initializeRepository()))
-                                    return false;
-                                if (!await applyAction(capturedAction)) return false;
-                                Close();
-                                return true;
-                            });
-                    }
-                    catch (Exception ex)
-                    {
-                        actionsPanel.IsEnabled = true;
-                        SquadDashTrace.Write(TraceCategory.General,
-                            $"Plan viewer action '{capturedAction.Action}' failed: {ex}");
-                        ShowActionStatus("Plan action failed", ex.Message);
-                    }
-                };
-                actionsPanel.Children.Add(button);
+                    };
+                    actionsPanel.Children.Add(button);
+                }
+                actionRegion.Children.Add(actionsPanel);
+                actionRegion.Children.Add(recoveryHost);
             }
-            actionRegion.Children.Add(actionsPanel);
-            actionRegion.Children.Add(recoveryHost);
             header.Children.Add(actionRegion);
         }
 
