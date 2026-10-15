@@ -44,6 +44,26 @@ public sealed class EmbeddedCodeRegionBlock : Border
     private RichTextBox? _hostRichTextBox;
     private bool _isClosingFromTrailingFenceLine;
 
+    /// <summary>
+    /// The embedded code region the user most recently entered (via click, arrow-key entry, or a
+    /// just-typed opening fence), tracked independently of <see cref="Keyboard.FocusedElement"/>.
+    /// <para>
+    /// This exists because the host prompt <see cref="RichTextBox"/> can grab OS keyboard focus
+    /// back from the AvalonEdit <c>TextArea</c> while the region's caret is still visibly blinking
+    /// inside it. In that leaked state a space/printable keystroke would otherwise land in the
+    /// host prompt. The host's <c>PreviewTextInput</c> guard uses this reference (plus
+    /// <see cref="EmbeddedRegionInputRouter"/>) to redirect the character back into the region the
+    /// user is actually working in. It is deliberately NOT cleared merely because the host stole
+    /// focus — only on a genuine exit (<see cref="FocusHostOutsideRegion"/>), a click outside any
+    /// region, or focus moving to an unrelated control.
+    /// </para>
+    /// </summary>
+    internal static EmbeddedCodeRegionBlock? ActiveRegion { get; private set; }
+
+    /// Clears <see cref="ActiveRegion"/> unconditionally. Called when a host-prompt gesture makes
+    /// clear the user has left region editing (e.g. a click landing outside every region).
+    internal static void ClearActiveRegion() => ActiveRegion = null;
+
     public static EmbeddedCodeRegionBlock Build(string content, string language)
         => new(content, language);
 
@@ -110,6 +130,35 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 Trace($"EMBEDDED_CODE_CONTENT_MOUSE exit handled=True caret={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} focused={_editor.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
             }),
             handledEventsToo: true);
+
+        // Keyboard-focus tracking for the active-region safety net. When the editor's text-input
+        // surface gains keyboard focus, this region becomes the active one. When it loses focus,
+        // we KEEP it active if the host prompt grabbed focus (the leak we defend against) or if
+        // focus stayed within this region, but clear it when focus genuinely moved to an unrelated
+        // control. (A sibling region that gains focus overwrites ActiveRegion via its own
+        // GotKeyboardFocus, which fires after this LostKeyboardFocus.)
+        _editorControl.GotKeyboardFocus += (_, _) => ActiveRegion = this;
+        _editorControl.LostKeyboardFocus += (_, e) =>
+        {
+            if (!ReferenceEquals(ActiveRegion, this))
+                return;
+            if (e.NewFocus is not DependencyObject newFocus)
+                return;
+            if (IsVisualAncestorOrSelf(newFocus, this))
+                return; // Still inside this region.
+            if (_hostRichTextBox is not null && IsVisualAncestorOrSelf(newFocus, _hostRichTextBox))
+                return; // Host prompt grabbed focus — keep active so the net can redirect typing.
+            ActiveRegion = null;
+        };
+
+        // Diagnostic trace for the Space-leak investigation: one Space press reveals whether the
+        // TextArea genuinely owns OS keyboard focus at keydown time, or whether focus has leaked
+        // back to the host (which is why the space lands outside the region).
+        _editorControl.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Space)
+                Trace($"EMBEDDED_CODE_SPACE_KEY textAreaFocused={_editor.IsTextInputSurfaceFocused} focusWithin={_editor.IsKeyboardFocusWithin} active={ReferenceEquals(ActiveRegion, this)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+        };
 
         // Keep Content (the serialization source of truth read by ToFencedText/GetPlainText)
         // in sync with every edit made directly inside the region. The editor's TextChanged
@@ -329,6 +378,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     public void FocusContent()
     {
         Trace($"EMBEDDED_CODE_FOCUS_END enter textLen={_editor.TextLength} caretBefore={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} visible={_editorControl.IsVisible} enabled={_editorControl.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+        ActiveRegion = this;
         ClearHostSelection();
         _editor.CaretOffset = _editor.TextLength;
         // FocusEditor sets logical/keyboard focus within the control's focus scope even before
@@ -348,6 +398,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     {
         var clampedPosition = Math.Clamp(caretPosition, 0, _editor.TextLength);
         Trace($"EMBEDDED_CODE_FOCUS_POSITION enter position={caretPosition} clamped={clampedPosition} textLen={_editor.TextLength} caretBefore={_editor.CaretOffset} visible={_editorControl.IsVisible}");
+        ActiveRegion = this;
         ClearHostSelection();
         _editor.CaretOffset = clampedPosition;
         _editor.SelectionLength = 0;
@@ -373,9 +424,45 @@ public sealed class EmbeddedCodeRegionBlock : Border
         Trace($"EMBEDDED_CODE_DICTATION exit caret={_editor.CaretOffset} textLen={_editor.TextLength}");
     }
 
+    /// <summary>
+    /// Inserts a printable character (a space or any other text) that the host prompt intercepted
+    /// in its <c>PreviewTextInput</c> guard because keyboard focus had leaked back to the host
+    /// while this region was still the <see cref="ActiveRegion"/>. The character lands at the
+    /// region's caret (replacing any selection) and keyboard focus is re-asserted onto the editor
+    /// so the next keystroke routes natively, closing the leak. This is the safety net that makes
+    /// a space-outside-the-region leak impossible even if focus ownership is momentarily imperfect.
+    /// </summary>
+    internal void InsertHostText(string text)
+    {
+        Trace($"EMBEDDED_CODE_HOST_TEXT enter textLen-in={text?.Length ?? 0} caretBefore={_editor.CaretOffset} focusWithin={_editor.IsKeyboardFocusWithin} textAreaFocused={_editor.IsTextInputSurfaceFocused}");
+        ClearHostSelection();
+        _editor.InsertText(text ?? string.Empty);
+        if (!_editor.IsKeyboardFocusWithin)
+            _editor.FocusEditor();
+        Trace($"EMBEDDED_CODE_HOST_TEXT exit caret={_editor.CaretOffset} textLen={_editor.TextLength} focusWithin={_editor.IsKeyboardFocusWithin} textAreaFocused={_editor.IsTextInputSurfaceFocused}");
+    }
+
+    /// <summary>
+    /// True when this region is still a live child of its host prompt's document (i.e. it has not
+    /// been removed by a prompt submit/clear). The host's typing-safety net checks this before
+    /// routing a character into <see cref="ActiveRegion"/> so a stale reference to a removed
+    /// region never swallows ordinary host typing.
+    /// </summary>
+    internal bool IsAttachedToHost()
+    {
+        var host = _hostRichTextBox;
+        if (host is null)
+            return false;
+
+        return host.Document.Blocks
+            .OfType<BlockUIContainer>()
+            .Any(container => ReferenceEquals(container.Child, this));
+    }
+
     internal void FocusContentAtPoint(Point pointInContentBox)
     {
         Trace($"EMBEDDED_CODE_FOCUS_POINT enter point=({pointInContentBox.X:F1},{pointInContentBox.Y:F1}) textLen={_editor.TextLength} caretBefore={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} visible={_editorControl.IsVisible} enabled={_editorControl.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+        ActiveRegion = this;
         ClearHostSelection();
         _editor.FocusEditor();
 
@@ -435,6 +522,11 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
     private void FocusHostOutsideRegion(LogicalDirection direction)
     {
+        // A deliberate boundary exit (arrow/Tab/Ctrl+Up/Down or trailing-fence close): the user is
+        // leaving the region, so it is no longer the active region for the typing-safety net.
+        if (ReferenceEquals(ActiveRegion, this))
+            ActiveRegion = null;
+
         var host = _hostRichTextBox;
         if (host is null)
         {

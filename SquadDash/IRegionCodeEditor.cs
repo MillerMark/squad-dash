@@ -93,6 +93,11 @@ public interface IRegionCodeEditor
     /// Whether keyboard focus is currently within the editor control.
     bool IsKeyboardFocusWithin { get; }
 
+    /// Whether the editor's actual text-input surface (AvalonEdit's <c>TextArea</c>) genuinely
+    /// owns OS keyboard focus. Distinct from <see cref="IsKeyboardFocusWithin"/> for diagnostics:
+    /// the visible caret can be rendered while real focus has leaked back to the host prompt.
+    bool IsTextInputSurfaceFocused { get; }
+
     /// Maximum rendered height of the editor control.
     double MaxHeight { get; set; }
 

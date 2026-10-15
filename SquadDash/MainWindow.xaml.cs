@@ -27517,6 +27517,13 @@ public partial class MainWindow : Window
             }
 
             SquadDashTrace.Write("UI", $"PROMPT_EMBEDDED_CODE_MOUSE exit reason={(hitToggle ? "toggle" : "outside-region")} handled={e.Handled}");
+
+            // A click that landed outside every embedded region (and not on a toggle) means the
+            // user is leaving region editing for the host prompt. Drop the active-region tracking
+            // so the typing-safety net does not redirect subsequent host typing into a region the
+            // user has clicked away from.
+            if (targetRegion == null && !hitToggle)
+                EmbeddedCodeRegionBlock.ClearActiveRegion();
         }
         catch (Exception ex)
         {
@@ -27629,6 +27636,33 @@ public partial class MainWindow : Window
         if (_suppressPromptNextTextInput)
         {
             _suppressPromptNextTextInput = false;
+            e.Handled = true;
+            return;
+        }
+
+        // Space-leak safety net: if keyboard focus has slipped back to the host prompt while an
+        // embedded region is still the active region (its caret is visibly blinking inside it),
+        // a space/printable keystroke would otherwise be inserted into the host adjacent to the
+        // region. Redirect it into the region the user is actually working in. See
+        // EmbeddedRegionInputRouter for the pure decision and AVALONEDIT-20261014-001.
+        var activeRegion = EmbeddedCodeRegionBlock.ActiveRegion;
+        var routeDecision = EmbeddedRegionInputRouter.DecideHostTextInput(
+            hasText: !string.IsNullOrEmpty(e.Text),
+            focusInsideRegion: FocusedEmbeddedCodeRegion() is not null,
+            hostHasFocus: ReferenceEquals(Keyboard.FocusedElement, PromptTextBox),
+            activeRegionAttached: activeRegion?.IsAttachedToHost() == true);
+        if (!string.IsNullOrEmpty(e.Text) && (activeRegion is not null || FocusedEmbeddedCodeRegion() is not null))
+        {
+            SquadDashTrace.Write(
+                "UI",
+                $"PROMPT_EMBEDDED_CODE_TEXT_INPUT reached decision={routeDecision} text-len={e.Text.Length} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)} hostHasFocus={ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)} focusInsideRegion={FocusedEmbeddedCodeRegion() is not null} activeRegion={activeRegion is not null}");
+        }
+        if (routeDecision == HostTextInputDecision.RouteToActiveRegion && activeRegion is not null)
+        {
+            SquadDashTrace.Write(
+                "UI",
+                $"PROMPT_EMBEDDED_CODE_TEXT route=active-region text-len={e.Text.Length} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
+            activeRegion.InsertHostText(e.Text);
             e.Handled = true;
             return;
         }
@@ -27966,6 +28000,17 @@ public partial class MainWindow : Window
                     "UI",
                     $"PROMPT_EMBEDDED_CODE_KEY pass-through key={e.Key} modifiers={modifiers} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
                 return;
+            }
+
+            // Space-leak diagnostic: Space does NOT insert text on KeyDown (the host inserts via
+            // the bubbling TextInput, intercepted in PromptTextBox_PreviewTextInput), so we only
+            // trace here to confirm the focus/active-region facts at keydown time. The actual
+            // redirect happens in PreviewTextInput's safety net.
+            if (e.Key == Key.Space && EmbeddedCodeRegionBlock.ActiveRegion is not null)
+            {
+                SquadDashTrace.Write(
+                    "UI",
+                    $"PROMPT_EMBEDDED_CODE_SPACE_KEY reached-host modifiers={modifiers} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)} hostHasFocus={ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)} activeAttached={EmbeddedCodeRegionBlock.ActiveRegion.IsAttachedToHost()}");
             }
 
             if (modifiers == ModifierKeys.None
@@ -41908,12 +41953,17 @@ public partial class MainWindow : Window
         box.BeginChange();
     }
 
+    private bool IsBulkTranscriptDocumentLoadActive(TranscriptThreadState thread) =>
+        _bulkChangeTranscriptBoxes.ContainsKey(thread);
+
     private void EndBulkTranscriptDocumentLoad(TranscriptThreadState thread)
     {
         if (!_bulkChangeTranscriptBoxes.Remove(thread, out var box))
             return;
 
         box.EndChange();
+        if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
+            SchedulePromptNavGeometryRefresh();
     }
 
     private ThrottledScrollRichTextBox CreatePrimaryAgentTranscriptBox()
@@ -45058,7 +45108,7 @@ public partial class MainWindow : Window
             else
                 RestartAgentIntentDebounce(thread);
             if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
-                SyncPromptNavButtons();
+                SyncPromptNavButtons(allowGeometry: !IsBulkTranscriptDocumentLoadActive(thread));
         }
 
         var narrativeSection = new Section();
@@ -45782,9 +45832,10 @@ public partial class MainWindow : Window
         var renderSw = Stopwatch.StartNew();
         var rawText = entry.RawTextBuilder.ToString();
 
-        // Scan for fusion patterns: sentence-ending punctuation immediately followed by
-        // a word character with no intervening space or newline.
-        TraceFusionPatternsInRawText(rawText, entry.Sequence);
+        // Enable only while actively debugging transcript text fusion; the scan and trace
+        // writes otherwise sit directly in the historical transcript render path.
+        if (EnableFusionPatternTrace)
+            TraceFusionPatternsInRawText(rawText, entry.Sequence);
 
         var sanitizedText = AgentArtifactBlockExpander.ExpandDisplayArtifacts(
             SanitizeResponseText(rawText),
@@ -45888,6 +45939,8 @@ public partial class MainWindow : Window
     private static bool ContainsDiagnosticsText(string text) =>
         text.Contains("diagnostic", StringComparison.OrdinalIgnoreCase) ||
         text.Contains("diagnostics", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly bool EnableFusionPatternTrace = false;
 
     /// <summary>
     /// Scans <paramref name="rawText"/> for patterns where sentence-ending punctuation
@@ -48929,10 +48982,13 @@ public partial class MainWindow : Window
         foreach (var entry in block.ToolEntries)
         {
             if (!entry.IsCompleted || !entry.Success) continue;
-            var diff = ToolTranscriptFormatter.TryBuildEditDiffSummary(entry.Descriptor, entry.OutputText, entry.ArgsJson);
-            if (diff is null) continue;
-            added   += diff.AddedLineCount;
-            removed += diff.RemovedLineCount;
+            var edits = entry.CapturedEdits;
+            if (edits is null && ReferenceEquals(entry.Turn.OwnerThread.CurrentTurn, entry.Turn))
+                edits = EnsureCapturedEdits(entry);
+            if (edits is not { Count: > 0 })
+                continue;
+            added   += edits.Sum(edit => edit.AddedLineCount);
+            removed += edits.Sum(edit => edit.RemovedLineCount);
         }
         return (added, removed);
     }
@@ -49614,8 +49670,7 @@ public partial class MainWindow : Window
         entry.DetailContent = ToolTranscriptOutputLimiter.TrimForLiveTranscript(entry.Descriptor, tool.DetailContent);
         entry.CapturedEdits = tool.CapturedEdits is { Count: > 0 }
             ? tool.CapturedEdits
-            : ToolTranscriptFormatter.TryExtractCapturedEdits(
-                entry.Descriptor, entry.OutputText, entry.ArgsJson);
+            : null;
         entry.IsCompleted = tool.IsCompleted;
         entry.Success = tool.Success;
         RenderToolEntry(entry);
@@ -49784,18 +49839,23 @@ public partial class MainWindow : Window
         entry.EmojiImage.Visibility = entry.EmojiImage.Source is not null
             ? Visibility.Visible : Visibility.Collapsed;
 
-        if (entry.IsCompleted && entry.Success)
-            entry.CapturedEdits ??= ToolTranscriptFormatter.TryExtractCapturedEdits(
-                entry.Descriptor, entry.OutputText, entry.ArgsJson);
+        var shouldTryRenderEditLink =
+            entry.CapturedEdits is { Count: > 0 } ||
+            ReferenceEquals(entry.Turn.OwnerThread.CurrentTurn, entry.Turn) &&
+            ToolTranscriptFormatter.IsEditToolName(entry.Descriptor.ToolName);
+        var capturedEdits = shouldTryRenderEditLink
+            ? EnsureCapturedEdits(entry)
+            : entry.CapturedEdits;
 
         if (entry.IsCompleted &&
             entry.Success &&
+            capturedEdits is not null &&
             ToolEditLinkPresenter.TryRender(
                 entry.MessageTextBlock,
                 entry.Descriptor,
                 entry.OutputText,
                 entry.ArgsJson,
-                entry.CapturedEdits,
+                capturedEdits,
                 async clickedEdit =>
                 {
                     CommitViewerWindow viewer;
@@ -49809,7 +49869,7 @@ public partial class MainWindow : Window
                         var originatingCall = new CapturedEditCall(
                             entry.ToolCallId,
                             entry.StartedAt,
-                            entry.CapturedEdits ?? Array.Empty<CapturedFileEdit>());
+                            EnsureCapturedEdits(entry));
                         viewer = await CommitViewerWindow.CreateFromCapturedEditsAsync(
                             originatingCall,
                             clickedEdit.Path,
@@ -49840,13 +49900,30 @@ public partial class MainWindow : Window
         foreach (var entry in turn.ToolEntries
                      .Where(candidate => candidate.IsCompleted && candidate.Success)
                      .OrderBy(candidate => candidate.StartedAt)) {
-            entry.CapturedEdits ??= ToolTranscriptFormatter.TryExtractCapturedEdits(
-                entry.Descriptor, entry.OutputText, entry.ArgsJson);
-            if (entry.CapturedEdits.Count == 0)
+            var capturedEdits = EnsureCapturedEdits(entry);
+            if (capturedEdits.Count == 0)
                 continue;
-            calls.Add(new CapturedEditCall(entry.ToolCallId, entry.StartedAt, entry.CapturedEdits));
+            calls.Add(new CapturedEditCall(entry.ToolCallId, entry.StartedAt, capturedEdits));
         }
         return calls;
+    }
+
+    private static IReadOnlyList<CapturedFileEdit> EnsureCapturedEdits(ToolTranscriptEntry entry)
+    {
+        if (entry.CapturedEdits is { } capturedEdits)
+            return capturedEdits;
+        if (!entry.IsCompleted ||
+            !entry.Success ||
+            !ToolTranscriptFormatter.IsEditToolName(entry.Descriptor.ToolName))
+        {
+            return Array.Empty<CapturedFileEdit>();
+        }
+
+        entry.CapturedEdits = ToolTranscriptFormatter.TryExtractCapturedEdits(
+            entry.Descriptor,
+            entry.OutputText,
+            entry.ArgsJson);
+        return entry.CapturedEdits;
     }
 
     private void AdvanceToolSpinner()

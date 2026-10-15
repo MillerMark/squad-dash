@@ -1207,6 +1207,151 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(region, Is.Not.Null);
     }
 
+    // ── Space-leak safety net (host redirects printable input into the active region) ──────
+    //
+    // Regression guard for the bug where pressing Space while an embedded region's caret was
+    // visibly blinking inserted the space OUTSIDE the region, in the host prompt, because OS
+    // keyboard focus had leaked back to the host RichTextBox. The pure EmbeddedRegionInputRouter
+    // predicate decides whether the host must defer to the active region; the STA tests prove the
+    // editor seam and the region's host-text redirect insert a space (and a printable char) at the
+    // caret inside the region content.
+
+    [Test]
+    public void DecideHostTextInput_NoText_LetProceed()
+    {
+        Assert.That(
+            EmbeddedRegionInputRouter.DecideHostTextInput(
+                hasText: false, focusInsideRegion: false, hostHasFocus: true, activeRegionAttached: true),
+            Is.EqualTo(HostTextInputDecision.LetProceed));
+    }
+
+    [Test]
+    public void DecideHostTextInput_FocusGenuinelyInsideRegion_LetProceed()
+    {
+        // Focus is truly in the region — the tunneling event reaches the editor natively, so the
+        // host must not intercept (that would bypass native input handling).
+        Assert.That(
+            EmbeddedRegionInputRouter.DecideHostTextInput(
+                hasText: true, focusInsideRegion: true, hostHasFocus: false, activeRegionAttached: true),
+            Is.EqualTo(HostTextInputDecision.LetProceed));
+    }
+
+    [Test]
+    public void DecideHostTextInput_FocusLeakedToHostWithAttachedActiveRegion_RouteToActiveRegion()
+    {
+        // The leak: host owns focus, but an attached region is still active. Redirect the space.
+        Assert.That(
+            EmbeddedRegionInputRouter.DecideHostTextInput(
+                hasText: true, focusInsideRegion: false, hostHasFocus: true, activeRegionAttached: true),
+            Is.EqualTo(HostTextInputDecision.RouteToActiveRegion));
+    }
+
+    [Test]
+    public void DecideHostTextInput_StaleActiveRegionNotAttached_LetProceed()
+    {
+        // A removed region (e.g. after prompt submit) must never swallow ordinary host typing.
+        Assert.That(
+            EmbeddedRegionInputRouter.DecideHostTextInput(
+                hasText: true, focusInsideRegion: false, hostHasFocus: true, activeRegionAttached: false),
+            Is.EqualTo(HostTextInputDecision.LetProceed));
+    }
+
+    [Test]
+    public void DecideHostTextInput_NoActiveRegionAndHostFocused_LetProceed()
+    {
+        // Ordinary host typing with no region in play.
+        Assert.That(
+            EmbeddedRegionInputRouter.DecideHostTextInput(
+                hasText: true, focusInsideRegion: false, hostHasFocus: true, activeRegionAttached: false),
+            Is.EqualTo(HostTextInputDecision.LetProceed));
+    }
+
+    [Test]
+    public void DecideHostTextInput_FocusElsewhereEntirely_LetProceed()
+    {
+        // Focus moved to some unrelated control (host does not have focus): do not hijack typing.
+        Assert.That(
+            EmbeddedRegionInputRouter.DecideHostTextInput(
+                hasText: true, focusInsideRegion: false, hostHasFocus: false, activeRegionAttached: true),
+            Is.EqualTo(HostTextInputDecision.LetProceed));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void InsertText_Space_InsertsSpaceAtCaretInsideRegionContent()
+    {
+        var editor = new AvalonEditRegionEditor("ab");
+        editor.CaretOffset = 1; // between 'a' and 'b'
+
+        editor.InsertText(" ");
+
+        Assert.That(editor.Text, Is.EqualTo("a b"));
+        Assert.That(editor.CaretOffset, Is.EqualTo(2));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void InsertText_PrintableChar_InsertsAtCaretInsideRegionContent()
+    {
+        var editor = new AvalonEditRegionEditor("ac");
+        editor.CaretOffset = 1;
+
+        editor.InsertText("b");
+
+        Assert.That(editor.Text, Is.EqualTo("abc"));
+        Assert.That(editor.CaretOffset, Is.EqualTo(2));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void InsertText_ReplacesSelection()
+    {
+        var editor = new AvalonEditRegionEditor("hello");
+        editor.CaretOffset = 0;
+        editor.SelectionLength = 0;
+        // Select "ell" (offsets 1..4).
+        editor.CaretOffset = 1;
+        editor.SelectionLength = 3;
+
+        editor.InsertText(" ");
+
+        Assert.That(editor.Text, Is.EqualTo("h o"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void InsertHostText_Space_LandsInsideRegionContent()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("xy", "");
+        region.FocusContentAtPosition(1); // caret between 'x' and 'y'
+
+        region.InsertHostText(" ");
+
+        Assert.That(region.Content, Is.EqualTo("x y"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FocusContent_SetsActiveRegion()
+    {
+        EmbeddedCodeRegionBlock.ClearActiveRegion();
+        var region = EmbeddedCodeRegionBlock.Build("code", "");
+
+        region.FocusContent();
+
+        Assert.That(EmbeddedCodeRegionBlock.ActiveRegion, Is.SameAs(region));
+        EmbeddedCodeRegionBlock.ClearActiveRegion();
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void IsAttachedToHost_FalseBeforeAttach_TrueAfterConversionInsideHost()
+    {
+        var unattached = EmbeddedCodeRegionBlock.Build("code", "");
+        Assert.That(unattached.IsAttachedToHost(), Is.False);
+
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nhello\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
+
+        Assert.That(region.IsAttachedToHost(), Is.True);
+    }
+
     // ── Mouse text selection inside the region (double-click word-select / click-drag) ──
     //
     // Regression guard for the bug where the host RichTextBox's Preview handler and the

@@ -80,6 +80,8 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     public bool IsKeyboardFocusWithin => _editor.IsKeyboardFocusWithin;
 
+    public bool IsTextInputSurfaceFocused => _editor.TextArea.IsKeyboardFocused;
+
     public double MaxHeight
     {
         get => _editor.MaxHeight;
