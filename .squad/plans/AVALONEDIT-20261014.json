@@ -191,6 +191,53 @@
         }
       ],
       "displayStepLabel": "2",
+      "reviewActivity": [
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed direction-unaware host-side arrow entry into embedded regions: added pure direction-aware DecideRegionEntry (Down/Right enter region below at start, Up/Left enter region above at end) plus a caretBefore side-guard rejecting regions resolved across the BlockUIContainer. Down/Up on a line adjacent to a region no longer jumps the wrong way. Commit c858e150 on feature/avalonedit-region-editor; build green, 178 region/caret-nav tests pass; rebuilt for retest.",
+          "recordedAt": "2026-10-14T23:26:25.0549781+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed three GATE-001 live-UI bugs on embedded AvalonEdit regions (commit b9a16d82, build green, 188 tests pass): (1) Space/printable keys leaked to host \u2014 hardened TextArea OS-keyboard-focus retry after layout and guarded host printable/stale-modifier/fullscreen paths to defer when a region is focused; (2) voice dictation leaked to host \u2014 AppendSpeechToPrompt now routes into the focused region via new IRegionCodeEditor.InsertText/InsertDictation using shared VoiceInsertionHeuristics; (3) Up/Left entry-from-below now lands at END of the region\u0027s last line via new pure DecideRegionEntryFromPrediction (backward keys decide on the caret\u0027s current block, tolerating null/crossed prediction), preserving Down/Right-from-above\u2192START and both-side exits.",
+          "recordedAt": "2026-10-14T23:47:57.4773713+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed Down-arrow entry from the start of the line above a region (commit 212be46b, build green, 208 tests pass): DecideRegionEntryFromPrediction forward branch now falls back to the caret\u0027s current block when the predicted downward landing hits the region\u0027s BlockUIContainer dead zone, entering at offset 0 via FocusContentAtPosition(0); strict directional invariant and end-of-line-above entry preserved. Investigated the persistent spacebar-leak under the user\u0027s IntelliSense-stealing hypothesis and found no input-stealer (no AvalonEdit completion window, no custom input handler, no host/Window KeyBinding or command on Space; only a Shift\u002BSpace menu display string); confirmed ActiveRegion is set on all entry paths and the PreviewTextInput redirect safety net routes Space into the active region, so routing is code-unambiguous and only live OS-focus timing remains to verify. Added headless regressions for Down-from-line-start entry and Space-after-arrow-entry routing; diagnostic traces retained.",
+          "recordedAt": "2026-10-15T03:17:58.3610076+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Diagnosed the persistent spacebar leak from live trace logs: the TextArea genuinely owned keyboard focus (textAreaFocused=True) but the host WPF RichTextBox/TextBoxBase special-cases Space and consumed its TextInput before it reached the nested AvalonEdit editor, so Space landed in the host while letters (not special-cased) worked. Fix (commit 854edd07, build green, 213 tests pass): EmbeddedCodeRegionBlock now authoritatively handles an unmodified Space while the region editor has focus by inserting a literal space via IRegionCodeEditor.InsertText(\u0022 \u0022) and marking the KeyDown handled (no TextInput raised, no host leak, no double-insert); added a pure EmbeddedRegionSpaceRouter.ShouldInsertSpaceIntoRegion predicate with tests (Space\u002Bnone\u002Bfocused\u2192handle; Shift/Ctrl\u002BSpace\u2192no; no region focused\u2192no). Shift\u002BSpace Smooth Dictation, letters, voice-into-region, arrow entry/exit, and fenced Ctrl\u002BC/X all unregressed.",
+          "recordedAt": "2026-10-15T09:27:29.8808198+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed caret-navigation and serialization bugs on embedded regions (commit eb9f15d5, build green, 281 targeted tests pass). Bug 1: Right arrow over-entered the region from mid-line above because horizontal keys were treated like vertical; split entry by axis so Right enters (at START) only at end-of-line-above adjacency, mid-line Right is normal. Bug 3: Left from the start of the line below landed in the invisible dead zone because the backward within-paragraph guard suppressed it; Left now enters the region above at END only at start-of-line-below boundary (computed via GetNextInsertionPosition), mid-line Left normal. Bug 4: stray empty paragraph after the region came from EmbeddedCodeRegionManager.AddCaretLandingAfterRegionIfNeeded running on every rebuild/rehydration (restart, Shift\u002BEnter duplicate-line) and only skipping when following text began with newline; now gated by pure ShouldSynthesizeTrailingLandingParagraph to synthesize only when the region is the last segment, so content-followed regions and rehydration round-trips stay stable. Bug 2 (Down sometimes not entering): audited the deterministic Down path and ActiveRegion state machine, found no concrete defect (only live layout/focus timing already masked), made no speculative change. Vertical Down-from-anywhere-above\u2192START and Up-from-below\u2192END preserved; entry-from-above and both-side exits intact.",
+          "recordedAt": "2026-10-15T09:59:12.7916323+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Embedded AvalonEdit region editors now track the prompt font size: added EditorFontSize to IRegionCodeEditor (implemented in AvalonEditRegionEditor over TextEditor.FontSize), EmbeddedCodeRegionBlock.ApplyEditorFontSize \u002B AttachHost adopting host PromptTextBox.FontSize for new/rehydrated regions, and ApplyPromptFontSize() fanning _promptFontSize out to all regions (1:1 mapping). 221 tests pass; build green. Commit 57c71cd6 on feature/avalonedit-region-editor.",
+          "recordedAt": "2026-10-15T10:05:20.6975165+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Up-arrow column preservation across the embedded region boundary: Up from start of host line below the region now enters at the START of the region\u0027s last line, and Up from the start of the region\u0027s first line now exits to the START of the host paragraph above (both only when caret is at column 0; Left/Right/Down and mid-line Up unchanged). Added DecideRegionEntry/DecideRegionEntryFromPrediction caretAtLineStart flag \u002B StartOfLastLineOffset, ComputeCaretAtLineStart, and EmbeddedCaretNavMath.ExitBackwardLandsAtParagraphStart with host landing at ContentStart. 231 tests pass; build green. Commit cdce6106 on feature/avalonedit-region-editor.",
+          "recordedAt": "2026-10-15T10:14:39.6028663+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Backspace in a completely empty inline region editor now removes the region: added pure predicate EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace (Key.Back \u002B no modifiers \u002B textLength 0) and EmbeddedCodeRegionBlock.TryRemoveEmptyRegionFromHost, which drops the region\u0027s BlockUIContainer (undo-guarded) and returns the caret to the following paragraph start (or prior paragraph end). Host FlowDocument is the single source of truth so the region cannot resurrect on rebuild. Non-empty Backspace, Delete, and modified Backspace unchanged. 239 tests pass; build green. Commit cd94e9de on feature/avalonedit-region-editor.",
+          "recordedAt": "2026-10-15T10:30:58.0859452+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Region editor\u0027s internal selection now collapses whenever the caret leaves the region, preventing two simultaneous selections. Added SelectionLength=0 (TextArea.ClearSelection) clears in EmbeddedCodeRegionBlock.FocusHostOutsideRegion (arrow/Tab/Ctrl exits) and in LostKeyboardFocus when focus genuinely leaves the region (click-out / select-outside), computed independently of ActiveRegion leak-defense bookkeeping. Text unchanged; in-region selecting and fenced copy/cut unaffected; ClearHostSelection mirror retained. 244 tests pass; build green. Commit 8c5297bd on feature/avalonedit-region-editor.",
+          "recordedAt": "2026-10-15T12:36:24.8537373+00:00"
+        }
+      ],
       "executionMode": "implementation",
       "verificationLevel": "enhanced",
       "contractExamples": [
@@ -539,7 +586,58 @@
       ],
       "afterTaskIdsSpecified": true,
       "beforeTaskIdsSpecified": true,
-      "question": "Does the migrated AvalonEdit region editor behave correctly for caret, selection, copy/paste, and arrow boundary navigation?"
+      "question": "Does the migrated AvalonEdit region editor behave correctly for caret, selection, copy/paste, and arrow boundary navigation?",
+      "humanReviewSelections": [
+        {
+          "itemId": "single-click-caret",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-14T23:09:02.3118074+00:00",
+          "reviewTarget": "v1:E52111C64C9E7802FCDA01BDC98D21D909813DDC15969506C6DB189FD2A4EC25"
+        },
+        {
+          "itemId": "double-click-word-select",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-14T23:09:07.1042992+00:00",
+          "reviewTarget": "v1:E52111C64C9E7802FCDA01BDC98D21D909813DDC15969506C6DB189FD2A4EC25"
+        },
+        {
+          "itemId": "click-drag-select",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-14T23:09:21.4965866+00:00",
+          "reviewTarget": "v1:E52111C64C9E7802FCDA01BDC98D21D909813DDC15969506C6DB189FD2A4EC25"
+        },
+        {
+          "itemId": "double-click-drag-extend",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-14T23:09:37.9790268+00:00",
+          "reviewTarget": "v1:E52111C64C9E7802FCDA01BDC98D21D909813DDC15969506C6DB189FD2A4EC25"
+        },
+        {
+          "itemId": "arrow-boundary-exit",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-14T23:11:23.7807294+00:00",
+          "reviewTarget": "v1:E52111C64C9E7802FCDA01BDC98D21D909813DDC15969506C6DB189FD2A4EC25"
+        },
+        {
+          "itemId": "fenced-copy-cut",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-14T23:12:02.6970798+00:00",
+          "reviewTarget": "v1:E52111C64C9E7802FCDA01BDC98D21D909813DDC15969506C6DB189FD2A4EC25"
+        },
+        {
+          "itemId": "paste-fenced-back",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-14T23:12:52.6898131+00:00",
+          "reviewTarget": "v1:E52111C64C9E7802FCDA01BDC98D21D909813DDC15969506C6DB189FD2A4EC25"
+        }
+      ]
     },
     {
       "gateId": "AVALONEDIT-20261014-GATE-002",
@@ -830,9 +928,10 @@
     "createdAt": "2026-10-14T21:33:35.2850529+00:00",
     "acceptedAt": "2026-10-14T21:33:35.2850529+00:00",
     "startedAt": "2026-10-14T21:33:35.9201922+00:00",
-    "lastRunAt": "2026-10-14T22:12:01.4825279+00:00"
+    "lastRunAt": "2026-10-14T23:12:52.6898131+00:00"
   },
   "hostRevision": "24893cd57beac24a",
   "validations": [],
-  "revisionNumber": 1
+  "revisionNumber": 1,
+  "isPaused": true
 }

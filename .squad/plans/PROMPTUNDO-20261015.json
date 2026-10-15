@@ -1,0 +1,431 @@
+{
+  "planId": "PROMPTUNDO-20261015",
+  "revision": "fba710722ab5756d",
+  "source": "tasks_json",
+  "lifecycleStatus": "approved",
+  "title": "Custom Undo/Redo Across Embedded Code Regions",
+  "branch": "feature/prompt-undo-across-regions",
+  "summary": "Give the prompt editor a single PromptUndoManager that owns Ctrl\u002BZ/Ctrl\u002BY across host text and every embedded AvalonEdit region, restoring the exact selection and caret from a {serializedText, caretOffset, anchorOffset} snapshot over the flat GetPlainText()/ToFencedText() serialization. caretOffset and anchorOffset are absolute offsets in that one flat coordinate space, so a single selection may straddle the host\u2194region boundary and must still capture and restore with correct span and direction. Native RichTextBox undo and per-region AvalonEdit undo are suppressed so exactly one authority exists; edits coalesce and history clears on send.",
+  "tasks": [
+    {
+      "taskId": "PROMPTUNDO-20261015-001",
+      "title": "Decide the single-authority prompt undo architecture",
+      "description": "Establish and record the authoritative design for prompt undo/redo before any wiring begins.\n\n## Observable outcome\n\nA new entry in \u0060.squad/decisions.md\u0060 plus a design contract that tasks 002-006 consume, so the implementation has one agreed model rather than per-task reinterpretation. No production behavior changes in this task.\n\n## Decisions to fix\n\n- A single \u0060PromptUndoManager\u0060 owns Ctrl\u002BZ/Ctrl\u002BY for the entire prompt \u0060RichTextBox\u0060, including when focus is inside an embedded region\u0027s AvalonEdit control.\n- The undo unit is a snapshot \u0060{serializedText, caretOffset, anchorOffset}\u0060 captured over the flat \u0060GetPlainText()\u0060/\u0060ToFencedText()\u0060 serialization.\n- **Absolute flat coordinate space.** \u0060caretOffset\u0060 and \u0060anchorOffset\u0060 are absolute offsets measured from the start of the single flat serialized prompt, a coordinate space that spans host text AND every embedded region\u0027s fenced span. Because both endpoints live in one space, a single selection may straddle the host\u2194region boundary in either orientation (anchor in host / caret in region, or anchor in region / caret in host).\n- **Selection-direction rule.** \u0060anchorOffset\u0060 and \u0060caretOffset\u0060 are stored separately so a forward selection (anchor before caret) and a backward selection (caret before anchor) each restore with the active caret on the correct end; the manager\u0027s authoritative range is the absolute [min,max] span plus the stored direction.\n- Single-authority routing suppresses native \u0060RichTextBox\u0060 undo and each region\u0027s AvalonEdit per-region undo stack.\n- Rapid consecutive edits coalesce into one undo entry; undo/redo history clears when the prompt is sent.\n\n## Consumers\n\nTasks 002 (snapshot engine), 003 (routing), 004 (coalescing/clear), 005 (tests), and 006 (review fixture) all build on this contract.",
+      "dependsOn": [],
+      "priority": "critical",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "orion-vale",
+          "role": "Author the undo architecture decision and design contract",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-architecture-contract",
+          "description": "Agreed snapshot shape, absolute-flat-coordinate model (including boundary-straddling selections), selection-direction rule, single-authority routing/suppression rules, and coalescing/clear-on-send policy recorded in .squad/decisions.md."
+        }
+      ],
+      "displayStepLabel": "1",
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced"
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-002",
+      "title": "Capture and restore prompt snapshots across the region seam",
+      "description": "Implement \u0060PromptUndoManager\u0060 snapshot capture and apply over the flat serialization, grounded in \u0060EmbeddedCodeRegionManager.ResolveCaretPointerAfterRebuild\u0060/\u0060GetCaretOffset\u0060, \u0060RichTextBoxExtensions.GetPlainText\u0060 and its fenced-offset mapping (\u0060GetCharOffset\u0060/\u0060GetTextPointerAt\u0060), and the \u0060IRegionCodeEditor\u0060/\u0060AvalonEditRegionEditor\u0060 seam (\u0060CaretOffset\u0060, \u0060SelectionStart\u0060, \u0060SelectionLength\u0060).\n\n## Observable outcome\n\nCapturing a snapshot then applying it rebuilds the prompt document from \u0060serializedText\u0060 and restores the exact selection \u2014 same span, same caret end \u2014 for host-text selections, collapsed carets, selections entirely inside one region, and selections that straddle the host\u2194region boundary. This capture/apply engine is consumed by the Ctrl\u002BZ/Ctrl\u002BY routing in task 003 and the coalescing/clear path in task 004.\n\n## Boundary-straddling selections (first-class)\n\n\u0060caretOffset\u0060 and \u0060anchorOffset\u0060 are absolute offsets in the one flat serialized-prompt coordinate space that spans host text and every embedded region\u0027s fenced span. A single selection may straddle the host\u2194region boundary in either orientation: anchor in host text with caret inside a region, OR anchor inside a region with caret in host text. Capture and restore must resolve a selection whose anchor and caret resolve to DIFFERENT surfaces \u2014 one host \u0060TextPointer\u0060, one in-region AvalonEdit offset \u2014 into one coherent WPF-level selection spanning the \u0060BlockUIContainer\u0060 boundary, preserving direction (which endpoint is the moving caret).\n\nBecause \u0060GetCharOffset\u0060 treats a region\u0027s fenced span as one indivisible block, an absolute offset that lands inside a region must additionally resolve to that specific region plus its internal AvalonEdit local offset. The content base is the absolute offset of the first content character after the opener line: for a fenced span serialized as \u0060{fence}{lang}\\n{content}\\n{fence}\u0060, content local offset L maps to absolute (spanStart \u002B fenceLen \u002B langLen \u002B 1 \u002B L).\n\nIf a WPF \u0060RichTextBox\u0060 selection cannot natively render a single visible highlight spanning a \u0060BlockUIContainer\u0060 plus its nested AvalonEdit control, the authoritative selection in \u0060PromptUndoManager\u0060 remains the absolute [min,max] range with stored direction, and the visible selection must reflect that range as faithfully as the control composition allows. The straddle case must never be silently dropped.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-001"
+      ],
+      "priority": "critical",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Implement snapshot capture/apply and the cross-seam selection resolution",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-snapshot-engine",
+          "description": "PromptUndoManager snapshot capture/apply over the flat serialization, resolving host, in-region, and boundary-straddling selections (both orientations) with preserved direction."
+        }
+      ],
+      "inputs": [
+        "undo-architecture-contract"
+      ],
+      "displayStepLabel": "2",
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced",
+      "contractExamples": [
+        {
+          "exampleId": "forward",
+          "title": "Forward host-text selection",
+          "input": "Flat serialized prompt (host text only): Hello world\nanchor=4, caret=9 (anchor before caret).",
+          "expectedBehavior": "Restore selects absolute [4,9) with the active caret at offset 9 (forward direction).",
+          "language": "text"
+        },
+        {
+          "exampleId": "backward",
+          "title": "Backward host-text selection",
+          "input": "Flat serialized prompt (host text only): Hello world\nanchor=9, caret=4 (caret before anchor).",
+          "expectedBehavior": "Restore selects the same absolute span [4,9) but backward, with the active caret at offset 4.",
+          "language": "text"
+        },
+        {
+          "exampleId": "collapsed-caret",
+          "title": "Collapsed caret, no selection",
+          "input": "Flat serialized prompt (host text only): Hello world\nanchor=6, caret=6.",
+          "expectedBehavior": "Restore places a collapsed caret at absolute offset 6 with no highlighted selection.",
+          "language": "text"
+        },
+        {
+          "exampleId": "both-inside-region",
+          "title": "Selection entirely inside one region",
+          "input": "Flat serialized prompt (host \u002B one region):\nHello\n\u0060\u0060\u0060python\nx=1\n\u0060\u0060\u0060\nWorld\nRegion fenced span = absolute [6,23); region content \u0022x=1\u0022 content base = absolute 16. anchor=16 (content local 0), caret=18 (content local 2).",
+          "expectedBehavior": "Restore selects region content local [0,2) entirely inside that region\u0027s AvalonEdit; no host text is selected; active caret at content local offset 2.",
+          "language": "text"
+        },
+        {
+          "exampleId": "straddle-forward",
+          "title": "Host anchor, in-region caret (forward straddle)",
+          "input": "Flat serialized prompt (host \u002B one region):\nHello\n\u0060\u0060\u0060python\nx=1\n\u0060\u0060\u0060\nWorld\nRegion fenced span = absolute [6,23); region content \u0022x=1\u0022 content base = absolute 16. anchor=2 (host text, inside \u0022Hello\u0022), caret=18 (inside the region, content local offset 2).",
+          "expectedBehavior": "Restore produces one coherent selection running from the host anchor at absolute 2 into the region, with the active (moving) caret inside the region at content local offset 2. Direction preserved: anchor outside the region, caret inside it.",
+          "language": "text"
+        },
+        {
+          "exampleId": "straddle-backward",
+          "title": "In-region anchor, host caret (inverse straddle)",
+          "input": "Flat serialized prompt (host \u002B one region):\nHello\n\u0060\u0060\u0060python\nx=1\n\u0060\u0060\u0060\nWorld\nRegion fenced span = absolute [6,23); region content \u0022x=1\u0022 content base = absolute 16. anchor=17 (inside the region, content local offset 1), caret=26 (host text, inside \u0022World\u0022 after the region).",
+          "expectedBehavior": "Restore produces one coherent selection running from the in-region anchor (content local offset 1) out to the host caret at absolute 26, with the active (moving) caret in host text after the region. The inverse straddle orientation is preserved: anchor inside the region, caret outside it.",
+          "language": "text"
+        }
+      ]
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-003",
+      "title": "Route Ctrl\u002BZ/Ctrl\u002BY through the single authority",
+      "description": "Wire prompt-level Ctrl\u002BZ and Ctrl\u002BY to \u0060PromptUndoManager\u0060 push/undo/redo and make it the only undo authority.\n\n## Observable outcome\n\nPressing Ctrl\u002BZ/Ctrl\u002BY in the prompt \u2014 whether keyboard focus is in host text or inside a focused region\u0027s AvalonEdit \u2014 drives the single \u0060PromptUndoManager\u0060, restoring snapshots via the task 002 engine. Native \u0060RichTextBox\u0060 undo and each region\u0027s AvalonEdit per-region undo stack are suppressed so there is exactly one history.\n\n## Consumers\n\nThe production prompt editor consumes this routing; task 005 asserts the mapping headlessly and GATE-001 confirms the live single-authority behavior.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-002"
+      ],
+      "priority": "high",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Wire single-authority Ctrl\u002BZ/Ctrl\u002BY routing and suppress native/per-region undo",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-routing",
+          "description": "Prompt Ctrl\u002BZ/Ctrl\u002BY routed to the single PromptUndoManager with native and per-region undo suppressed."
+        }
+      ],
+      "inputs": [
+        "undo-snapshot-engine"
+      ],
+      "displayStepLabel": "3",
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced"
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-004",
+      "title": "Coalesce rapid edits and clear history on send",
+      "description": "Add edit coalescing and clear-on-send to \u0060PromptUndoManager\u0060.\n\n## Observable outcome\n\nRapid consecutive edits collapse into a single undo entry (one Ctrl\u002BZ reverses a burst of typing rather than one character at a time), and the undo/redo history is cleared when the prompt is sent so a fresh prompt starts with an empty history.\n\n## Consumers\n\nThe production prompt-send path and the undo manager consume this behavior; GATE-001 confirms the coalesced undo live.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-002"
+      ],
+      "priority": "high",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Implement coalescing and clear-on-send",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-coalescing",
+          "description": "Rapid-edit coalescing into single undo entries and history clear on prompt send."
+        }
+      ],
+      "inputs": [
+        "undo-snapshot-engine"
+      ],
+      "displayStepLabel": "4",
+      "executionMode": "implementation"
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-005",
+      "title": "Prove flat-offset selection round-trips headlessly",
+      "description": "Add deterministic NUnit coverage for the capture\u2192apply round-trip of the flat-offset \u2194 caret/anchor/selection mapping.\n\n## Observable outcome\n\nHeadless tests capture absolute offsets, apply the snapshot, and assert the restored absolute \u0060anchorOffset\u0060, \u0060caretOffset\u0060, and direction match for: forward host selection, backward host selection, collapsed caret, a selection with both endpoints inside one region, and the two boundary-straddling cases \u2014 straddle-forward (host anchor \u002B in-region caret) and straddle-backward (in-region anchor \u002B host caret). The straddle cases capture absolute offsets that cross the host\u2194region boundary, apply, and assert the restored absolute anchor/caret and direction (which endpoint is the active caret) are preserved.\n\n## Consumers / conventions\n\nReuse or parameterize the project\u0027s established EmbeddedCodeRegion/EmbeddedCaretNav tests rather than adding a parallel harness. Build with env var DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR only (NU1701 is benign). Run with NUnit filters \u0060FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav\u0060. These tests are the regression evidence task 007 reuses.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-003",
+        "PROMPTUNDO-20261015-004"
+      ],
+      "priority": "high",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "vesper-knox",
+          "role": "Author deterministic flat-offset round-trip tests including the straddle cases",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "inputs": [
+        "undo-snapshot-engine",
+        "undo-routing",
+        "undo-coalescing"
+      ],
+      "proofRequirements": [
+        {
+          "requirementId": "flat-offset-roundtrip-tests",
+          "proofType": "automated-test",
+          "description": "Run the EmbeddedCodeRegion/EmbeddedCaretNav filtered suite proving capture\u2192apply restores absolute anchor/caret/direction for forward, backward, collapsed, both-inside-region, straddle-forward, and straddle-backward cases."
+        }
+      ],
+      "displayStepLabel": "5",
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced",
+      "contractExamples": [
+        {
+          "exampleId": "straddle-forward-roundtrip",
+          "title": "Round-trip a host-anchor/in-region-caret selection",
+          "input": "Document: Hello\\n\u0060\u0060\u0060python\\nx=1\\n\u0060\u0060\u0060\\nWorld ; capture anchor=2 (host), caret=18 (in-region, content local 2); apply snapshot.",
+          "expectedBehavior": "Assert restored anchorOffset=2 and caretOffset=18 with forward direction (anchor outside region, caret inside).",
+          "language": "text"
+        },
+        {
+          "exampleId": "straddle-backward-roundtrip",
+          "title": "Round-trip an in-region-anchor/host-caret selection",
+          "input": "Document: Hello\\n\u0060\u0060\u0060python\\nx=1\\n\u0060\u0060\u0060\\nWorld ; capture anchor=17 (in-region, content local 1), caret=26 (host); apply snapshot.",
+          "expectedBehavior": "Assert restored anchorOffset=17 and caretOffset=26 with the inverse straddle orientation preserved (anchor inside region, active caret in host text after the region).",
+          "language": "text"
+        }
+      ]
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-006",
+      "title": "Prepare the prompt-undo live review simulation",
+      "description": "Build a reproducible review path for the live undo/redo human checks, per the workspace decision that human UI approval checkpoints must have a reproducible review path.\n\n## Observable outcome\n\nA Developer \u2192 Simulation entry titled \u0022Prompt Undo Review\u0022 loads a prompt containing host text and at least one embedded code region, positioned so a reviewer can reproduce every undo/redo selection scenario \u2014 forward and backward host selections, a collapsed caret, a selection entirely inside a region, redo, in-region Ctrl\u002BZ routing, and a selection that STARTS in host text and ENDS inside a region (boundary-straddling). The simulation exercises the real undo action path, not a static visual.\n\n## Approval procedure\n\nEmit the concise setup/open/observe/cleanup approval procedure that SquadDash absorbs into the durable GATE-001 Inbox message, placing each \u0060{{approval-check:\u003CrequirementId\u003E}}\u0060 marker immediately before its observation for the seven GATE-001 requirements. The simulation output is consumed by GATE-001 as its fixture.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-003",
+        "PROMPTUNDO-20261015-004"
+      ],
+      "priority": "mid",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Build the Developer \u2192 Simulation review fixture and emit the approval procedure",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-review-simulation",
+          "description": "Developer \u2192 Simulation \u0027Prompt Undo Review\u0027 fixture (host text plus an embedded region) that reproduces all undo/redo selection scenarios including a boundary-straddling selection, with the GATE-001 approval procedure."
+        }
+      ],
+      "inputs": [
+        "undo-routing",
+        "undo-coalescing"
+      ],
+      "displayStepLabel": "6",
+      "executionMode": "implementation"
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-007",
+      "title": "Verify the integrated prompt-undo feature builds and passes",
+      "description": "Non-mutating final verification that the integrated feature is coherent on the combined branch.\n\n## Observable outcome\n\nConfirm HEAD builds (env var DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR only; NU1701 benign) and the filtered EmbeddedCodeRegion/EmbeddedCaretNav suite \u2014 including the straddle-forward and straddle-backward round-trip tests from task 005 \u2014 passes green on the integrated branch. This reuses task 005\u0027s recorded test evidence and does not add tests or modify production code; it closes the remaining cross-task integration gap after the human gate.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-005",
+        "PROMPTUNDO-20261015-006"
+      ],
+      "priority": "mid",
+      "status": "pending",
+      "agentAssignments": [
+        {
+          "agentHandle": "fact-checker",
+          "role": "Run the final non-mutating build and filtered-test verification",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "inputs": [
+        "undo-snapshot-engine",
+        "undo-routing",
+        "undo-coalescing"
+      ],
+      "proofRequirements": [
+        {
+          "requirementId": "integrated-build",
+          "proofType": "build",
+          "description": "Build the solution on integrated HEAD with DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set; NU1701 warnings are benign."
+        },
+        {
+          "requirementId": "integrated-filtered-tests",
+          "proofType": "automated-test",
+          "description": "Run NUnit with filters FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav and confirm all mapping/round-trip tests, including the two straddle cases, pass."
+        }
+      ],
+      "displayStepLabel": "7",
+      "executionMode": "verification"
+    }
+  ],
+  "approvalGates": [
+    {
+      "gateId": "PROMPTUNDO-20261015-GATE-001",
+      "message": "Confirm live prompt undo/redo restores every selection scenario, including a selection that straddles the host\u2194region boundary, using the Prompt Undo Review simulation.",
+      "afterTaskIds": [
+        "PROMPTUNDO-20261015-005",
+        "PROMPTUNDO-20261015-006"
+      ],
+      "beforeTaskIds": [
+        "PROMPTUNDO-20261015-007"
+      ],
+      "status": "pending",
+      "planRevision": "fba710722ab5756d",
+      "presentationAnchor": "stage:4",
+      "proofRequirements": [
+        {
+          "requirementId": "undo-restores-forward-host-selection",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a forward host-text selection re-highlights identically after undo.",
+          "question": "After editing then pressing Ctrl\u002BZ, does a forward host-text selection (anchor before caret) re-highlight the same span with the caret on the same end?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Build with DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set and launch SquadDash.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Make a forward host-text selection (drag left\u2192right), type to replace it, then press Ctrl\u002BZ; confirm the original forward selection re-highlights with the caret on the right end.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Undo restores forward host selection"
+        },
+        {
+          "requirementId": "undo-restores-backward-host-selection",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a backward host-text selection re-highlights with direction preserved after undo.",
+          "question": "After Ctrl\u002BZ, does a backward host-text selection (caret before anchor) re-highlight the same span with the caret on the same (left) end?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Make a backward host-text selection (drag right\u2192left), replace it, press Ctrl\u002BZ; confirm the same span re-highlights with the caret on the left end.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Undo restores backward host selection"
+        },
+        {
+          "requirementId": "undo-restores-collapsed-caret",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a collapsed caret returns to its original offset after undo.",
+          "question": "After Ctrl\u002BZ, does a collapsed caret (no selection) return to the same offset with no highlight?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Place a collapsed caret in host text, type a character, press Ctrl\u002BZ; confirm the caret returns to its original position with nothing highlighted.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Undo restores collapsed caret"
+        },
+        {
+          "requirementId": "undo-restores-in-region-selection",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a selection made entirely inside a region re-highlights inside that region after undo.",
+          "question": "After Ctrl\u002BZ, does a selection made entirely inside one region re-highlight inside that region?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Select text entirely inside the embedded region, replace it, press Ctrl\u002BZ; confirm the selection re-highlights inside that region\u0027s editor.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Undo restores in-region selection"
+        },
+        {
+          "requirementId": "redo-reapplies-selection",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms Ctrl\u002BY re-applies an undone edit and its selection/caret.",
+          "question": "After Ctrl\u002BZ then Ctrl\u002BY, does the redone edit restore with the same selection and caret?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Make an edit, press Ctrl\u002BZ, then Ctrl\u002BY; confirm the edit reappears with the same selection/caret it had before the undo.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Redo restores edit and selection"
+        },
+        {
+          "requirementId": "single-authority-in-region-undo",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms Ctrl\u002BZ inside a focused region is handled by the single PromptUndoManager, not the region\u0027s own AvalonEdit undo.",
+          "question": "With the caret inside a focused region, does Ctrl\u002BZ undo the prompt via the single authority rather than only the region\u0027s own AvalonEdit undo?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Click into the region, make an edit in host text and then in the region, press Ctrl\u002BZ with focus in the region; confirm the single prompt history unwinds (not an isolated per-region undo).",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Single authority handles in-region undo"
+        },
+        {
+          "requirementId": "undo-straddle-selection-direction",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a selection that starts outside a region and ends inside it re-highlights with the same span and direction after undo/redo.",
+          "question": "After undo then redo, does a selection that starts in host text and ends inside a region re-highlight the same straddling span with the same direction?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Make a selection that starts in host text and ends inside the region (dragging across the boundary), replace it, press Ctrl\u002BZ then Ctrl\u002BY; confirm the same straddling span re-highlights with the caret on the same end (direction preserved).",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Undo restores straddling selection direction"
+        }
+      ],
+      "afterTaskIdsSpecified": true,
+      "beforeTaskIdsSpecified": true,
+      "question": "Do prompt undo and redo restore every selection scenario \u2014 host, in-region, and boundary-straddling \u2014 with the correct span, direction, and single-authority routing?"
+    }
+  ],
+  "progress": {
+    "completedCount": 0,
+    "totalCount": 7
+  },
+  "timestamps": {
+    "createdAt": "2026-10-15T13:04:29.2649855+00:00",
+    "acceptedAt": "2026-10-15T13:04:29.2649855+00:00"
+  },
+  "validations": [],
+  "revisionNumber": 1
+}
