@@ -299,6 +299,28 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 Trace($"EMBEDDED_CODE_KEY pass-through key={e.Key} caret={_editor.CaretOffset} line={GetCaretLineIndexForTrace()}");
         };
 
+        // Backspace in a COMPLETELY EMPTY region removes the whole inline region from the prompt
+        // and lands the caret where the region was, so typing continues in-place — the intuitive
+        // "backspace at the start of an empty block deletes the block". Runs at PreviewKeyDown so
+        // it beats AvalonEdit's own Backspace handling (same tunneling stage the Space/nav handlers
+        // use). Gated to genuine focus in THIS region exactly like those handlers. A non-empty
+        // region, or a modified Backspace (Ctrl/Alt/Shift), or any other key (Delete included)
+        // falls through untouched to normal editing. See EmbeddedRegionBackspaceRouter.
+        _editorControl.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Back)
+                return;
+
+            var regionHasFocus = _editor.IsKeyboardFocusWithin && ReferenceEquals(ActiveRegion, this);
+            if (!regionHasFocus ||
+                !EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace(e.Key, Keyboard.Modifiers, _editor.TextLength))
+                return;
+
+            Trace($"EMBEDDED_CODE_BACKSPACE_REMOVE enter textLen={_editor.TextLength} active={ReferenceEquals(ActiveRegion, this)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+            if (TryRemoveEmptyRegionFromHost())
+                e.Handled = true;
+        };
+
         var languageLabel = new TextBlock
         {
             Text = string.IsNullOrEmpty(Language) ? "Auto Detect -- Plain Text" : Language,
@@ -601,6 +623,111 @@ public sealed class EmbeddedCodeRegionBlock : Border
             host.Selection.Select(pointer, pointer);
             Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE applied direction={direction} hostCaretOffset={GetHostCaretOffsetForTrace(host)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         });
+    }
+
+    /// <summary>
+    /// Removes this (necessarily empty) region's <see cref="BlockUIContainer"/> from the host
+    /// prompt document and schedules focus/caret back onto the host where the region used to be,
+    /// so Backspace in an empty region deletes the region and typing continues in-place. Returns
+    /// <see langword="true"/> when a container was found and removed.
+    /// <para>
+    /// The caret landing is computed BEFORE the removal, mirroring <see cref="FindHostCaretPointer"/>'s
+    /// forward/backward preference: the START of the paragraph that FOLLOWS the region if present,
+    /// else the END of the paragraph BEFORE it; if neither neighbor exists a blank paragraph is kept
+    /// so the <see cref="RichTextBox"/> stays editable and the caret lands there.
+    /// </para>
+    /// <para>
+    /// No separate source of truth needs updating: the host FlowDocument IS the single source of
+    /// truth for embedded regions — <see cref="EmbeddedCodeRegionManager.ConvertAllFences"/> /
+    /// rebuilds scan <c>host.Document.Blocks</c>, and the logical/draft buffer is derived from the
+    /// same blocks via <see cref="RichTextBoxExtensions.GetPlainText"/> (which serializes each live
+    /// region through <see cref="ToFencedText"/>). Removing the container from <c>Blocks</c> here
+    /// therefore guarantees the empty region does not resurrect on a later rebuild or on a
+    /// <c>SetPromptTextBoxLogicalBuffer</c> rehydration round-trip.
+    /// </para>
+    /// </summary>
+    internal bool TryRemoveEmptyRegionFromHost()
+    {
+        var host = _hostRichTextBox;
+        if (host is null)
+        {
+            Trace("EMBEDDED_CODE_BACKSPACE_REMOVE fallback=no-host");
+            return false;
+        }
+
+        var blocks = host.Document.Blocks.ToList();
+        var index = -1;
+        BlockUIContainer? container = null;
+        for (var i = 0; i < blocks.Count; i++)
+        {
+            if (blocks[i] is BlockUIContainer { Child: EmbeddedCodeRegionBlock region } buc &&
+                ReferenceEquals(region, this))
+            {
+                container = buc;
+                index = i;
+                break;
+            }
+        }
+
+        if (container is null)
+        {
+            Trace("EMBEDDED_CODE_BACKSPACE_REMOVE fallback=not-found");
+            return false;
+        }
+
+        // Compute the neighbors BEFORE removing, so the landing pointer can be resolved on blocks
+        // that survive the removal (prefer the following paragraph's start, else the preceding
+        // paragraph's end — matching the forward/backward exit convention in FindHostCaretPointer).
+        var following = index + 1 < blocks.Count ? blocks[index + 1] as Paragraph : null;
+        var preceding = index > 0 ? blocks[index - 1] as Paragraph : null;
+
+        // The user is leaving the region (it's being deleted): it is no longer the active region
+        // for the typing-safety net — mirrors FocusHostOutsideRegion.
+        if (ReferenceEquals(ActiveRegion, this))
+            ActiveRegion = null;
+
+        var undoWasEnabled = host.IsUndoEnabled;
+        if (undoWasEnabled)
+            host.IsUndoEnabled = false;
+
+        TextPointer landing;
+        try
+        {
+            host.Document.Blocks.Remove(container);
+
+            if (following is not null)
+                landing = following.ContentStart;
+            else if (preceding is not null)
+                landing = preceding.ContentEnd;
+            else
+            {
+                // Region was the only/sole-remaining block: keep the RichTextBox editable by
+                // ensuring a blank paragraph exists, and land the caret there.
+                if (host.Document.Blocks.Count == 0)
+                    host.Document.Blocks.Add(new Paragraph(new Run(string.Empty)) { Margin = new Thickness(0) });
+                landing = host.Document.Blocks.FirstBlock is Paragraph only
+                    ? only.ContentStart
+                    : host.Document.ContentStart;
+            }
+        }
+        finally
+        {
+            if (undoWasEnabled)
+                host.IsUndoEnabled = true;
+        }
+
+        Trace($"EMBEDDED_CODE_BACKSPACE_REMOVE removed index={index} following={following is not null} preceding={preceding is not null} blocksAfter={host.Document.Blocks.Count}");
+
+        host.Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+        {
+            host.Focus();
+            Keyboard.Focus(host);
+            host.CaretPosition = landing;
+            host.Selection.Select(landing, landing);
+            Trace($"EMBEDDED_CODE_BACKSPACE_REMOVE applied hostCaretOffset={GetHostCaretOffsetForTrace(host)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+        });
+
+        return true;
     }
 
     private TextPointer? FindHostCaretPointer(RichTextBox host, LogicalDirection direction, bool landAtParagraphStart = false)

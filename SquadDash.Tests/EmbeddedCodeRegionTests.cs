@@ -2288,6 +2288,86 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(contentBox.FontSize, Is.EqualTo(24));
     }
 
+    // ── Backspace-removes-empty-region (EmbeddedRegionBackspaceRouter + host removal) ───────────
+
+    [Test]
+    public void ShouldRemoveEmptyRegionOnBackspace_BackEmptyNoModifiers_IsTrue()
+        => Assert.That(
+            EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace(Key.Back, ModifierKeys.None, 0),
+            Is.True);
+
+    [Test]
+    public void ShouldRemoveEmptyRegionOnBackspace_BackNonEmpty_IsFalse()
+        => Assert.That(
+            EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace(Key.Back, ModifierKeys.None, 5),
+            Is.False);
+
+    [Test]
+    public void ShouldRemoveEmptyRegionOnBackspace_BackEmptyWithControl_IsFalse()
+        => Assert.That(
+            EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace(Key.Back, ModifierKeys.Control, 0),
+            Is.False);
+
+    [Test]
+    public void ShouldRemoveEmptyRegionOnBackspace_BackEmptyWithShift_IsFalse()
+        => Assert.That(
+            EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace(Key.Back, ModifierKeys.Shift, 0),
+            Is.False);
+
+    [Test]
+    public void ShouldRemoveEmptyRegionOnBackspace_BackEmptyWithAlt_IsFalse()
+        => Assert.That(
+            EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace(Key.Back, ModifierKeys.Alt, 0),
+            Is.False);
+
+    [Test]
+    public void ShouldRemoveEmptyRegionOnBackspace_DeleteEmpty_IsFalse()
+        => Assert.That(
+            EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace(Key.Delete, ModifierKeys.None, 0),
+            Is.False);
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryRemoveEmptyRegionFromHost_DropsContainer_AndRegionDoesNotResurrectOnRebuild()
+    {
+        // An empty fence between two plain-text lines becomes an empty region flanked by paragraphs.
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before\n```\n```\nafter");
+        Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(rtb), Is.True);
+
+        var container = rtb.Document.Blocks.OfType<BlockUIContainer>().Single();
+        var region = (EmbeddedCodeRegionBlock)container.Child;
+        Assert.That(region.Content, Is.EqualTo(""), "region must be empty for this scenario");
+
+        var removed = region.TryRemoveEmptyRegionFromHost();
+
+        Assert.That(removed, Is.True);
+        Assert.That(rtb.Document.Blocks.OfType<BlockUIContainer>(), Is.Empty,
+            "the region's BlockUIContainer must be gone from the document");
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("before\nafter"),
+            "serialized source of truth must no longer contain the empty fence");
+
+        // Proof the region does not resurrect: the FlowDocument is the single source of truth, so a
+        // subsequent fence-rebuild finds nothing to convert and the serialization is unchanged.
+        Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(rtb), Is.False);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("before\nafter"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryRemoveEmptyRegionFromHost_LoneRegion_LeavesEditableEmptyDocument()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\n```");
+        Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(rtb), Is.True);
+
+        var region = (EmbeddedCodeRegionBlock)rtb.Document.Blocks.OfType<BlockUIContainer>().Single().Child;
+
+        Assert.That(region.TryRemoveEmptyRegionFromHost(), Is.True);
+        Assert.That(rtb.Document.Blocks.OfType<BlockUIContainer>(), Is.Empty);
+        Assert.That(rtb.Document.Blocks.Count, Is.GreaterThan(0),
+            "a blank paragraph must remain so the RichTextBox stays editable");
+        Assert.That(rtb.GetPlainText(), Is.EqualTo(""));
+    }
+
     // The region's content editor is now an AvalonEdit TextEditor hosted inside the editor
     // border (the second child of the region's StackPanel).
     private static ICSharpCode.AvalonEdit.TextEditor GetContentEditor(EmbeddedCodeRegionBlock region)
