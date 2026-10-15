@@ -74,6 +74,27 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         }
     }
 
+    public void RestoreSelection(int anchorOffset, int caretOffset)
+    {
+        var length = _editor.Document.TextLength;
+        anchorOffset = Math.Clamp(anchorOffset, 0, length);
+        caretOffset = Math.Clamp(caretOffset, 0, length);
+
+        var min = Math.Min(anchorOffset, caretOffset);
+        var max = Math.Max(anchorOffset, caretOffset);
+
+        if (min == max)
+            _editor.TextArea.ClearSelection();
+        else
+            _editor.TextArea.Selection =
+                ICSharpCode.AvalonEdit.Editing.Selection.Create(_editor.TextArea, min, max);
+
+        // Place the caret on the moving end so a forward and a backward selection each restore with
+        // the active caret on the correct side (AvalonEdit renders the highlight from the selection,
+        // the blink position from the caret).
+        _editor.TextArea.Caret.Offset = caretOffset;
+    }
+
     public string SelectedText => _editor.SelectedText;
 
     public int TextLength => _editor.Document.TextLength;

@@ -474,6 +474,54 @@ public sealed class EmbeddedCodeRegionBlock : Border
     }
 
     /// <summary>
+    /// True when keyboard focus is currently inside this region's content editor. Used by
+    /// <see cref="PromptUndoManager.CaptureSnapshot"/> to decide whether the live caret/anchor are
+    /// region-local (and must be mapped into the absolute flat prompt coordinate space) rather than
+    /// read from the host <see cref="RichTextBox"/> caret, which only ever sits at the region's
+    /// element boundary while focus is really inside the nested editor.
+    /// </summary>
+    internal bool HasContentKeyboardFocus => _editor.IsKeyboardFocusWithin;
+
+    /// <summary>
+    /// The editor's current selection as (anchorLocal, caretLocal) offsets within the region's
+    /// content text, preserving direction: for a forward selection the anchor is the lower offset
+    /// and the caret the higher; for a backward selection they swap; with no selection both equal
+    /// the caret. These are the region-local halves that
+    /// <see cref="PromptUndoManager.CaptureSnapshot"/> lifts into the absolute flat coordinate space
+    /// by adding the region's content-base offset.
+    /// </summary>
+    internal (int anchorLocal, int caretLocal) GetContentSelectionLocal()
+    {
+        var caret = _editor.CaretOffset;
+        var selLength = _editor.SelectionLength;
+        if (selLength <= 0)
+            return (caret, caret);
+
+        var selStart = _editor.SelectionStart;
+        var selEnd = selStart + selLength;
+        // AvalonEdit's caret marks the moving end; the anchor is the opposite end of the selection.
+        var anchor = caret == selStart ? selEnd : selStart;
+        return (anchor, caret);
+    }
+
+    /// <summary>
+    /// Restores a selection inside this region's content editor from region-local
+    /// <paramref name="anchorLocal"/>/<paramref name="caretLocal"/> offsets (preserving direction),
+    /// routes keyboard focus into the editor, and marks this the active region. The in-region arm of
+    /// <see cref="PromptUndoManager.ApplySnapshot"/> for a selection that lives wholly inside this
+    /// region (including a collapsed caret, where the two offsets are equal).
+    /// </summary>
+    public void RestoreContentSelection(int anchorLocal, int caretLocal)
+    {
+        Trace($"EMBEDDED_CODE_RESTORE_SELECTION enter anchor={anchorLocal} caret={caretLocal} textLen={_editor.TextLength} visible={_editorControl.IsVisible}");
+        ActiveRegion = this;
+        ClearHostSelection();
+        _editor.RestoreSelection(anchorLocal, caretLocal);
+        _editor.FocusEditor();
+        Trace($"EMBEDDED_CODE_RESTORE_SELECTION exit caret={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} focused={_editor.IsKeyboardFocusWithin}");
+    }
+
+    /// <summary>
     /// Gives keyboard focus to this region's content editor and places the caret at the specified
     /// position within the text. Used for smart arrow-key navigation to enter the region with
     /// caret at the correct position (start, end, or specific offset).

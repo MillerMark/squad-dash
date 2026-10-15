@@ -107,7 +107,25 @@ internal static class EmbeddedFenceDetector
     }
 
     /// <summary>
-    /// Serializes code-region content back into an equivalent backtick-fenced block. The outer
+    /// Number of characters in a <see cref="BuildFencedText"/> serialization that precede the
+    /// region's content — i.e. the opening fence run, the optional language tag, and the single
+    /// '\n' that separates the header line from the content. For a serialization
+    /// <c>{fence}{language}\n{content}\n{fence}</c> this is
+    /// <c>fenceLength + language.Length + 1</c>. Added to a region's absolute fenced-span start it
+    /// yields the ABSOLUTE offset of content-local offset 0, the "content base" used by the
+    /// cross-seam prompt undo/redo resolution (PROMPTUNDO-20261015): absolute =
+    /// spanStart + FencedContentOffset + contentLocalOffset. Computed from the SAME normalized
+    /// content and fence-length rule as <see cref="BuildFencedText"/> so the two stay exact.
+    /// </summary>
+    internal static int FencedContentOffset(string content, string? language)
+    {
+        var normalized = (content ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
+        var fenceLength = Math.Max(3, LongestBacktickRun(normalized) + 1);
+        return fenceLength + (language ?? string.Empty).Length + 1;
+    }
+
+    /// <summary>
+    /// Serializes code-region content back into an equivalent backtick-fenced block.The outer
     /// fence length is <c>max(3, longestBacktickRun(content) + 1)</c> so it is always strictly
     /// longer than the longest run of backticks anywhere inside the content — guaranteeing no
     /// inner line can be mistaken for the region's closing fence (e.g. content with a bare 3

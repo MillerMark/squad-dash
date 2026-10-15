@@ -84,6 +84,17 @@ public interface IRegionCodeEditor
     /// Length of the current selection; set to 0 to collapse the selection.
     int SelectionLength { get; set; }
 
+    /// <summary>
+    /// Restores a selection inside the editor from explicit local <paramref name="anchorOffset"/>
+    /// (the fixed end) and <paramref name="caretOffset"/> (the moving end), preserving direction:
+    /// the active caret lands at <paramref name="caretOffset"/> whether it is the lower or higher
+    /// of the two. Equal offsets collapse to a caret with no highlight. Offsets are clamped to the
+    /// editor's text length. This is the in-region half of the single-authority prompt undo/redo
+    /// restore path (PROMPTUNDO-20261015): <see cref="PromptUndoManager.ApplySnapshot"/> uses it to
+    /// re-establish a selection that lives (wholly or partly) inside this region.
+    /// </summary>
+    void RestoreSelection(int anchorOffset, int caretOffset);
+
     /// Text currently selected (empty string when nothing is selected).
     string SelectedText { get; }
 
