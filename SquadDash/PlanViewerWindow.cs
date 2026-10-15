@@ -9126,7 +9126,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         // Title
-        var titlePara = new Paragraph(new Run("Human Approval Required") { FontWeight = FontWeights.Bold });
+        var titlePara = new Paragraph(new Run("Approval Required") { FontWeight = FontWeights.Bold });
         titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
         titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
         titlePara.Margin = new Thickness(0, 0, 0, 4);
@@ -9141,8 +9141,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             msgPara.Margin = new Thickness(0, 0, 0, 8);
             _detailDocument.Blocks.Add(msgPara);
         }
-
-        AppendGateReviewRequirements(gate);
 
         // Status (color-coded)
         var gateStatusColor = gate.Status switch
@@ -9166,11 +9164,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.Margin = new Thickness(0, 0, 0, 8);
         _detailDocument.Blocks.Add(statusPara);
 
+        AppendGateReviewRequirements(gate);
+
         // After Tasks
-        AddTaskIdList("Starts After These:", gate.AfterTaskIds, _durablePlan);
+        AddTaskIdList("Starts After:", gate.AfterTaskIds, _durablePlan);
 
         // Before Tasks
-        AddTaskIdList("Starts Before These:", gate.BeforeTaskIds, _durablePlan);
+        AddTaskIdList("Starts Before:", gate.BeforeTaskIds, _durablePlan);
 
         // Resolution Note
         if (!string.IsNullOrWhiteSpace(gate.ResolutionNote))
@@ -9417,7 +9417,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var blocks = PlanGateReviewRenderer.CreateReviewBlocks(gate, approvalQuestions, hasClarifiedReview);
         if (blocks.Count > 0)
         {
-            AddSectionHeader("Verify the Following:");
+            AddSectionHeader("Verify:");
             foreach (var block in blocks)
                 _detailDocument.Blocks.Add(block);
         }

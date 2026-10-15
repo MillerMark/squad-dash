@@ -229,12 +229,16 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
                 var method = ExtractMethod(source, signature);
                 Assert.That(method, Does.Contain("AppendGateReviewRequirements(gate);")
                     .And.Contain("AppendApprovalContractEditor(gate);"));
-                Assert.That(method.IndexOf("AppendGateReviewRequirements(gate);", StringComparison.Ordinal),
-                    Is.LessThan(method.IndexOf("// Status (color-coded)", StringComparison.Ordinal)));
             }
+            var gateDetail = ExtractMethod(source, "private void PopulateGateDetail(PlanApprovalGate gate, Plan? plan)");
+            Assert.That(gateDetail.IndexOf("AppendGateReviewRequirements(gate);", StringComparison.Ordinal),
+                Is.LessThan(gateDetail.IndexOf("// Status (color-coded)", StringComparison.Ordinal)));
+            var humanApprovalDetail = ExtractMethod(source, "private void PopulateHumanApprovalDetail(string gateId)");
+            Assert.That(humanApprovalDetail.IndexOf("// Status (color-coded)", StringComparison.Ordinal),
+                Is.LessThan(humanApprovalDetail.IndexOf("AppendGateReviewRequirements(gate);", StringComparison.Ordinal)));
             Assert.That(append, Does.Contain("PlanGateReviewRenderer.CreateReviewBlocks(gate, approvalQuestions, hasClarifiedReview)")
                 .And.Contain("if (blocks.Count > 0)")
-                .And.Contain("AddSectionHeader(\"Verify the Following:\")")
+                .And.Contain("AddSectionHeader(\"Verify:\")")
                 .And.Contain("_detailDocument.Blocks.Add(block)")
                 .And.Not.Contain("_isInspectorEditing"));
         });
@@ -272,7 +276,7 @@ internal sealed class PlanViewerInspectorTaskLinkArchitectureTests
                 .And.Contain("? ResolvePresentedHumanReviewQuestions(gate)")
                 .And.Contain("string.IsNullOrWhiteSpace(gate.Question) ? [] : [gate.Question]"));
             Assert.That(method, Does.Contain("gate.HumanReviewDispositions is { Count: > 0 }"));
-            Assert.That(Regex.Matches(method, "AddSectionHeader\\(\"Verify the Following:\"\\)").Count, Is.EqualTo(1));
+            Assert.That(Regex.Matches(method, "AddSectionHeader\\(\"Verify:\"\\)").Count, Is.EqualTo(1));
         });
     }
 
