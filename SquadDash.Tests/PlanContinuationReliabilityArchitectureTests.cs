@@ -349,6 +349,8 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
             Assert.That(finalize, Does.Contain("postCommitWorktreeBlock = commitValidation.WorktreeBlock")
                 .And.Contain("PlanStoreUpdater.ApplyTaskVerificationPending(")
                 .And.Contain("PausePlanForCleanWorktree(postCommitWorktreeBlock, groupId)")
+                .And.Contain("completedAfterAcceptance")
+                .And.Contain("postCommitWorktreeBlock is not null && !completedAfterAcceptance")
                 .And.Contain("TryPublishPlanStepAccepted("));
             Assert.That(cleanPause, Does.Contain("SelectSinglePendingVerificationTask(latest)")
                 .And.Contain("ResumeInterruptedTaskVerificationAsync(latest, verificationTask.TaskId)"));

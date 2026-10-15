@@ -16753,13 +16753,19 @@ public partial class MainWindow : Window
                     : executionAttempt with { Status = "accepted" },
                 PendingRepairResult = null,
             });
-        if (postCommitWorktreeBlock is not null)
+        var durableAfterAcceptance = _planStore?.Load(groupId);
+        var completedPlan =
+            state == DecomposeGroupExecutionState.Complete &&
+            durableAfterAcceptance?.LifecycleStatus == PlanLifecycleStatus.Completed
+                ? durableAfterAcceptance
+                : null;
+        var completedAfterAcceptance = completedPlan is not null;
+        if (postCommitWorktreeBlock is not null && !completedAfterAcceptance)
         {
             PausePlanForCleanWorktree(postCommitWorktreeBlock, groupId);
             return;
         }
         LoadTasksPanel();
-        var durableAfterAcceptance = _planStore?.Load(groupId);
         if (_pausePlanAfterCurrentStepRequested || durableAfterAcceptance?.IsPaused == true)
         {
             SuppressLoopResumeAfterExplicitStop("pause-plan-after-step");
@@ -16776,14 +16782,13 @@ public partial class MainWindow : Window
             ActivateValidationForNextIteration(groupId, durableAfterAcceptance!, readyValidation);
             return;
         }
-        if (state == DecomposeGroupExecutionState.Complete &&
-            durableAfterAcceptance?.LifecycleStatus == PlanLifecycleStatus.Completed)
+        if (completedPlan is not null)
         {
             SuppressLoopResume("plan-complete");
             _loopController.RequestStop();
-            PublishPlanCompletionSummary(durableAfterAcceptance);
+            PublishPlanCompletionSummary(completedPlan);
             ScheduleDecomposeSystemEntry(
-                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(durableAfterAcceptance));
+                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(completedPlan));
         }
         else if (_planStore is not null)
         {
