@@ -130,7 +130,7 @@ internal static class InboxApprovalChecklistPresenter
         var choices = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Margin = new Thickness(8, 0, 0, 2),
+            Margin = new Thickness(8, 3, 0, 2),
         };
         root.Children.Add(choices);
 
@@ -147,19 +147,7 @@ internal static class InboxApprovalChecklistPresenter
         choices.Children.Add(yesChoice.CheckBox);
         choices.Children.Add(noChoice.CheckBox);
 
-        var noteRow = new Grid { Margin = new Thickness(8, 1, 0, 0) };
-        noteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        noteRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var noteLabel = new TextBlock
-        {
-            Text = "Notes",
-            FontSize = checklistFontSize - 1,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 4, 6, 0),
-        };
-        noteLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-        noteRow.Children.Add(noteLabel);
-
+        var noteRow = new Grid { Margin = new Thickness(8, 2, 0, 0) };
         var noteBox = new TextBox
         {
             Text = response.Note ?? string.Empty,
@@ -182,8 +170,13 @@ internal static class InboxApprovalChecklistPresenter
         noteBox.SetResourceReference(TextBox.ForegroundProperty, "ImportantText");
         noteBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         AutomationProperties.SetName(noteBox, $"Notes for {item.Text}");
-        Grid.SetColumn(noteBox, 1);
         noteRow.Children.Add(noteBox);
+        TranscriptApprovalCardBuilder.AddNotePlaceholder(
+            noteRow,
+            noteBox,
+            checklistFontSize - 1,
+            new Thickness(8, 4, 0, 0),
+            VerticalAlignment.Top);
         root.Children.Add(noteRow);
 
         void UpdateSemanticText()
@@ -266,8 +259,12 @@ internal static class InboxApprovalChecklistPresenter
             ApplyResponse(response, notify, updateNoteBox: false);
         }
 
-        yesChoice.CheckBox.Click += (_, _) => SetAnswer(true, notify: true);
-        noChoice.CheckBox.Click += (_, _) => SetAnswer(false, notify: true);
+        TranscriptApprovalCardBuilder.AttachImmediateChecklistChoice(
+            yesChoice.CheckBox,
+            () => SetAnswer(true, notify: true));
+        TranscriptApprovalCardBuilder.AttachImmediateChecklistChoice(
+            noChoice.CheckBox,
+            () => SetAnswer(false, notify: true));
         noteBox.TextChanged += (_, _) =>
         {
             if (suppressNoteUpdate) return;

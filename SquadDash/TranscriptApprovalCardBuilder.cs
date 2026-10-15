@@ -270,7 +270,7 @@ internal static class TranscriptApprovalCardBuilder
                 itemBlock.Inlines.Add(questionRun);
                 itemBlock.FontWeight = FontWeights.Normal;
                 itemBlock.TextWrapping = TextWrapping.Wrap;
-                itemBlock.Margin = new Thickness(0, 0, 0, 0);
+                itemBlock.Margin = new Thickness(0, 0, 0, 3);
                 AutomationProperties.SetName(itemBlock, "Approval question");
                 questionBlock ??= itemBlock;
 
@@ -299,10 +299,6 @@ internal static class TranscriptApprovalCardBuilder
                 choicePanel.Children.Add(yesChoice.CheckBox);
                 choicePanel.Children.Add(noChoice.CheckBox);
 
-                var itemNoteLabel = CreateStyledTextBlock("Notes", fontSize - 1, "SubtleText");
-                itemNoteLabel.VerticalAlignment = VerticalAlignment.Center;
-                itemNoteLabel.Margin = new Thickness(8, 2, 5, 0);
-
                 var itemNoteBox = new TextBox
                 {
                     Text = response.Note ?? string.Empty,
@@ -327,19 +323,30 @@ internal static class TranscriptApprovalCardBuilder
                 itemNoteBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
                 AutomationProperties.SetName(itemNoteBox, $"Notes for {item.Text}");
 
-                var itemRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star) });
-                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 140 });
+                var itemNoteHost = new Grid
+                {
+                    MinWidth = 140,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                itemNoteHost.Children.Add(itemNoteBox);
+                AddNotePlaceholder(
+                    itemNoteHost,
+                    itemNoteBox,
+                    fontSize - 1,
+                    new Thickness(8, 0, 0, 0),
+                    VerticalAlignment.Center);
+
+                var controlRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+                controlRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                controlRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 140 });
                 Grid.SetColumn(choicePanel, 0);
-                Grid.SetColumn(itemBlock, 1);
-                Grid.SetColumn(itemNoteLabel, 2);
-                Grid.SetColumn(itemNoteBox, 3);
-                itemRow.Children.Add(choicePanel);
-                itemRow.Children.Add(itemBlock);
-                itemRow.Children.Add(itemNoteLabel);
-                itemRow.Children.Add(itemNoteBox);
+                Grid.SetColumn(itemNoteHost, 1);
+                controlRow.Children.Add(choicePanel);
+                controlRow.Children.Add(itemNoteHost);
+
+                var itemContainer = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
+                itemContainer.Children.Add(itemBlock);
+                itemContainer.Children.Add(controlRow);
 
                 if (onClarifyItem is not null || onRefreshWordingItem is not null)
                 {
@@ -372,7 +379,7 @@ internal static class TranscriptApprovalCardBuilder
                         };
                     }
 
-                    AttachReviewItemMenu(itemRow);
+                    AttachReviewItemMenu(itemContainer);
                     AttachReviewItemMenu(choicePanel);
                     AttachReviewItemMenu(itemBlock);
                 }
@@ -459,8 +466,8 @@ internal static class TranscriptApprovalCardBuilder
                     ApplyResponse(response, notify, updateNoteBox: false);
                 }
 
-                yesChoice.CheckBox.Click += (_, _) => SetAnswer(true, notify: true);
-                noChoice.CheckBox.Click += (_, _) => SetAnswer(false, notify: true);
+                AttachImmediateChecklistChoice(yesChoice.CheckBox, () => SetAnswer(true, notify: true));
+                AttachImmediateChecklistChoice(noChoice.CheckBox, () => SetAnswer(false, notify: true));
                 itemNoteBox.TextChanged += (_, _) =>
                 {
                     if (suppressNoteUpdate)
@@ -492,7 +499,7 @@ internal static class TranscriptApprovalCardBuilder
                         noteUpdateTimer?.Stop();
                         ApplyResponse(next, notify: false, updateNoteBox: true);
                     };
-                questionStack.Children.Add(itemRow);
+                questionStack.Children.Add(itemContainer);
             }
 
             var questionBorder = new Border
@@ -1260,6 +1267,68 @@ internal static class TranscriptApprovalCardBuilder
             noteBox.ReleaseMouseCapture();
             e.Handled = true;
         };
+    }
+
+    internal static TextBlock AddNotePlaceholder(
+        Grid host,
+        TextBox noteBox,
+        double fontSize,
+        Thickness margin,
+        VerticalAlignment verticalAlignment)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(noteBox);
+
+        var placeholder = CreateStyledTextBlock("(notes)", fontSize, "SubtleText");
+        placeholder.TextWrapping = TextWrapping.NoWrap;
+        placeholder.IsHitTestVisible = false;
+        placeholder.Margin = margin;
+        placeholder.VerticalAlignment = verticalAlignment;
+        placeholder.HorizontalAlignment = HorizontalAlignment.Left;
+        Grid.SetColumn(placeholder, Grid.GetColumn(noteBox));
+        Grid.SetColumnSpan(placeholder, Grid.GetColumnSpan(noteBox));
+        Grid.SetRow(placeholder, Grid.GetRow(noteBox));
+        Grid.SetRowSpan(placeholder, Grid.GetRowSpan(noteBox));
+
+        void UpdatePlaceholderVisibility() =>
+            placeholder.Visibility = string.IsNullOrEmpty(noteBox.Text)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+        noteBox.TextChanged += (_, _) => UpdatePlaceholderVisibility();
+        UpdatePlaceholderVisibility();
+        host.Children.Add(placeholder);
+        return placeholder;
+    }
+
+    internal static void AttachImmediateChecklistChoice(CheckBox checkBox, Action toggle)
+    {
+        ArgumentNullException.ThrowIfNull(checkBox);
+        ArgumentNullException.ThrowIfNull(toggle);
+
+        void ToggleChoice()
+        {
+            if (!checkBox.IsEnabled)
+                return;
+
+            _ = checkBox.Focus();
+            toggle();
+        }
+
+        checkBox.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            ToggleChoice();
+            e.Handled = true;
+        };
+        checkBox.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key is not (Key.Space or Key.Enter))
+                return;
+
+            ToggleChoice();
+            e.Handled = true;
+        };
+        checkBox.Click += (_, _) => ToggleChoice();
     }
 
     internal static void ConfigureNoteEditor(TextBox noteBox)

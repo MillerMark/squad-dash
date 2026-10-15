@@ -38,6 +38,12 @@ internal sealed class InboxApprovalChecklistPresenterTests
             fontSize: 19);
         var root = FindChecklistRoot(document.Blocks)!;
         var boxes = FindCheckBoxes(root).ToArray();
+        var choices = root.Children.OfType<StackPanel>()
+            .Single(panel => FindCheckBoxes(panel).Count() == 2);
+        var noteRow = root.Children.OfType<Grid>().Single();
+        var noteBox = noteRow.Children.OfType<TextBox>().Single();
+        var notePlaceholder = noteRow.Children.OfType<TextBlock>()
+            .Single(text => text.Text == "(notes)");
         boxes[0].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
         var expectedFontSize = 19 * InboxApprovalChecklistPresenter.ChecklistFontScale;
 
@@ -50,8 +56,13 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(boxes, Has.Length.EqualTo(2));
             Assert.That(boxes[0].IsChecked, Is.True);
             Assert.That(boxes[1].IsChecked, Is.False);
-            Assert.That(root.Children.OfType<Grid>().Single().Children.OfType<TextBox>().Single(), Is.Not.Null);
+            Assert.That(noteBox, Is.Not.Null);
+            Assert.That(choices.Margin.Top, Is.EqualTo(3));
+            Assert.That(noteRow.Margin.Top, Is.EqualTo(2));
+            Assert.That(notePlaceholder.Visibility, Is.EqualTo(Visibility.Visible));
         });
+        noteBox.Text = "Needs follow-up";
+        Assert.That(notePlaceholder.Visibility, Is.EqualTo(Visibility.Collapsed));
 
         var yesContent = (StackPanel)boxes[0].Content;
         var yesBorder = yesContent.Children.OfType<Border>().Single();

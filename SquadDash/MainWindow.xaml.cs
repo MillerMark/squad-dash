@@ -21299,9 +21299,12 @@ public partial class MainWindow : Window
         PlanHumanReviewChecklistItem item,
         PlanHumanReviewItemResponse response)
     {
+        var normalized = response.Normalized();
+        SynchronizeHumanReviewResponseSurfaces(planId, item, normalized);
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+
         var current = _planStore?.Load(planId);
         if (current is null) return;
-        var normalized = response.Normalized();
         var previous = ResolveHumanReviewItemResponse(current, item);
         var answerChanged = previous.IsApproved != normalized.IsApproved;
         var updated = PlanStoreUpdater.ApplyGateHumanReviewResponse(
@@ -21339,8 +21342,6 @@ public partial class MainWindow : Window
                 return;
             }
         }
-
-        SynchronizeHumanReviewResponseSurfaces(planId, item, normalized);
 
         try
         {

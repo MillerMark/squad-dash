@@ -488,21 +488,32 @@ public class TranscriptApprovalCardBuilderTests
         var questionSurface = card.ContentStack.Children.OfType<Border>()
             .Single(border => border.ContextMenu is not null);
         var questionStack = (StackPanel)questionSurface.Child;
-        var checklistRow = questionStack.Children.OfType<Grid>().First();
-        var questionText = checklistRow.Children.OfType<TextBlock>()
+        var itemContainer = questionStack.Children.OfType<StackPanel>()
+            .Single(panel => panel.Children.OfType<TextBlock>()
+                .Any(text => AutomationProperties.GetName(text) == "Approval question"));
+        var questionText = itemContainer.Children.OfType<TextBlock>()
             .Single(text => AutomationProperties.GetName(text) == "Approval question");
+        var checklistRow = itemContainer.Children.OfType<Grid>().Single();
+        var noteHost = checklistRow.Children.OfType<Grid>().Single();
+        var noteBox = noteHost.Children.OfType<TextBox>().Single();
+        var notePlaceholder = noteHost.Children.OfType<TextBlock>()
+            .Single(text => text.Text == "(notes)");
         var cardBorder = (Border)card.Container.Child;
 
         Assert.Multiple(() =>
         {
             Assert.That(questionSurface.Background, Is.SameAs(fieldSurface));
             Assert.That(card.NoteTextBox.Background, Is.SameAs(fieldSurface));
-            Assert.That(Grid.GetColumn(questionText), Is.EqualTo(1),
-                "Wrapped checklist text must remain aligned with its first line, not the checkbox.");
+            Assert.That(itemContainer.Children.IndexOf(questionText), Is.EqualTo(0),
+                "Wrapped checklist text should have the full card width above the controls row.");
             Assert.That(checklistRow.ColumnDefinitions[1].Width.IsStar, Is.True);
+            Assert.That(noteBox.Foreground, Is.Not.Null);
+            Assert.That(notePlaceholder.Visibility, Is.EqualTo(Visibility.Visible));
             Assert.That(cardBorder.HorizontalAlignment, Is.EqualTo(HorizontalAlignment.Stretch));
             Assert.That(double.IsPositiveInfinity(cardBorder.MaxWidth), Is.True);
         });
+        noteBox.Text = "Investigate after approval";
+        Assert.That(notePlaceholder.Visibility, Is.EqualTo(Visibility.Collapsed));
     }
 
     [Test, Apartment(ApartmentState.STA)]
