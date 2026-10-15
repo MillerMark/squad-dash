@@ -240,9 +240,11 @@ internal sealed class EmbeddedCodeRegionTests
 
         Assert.That(rtb.GetPlainText(), Is.EqualTo("before\n```\ncode\n```\nafter"));
 
-        // Confirm the middle block really did become a region, not just unconverted text.
+        // Confirm the middle block really did become a region, not just unconverted text. With
+        // real content ("after") following the region, NO caret-landing blank line is synthesized
+        // (Bug 4), so the document holds exactly: before-paragraph, region, after-paragraph.
         var blocks = rtb.Document.Blocks;
-        Assert.That(blocks.Count, Is.EqualTo(4));
+        Assert.That(blocks.Count, Is.EqualTo(3));
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -534,10 +536,11 @@ internal sealed class EmbeddedCodeRegionTests
 
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
 
-        // The caret lands on the empty caret landing paragraph after the region. That line is
-        // intentionally skipped by GetPlainText while empty, so its offset is the serialized
-        // fence boundary itself.
-        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(caretAfterFence));
+        // With real content following the region there is no synthesized caret-landing paragraph
+        // (Bug 4), so the caret resolves to the START of the following content line — right after
+        // the region, and still NOT document end.
+        var afterRegionLineStart = caretAfterFence + 1;
+        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(afterRegionLineStart));
         Assert.That(rtb.GetCaretOffset(), Is.Not.EqualTo(rtb.GetTextLength()));
     }
 
@@ -1054,8 +1057,9 @@ internal sealed class EmbeddedCodeRegionTests
         var (blocks, region) = BuildRegionSandwich();
 
         // Down from the "before" paragraph: predicted landing resolves onto the block boundary,
-        // which FindCaretBlockIndex maps back to block 0 (first-match-wins).
-        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Down);
+        // which FindCaretBlockIndex maps back to block 0 (first-match-wins). Vertical keys ignore
+        // the boundary flag and enter from anywhere on the adjacent line.
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Down, caretAtParagraphBoundary: false);
 
         Assert.That(decision, Is.Not.Null);
         Assert.That(decision!.Value.Region, Is.SameAs(region));
@@ -1063,15 +1067,28 @@ internal sealed class EmbeddedCodeRegionTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void DecideRegionEntryFromPrediction_RightFromAbove_EntersRegionAtStart()
+    public void DecideRegionEntryFromPrediction_RightFromEndOfLineAbove_EntersRegionAtStart()
     {
+        // Bug 1 (keep working): Right only enters when the caret is at the END of the line directly
+        // above the region (boundary=true), so the move crosses into the region below at START.
         var (blocks, region) = BuildRegionSandwich();
 
-        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Right);
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Right, caretAtParagraphBoundary: true);
 
         Assert.That(decision, Is.Not.Null);
         Assert.That(decision!.Value.Region, Is.SameAs(region));
         Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_RightFromMidLineAbove_DoesNotEnter()
+    {
+        // Bug 1 (fix): Right from any non-end position on the line above the region must behave as
+        // ordinary within-line movement and NOT enter the region. boundary=false ⇒ no entry.
+        var (blocks, _) = BuildRegionSandwich();
+
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Right, caretAtParagraphBoundary: false), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 1, Key.Right, caretAtParagraphBoundary: false), Is.Null);
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -1079,10 +1096,10 @@ internal sealed class EmbeddedCodeRegionTests
     {
         // The reported bug: Up on the line below the region. The prediction crosses the region
         // and resolves to block 1 (the region's own container) — unusable for forward logic, but
-        // the backward path decides on the current block (2) and enters at END.
+        // the backward vertical path decides on the current block (2) and enters at END.
         var (blocks, region) = BuildRegionSandwich();
 
-        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Up);
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Up, caretAtParagraphBoundary: false);
 
         Assert.That(decision, Is.Not.Null);
         Assert.That(decision!.Value.Region, Is.SameAs(region));
@@ -1092,11 +1109,11 @@ internal sealed class EmbeddedCodeRegionTests
     [Test, Apartment(ApartmentState.STA)]
     public void DecideRegionEntryFromPrediction_UpFromBelow_NullPrediction_EntersRegionAtEnd()
     {
-        // When the Up/Left line prediction walks off entirely (caretAfter was null → index -1),
+        // When the Up line prediction walks off entirely (caretAfter was null → index -1),
         // entry-from-below must still resolve to the region above at END.
         var (blocks, region) = BuildRegionSandwich();
 
-        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, -1, Key.Up);
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, -1, Key.Up, caretAtParagraphBoundary: false);
 
         Assert.That(decision, Is.Not.Null);
         Assert.That(decision!.Value.Region, Is.SameAs(region));
@@ -1104,47 +1121,63 @@ internal sealed class EmbeddedCodeRegionTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void DecideRegionEntryFromPrediction_LeftFromBelow_AtStartOfLine_EntersRegionAtEnd()
+    public void DecideRegionEntryFromPrediction_LeftFromStartOfLineBelow_EntersRegionAtEnd()
     {
+        // Bug 3 (fix): Left from the START of the line directly below the region (boundary=true)
+        // must enter the region ABOVE at END — not drop into the hidden dead zone before the
+        // region container.
         var (blocks, region) = BuildRegionSandwich();
 
-        // Left at the start of the below-line crosses to the region (predicted block 1).
-        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Left);
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Left, caretAtParagraphBoundary: true);
 
         Assert.That(decision, Is.Not.Null);
         Assert.That(decision!.Value.Region, Is.SameAs(region));
         Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(region.Content.Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_LeftFromMidLineBelow_DoesNotEnter()
+    {
+        // Bug 3 (fix): Left from a non-start position on the line below is ordinary within-line
+        // movement and must NOT enter the region above. boundary=false ⇒ no entry.
+        var (blocks, _) = BuildRegionSandwich();
+
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Left, caretAtParagraphBoundary: false), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Left, caretAtParagraphBoundary: false), Is.Null);
     }
 
     [Test, Apartment(ApartmentState.STA)]
     public void DecideRegionEntryFromPrediction_BackwardWithinParagraph_DoesNotEnter()
     {
-        // A within-paragraph Up/Left on a wrapped host line (the prediction stays on the SAME
-        // block) must not prematurely jump into the region above.
+        // A within-paragraph Up on a wrapped host line (the prediction stays on the SAME block)
+        // must not prematurely jump into the region above; a mid-line Left (boundary=false) must
+        // not either.
         var (blocks, _) = BuildRegionSandwich();
 
-        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Up), Is.Null);
-        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Left), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Up, caretAtParagraphBoundary: false), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Left, caretAtParagraphBoundary: false), Is.Null);
     }
 
     [Test, Apartment(ApartmentState.STA)]
     public void DecideRegionEntryFromPrediction_BackwardFromAbove_DoesNotEnterRegionBelow()
     {
-        // Symmetric guard: Up/Left from the line ABOVE the region must never drop DOWN into it.
+        // Symmetric guard: Up/Left from the line ABOVE the region must never drop DOWN into it,
+        // even when the horizontal boundary flag is set.
         var (blocks, _) = BuildRegionSandwich();
 
-        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, -1, Key.Up), Is.Null);
-        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, -1, Key.Left), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, -1, Key.Up, caretAtParagraphBoundary: false), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, -1, Key.Left, caretAtParagraphBoundary: true), Is.Null);
     }
 
     [Test, Apartment(ApartmentState.STA)]
     public void DecideRegionEntryFromPrediction_ForwardFromBelow_DoesNotEnterRegionAbove()
     {
-        // Down/Right on the line below the region must not jump UP into it.
+        // Down/Right on the line below the region must not jump UP into it, even when the
+        // horizontal boundary flag is set.
         var (blocks, _) = BuildRegionSandwich();
 
-        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Down), Is.Null);
-        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Right), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Down, caretAtParagraphBoundary: false), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Right, caretAtParagraphBoundary: true), Is.Null);
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -1152,12 +1185,12 @@ internal sealed class EmbeddedCodeRegionTests
     {
         // Bug A: caret at the START of the "before" line directly above the region. The live
         // downward line-step prediction lands on the region's own BlockUIContainer (the dead zone),
-        // which FindCaretBlockIndex maps to block 1 — NOT back onto the host paragraph. The forward
-        // decision must fall back to the block the caret is ON (block 0) and ENTER the region at
-        // START, instead of leaving the caret stranded in the host dead zone.
+        // which FindCaretBlockIndex maps to block 1 — NOT back onto the host paragraph. The vertical
+        // forward decision must fall back to the block the caret is ON (block 0) and ENTER the
+        // region at START, instead of leaving the caret stranded in the host dead zone.
         var (blocks, region) = BuildRegionSandwich();
 
-        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 1, Key.Down);
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 1, Key.Down, caretAtParagraphBoundary: false);
 
         Assert.That(decision, Is.Not.Null);
         Assert.That(decision!.Value.Region, Is.SameAs(region));
@@ -1165,16 +1198,14 @@ internal sealed class EmbeddedCodeRegionTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void DecideRegionEntryFromPrediction_RightFromStartOfLineAbove_DeadZonePrediction_EntersRegionAtStart()
+    public void DecideRegionEntryFromPrediction_RightFromStartOfLineAbove_DoesNotEnter()
     {
-        // Symmetric forward case for Right where the prediction crosses onto the region container.
-        var (blocks, region) = BuildRegionSandwich();
+        // Bug 1 (fix): previously Right from the START of the line above over-entered the region
+        // because the forward branch fell back to the caret's own block. Right is HORIZONTAL now —
+        // without end-of-line boundary adjacency (boundary=false) it must NOT enter.
+        var (blocks, _) = BuildRegionSandwich();
 
-        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 1, Key.Right);
-
-        Assert.That(decision, Is.Not.Null);
-        Assert.That(decision!.Value.Region, Is.SameAs(region));
-        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 1, Key.Right, caretAtParagraphBoundary: false), Is.Null);
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -1185,7 +1216,7 @@ internal sealed class EmbeddedCodeRegionTests
         // caret's current line at START.
         var (blocks, region) = BuildRegionSandwich();
 
-        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 2, Key.Down);
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 2, Key.Down, caretAtParagraphBoundary: false);
 
         Assert.That(decision, Is.Not.Null);
         Assert.That(decision!.Value.Region, Is.SameAs(region));
@@ -1198,7 +1229,7 @@ internal sealed class EmbeddedCodeRegionTests
         // Preserve the already-working case: end-of-line-above prediction maps back to block 0.
         var (blocks, region) = BuildRegionSandwich();
 
-        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Down);
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Down, caretAtParagraphBoundary: false);
 
         Assert.That(decision, Is.Not.Null);
         Assert.That(decision!.Value.Region, Is.SameAs(region));
@@ -1213,8 +1244,8 @@ internal sealed class EmbeddedCodeRegionTests
         // above. caretBefore=2 ("after") has no region directly below it, so no entry is made.
         var (blocks, _) = BuildRegionSandwich();
 
-        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Down), Is.Null);
-        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Right), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Down, caretAtParagraphBoundary: false), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Right, caretAtParagraphBoundary: true), Is.Null);
     }
 
     // ── ActiveRegion precondition for the Space-redirect (Bug B) ───────────────────────
@@ -1257,6 +1288,53 @@ internal sealed class EmbeddedCodeRegionTests
             EmbeddedRegionInputRouter.DecideHostTextInput(
                 hasText: true, focusInsideRegion: false, hostHasFocus: true, activeRegionAttached: true),
             Is.EqualTo(HostTextInputDecision.RouteToActiveRegion));
+    }
+
+    // ── Bug 4: trailing blank line is only synthesized when the region is the LAST block ─────
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ShouldSynthesizeTrailingLandingParagraph_OnlyWhenRegionIsLastSegment()
+    {
+        // The region is the last segment (nothing follows) → a caret-landing paragraph is
+        // legitimate so the caret has somewhere to go below the final region.
+        Assert.That(EmbeddedCodeRegionManager.ShouldSynthesizeTrailingLandingParagraph(0, 1), Is.True);
+        Assert.That(EmbeddedCodeRegionManager.ShouldSynthesizeTrailingLandingParagraph(2, 3), Is.True);
+
+        // Content follows the region (region is NOT the last segment) → that content IS the
+        // landing spot, so NO blank line may be synthesized on rebuild/rehydration.
+        Assert.That(EmbeddedCodeRegionManager.ShouldSynthesizeTrailingLandingParagraph(1, 3), Is.False);
+        Assert.That(EmbeddedCodeRegionManager.ShouldSynthesizeTrailingLandingParagraph(0, 2), Is.False);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void CanonicalDocument_RehydrationRoundTrip_DoesNotSynthesizeTrailingBlankAfterRegion()
+    {
+        // The user's canonical example: host "123", a region containing "abc"/"def", host "456".
+        // Because real content ("456") follows the region, conversion must NOT insert a stray
+        // empty caret-landing paragraph between the region and "456" (Bug 4).
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("123\n```\nabc\ndef\n```\n456");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+
+        var blocks = rtb.Document.Blocks.ToList();
+        Assert.That(blocks.Count, Is.EqualTo(3), "123 paragraph, region, 456 paragraph — no synthesized blank");
+        Assert.That(blocks[0], Is.InstanceOf<Paragraph>());
+        Assert.That(blocks[1], Is.InstanceOf<BlockUIContainer>());
+        Assert.That(blocks[2], Is.InstanceOf<Paragraph>());
+        Assert.That(RichTextBoxExtensions.IsEmptyEmbeddedCodeRegionCaretLandingParagraph(blocks[2]), Is.False,
+            "the block after the region must be the real '456' content, not an empty landing paragraph");
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("123\n```\nabc\ndef\n```\n456"));
+
+        // Rehydration round-trip (simulating an app restart): serialize to plain text, rebuild in a
+        // fresh editor, and confirm the document is stable — still exactly 3 blocks, no net blank
+        // line accumulated around the region.
+        var serialized = rtb.GetPlainText();
+        var rehydrated = new RichTextBox();
+        rehydrated.SetPlainText(serialized);
+        EmbeddedCodeRegionManager.ConvertAllFences(rehydrated);
+
+        Assert.That(rehydrated.Document.Blocks.Count, Is.EqualTo(3));
+        Assert.That(rehydrated.GetPlainText(), Is.EqualTo("123\n```\nabc\ndef\n```\n456"));
     }
 
     // ── Voice dictation targets the focused region (Bug 1) ─────────────────────────────

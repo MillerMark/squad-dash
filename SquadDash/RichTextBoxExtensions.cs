@@ -597,51 +597,73 @@ internal static class RichTextBoxExtensions
 
     /// <summary>
     /// Direction-aware entry decision that accounts for the fragile line-prediction used by the
-    /// live caret, separated as a pure function so both entry-from-above and entry-from-below are
-    /// directly unit-testable.
+    /// live caret, separated as a pure function so every entry case is directly unit-testable.
     /// <para>
-    /// FORWARD keys (Down/Right) decide on the PREDICTED landing block (<paramref name="caretAfterIndex"/>)
+    /// VERTICAL and HORIZONTAL arrows have DIFFERENT correct entry semantics and are split here:
+    /// </para>
+    /// <para>
+    /// HORIZONTAL keys (Left/Right) enter ONLY at the exact text boundary adjacent to the region.
+    /// <paramref name="caretAtParagraphBoundary"/> is the boundary-adjacency fact the caller
+    /// supplies: the caret is at the END of its paragraph for Right, or the START of its paragraph
+    /// for Left — i.e. the next insertion position in the travel direction genuinely leaves the
+    /// host paragraph and crosses into the region. A horizontal move that stays within the
+    /// paragraph's text must NOT enter. When at the boundary, the strictly directional
+    /// <see cref="DecideRegionEntry"/> enters the region BELOW (Right, at START) or ABOVE (Left, at
+    /// END) the caret block.
+    /// </para>
+    /// <para>
+    /// VERTICAL forward (Down) decides on the PREDICTED landing block (<paramref name="caretAfterIndex"/>)
     /// FIRST: the downward line prediction is reliable when it lands back on a host paragraph, and
     /// gating on it means a within-paragraph move does not prematurely enter the region below.
     /// When that prediction instead lands on the region's own non-text <c>BlockUIContainer</c> (the
-    /// "dead zone" — which happens when the caret starts at the START of the line directly above the
-    /// region, so a single downward line-step touches the region boundary rather than another host
-    /// line), the predicted-block rule finds nothing. We then fall back to deciding on the block the
-    /// caret is actually ON (<paramref name="caretBeforeIndex"/>): if that block is the paragraph
-    /// immediately above a region, enter it at START. This keeps the strict directional invariant
-    /// intact (forward entry only ever targets the region at <c>caretBeforeIndex + 1</c>, i.e. the
-    /// region AFTER the caret) while fixing entry-from-above regardless of where on that line the
-    /// caret sits — not only at end-of-line.
+    /// "dead zone" — when the caret starts at the START of the line directly above the region), the
+    /// predicted-block rule finds nothing and we fall back to deciding on the block the caret is
+    /// actually ON (<paramref name="caretBeforeIndex"/>). This lets Down enter from ANYWHERE on the
+    /// adjacent line (a single line-step crosses the region from any column), while the strict
+    /// directional invariant holds because forward <see cref="DecideRegionEntry"/> only ever enters
+    /// the region at <c>caretBeforeIndex + 1</c>.
     /// </para>
     /// <para>
-    /// BACKWARD keys (Up/Left) decide on the block the caret is actually on BEFORE the press
-    /// (<paramref name="caretBeforeIndex"/>). The Up/Left prediction walks ACROSS the region and
-    /// lands on the wrong side, so it cannot be trusted to find the region above. Entry still
-    /// requires the press to actually leave the current paragraph (the predicted landing, when
-    /// known, differs from the current block) so a within-paragraph Up/Left on a wrapped host
-    /// line does not jump into the region.
+    /// VERTICAL backward (Up) decides on the block the caret is on BEFORE the press
+    /// (<paramref name="caretBeforeIndex"/>). The Up prediction walks ACROSS the region and lands
+    /// on the wrong side, so it cannot be trusted to find the region above; entry still requires
+    /// the press to actually leave the current paragraph (the predicted landing, when known,
+    /// differs from the current block) so a within-paragraph Up on a wrapped host line does not
+    /// jump into the region.
     /// </para>
     /// </summary>
     internal static RegionEntryDecision? DecideRegionEntryFromPrediction(
-        IReadOnlyList<Block> blocks, int caretBeforeIndex, int caretAfterIndex, Key key)
+        IReadOnlyList<Block> blocks, int caretBeforeIndex, int caretAfterIndex, Key key,
+        bool caretAtParagraphBoundary)
     {
         var forward = key is Key.Down or Key.Right;
         var backward = key is Key.Up or Key.Left;
         if (!forward && !backward)
             return null;
 
+        // HORIZONTAL (Left/Right): enter ONLY when the caret is at the paragraph boundary in the
+        // travel direction (Right → paragraph END, Left → paragraph START). A horizontal move that
+        // stays within the paragraph's own text must NOT cross into an adjacent region.
+        if (key is Key.Left or Key.Right)
+        {
+            if (!caretAtParagraphBoundary)
+                return null;
+
+            // DecideRegionEntry is strictly directional: Right enters the region BELOW the caret
+            // block at START; Left enters the region ABOVE at END.
+            return DecideRegionEntry(blocks, caretBeforeIndex, key);
+        }
+
         if (forward)
-            // Primary: the predicted landing is a host paragraph directly above a region.
-            // Fallback (Bug A — entry from the START of the line above): the predicted landing fell
-            // onto the region's own dead-zone container, so decide on the block the caret is ON. A
-            // within-paragraph forward move keeps caretBeforeIndex on that same paragraph, and if the
-            // very next block is a region the caret genuinely sits on the line directly above it →
-            // enter at START. The strict directional invariant holds because forward DecideRegionEntry
-            // only ever enters the region at caretBeforeIndex + 1 (the region AFTER the caret).
+            // VERTICAL Down — Primary: the predicted landing is a host paragraph directly above a
+            // region. Fallback (entry from the START of the line above): the predicted landing fell
+            // onto the region's own dead-zone container, so decide on the block the caret is ON so
+            // Down enters from anywhere on the line above. The strict directional invariant holds
+            // because forward DecideRegionEntry only ever enters the region at caretBeforeIndex + 1.
             return DecideRegionEntry(blocks, caretAfterIndex, key)
                 ?? DecideRegionEntry(blocks, caretBeforeIndex, key);
 
-        // Backward: the predicted landing is unusable for finding the region above, but it is a
+        // VERTICAL Up: the predicted landing is unusable for finding the region above, but it is a
         // reliable "did the press leave the current paragraph?" signal. When the prediction is
         // known (>= 0) and stays on the same block, this was a within-paragraph move — do not
         // enter. Otherwise (left the paragraph, or prediction unavailable because it walked off
@@ -666,6 +688,27 @@ internal static class RichTextBoxExtensions
                 return i;
         }
         return -1;
+    }
+
+    /// <summary>
+    /// For a HORIZONTAL arrow, returns whether the caret sits at the paragraph boundary in the
+    /// travel direction (Right → END of its paragraph, Left → START), meaning the next insertion
+    /// position would leave the host paragraph and can cross into an adjacent region. Returns
+    /// <see langword="false"/> for vertical keys (they do not use boundary-adjacency).
+    /// </summary>
+    private static bool ComputeHorizontalEntryBoundary(TextPointer caret, Key key)
+    {
+        if (key is not (Key.Left or Key.Right))
+            return false;
+
+        var paragraph = caret.Paragraph;
+        var direction = key == Key.Right ? LogicalDirection.Forward : LogicalDirection.Backward;
+        var neighbor = caret.GetNextInsertionPosition(direction);
+
+        // At the paragraph boundary when there is no enclosing paragraph, no further insertion
+        // position in the travel direction, or the next insertion position belongs to a different
+        // paragraph (i.e. the move leaves this paragraph's text).
+        return paragraph is null || neighbor is null || !ReferenceEquals(neighbor.Paragraph, paragraph);
     }
 
     private static BlockUIContainer? FindContainerForRegion(FlowDocument document, EmbeddedCodeRegionBlock region)
@@ -729,7 +772,16 @@ internal static class RichTextBoxExtensions
         var blocksList = rtb.Document.Blocks.ToList();
         var caretBeforeIndex = FindCaretBlockIndex(blocksList, caretBefore);
         var caretAfterIndex = caretAfter is null ? -1 : FindCaretBlockIndex(blocksList, caretAfter);
-        var decision = DecideRegionEntryFromPrediction(blocksList, caretBeforeIndex, caretAfterIndex, key);
+
+        // Horizontal entry is gated on a boundary-adjacency fact rather than the predicted landing
+        // block: Right may only cross into the region below when the caret is at the END of its
+        // paragraph; Left only when it is at the START. We detect that by asking whether the next
+        // insertion position in the travel direction still lands inside the same paragraph — if it
+        // leaves the paragraph (or there is none), the caret is at the boundary. Vertical keys
+        // ignore this flag and keep their from-anywhere-on-the-adjacent-line behavior.
+        var caretAtParagraphBoundary = ComputeHorizontalEntryBoundary(caretBefore, key);
+        var decision = DecideRegionEntryFromPrediction(
+            blocksList, caretBeforeIndex, caretAfterIndex, key, caretAtParagraphBoundary);
         if (decision is null)
             return false;
 

@@ -260,13 +260,23 @@ internal static class EmbeddedCodeRegionManager
         }
     }
 
+    /// <summary>
+    /// Decides whether a document rebuild should synthesize a trailing empty caret-landing
+    /// paragraph immediately after a region. Per the region-editor contract the blank line is
+    /// only legitimate when the region is the LAST block in the document (so the caret has a
+    /// landing spot below the final region); whenever ANY real content follows the region, that
+    /// following content IS the landing spot and no blank line may be synthesized. Keeping this a
+    /// pure predicate makes the "no stray blank line on rebuild / rehydration / serialization
+    /// round-trip" rule unit-testable headlessly.
+    /// </summary>
+    internal static bool ShouldSynthesizeTrailingLandingParagraph(int regionSegmentIndex, int segmentCount)
+        => regionSegmentIndex == segmentCount - 1;
+
     private static void AddCaretLandingAfterRegionIfNeeded(RichTextBox rtb, List<Segment> segments, int regionSegmentIndex)
     {
-        if (regionSegmentIndex + 1 < segments.Count &&
-            segments[regionSegmentIndex + 1] is TextSegment { Text: { Length: > 0 } text } &&
-            text[0] == '\n')
+        if (!ShouldSynthesizeTrailingLandingParagraph(regionSegmentIndex, segments.Count))
         {
-            SquadDashTrace.Write("UI", $"EMBEDDED_CODE_LANDING skipped reason=following-text-starts-newline regionSegmentIndex={regionSegmentIndex}");
+            SquadDashTrace.Write("UI", $"EMBEDDED_CODE_LANDING skipped reason=content-follows-region regionSegmentIndex={regionSegmentIndex} segments={segments.Count}");
             return;
         }
 
