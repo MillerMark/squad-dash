@@ -496,6 +496,8 @@ public class TranscriptApprovalCardBuilderTests
         var checklistRow = itemContainer.Children.OfType<Grid>().Single();
         var choicePanel = checklistRow.Children.OfType<StackPanel>().Single();
         var choiceBoxes = choicePanel.Children.OfType<CheckBox>().ToArray();
+        var noChoiceContent = (StackPanel)choiceBoxes[1].Content;
+        var noIconHost = noChoiceContent.Children.OfType<Border>().Single();
         var noteHost = checklistRow.Children.OfType<Grid>().Single();
         var noteBox = noteHost.Children.OfType<TextBox>().Single();
         var notePlaceholder = noteHost.Children.OfType<TextBlock>()
@@ -512,6 +514,9 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(choicePanel.Margin.Right, Is.EqualTo(10));
             Assert.That(choiceBoxes[0].Margin.Right, Is.EqualTo(12));
             Assert.That(choiceBoxes[1].Margin.Right, Is.EqualTo(10));
+            Assert.That(((Viewbox)noIconHost.Child).Margin,
+                Is.EqualTo(TranscriptApprovalCardBuilder.GetReviewChoiceIconMargin("No", noIconHost.Width)));
+            Assert.That(((Viewbox)noIconHost.Child).Margin.Left, Is.LessThan(2));
             Assert.That(((TextBlock)((ToolTip)noteBox.ToolTip).Content).Text,
                 Is.EqualTo(TranscriptApprovalCardBuilder.ReviewItemNoteToolTipText));
             Assert.That(noteBox.Foreground, Is.Not.Null);

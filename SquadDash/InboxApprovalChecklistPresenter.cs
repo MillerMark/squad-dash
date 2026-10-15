@@ -292,7 +292,7 @@ internal static class InboxApprovalChecklistPresenter
     {
         var boxSize = Math.Round(fontSize * 1.2);
         icon.Visibility = Visibility.Hidden;
-        icon.Margin = new Thickness(2);
+        icon.Margin = TranscriptApprovalCardBuilder.GetReviewChoiceIconMargin(label, boxSize);
 
         var iconHost = new Border
         {

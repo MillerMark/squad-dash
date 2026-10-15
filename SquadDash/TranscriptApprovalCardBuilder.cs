@@ -1182,7 +1182,7 @@ internal static class TranscriptApprovalCardBuilder
     {
         var boxSize = Math.Round(fontSize * 1.1);
         icon.Visibility = Visibility.Hidden;
-        icon.Margin = new Thickness(2);
+        icon.Margin = GetReviewChoiceIconMargin(label, boxSize);
 
         var iconHost = new Border
         {
@@ -1227,6 +1227,18 @@ internal static class TranscriptApprovalCardBuilder
         };
         AutomationProperties.SetName(checkBox, label);
         return (checkBox, iconHost, icon);
+    }
+
+    internal static Thickness GetReviewChoiceIconMargin(string label, double boxSize)
+    {
+        const double baseInset = 2;
+        if (!string.Equals(label, "No", StringComparison.Ordinal))
+            return new Thickness(baseInset);
+
+        var baseIconSize = Math.Max(0, boxSize - (baseInset * 2));
+        var targetIconSize = Math.Min(boxSize, baseIconSize * 1.2);
+        var inset = Math.Max(0, (boxSize - targetIconSize) / 2);
+        return new Thickness(inset);
     }
 
     private static ControlTemplate BuildContentOnlyCheckBoxTemplate()

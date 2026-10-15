@@ -84,7 +84,9 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(yesBorder.BorderThickness, Is.EqualTo(new Thickness(1.5)));
             Assert.That(yesBorder.CornerRadius, Is.EqualTo(new CornerRadius(2)));
             Assert.That(((Viewbox)yesBorder.Child).Visibility, Is.EqualTo(Visibility.Visible));
-            Assert.That(((Viewbox)noBorder.Child).Margin, Is.EqualTo(new Thickness(2)));
+            Assert.That(((Viewbox)noBorder.Child).Margin,
+                Is.EqualTo(TranscriptApprovalCardBuilder.GetReviewChoiceIconMargin("No", noBorder.Width)));
+            Assert.That(((Viewbox)noBorder.Child).Margin.Left, Is.LessThan(2));
             Assert.That(root.Margin.Top,
                 Is.EqualTo(2 + (expectedFontSize * InboxApprovalChecklistPresenter.ChecklistTopSpacingScale)));
             Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
