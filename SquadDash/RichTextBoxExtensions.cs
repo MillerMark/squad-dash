@@ -600,10 +600,18 @@ internal static class RichTextBoxExtensions
     /// live caret, separated as a pure function so both entry-from-above and entry-from-below are
     /// directly unit-testable.
     /// <para>
-    /// FORWARD keys (Down/Right) decide on the PREDICTED landing block (<paramref name="caretAfterIndex"/>):
-    /// the downward line prediction is reliable (it does not cross the region's non-text
-    /// <c>BlockUIContainer</c>), and gating on it means a within-paragraph move does not
-    /// prematurely enter the region below.
+    /// FORWARD keys (Down/Right) decide on the PREDICTED landing block (<paramref name="caretAfterIndex"/>)
+    /// FIRST: the downward line prediction is reliable when it lands back on a host paragraph, and
+    /// gating on it means a within-paragraph move does not prematurely enter the region below.
+    /// When that prediction instead lands on the region's own non-text <c>BlockUIContainer</c> (the
+    /// "dead zone" — which happens when the caret starts at the START of the line directly above the
+    /// region, so a single downward line-step touches the region boundary rather than another host
+    /// line), the predicted-block rule finds nothing. We then fall back to deciding on the block the
+    /// caret is actually ON (<paramref name="caretBeforeIndex"/>): if that block is the paragraph
+    /// immediately above a region, enter it at START. This keeps the strict directional invariant
+    /// intact (forward entry only ever targets the region at <c>caretBeforeIndex + 1</c>, i.e. the
+    /// region AFTER the caret) while fixing entry-from-above regardless of where on that line the
+    /// caret sits — not only at end-of-line.
     /// </para>
     /// <para>
     /// BACKWARD keys (Up/Left) decide on the block the caret is actually on BEFORE the press
@@ -623,7 +631,15 @@ internal static class RichTextBoxExtensions
             return null;
 
         if (forward)
-            return DecideRegionEntry(blocks, caretAfterIndex, key);
+            // Primary: the predicted landing is a host paragraph directly above a region.
+            // Fallback (Bug A — entry from the START of the line above): the predicted landing fell
+            // onto the region's own dead-zone container, so decide on the block the caret is ON. A
+            // within-paragraph forward move keeps caretBeforeIndex on that same paragraph, and if the
+            // very next block is a region the caret genuinely sits on the line directly above it →
+            // enter at START. The strict directional invariant holds because forward DecideRegionEntry
+            // only ever enters the region at caretBeforeIndex + 1 (the region AFTER the caret).
+            return DecideRegionEntry(blocks, caretAfterIndex, key)
+                ?? DecideRegionEntry(blocks, caretBeforeIndex, key);
 
         // Backward: the predicted landing is unusable for finding the region above, but it is a
         // reliable "did the press leave the current paragraph?" signal. When the prediction is

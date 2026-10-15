@@ -1147,6 +1147,118 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 2, Key.Right), Is.Null);
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_DownFromStartOfLineAbove_DeadZonePrediction_EntersRegionAtStart()
+    {
+        // Bug A: caret at the START of the "before" line directly above the region. The live
+        // downward line-step prediction lands on the region's own BlockUIContainer (the dead zone),
+        // which FindCaretBlockIndex maps to block 1 — NOT back onto the host paragraph. The forward
+        // decision must fall back to the block the caret is ON (block 0) and ENTER the region at
+        // START, instead of leaving the caret stranded in the host dead zone.
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 1, Key.Down);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_RightFromStartOfLineAbove_DeadZonePrediction_EntersRegionAtStart()
+    {
+        // Symmetric forward case for Right where the prediction crosses onto the region container.
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 1, Key.Right);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_DownFromStartOfLineAbove_PredictionPastRegion_EntersRegionAtStart()
+    {
+        // Defensive: if the downward prediction over-shoots the dead zone and resolves past the
+        // region (block 2), the caret-on-block fallback still enters the region directly below the
+        // caret's current line at START.
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 2, Key.Down);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_EndOfLineAbove_StillEntersRegionAtStart()
+    {
+        // Preserve the already-working case: end-of-line-above prediction maps back to block 0.
+        var (blocks, region) = BuildRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 0, 0, Key.Down);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_DownFromBelowRegion_DeadZonePrediction_DoesNotEnterRegionAbove()
+    {
+        // Guard the fallback against the wrong-direction case: Down on the line BELOW the region,
+        // even if the prediction briefly touches the region container, must NEVER enter the region
+        // above. caretBefore=2 ("after") has no region directly below it, so no entry is made.
+        var (blocks, _) = BuildRegionSandwich();
+
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Down), Is.Null);
+        Assert.That(RichTextBoxExtensions.DecideRegionEntryFromPrediction(blocks, 2, 1, Key.Right), Is.Null);
+    }
+
+    // ── ActiveRegion precondition for the Space-redirect (Bug B) ───────────────────────
+    // The host's PreviewTextInput Space-redirect only fires when EmbeddedCodeRegionBlock.ActiveRegion
+    // is a live, attached region. These prove ActiveRegion is established on EVERY keyboard entry
+    // path — not only on mouse-click entry — so a Space pressed after arrow-entry still redirects.
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FocusContentAtPosition_ArrowEntryPath_SetsActiveRegion()
+    {
+        EmbeddedCodeRegionBlock.ClearActiveRegion();
+        var region = EmbeddedCodeRegionBlock.Build("code", "");
+
+        // FocusContentAtPosition is the entry point used by smart arrow-key navigation (Down/Right
+        // enter at START; Up/Left at END). It must mark the region active so the host Space-redirect
+        // precondition holds after keyboard entry.
+        region.FocusContentAtPosition(0);
+
+        Assert.That(EmbeddedCodeRegionBlock.ActiveRegion, Is.SameAs(region));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void FocusContent_EntryPath_SetsActiveRegion()
+    {
+        EmbeddedCodeRegionBlock.ClearActiveRegion();
+        var region = EmbeddedCodeRegionBlock.Build("code", "");
+
+        region.FocusContent();
+
+        Assert.That(EmbeddedCodeRegionBlock.ActiveRegion, Is.SameAs(region));
+    }
+
+    [Test]
+    public void DecideHostTextInput_SpaceAfterArrowEntry_HostLeak_RoutesToActiveRegion()
+    {
+        // With ActiveRegion established by arrow entry (attached) and OS focus leaked back to the
+        // host, a Space (hasText) must be deferred to the active region rather than inserted in the
+        // host prompt.
+        Assert.That(
+            EmbeddedRegionInputRouter.DecideHostTextInput(
+                hasText: true, focusInsideRegion: false, hostHasFocus: true, activeRegionAttached: true),
+            Is.EqualTo(HostTextInputDecision.RouteToActiveRegion));
+    }
+
     // ── Voice dictation targets the focused region (Bug 1) ─────────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]
