@@ -366,6 +366,205 @@
     ]
   },
   {
+    "id": "bfaa6492",
+    "name": "Selection Embedding",
+    "description": "Quickly modify text selections \u002B navigation tips",
+    "steps": [
+      {
+        "title": "Welcome",
+        "markdownText": "##Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot4.png)[lines:2][valign:top][size:1.2]Working with text selections in the prompt box plus camel case navigation.\r\n[size:1.1][right]Press **Enter** or click **Next** to start the tour.",
+        "targetControlId": "",
+        "calloutPlacement": "Auto",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Ctrl\u002BB for Bold",
+        "markdownText": "Press **Ctrl**\u002B**B** to **bold** important selections.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| You can make a selection bold by pressing Ctrl\u002BB.|bold"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.6298076923076922,
+        "targetOffsetY": 0.5261538461538453
+      },
+      {
+        "title": "Quotes",
+        "markdownText": "The **double quotes** key (**\u0022**) wraps a selection in **quotes**.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| Let\u0027s call the menu item Developer Tools...|Developer Tools..."
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      },
+      {
+        "title": "Parens",
+        "markdownText": "Press a **paren** key - **(** or **)** - to wrap a selection in **parentheses**.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| The clipboard items the ones in the **Edit** menu should be reordered.|the ones in the **Edit** menu"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      },
+      {
+        "title": "Cycle case",
+        "markdownText": "**Shift**\u002B**F3** to **cycle case**.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| Can we create test cases for test cases for the pascal case navigator class .|pascal case navigator"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "CycleCaseForward: 6",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Cycle case - reverse",
+        "markdownText": "Pressing **Shift**\u002B**F3** continues to cycle case.\r\n**Ctrl**\u002B**Shift**\u002B**F3** **reverses** the cycle.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "CycleCaseReverse: 6",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Backticks - single line",
+        "markdownText": "Press the **\u0060** (backtick) or the **apostrophe** key to embed **single line** selections in **backticks**.",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| Can I get a code review on the Navigator class?|Navigator"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5360576923076922,
+        "targetOffsetY": 0.6364743589743583
+      },
+      {
+        "title": "Backticks - multi line",
+        "markdownText": "Press the **backtick** key (or **apostrophe**) to wrap a **multi-line** selection in **backtick fences**.",
+        "targetControlId": "PromptTextBox:Selection\u002B36",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText| I saw this error while building:\\n\\nError 1234\\n|\\nError 1234\\n"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.2909967845659164,
+        "targetOffsetY": 0.6153685840181015
+      },
+      {
+        "title": "Combine Shortcuts",
+        "markdownText": "To **title case** and **quote** a selection, use **Shift**\u002B**F3** and the **quote** key (in any order).",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "SelectPromptText|The button text should be clear filter.|clear filter"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "CamelCase Nav",
+        "markdownText": "**Alt**\u002B**Left** and **Alt**\u002B**Right** moves to camel case transitions. \r\nAdd **Shift** to **select**.\r\nUsing only these keys, try to select \u0022**ShoppingCart**\u0022",
+        "targetControlId": "PromptTextBox:Selection\u002B12",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "CaretPromptText|I want to name the new class \u003Ccaret\u003EValidateShoppingCartContents."
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      },
+      {
+        "title": "Congratulations.",
+        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Selection Embedding**\r\n[vspace:0.75]You just learned how to:\r\n* **Cycle case** with **Shift**\u002B**F3**\r\n* **Bold**, **quote**, **paren** and **fence** selections\r\n* **Navigate** and **select camel case ranges**\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
+        "targetControlId": "",
+        "calloutPlacement": "South",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.5,
+        "targetOffsetY": 0.5
+      }
+    ]
+  },
+  {
     "id": "0db954aa",
     "name": "Prompts and the Queue",
     "description": "Powerful prompt creation and prompt queue techniques.",
@@ -681,6 +880,43 @@
         "targetOffsetY": 0.8138461538461548
       },
       {
+        "title": "Steering menu",
+        "markdownText": "You can **steer** an active agent while it works.",
+        "targetControlId": "EditSteerMenuItem",
+        "calloutPlacement": "East",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "OpenMenu: EditMenuItem",
+          "HighlightMenuItem: EditSteerMenuItem"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.8713942307692307,
+        "targetOffsetY": 0.3667307692307685
+      },
+      {
+        "title": "Steering example",
+        "markdownText": "Add new instructions to the prompt.\r\nPress **Ctrl**\u002B**Enter** to immediately steer the active agent.",
+        "targetControlId": "PromptTextBox",
+        "calloutPlacement": "North",
+        "preAction": "None",
+        "commandBefore": "",
+        "commandAfter": "",
+        "commandsBefore": [
+          "TypeIntoPrompt|And make sure test cases are comprehensive...|Sim"
+        ],
+        "commandsAfter": [],
+        "advanceTrigger": "",
+        "requiredContext": "",
+        "requiredContextValue": true,
+        "targetOffsetX": 0.11117136659436008,
+        "targetOffsetY": 0.8291201193058557
+      },
+      {
         "title": "Prompts navigation",
         "markdownText": "[vspace:0]**Ctrl**\u002B**PgUp** -- previous **prompt**\r\nAdd the **Alt** key to jump to the **previous question** posed.",
         "targetControlId": "PromptNavUpButton",
@@ -717,205 +953,6 @@
       {
         "title": "Congratulations.",
         "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Prompts and the Queue**\r\n[size:1][lines:2][vspace:0]You just learned how to use the queue to create, send, and browse prompts.\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)",
-        "targetControlId": "",
-        "calloutPlacement": "South",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      }
-    ]
-  },
-  {
-    "id": "bfaa6492",
-    "name": "Selection Embedding",
-    "description": "Quickly modify text selections \u002B navigation tips",
-    "steps": [
-      {
-        "title": "Welcome",
-        "markdownText": "##Selection Embedding\r\n[vspace:0]\r\n![140:Robot](Mascots/Mascot4.png)[lines:2][valign:top][size:1.2]Working with text selections in the prompt box plus camel case navigation.\r\n[size:1.1][right]Press **Enter** or click **Next** to start the tour.",
-        "targetControlId": "",
-        "calloutPlacement": "Auto",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Ctrl\u002BB for Bold",
-        "markdownText": "Press **Ctrl**\u002B**B** to **bold** important selections.",
-        "targetControlId": "PromptTextBox:Selection\u002B12",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| You can make a selection bold by pressing Ctrl\u002BB.|bold"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.6298076923076922,
-        "targetOffsetY": 0.5261538461538453
-      },
-      {
-        "title": "Quotes",
-        "markdownText": "The **double quotes** key (**\u0022**) wraps a selection in **quotes**.",
-        "targetControlId": "PromptTextBox:Selection\u002B12",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| Let\u0027s call the menu item Developer Tools...|Developer Tools..."
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.2909967845659164,
-        "targetOffsetY": 0.6153685840181015
-      },
-      {
-        "title": "Parens",
-        "markdownText": "Press a **paren** key - **(** or **)** - to wrap a selection in **parentheses**.",
-        "targetControlId": "PromptTextBox:Selection\u002B12",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| The clipboard items the ones in the **Edit** menu should be reordered.|the ones in the **Edit** menu"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.2909967845659164,
-        "targetOffsetY": 0.6153685840181015
-      },
-      {
-        "title": "Cycle case",
-        "markdownText": "**Shift**\u002B**F3** to **cycle case**.",
-        "targetControlId": "PromptTextBox:Selection\u002B12",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| Can we create test cases for test cases for the pascal case navigator class .|pascal case navigator"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "CycleCaseForward: 6",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Cycle case - reverse",
-        "markdownText": "Pressing **Shift**\u002B**F3** continues to cycle case.\r\n**Ctrl**\u002B**Shift**\u002B**F3** **reverses** the cycle.",
-        "targetControlId": "PromptTextBox:Selection\u002B12",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [],
-        "commandsAfter": [],
-        "advanceTrigger": "CycleCaseReverse: 6",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Backticks - single line",
-        "markdownText": "Press the **\u0060** (backtick) or the **apostrophe** key to embed **single line** selections in **backticks**.",
-        "targetControlId": "PromptTextBox:Selection\u002B12",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| Can I get a code review on the Navigator class?|Navigator"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.5360576923076922,
-        "targetOffsetY": 0.6364743589743583
-      },
-      {
-        "title": "Backticks - multi line",
-        "markdownText": "Press the **backtick** key (or **apostrophe**) to wrap a **multi-line** selection in **backtick fences**.",
-        "targetControlId": "PromptTextBox:Selection\u002B36",
-        "calloutPlacement": "East",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText| I saw this error while building:\\n\\nError 1234\\n|\\nError 1234\\n"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.2909967845659164,
-        "targetOffsetY": 0.6153685840181015
-      },
-      {
-        "title": "Combine Shortcuts",
-        "markdownText": "To **title case** and **quote** a selection, use **Shift**\u002B**F3** and the **quote** key (in any order).",
-        "targetControlId": "PromptTextBox:Selection\u002B12",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "SelectPromptText|The button text should be clear filter.|clear filter"
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "CamelCase Nav",
-        "markdownText": "**Alt**\u002B**Left** and **Alt**\u002B**Right** moves to camel case transitions. \r\nAdd **Shift** to **select**.\r\nUsing only these keys, try to select \u0022**ShoppingCart**\u0022",
-        "targetControlId": "PromptTextBox:Selection\u002B12",
-        "calloutPlacement": "North",
-        "preAction": "None",
-        "commandBefore": "",
-        "commandAfter": "",
-        "commandsBefore": [
-          "CaretPromptText|I want to name the new class \u003Ccaret\u003EValidateShoppingCartContents."
-        ],
-        "commandsAfter": [],
-        "advanceTrigger": "",
-        "requiredContext": "",
-        "requiredContextValue": true,
-        "targetOffsetX": 0.5,
-        "targetOffsetY": 0.5
-      },
-      {
-        "title": "Congratulations.",
-        "markdownText": "##Congratulations!\r\n[vspace:0.75][size:1.25]**Selection Embedding**\r\n[vspace:0.75]You just learned how to:\r\n* **Cycle case** with **Shift**\u002B**F3**\r\n* **Bold**, **quote**, **paren** and **fence** selections\r\n* **Navigate** and **select camel case ranges**\r\n[vspace:0]\r\n![150:CompletedBadge](CompletedBadgeRealistic.png)\r\n",
         "targetControlId": "",
         "calloutPlacement": "South",
         "preAction": "None",
