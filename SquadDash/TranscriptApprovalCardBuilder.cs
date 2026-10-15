@@ -306,8 +306,6 @@ internal static class TranscriptApprovalCardBuilder
                 {
                     Text = response.Note ?? string.Empty,
                     MinWidth = 140,
-                    MinHeight = 24,
-                    MaxHeight = 28,
                     AcceptsReturn = false,
                     Focusable = true,
                     IsReadOnly = false,
@@ -315,10 +313,15 @@ internal static class TranscriptApprovalCardBuilder
                     TextWrapping = TextWrapping.NoWrap,
                     VerticalContentAlignment = VerticalAlignment.Center,
                     FontSize = fontSize - 1,
+                    MinLines = 1,
+                    MaxLines = 1,
                     Padding = new Thickness(6, 2, 6, 2),
                     BorderThickness = new Thickness(1),
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
                     ToolTip = ToolTipHelper.MakeThemedToolTip(ReviewItemNoteToolTipText),
                 };
+                ConfigureReviewItemNoteBoxMetrics(itemNoteBox, itemNoteBox.FontSize, lockToSingleLine: true);
                 ConfigureNoteEditor(itemNoteBox);
                 AttachNoteEditorMouseFocusHandlers(itemNoteBox);
                 itemNoteBox.SetResourceReference(TextBox.BackgroundProperty, "ApprovalFieldSurface");
@@ -1239,6 +1242,32 @@ internal static class TranscriptApprovalCardBuilder
         var targetIconSize = Math.Min(boxSize, baseIconSize * 1.2);
         var inset = Math.Max(0, (boxSize - targetIconSize) / 2);
         return new Thickness(inset);
+    }
+
+    internal static void ConfigureReviewItemNoteBoxMetrics(
+        TextBox noteBox,
+        double fontSize,
+        bool lockToSingleLine)
+    {
+        ArgumentNullException.ThrowIfNull(noteBox);
+
+        noteBox.SnapsToDevicePixels = true;
+        noteBox.UseLayoutRounding = true;
+        TextOptions.SetTextFormattingMode(noteBox, TextFormattingMode.Display);
+
+        if (!lockToSingleLine)
+            return;
+
+        var stableHeight = Math.Ceiling(
+            (fontSize * 1.35) +
+            noteBox.Padding.Top +
+            noteBox.Padding.Bottom +
+            noteBox.BorderThickness.Top +
+            noteBox.BorderThickness.Bottom +
+            2);
+        noteBox.MinHeight = stableHeight;
+        noteBox.Height = stableHeight;
+        noteBox.MaxHeight = stableHeight;
     }
 
     private static ControlTemplate BuildContentOnlyCheckBoxTemplate()

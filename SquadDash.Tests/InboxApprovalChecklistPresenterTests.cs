@@ -59,6 +59,9 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(noteBox, Is.Not.Null);
             Assert.That(choices.Margin.Top, Is.EqualTo(6));
             Assert.That(noteRow.Margin.Top, Is.EqualTo(4));
+            Assert.That(noteBox.SnapsToDevicePixels, Is.True);
+            Assert.That(noteBox.UseLayoutRounding, Is.True);
+            Assert.That(TextOptions.GetTextFormattingMode(noteBox), Is.EqualTo(TextFormattingMode.Display));
             Assert.That(((TextBlock)((ToolTip)noteBox.ToolTip).Content).Text,
                 Is.EqualTo(TranscriptApprovalCardBuilder.ReviewItemNoteToolTipText));
             Assert.That(notePlaceholder.Visibility, Is.EqualTo(Visibility.Visible));

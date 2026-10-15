@@ -7,6 +7,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -519,6 +520,14 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(((Viewbox)noIconHost.Child).Margin,
                 Is.EqualTo(TranscriptApprovalCardBuilder.GetReviewChoiceIconMargin("No", noIconHost.Width)));
             Assert.That(((Viewbox)noIconHost.Child).Margin.Left, Is.LessThan(2));
+            Assert.That(noteBox.Height, Is.EqualTo(noteBox.MinHeight));
+            Assert.That(noteBox.MaxHeight, Is.EqualTo(noteBox.Height));
+            Assert.That(noteBox.MinLines, Is.EqualTo(1));
+            Assert.That(noteBox.MaxLines, Is.EqualTo(1));
+            Assert.That(noteBox.VerticalScrollBarVisibility, Is.EqualTo(ScrollBarVisibility.Disabled));
+            Assert.That(noteBox.SnapsToDevicePixels, Is.True);
+            Assert.That(noteBox.UseLayoutRounding, Is.True);
+            Assert.That(TextOptions.GetTextFormattingMode(noteBox), Is.EqualTo(TextFormattingMode.Display));
             Assert.That(((TextBlock)((ToolTip)noteBox.ToolTip).Content).Text,
                 Is.EqualTo(TranscriptApprovalCardBuilder.ReviewItemNoteToolTipText));
             Assert.That(noteBox.Foreground, Is.Not.Null);

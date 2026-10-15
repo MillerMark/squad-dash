@@ -165,6 +165,10 @@ internal static class InboxApprovalChecklistPresenter
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             ToolTip = ToolTipHelper.MakeThemedToolTip(TranscriptApprovalCardBuilder.ReviewItemNoteToolTipText),
         };
+        TranscriptApprovalCardBuilder.ConfigureReviewItemNoteBoxMetrics(
+            noteBox,
+            noteBox.FontSize,
+            lockToSingleLine: false);
         TranscriptApprovalCardBuilder.ConfigureNoteEditor(noteBox);
         noteBox.SetResourceReference(TextBox.BackgroundProperty, "ApprovalFieldSurface");
         noteBox.SetResourceReference(TextBox.ForegroundProperty, "ImportantText");
