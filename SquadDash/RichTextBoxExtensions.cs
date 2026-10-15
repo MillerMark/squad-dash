@@ -550,9 +550,24 @@ internal static class RichTextBoxExtensions
     /// <summary>
     /// The outcome of <see cref="DecideRegionEntry"/>: the embedded region an arrow key should
     /// enter and the caret position within it. START (0) for forward keys (Down/Right), END
-    /// (<c>Region.Content.Length</c>) for backward keys (Up/Left).
+    /// (<c>Region.Content.Length</c>) for backward keys (Up/Left) — EXCEPT the column-preserving
+    /// special case where Up is pressed at the START of the host line below the region, which
+    /// enters at the START of the region's LAST line (see <paramref name="caretAtLineStart"/>).
     /// </summary>
     internal readonly record struct RegionEntryDecision(EmbeddedCodeRegionBlock Region, int TargetCaretPosition);
+
+    /// <summary>
+    /// Offset of the START of the LAST line of <paramref name="content"/> — the index just after
+    /// the final <c>\n</c>, or 0 when the content is single-line (or empty). Used by the Change-1
+    /// "Up from start-of-line-below enters at start of the region's last line" case.
+    /// </summary>
+    private static int StartOfLastLineOffset(string content)
+    {
+        if (string.IsNullOrEmpty(content))
+            return 0;
+        var lastNewline = content.LastIndexOf('\n');
+        return lastNewline < 0 ? 0 : lastNewline + 1;
+    }
 
     /// <summary>
     /// Pure, direction-aware entry decision — the deterministic core of smart arrow-key
@@ -569,7 +584,8 @@ internal static class RichTextBoxExtensions
     /// symmetric Up/Left case).
     /// </para>
     /// </summary>
-    internal static RegionEntryDecision? DecideRegionEntry(IReadOnlyList<Block> blocks, int caretBlockIndex, Key key)
+    internal static RegionEntryDecision? DecideRegionEntry(
+        IReadOnlyList<Block> blocks, int caretBlockIndex, Key key, bool caretAtLineStart = false)
     {
         if (caretBlockIndex < 0 || caretBlockIndex >= blocks.Count)
             return null;
@@ -591,7 +607,17 @@ internal static class RichTextBoxExtensions
         if (blocks[neighborIndex] is not BlockUIContainer { Child: EmbeddedCodeRegionBlock region })
             return null;
 
-        var target = forward ? 0 : region.Content.Length;
+        // Change 1 (column-preserving Up): when the caret is at the START of the host line below
+        // the region and Up is pressed, enter at the START of the region's LAST line (column 0)
+        // instead of its END. Every other backward case (Left, or mid-line Up) still enters at END.
+        int target;
+        if (forward)
+            target = 0;
+        else if (key is Key.Up && caretAtLineStart)
+            target = StartOfLastLineOffset(region.Content);
+        else
+            target = region.Content.Length;
+
         return new RegionEntryDecision(region, target);
     }
 
@@ -634,7 +660,7 @@ internal static class RichTextBoxExtensions
     /// </summary>
     internal static RegionEntryDecision? DecideRegionEntryFromPrediction(
         IReadOnlyList<Block> blocks, int caretBeforeIndex, int caretAfterIndex, Key key,
-        bool caretAtParagraphBoundary)
+        bool caretAtParagraphBoundary, bool caretAtLineStart = false)
     {
         var forward = key is Key.Down or Key.Right;
         var backward = key is Key.Up or Key.Left;
@@ -671,7 +697,7 @@ internal static class RichTextBoxExtensions
         if (caretAfterIndex >= 0 && caretAfterIndex == caretBeforeIndex)
             return null;
 
-        return DecideRegionEntry(blocks, caretBeforeIndex, key);
+        return DecideRegionEntry(blocks, caretBeforeIndex, key, caretAtLineStart);
     }
 
     /// <summary>
@@ -708,6 +734,20 @@ internal static class RichTextBoxExtensions
         // At the paragraph boundary when there is no enclosing paragraph, no further insertion
         // position in the travel direction, or the next insertion position belongs to a different
         // paragraph (i.e. the move leaves this paragraph's text).
+        return paragraph is null || neighbor is null || !ReferenceEquals(neighbor.Paragraph, paragraph);
+    }
+
+    /// <summary>
+    /// For a VERTICAL Up arrow, returns whether the caret sits at the START of its host paragraph
+    /// (column 0) — the trigger for the Change-1 column-preserving entry. Mirrors the boundary
+    /// detection in <see cref="ComputeHorizontalEntryBoundary"/> but for the backward/vertical path:
+    /// the caret is at the paragraph start when there is no enclosing paragraph, no insertion
+    /// position backward, or the previous insertion position belongs to a different paragraph.
+    /// </summary>
+    private static bool ComputeCaretAtLineStart(TextPointer caret)
+    {
+        var paragraph = caret.Paragraph;
+        var neighbor = caret.GetNextInsertionPosition(LogicalDirection.Backward);
         return paragraph is null || neighbor is null || !ReferenceEquals(neighbor.Paragraph, paragraph);
     }
 
@@ -780,8 +820,13 @@ internal static class RichTextBoxExtensions
         // leaves the paragraph (or there is none), the caret is at the boundary. Vertical keys
         // ignore this flag and keep their from-anywhere-on-the-adjacent-line behavior.
         var caretAtParagraphBoundary = ComputeHorizontalEntryBoundary(caretBefore, key);
+
+        // Vertical Up at the START of the host line below the region preserves the column: enter at
+        // the START of the region's last line rather than its END (Change 1). Only meaningful for Up.
+        var caretAtLineStart = key is Key.Up && ComputeCaretAtLineStart(caretBefore);
+
         var decision = DecideRegionEntryFromPrediction(
-            blocksList, caretBeforeIndex, caretAfterIndex, key, caretAtParagraphBoundary);
+            blocksList, caretBeforeIndex, caretAfterIndex, key, caretAtParagraphBoundary, caretAtLineStart);
         if (decision is null)
             return false;
 

@@ -179,4 +179,20 @@ internal sealed class EmbeddedCaretNavMathTests
     [TestCase(Key.End)]
     public void NonArrowKey_PassesThrough(Key key) =>
         Assert.That(EmbeddedCaretNavMath.Decide(MultiLine, 5, 0, key), Is.EqualTo(EmbeddedCaretNavMath.Decision.PassThrough));
+
+    // ---- Change 2: backward exit lands at the START of the paragraph above only for Up@offset-0 ----
+
+    [Test]
+    public void ExitBackwardLandsAtParagraphStart_UpAtOffsetZero_True() =>
+        Assert.That(EmbeddedCaretNavMath.ExitBackwardLandsAtParagraphStart(0, Key.Up), Is.True);
+
+    [TestCase(1)]
+    [TestCase(5)]
+    public void ExitBackwardLandsAtParagraphStart_UpMidFirstLine_False(int caret) =>
+        Assert.That(EmbeddedCaretNavMath.ExitBackwardLandsAtParagraphStart(caret, Key.Up), Is.False);
+
+    [Test]
+    public void ExitBackwardLandsAtParagraphStart_LeftAtOffsetZero_False() =>
+        // Strict scope: Left exit keeps landing at the END of the paragraph above (Up-only rule).
+        Assert.That(EmbeddedCaretNavMath.ExitBackwardLandsAtParagraphStart(0, Key.Left), Is.False);
 }

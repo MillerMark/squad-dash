@@ -276,8 +276,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 switch (decision)
                 {
                     case EmbeddedCaretNavMath.Decision.ExitBackward:
-                        Trace($"EMBEDDED_CODE_KEY_EXIT reason={e.Key}-exit direction=Backward caret={_editor.CaretOffset} textLen={_editor.TextLength}");
-                        FocusHostOutsideRegion(LogicalDirection.Backward);
+                        var landAtStart = EmbeddedCaretNavMath.ExitBackwardLandsAtParagraphStart(_editor.CaretOffset, e.Key);
+                        Trace($"EMBEDDED_CODE_KEY_EXIT reason={e.Key}-exit direction=Backward caret={_editor.CaretOffset} textLen={_editor.TextLength} landAtStart={landAtStart}");
+                        FocusHostOutsideRegion(LogicalDirection.Backward, landAtStart);
                         e.Handled = true;
                         return;
 
@@ -562,7 +563,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
     private int GetCaretIndexFromPoint(Point point) => _editor.GetOffsetFromPoint(point);
 
-    private void FocusHostOutsideRegion(LogicalDirection direction)
+    private void FocusHostOutsideRegion(LogicalDirection direction, bool landAtParagraphStart = false)
     {
         // A deliberate boundary exit (arrow/Tab/Ctrl+Up/Down or trailing-fence close): the user is
         // leaving the region, so it is no longer the active region for the typing-safety net.
@@ -580,7 +581,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
             return;
         }
 
-        var pointer = FindHostCaretPointer(host, direction);
+        var pointer = FindHostCaretPointer(host, direction, landAtParagraphStart);
         if (pointer is null)
         {
             Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE fallback=no-pointer direction={direction} hostCaretOffset={GetHostCaretOffsetForTrace(host)}");
@@ -602,7 +603,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
         });
     }
 
-    private TextPointer? FindHostCaretPointer(RichTextBox host, LogicalDirection direction)
+    private TextPointer? FindHostCaretPointer(RichTextBox host, LogicalDirection direction, bool landAtParagraphStart = false)
     {
         var blocks = host.Document.Blocks.ToList();
         for (var i = 0; i < blocks.Count; i++)
@@ -619,10 +620,13 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 return inserted.ContentStart;
             }
 
+            // Backward exit normally lands at the END of the paragraph above the region. Change 2:
+            // when Up is pressed at the START of the region's first line, preserve the column and
+            // land at the START of that paragraph instead.
             if (i > 0 && blocks[i - 1] is Paragraph previous)
-                return previous.ContentEnd;
+                return landAtParagraphStart ? previous.ContentStart : previous.ContentEnd;
             var before = InsertHostParagraphWithoutUndo(host, container, after: false);
-            return before.ContentEnd;
+            return landAtParagraphStart ? before.ContentStart : before.ContentEnd;
         }
 
         return null;

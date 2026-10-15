@@ -989,6 +989,105 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(decision, Is.Null);
     }
 
+    // ── Change 1: column-preserving Up from the start of the host line below the region ────────
+    // Document layout: block[0]=Paragraph "123", block[1]=multi-line region("abc\n  def\nghi"),
+    // block[2]=Paragraph "456". The region's LAST line starts at offset 10 (just after the 2nd \n).
+
+    private static (System.Collections.Generic.List<Block> blocks, EmbeddedCodeRegionBlock region) BuildMultiLineRegionSandwich()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("123\n```\nabc\n  def\nghi\n```\n456");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var blocks = rtb.Document.Blocks.ToList();
+        var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)blocks[1]).Child;
+        return (blocks, region);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_UpFromStartOfLineBelow_EntersRegionAtStartOfLastLine()
+    {
+        // Change 1: caret at the START of "456" + Up enters the region at the START of its LAST
+        // line ("ghi"), not its END. For "abc\n  def\nghi" that offset is just after the last \n.
+        var (blocks, region) = BuildMultiLineRegionSandwich();
+        var expectedLastLineStart = region.Content.LastIndexOf('\n') + 1;
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 2, Key.Up, caretAtLineStart: true);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(expectedLastLineStart));
+        Assert.That(decision.Value.TargetCaretPosition, Is.LessThan(region.Content.Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_UpFromMidLineBelow_StillEntersRegionAtEnd()
+    {
+        // Non-regression: Up NOT at the start of the host line keeps the historical "enter at END"
+        // behavior (caretAtLineStart defaults to false).
+        var (blocks, region) = BuildMultiLineRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 2, Key.Up);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.TargetCaretPosition, Is.EqualTo(region.Content.Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_UpFromStartOfLineBelow_SingleLineRegion_EntersAtZero()
+    {
+        // Single-line region: START of the last line == START of the only line == offset 0.
+        var (blocks, region) = BuildRegionSandwich();
+        Assert.That(region.Content, Does.Not.Contain("\n"));
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 2, Key.Up, caretAtLineStart: true);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.TargetCaretPosition, Is.EqualTo(0));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntry_LeftFromStartOfLineBelow_StillEntersRegionAtEnd()
+    {
+        // Strict scope: the start-of-line flag must NOT change Left behavior — Left still enters at
+        // END even when caretAtLineStart is true (the new rule is Up-only).
+        var (blocks, region) = BuildMultiLineRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntry(blocks, 2, Key.Left, caretAtLineStart: true);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.TargetCaretPosition, Is.EqualTo(region.Content.Length));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_UpFromStartOfLineBelow_EntersRegionAtStartOfLastLine()
+    {
+        // Live-path wiring: Up from the start of the line below (caretAtLineStart=true), crossing
+        // prediction resolves to the region container (block 1) — the backward path decides on the
+        // current block and now targets the START of the region's last line.
+        var (blocks, region) = BuildMultiLineRegionSandwich();
+        var expectedLastLineStart = region.Content.LastIndexOf('\n') + 1;
+
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(
+            blocks, 2, 1, Key.Up, caretAtParagraphBoundary: false, caretAtLineStart: true);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.Region, Is.SameAs(region));
+        Assert.That(decision.Value.TargetCaretPosition, Is.EqualTo(expectedLastLineStart));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DecideRegionEntryFromPrediction_UpFromMidLineBelow_StillEntersRegionAtEnd()
+    {
+        // Non-regression: Up mid-line below (caretAtLineStart=false) keeps entering at END.
+        var (blocks, region) = BuildMultiLineRegionSandwich();
+
+        var decision = RichTextBoxExtensions.DecideRegionEntryFromPrediction(
+            blocks, 2, 1, Key.Up, caretAtParagraphBoundary: false, caretAtLineStart: false);
+
+        Assert.That(decision, Is.Not.Null);
+        Assert.That(decision!.Value.TargetCaretPosition, Is.EqualTo(region.Content.Length));
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void DecideRegionEntry_CaretOnRegionContainer_ReturnsNull()
     {

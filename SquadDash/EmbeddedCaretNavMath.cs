@@ -73,6 +73,16 @@ public static class EmbeddedCaretNavMath
         }
     }
 
+    /// <summary>
+    /// Change 2 companion to <see cref="Decide"/>: when an Up press exits the region BACKWARD,
+    /// should the host caret land at the START of the paragraph above (column-preserving) rather
+    /// than its END? True only for Up at the very START of the region's first line (offset 0). A
+    /// Left-exit or a mid-first-line Up keeps the historical "land at END of the paragraph above"
+    /// behavior, so this is strictly additive.
+    /// </summary>
+    public static bool ExitBackwardLandsAtParagraphStart(int caretIndex, Key key)
+        => key == Key.Up && caretIndex == 0;
+
     private static bool IsOnFirstLine(string text, int caretIndex)
     {
         for (var i = 0; i < caretIndex; i++)
