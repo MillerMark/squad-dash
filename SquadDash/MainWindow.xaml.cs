@@ -491,6 +491,10 @@ public partial class MainWindow : Window
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
     private bool _isConvertingEmbeddedCodeRegion;
+    // Single-authority prompt undo/redo timeline (PROMPTUNDO-20261015-003). Owns the one shared
+    // snapshot history spanning host text AND every embedded region; driven exclusively by the
+    // Ctrl+Z/Ctrl+Y router in Window_PreviewKeyDown and fed by host + in-region edit hooks.
+    private PromptUndoHistory _promptUndoHistory = null!;
     // Guards against piling up duplicate deferred embedded-code-region conversion callbacks
     // (see PromptTextBox_TextChanged) when several keystrokes land before the first one runs.
     private bool _embeddedCodeRegionConversionScheduled;
@@ -1041,6 +1045,18 @@ public partial class MainWindow : Window
         // inside-a-region content-box Ctrl+C/X handler sets e.Handled and is a distinct case,
         // so the two paths never double-handle.
         DataObject.AddCopyingHandler(PromptTextBox, PromptTextBox_DataObjectCopying);
+        // ── Single-authority prompt undo/redo (PROMPTUNDO-20261015-003) ───────────────
+        // Suppress the host RichTextBox's native undo so it neither accumulates nor services a user
+        // Ctrl+Z/Ctrl+Y — the PromptUndoManager timeline is the sole authority. The keys are
+        // intercepted in Window_PreviewKeyDown (which tunnels before the host editor AND before any
+        // focused region's AvalonEdit) and routed into _promptUndoHistory. Each region's own
+        // AvalonEdit undo stack is suppressed in AvalonEditRegionEditor. Host-text edits feed the
+        // timeline from PromptTextBox_TextChanged; in-region edits feed it via
+        // EmbeddedCodeRegionBlock.AnyRegionContentEdited.
+        PromptTextBox.IsUndoEnabled = false;
+        _promptUndoHistory = new PromptUndoHistory(PromptTextBox);
+        _promptUndoHistory.CaptureBaseline();
+        EmbeddedCodeRegionBlock.AnyRegionContentEdited += OnEmbeddedRegionContentEdited;
         TranscriptTitleSpinner.PreviewMouseLeftButtonUp +=
             TranscriptTitleSpinner_PreviewMouseLeftButtonUp;
         // Dynamic dock-size providers must exist before a workspace layout is restored or a
@@ -28375,10 +28391,13 @@ public partial class MainWindow : Window
                     var nextVariant = _promptCycleVariants[_promptCycleIndex];
 
                     // Restore original text without adding to the undo stack, then apply the
-                    // new variant as a single replacement so Ctrl+Z always undoes back to original.
+                    // new variant as a single replacement. Native host undo is suppressed globally
+                    // by the single-authority timeline (PROMPTUNDO-20261015-003); preserve that
+                    // disabled state rather than hard-re-enabling it.
+                    var cycleUndoWasEnabled = PromptTextBox.IsUndoEnabled;
                     PromptTextBox.IsUndoEnabled   = false;
                     PromptTextBox.SetPlainText(_promptCycleOriginal!);
-                    PromptTextBox.IsUndoEnabled   = true;
+                    PromptTextBox.IsUndoEnabled   = cycleUndoWasEnabled;
                     PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleSelLen);
                     PromptTextBox.ReplaceSelection(nextVariant);
                     PromptTextBox.SelectRange(_promptCycleSelStart, nextVariant.Length);
@@ -28414,9 +28433,10 @@ public partial class MainWindow : Window
                     _promptCycleIndex = (_promptCycleIndex - 1 + _promptCycleVariants!.Count) % _promptCycleVariants.Count;
                     var prevVariant = _promptCycleVariants[_promptCycleIndex];
 
+                    var cycleUndoWasEnabled = PromptTextBox.IsUndoEnabled;
                     PromptTextBox.IsUndoEnabled   = false;
                     PromptTextBox.SetPlainText(_promptCycleOriginal!);
-                    PromptTextBox.IsUndoEnabled   = true;
+                    PromptTextBox.IsUndoEnabled   = cycleUndoWasEnabled;
                     PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleSelLen);
                     PromptTextBox.ReplaceSelection(prevVariant);
                     PromptTextBox.SelectRange(_promptCycleSelStart, prevVariant.Length);
@@ -28601,6 +28621,76 @@ public partial class MainWindow : Window
     private static EmbeddedCodeRegionBlock? FocusedEmbeddedCodeRegion()
         => FindEmbeddedCodeRegion(Keyboard.FocusedElement);
 
+    /// <summary>
+    /// Pushes a snapshot onto the single-authority prompt undo/redo timeline when text changes
+    /// INSIDE an embedded code region (PROMPTUNDO-20261015-003). A nested AvalonEdit's own edits
+    /// never raise the host <see cref="RichTextBox"/>'s TextChanged, so this is the in-region half
+    /// of edit capture, paired with the host-text push in <see cref="PromptTextBox_TextChanged"/>.
+    /// Skipped during a snapshot restore and during a fence-conversion rebuild, mirroring the host
+    /// path.
+    /// </summary>
+    private void OnEmbeddedRegionContentEdited(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (_promptUndoHistory is null || _promptUndoHistory.IsApplying || _isConvertingEmbeddedCodeRegion)
+                return;
+            _promptUndoHistory.PushSnapshot();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(OnEmbeddedRegionContentEdited), ex);
+        }
+    }
+
+    /// <summary>
+    /// True when the prompt owns the undo/redo context: keyboard focus is on the host prompt
+    /// <see cref="RichTextBox"/> OR inside one of its embedded code regions' AvalonEdit controls.
+    /// This is what makes the single authority span both surfaces — a Ctrl+Z pressed with focus
+    /// inside a region routes to the shared timeline, not the region's local undo.
+    /// </summary>
+    private bool PromptOwnsUndoContext()
+        => PromptTextBox.IsKeyboardFocusWithin
+           || ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)
+           || IsInsideEmbeddedCodeRegion(Keyboard.FocusedElement);
+
+    /// <summary>
+    /// Single-authority Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z router (PROMPTUNDO-20261015-003, §1/§5).
+    /// Invoked from <see cref="Window_PreviewKeyDown"/> — the earliest tunneling stage, which runs
+    /// before the host editor AND before any focused region's AvalonEdit — so marking the event
+    /// handled here guarantees NO native undo path (host RichTextBox or region AvalonEdit) ever
+    /// services the user's keystroke; only <see cref="_promptUndoHistory"/> does. Returns true when
+    /// it consumed the chord.
+    /// </summary>
+    private bool TryRoutePromptUndoRedo(KeyEventArgs e)
+    {
+        if (_promptUndoHistory is null)
+            return false;
+
+        var modifiers = Keyboard.Modifiers;
+        if ((modifiers & ModifierKeys.Control) == 0)
+            return false;
+        if ((modifiers & ModifierKeys.Alt) != 0)
+            return false;
+
+        var shift = (modifiers & ModifierKeys.Shift) != 0;
+        var isUndo = e.Key == Key.Z && !shift;
+        var isRedo = (e.Key == Key.Y && !shift) || (e.Key == Key.Z && shift);
+        if (!isUndo && !isRedo)
+            return false;
+
+        if (!PromptOwnsUndoContext())
+            return false;
+
+        if (isUndo)
+            _promptUndoHistory.Undo();
+        else
+            _promptUndoHistory.Redo();
+
+        e.Handled = true;
+        return true;
+    }
+
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         try
@@ -28608,6 +28698,15 @@ public partial class MainWindow : Window
             _idleDetectionService?.RecordActivity();
             ShowCodeHealthBannerIfPending();
             if (TryRecoverPromptInputFromStaleModifiers(e))
+                return;
+
+            // ── Single-authority prompt undo/redo (PROMPTUNDO-20261015-003) ──────────
+            // Intercept Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z here at the window's tunneling
+            // preview stage — before the host RichTextBox's native undo AND before a
+            // focused region's AvalonEdit can act — so the shared PromptUndoManager
+            // timeline is the ONLY thing that services the chord whether focus is in
+            // host text or inside an embedded region.
+            if (TryRoutePromptUndoRedo(e))
                 return;
 
             // ── Tour shortcut routing ─────────────────────────────────────────────
@@ -30165,6 +30264,14 @@ public partial class MainWindow : Window
         {
             if (_conversationManager.IsApplyingHistoryEntry)
                 return;
+
+            // Single-authority undo/redo (PROMPTUNDO-20261015-003): record this host-text edit onto
+            // the one shared prompt timeline. Skipped while a snapshot restore is in flight (the
+            // restore itself raises TextChanged) and while an embedded-code-region fence conversion
+            // is rebuilding the document — the pre-conversion keystroke already captured the
+            // equivalent flat serialization, since a region round-trips to its exact fenced text.
+            if (_promptUndoHistory is not null && !_promptUndoHistory.IsApplying && !_isConvertingEmbeddedCodeRegion)
+                _promptUndoHistory.PushSnapshot();
 
             // Convert any triple-backtick fence that just became complete (closing ``` typed
             // or pasted) into a collapsible embedded code region, and any bare *opening* fence

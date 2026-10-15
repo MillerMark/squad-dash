@@ -259,3 +259,137 @@ public static class PromptUndoManager
     private static string NormalizeContent(string? content)
         => (content ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
 }
+
+/// <summary>
+/// The single-authority undo/redo HISTORY (PROMPTUNDO-20261015, Step 3). It owns the one linear
+/// snapshot timeline for the entire prompt <see cref="RichTextBox"/> — spanning host text AND every
+/// embedded region — and is the ONLY component that drives <see cref="PromptUndoManager"/>'s
+/// capture/apply engine in response to a user Ctrl+Z/Ctrl+Y. It holds a list of
+/// <see cref="PromptSnapshot"/> entries plus an index into that list marking the live document
+/// state; <see cref="PushSnapshot"/> appends a new committed state (truncating any redo tail),
+/// <see cref="Undo"/>/<see cref="Redo"/> walk the index and re-apply the engine.
+/// <para>
+/// Routing (which keys reach this class) and native/per-region undo suppression are wired in
+/// <c>MainWindow</c>. Rapid-edit coalescing and clear-on-send are Step 4
+/// (PROMPTUNDO-20261015-004); this class pushes one entry per observed edit boundary and exposes
+/// <see cref="Clear"/> for Step 4 to call on send.
+/// </para>
+/// </summary>
+public sealed class PromptUndoHistory
+{
+    private readonly RichTextBox _prompt;
+    private readonly List<PromptSnapshot> _entries = new();
+
+    // Index of the snapshot representing the CURRENT live document state. -1 only before the first
+    // baseline is captured.
+    private int _index = -1;
+
+    // Re-entrancy guard: true while ApplySnapshot is rebuilding the document. Any TextChanged /
+    // region-edit notification that fires during a restore must NOT be recorded as a new user edit.
+    private bool _isApplying;
+
+    public PromptUndoHistory(RichTextBox prompt)
+        => _prompt = prompt ?? throw new ArgumentNullException(nameof(prompt));
+
+    /// True while <see cref="Undo"/>/<see cref="Redo"/> are re-applying a snapshot; edit hooks must
+    /// consult this and skip <see cref="PushSnapshot"/> so a restore never pollutes the timeline.
+    public bool IsApplying => _isApplying;
+
+    public bool CanUndo => _index > 0;
+
+    public bool CanRedo => _index >= 0 && _index < _entries.Count - 1;
+
+    /// Number of entries currently in the timeline (diagnostics/tests).
+    public int Count => _entries.Count;
+
+    /// Current index into the timeline (diagnostics/tests).
+    public int Index => _index;
+
+    /// <summary>
+    /// Seeds the timeline with the prompt's current state as the one baseline entry, discarding any
+    /// prior history. Call once when the prompt is first wired, and (Step 4) on clear-on-send.
+    /// </summary>
+    public void CaptureBaseline()
+    {
+        _entries.Clear();
+        _entries.Add(PromptUndoManager.CaptureSnapshot(_prompt));
+        _index = 0;
+    }
+
+    /// <summary>
+    /// Records the prompt's CURRENT state as the newest committed entry. If the serialized text is
+    /// unchanged from the live entry (e.g. a pure caret/selection move), the existing entry's
+    /// selection is refreshed in place instead of growing the timeline. Any redo tail ahead of the
+    /// current index is discarded (a fresh edit forks the future). No-ops while a restore is in
+    /// flight.
+    /// </summary>
+    public void PushSnapshot()
+    {
+        if (_isApplying)
+            return;
+
+        if (_index < 0)
+        {
+            CaptureBaseline();
+            return;
+        }
+
+        var snapshot = PromptUndoManager.CaptureSnapshot(_prompt);
+
+        if (string.Equals(_entries[_index].SerializedText, snapshot.SerializedText, StringComparison.Ordinal))
+        {
+            // Text identical — only the caret/anchor may have moved. Keep the single entry and
+            // refresh its selection so a later undo restores the latest caret, without adding a
+            // redundant history step.
+            _entries[_index] = snapshot;
+            return;
+        }
+
+        if (_index < _entries.Count - 1)
+            _entries.RemoveRange(_index + 1, _entries.Count - _index - 1);
+
+        _entries.Add(snapshot);
+        _index = _entries.Count - 1;
+    }
+
+    /// Moves one step back in the timeline and restores that snapshot. Returns false (no-op) at the
+    /// oldest entry.
+    public bool Undo()
+    {
+        if (!CanUndo)
+            return false;
+
+        _index--;
+        Apply(_entries[_index]);
+        return true;
+    }
+
+    /// Moves one step forward in the timeline and restores that snapshot. Returns false (no-op) at
+    /// the newest entry.
+    public bool Redo()
+    {
+        if (!CanRedo)
+            return false;
+
+        _index++;
+        Apply(_entries[_index]);
+        return true;
+    }
+
+    /// Clears the timeline and re-seeds it with the current prompt state (Step 4 calls this on send
+    /// so a sent prompt starts a fresh empty history).
+    public void Clear() => CaptureBaseline();
+
+    private void Apply(PromptSnapshot snapshot)
+    {
+        _isApplying = true;
+        try
+        {
+            PromptUndoManager.ApplySnapshot(_prompt, snapshot);
+        }
+        finally
+        {
+            _isApplying = false;
+        }
+    }
+}

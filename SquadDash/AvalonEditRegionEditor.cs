@@ -40,6 +40,14 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         _editor.Options.EnableEmailHyperlinks = false;
         _editor.Document.Text = initialText ?? string.Empty;
 
+        // Single-authority undo/redo (PROMPTUNDO-20261015, §5): suppress THIS region's own
+        // per-editor AvalonEdit undo stack so it never accumulates or services a user Ctrl+Z/Ctrl+Y.
+        // A size limit of 0 means no undoable steps are ever retained, so AvalonEdit's built-in
+        // Undo/Redo commands become inert no-ops; the host-level PromptUndoManager owns the one
+        // shared prompt timeline (the keystrokes are additionally intercepted and marked handled in
+        // MainWindow's window preview-key router before they can reach AvalonEdit at all).
+        _editor.Document.UndoStack.SizeLimit = 0;
+
         // AvalonEdit raises TextChanged on the TextEditor; forward it verbatim through the seam.
         _editor.TextChanged += (s, e) => TextChanged?.Invoke(this, e);
     }

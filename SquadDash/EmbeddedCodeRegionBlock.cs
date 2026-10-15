@@ -60,6 +60,15 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     internal static EmbeddedCodeRegionBlock? ActiveRegion { get; private set; }
 
+    /// <summary>
+    /// Raised whenever the text INSIDE any embedded region's editor changes (the region's own
+    /// AvalonEdit edit, which never surfaces as the host <see cref="RichTextBox"/>'s TextChanged).
+    /// The single-authority prompt undo/redo owner (<c>MainWindow</c> driving
+    /// <see cref="PromptUndoHistory"/>, PROMPTUNDO-20261015-003) subscribes once so in-region typing
+    /// pushes a snapshot onto the one shared timeline, exactly like host-text edits do.
+    /// </summary>
+    internal static event EventHandler? AnyRegionContentEdited;
+
     /// Clears <see cref="ActiveRegion"/> unconditionally. Called when a host-prompt gesture makes
     /// clear the user has left region editing (e.g. a click landing outside every region).
     internal static void ClearActiveRegion() => ActiveRegion = null;
@@ -211,6 +220,10 @@ public sealed class EmbeddedCodeRegionBlock : Border
         {
             Content = _editor.Text;
             TryCloseOnTrailingFenceLine();
+            // Notify the single-authority undo/redo owner that in-region text changed, so it can
+            // push a snapshot onto the one shared prompt timeline (host TextChanged does NOT fire
+            // for a nested editor's own edits). PROMPTUNDO-20261015-003.
+            AnyRegionContentEdited?.Invoke(this, EventArgs.Empty);
         };
 
         // Handle Ctrl+C (Copy) and Ctrl+X (Cut) to provide fenced text to clipboard
