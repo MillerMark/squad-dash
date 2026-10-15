@@ -324,6 +324,38 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
     }
 
     [Test]
+    public void ValidatedPlanCommit_WaitsForCleanWorktreeInsteadOfFailingTheStep()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var finalize = Method(
+            main,
+            "private async Task FinalizeExecutingPlanIterationAsync()",
+            "private async Task FinalizeTaskVerificationTurnAsync(");
+        var validation = Method(
+            main,
+            "private sealed record DecomposeStepCommitValidation(",
+            "private void StopAndOfferDecomposeRecovery(");
+        var cleanPause = Method(
+            main,
+            "private void PausePlanForCleanWorktree(",
+            "private void OnNativeLoopIterationCompleted(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(validation, Does.Contain("PlanPreflightBlockedException? WorktreeBlock")
+                .And.Contain("EnsurePlanWorktreeReadyAsync(workspace, result.GroupId)")
+                .And.Contain("catch (PlanPreflightBlockedException blocked)")
+                .And.Contain("return new(null, verificationOnly ? head : resolved, commits, anomalies, changedPaths, worktreeBlock)"));
+            Assert.That(finalize, Does.Contain("postCommitWorktreeBlock = commitValidation.WorktreeBlock")
+                .And.Contain("PlanStoreUpdater.ApplyTaskVerificationPending(")
+                .And.Contain("PausePlanForCleanWorktree(postCommitWorktreeBlock, groupId)")
+                .And.Contain("TryPublishPlanStepAccepted("));
+            Assert.That(cleanPause, Does.Contain("SelectSinglePendingVerificationTask(latest)")
+                .And.Contain("ResumeInterruptedTaskVerificationAsync(latest, verificationTask.TaskId)"));
+        });
+    }
+
+    [Test]
     public void RecoveryTranscript_UsesPlanAndStepLabelsInsteadOfInternalIds()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

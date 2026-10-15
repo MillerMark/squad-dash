@@ -103,7 +103,7 @@ internal static class PlanAttentionCardPresentationBuilder
                     category,
                     "Step Needs Verification",
                     "SquadDash preserved the latest work but could not confirm this step as complete.",
-                    $"Current work is preserved in commit {currentEvidence.Commit}. " +
+                    $"Current work is preserved in commit {ShortSha(currentEvidence.Commit)}. " +
                     (PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(plan, taskId) is null
                         ? "No independent review is recorded for this commit, so it still needs verification."
                         : "The available independent review applies to earlier evidence, so this commit still needs verification."),
@@ -134,6 +134,11 @@ internal static class PlanAttentionCardPresentationBuilder
                 ShowDiagnosticsActions: true),
         };
     }
+
+    private static string ShortSha(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? "unknown"
+            : value.Length > 7 ? value[..7] : value;
 
     internal static string BuildCopyText(
         PlanAttentionCardPresentation presentation,

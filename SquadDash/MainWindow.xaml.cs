@@ -8796,6 +8796,12 @@ public partial class MainWindow : Window
             {
                 var latest = _planStore?.Load(waiting.PlanId)
                     ?? throw new InvalidOperationException("The durable plan is no longer available.");
+                var verificationTask = SelectSinglePendingVerificationTask(latest);
+                if (verificationTask is not null)
+                {
+                    await ResumeInterruptedTaskVerificationAsync(latest, verificationTask.TaskId);
+                    return true;
+                }
                 await StartBackloggedDecomposeGroupAsync(
                     PendingDecomposePlanAdapter.FromPlan(latest).Group with
                     {
@@ -8807,6 +8813,15 @@ public partial class MainWindow : Window
             autoRetryWhenReady: true);
         SyncLoopPanel();
         SoundNotifications.Play(SoundEvent.LoopStopped);
+    }
+
+    private static PlanTask? SelectSinglePendingVerificationTask(Plan plan)
+    {
+        var candidates = plan.Tasks
+            .Where(task => task.Status == PlanTaskStatus.VerificationPending ||
+                           PlanTaskStatus.IsVerifying(task.Status))
+            .ToArray();
+        return candidates.Length == 1 ? candidates[0] : null;
     }
 
     private void OnNativeLoopIterationCompleted(int iteration)
@@ -16102,6 +16117,7 @@ public partial class MainWindow : Window
         }
 
         PlanTaskCommitEvidence? taskCommitEvidence = null;
+        PlanPreflightBlockedException? postCommitWorktreeBlock = null;
         if (result?.IsVerifiedNoOp == true &&
             string.Equals(result.GroupId, groupId, StringComparison.Ordinal) &&
             string.Equals(result.TaskId, taskId, StringComparison.Ordinal) &&
@@ -16158,6 +16174,7 @@ public partial class MainWindow : Window
                     result.Verification,
                     commitValidation.Commits,
                     commitValidation.ChangedFiles);
+                postCommitWorktreeBlock = commitValidation.WorktreeBlock;
             }
             else
             {
@@ -16572,6 +16589,11 @@ public partial class MainWindow : Window
                     return;
                 }
             }
+            if (postCommitWorktreeBlock is not null)
+            {
+                PausePlanForCleanWorktree(postCommitWorktreeBlock, groupId);
+                return;
+            }
 
             return;
         }
@@ -16731,6 +16753,11 @@ public partial class MainWindow : Window
                     : executionAttempt with { Status = "accepted" },
                 PendingRepairResult = null,
             });
+        if (postCommitWorktreeBlock is not null)
+        {
+            PausePlanForCleanWorktree(postCommitWorktreeBlock, groupId);
+            return;
+        }
         LoadTasksPanel();
         var durableAfterAcceptance = _planStore?.Load(groupId);
         if (_pausePlanAfterCurrentStepRequested || durableAfterAcceptance?.IsPaused == true)
@@ -17671,7 +17698,15 @@ public partial class MainWindow : Window
     }
 
 
-    private async Task<(string? Error, string? EffectiveCommit, IReadOnlyList<PlanEvidenceCommit> Commits, IReadOnlyList<PlanExecutionAnomaly> Anomalies, IReadOnlyList<string> ChangedFiles)> ValidateDecomposeStepCommitAsync(
+    private sealed record DecomposeStepCommitValidation(
+        string? Error,
+        string? EffectiveCommit,
+        IReadOnlyList<PlanEvidenceCommit> Commits,
+        IReadOnlyList<PlanExecutionAnomaly> Anomalies,
+        IReadOnlyList<string> ChangedFiles,
+        PlanPreflightBlockedException? WorktreeBlock = null);
+
+    private async Task<DecomposeStepCommitValidation> ValidateDecomposeStepCommitAsync(
         DecomposeStepResult result,
         bool verificationOnly,
         string? baselineOverride = null,
@@ -17680,10 +17715,10 @@ public partial class MainWindow : Window
         Func<string, string, Task<string>>? runGit = null)
     {
         runGit ??= RunGitAsync;
-        if (_currentWorkspace is null) return ("No workspace is active.", null, [], [], []);
+        if (_currentWorkspace is null) return new("No workspace is active.", null, [], [], []);
         if (string.IsNullOrWhiteSpace(result.Commit) ||
             !Regex.IsMatch(result.Commit, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
-            return ("The reported commit was missing or malformed.", null, [], [], []);
+            return new("The reported commit was missing or malformed.", null, [], [], []);
 
         try
         {
@@ -17726,7 +17761,7 @@ public partial class MainWindow : Window
                 catch (InvalidOperationException ex)
                 {
                     SquadDashTrace.Write("PlanRecovery", $"Task commit ancestry validation failed: {ex.Message}");
-                    return ($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null, [], [], []);
+                    return new($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null, [], [], []);
                 }
             }
             else if (!string.Equals(resolved, head, StringComparison.OrdinalIgnoreCase))
@@ -17738,12 +17773,12 @@ public partial class MainWindow : Window
                 catch (InvalidOperationException ex)
                 {
                     SquadDashTrace.Write("PlanRecovery", $"Verification commit ancestry validation failed: {ex.Message}");
-                    return ($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null, [], [], []);
+                    return new($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null, [], [], []);
                 }
             }
 
             if (!verificationOnly && string.Equals(baseline, resolved, StringComparison.OrdinalIgnoreCase))
-                return ("The step reported completion without creating a new commit.", null, [], [], []);
+                return new("The step reported completion without creating a new commit.", null, [], [], []);
 
             IReadOnlyList<PlanEvidenceCommit> commits = [];
             IReadOnlyList<PlanExecutionAnomaly> anomalies = [];
@@ -17756,9 +17791,9 @@ public partial class MainWindow : Window
                     workspace,
                     $"rev-list --count \"{baseline}..{rangeEnd}\"")).Trim();
                 if (!int.TryParse(commitCountText, out var commitCount))
-                    return ("SquadDash could not determine how many commits the step produced.", null, [], [], []);
+                    return new("SquadDash could not determine how many commits the step produced.", null, [], [], []);
                 if (verificationOnly && commitCount != 0)
-                    return ($"The verification-only step changed the branch by {commitCount} commit(s); it must only evaluate existing work.", null, [], [], []);
+                    return new($"The verification-only step changed the branch by {commitCount} commit(s); it must only evaluate existing work.", null, [], [], []);
 
                 if (!verificationOnly)
                 {
@@ -17802,16 +17837,30 @@ public partial class MainWindow : Window
                     path.Replace('\\', '/'),
                     tasksRelativePath,
                     StringComparison.OrdinalIgnoreCase)))
-                return ("The AI commit modified tasks.md; plan status is owned by SquadDash.", null, [], [], []);
+                return new("The AI commit modified tasks.md; plan status is owned by SquadDash.", null, [], [], []);
 
+            PlanPreflightBlockedException? worktreeBlock = null;
             if (!skipWorktreePreflight)
-                await EnsurePlanWorktreeReadyAsync(workspace);
-            return (null, verificationOnly ? head : resolved, commits, anomalies, changedPaths);
+            {
+                try
+                {
+                    await EnsurePlanWorktreeReadyAsync(workspace, result.GroupId);
+                }
+                catch (PlanPreflightBlockedException blocked)
+                {
+                    worktreeBlock = blocked;
+                    SquadDashTrace.Write(
+                        "PlanRecovery",
+                        $"Validated task commit {resolved} for plan={result.GroupId} task={result.TaskId}, " +
+                        $"but downstream dispatch is waiting for a clean worktree paths=[{string.Join(",", blocked.ChangedPaths)}].");
+                }
+            }
+            return new(null, verificationOnly ? head : resolved, commits, anomalies, changedPaths, worktreeBlock);
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write("PlanRecovery", $"Task commit validation failed: {ex.Message}");
-            return ($"Git validation failed: {ex.Message}", null, [], [], []);
+            return new($"Git validation failed: {ex.Message}", null, [], [], []);
         }
     }
 

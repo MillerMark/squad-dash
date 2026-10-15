@@ -1033,7 +1033,8 @@ internal sealed class PlanRecoveryPresentationTests
         Assert.Multiple(() =>
         {
             Assert.That(presentation.Title, Is.EqualTo("Step Needs Verification"));
-            Assert.That(presentation.RecordedReason, Does.Contain(commit));
+            Assert.That(presentation.RecordedReason, Does.Contain("ba17861"));
+            Assert.That(presentation.RecordedReason, Does.Not.Contain(commit));
             Assert.That(presentation.RecordedReason, Does.Not.Contain(task.TaskId));
             Assert.That(presentation.RecordedReason, Does.Contain("No independent review is recorded"));
         });
