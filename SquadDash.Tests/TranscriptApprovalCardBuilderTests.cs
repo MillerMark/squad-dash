@@ -510,6 +510,8 @@ public class TranscriptApprovalCardBuilderTests
             Assert.That(card.NoteTextBox.Background, Is.SameAs(fieldSurface));
             Assert.That(itemContainer.Children.IndexOf(questionText), Is.EqualTo(0),
                 "Wrapped checklist text should have the full card width above the controls row.");
+            Assert.That(itemContainer.Margin.Top, Is.EqualTo(5));
+            Assert.That(checklistRow.Margin.Top, Is.EqualTo(2));
             Assert.That(checklistRow.ColumnDefinitions[1].Width.IsStar, Is.True);
             Assert.That(choicePanel.Margin.Right, Is.EqualTo(10));
             Assert.That(choiceBoxes[0].Margin.Right, Is.EqualTo(12));

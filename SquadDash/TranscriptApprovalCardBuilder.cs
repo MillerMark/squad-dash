@@ -339,7 +339,7 @@ internal static class TranscriptApprovalCardBuilder
                     new Thickness(8, 0, 0, 0),
                     VerticalAlignment.Center);
 
-                var controlRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+                var controlRow = new Grid { Margin = new Thickness(0, 2, 0, 4) };
                 controlRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 controlRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 140 });
                 Grid.SetColumn(choicePanel, 0);
@@ -347,7 +347,7 @@ internal static class TranscriptApprovalCardBuilder
                 controlRow.Children.Add(choicePanel);
                 controlRow.Children.Add(itemNoteHost);
 
-                var itemContainer = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
+                var itemContainer = new StackPanel { Margin = new Thickness(0, 5, 0, 4) };
                 itemContainer.Children.Add(itemBlock);
                 itemContainer.Children.Add(controlRow);
 
