@@ -54,6 +54,17 @@ internal static class TranscriptCopyService {
 
     /// <summary>Builds readable text for a whole embedded transcript card.</summary>
     internal static string? BuildCardText(BlockUIContainer container) {
+        if (container.Tag is MarkdownDetailView detail) {
+            var label = detail.Label.TrimEnd();
+            if (!detail.Expander.IsExpanded)
+                return label.Length == 0 ? null : label;
+
+            var body = MarkdownVisibleContent.GetText(detail.Viewer.Document).TrimEnd();
+            if (body.Length == 0)
+                return label.Length == 0 ? null : label;
+            return label.Length == 0 ? body : label + Environment.NewLine + body;
+        }
+
         if (TranscriptCardLayout.GetCopyable(container) is { } copyable) {
             var copyText = copyable.GetCopyText().TrimEnd();
             return copyText.Length == 0 ? null : copyText;

@@ -643,6 +643,7 @@ public partial class MainWindow : Window
     private TranscriptConversationManager _conversationManager = null!;
     private TranscriptPanelController _transcriptPanelController = null!;
     private MarkdownDocumentRenderer _markdownRenderer = null!;
+    private readonly MarkdownDetailStateStore _transcriptDetailStateStore = new();
     private TranscriptScrollController _coordinatorScrollController = null!;
     private bool _modelObservedThisSession;
     private readonly Queue<(string Text, Brush? Brush)> _deferredSystemLines = new();
@@ -27491,10 +27492,16 @@ public partial class MainWindow : Window
         // Walk all sections at all depths. Document structure is:
         //   Document → NarrativeSection (Section) → inner Section → BlockUIContainer/Paragraph
         // We use a local helper to avoid duplicating the per-section logic.
-        void ApplySectionBlocks(Section section)
+        void ApplyBlocks(BlockCollection blocks)
         {
-            foreach (var inner in section.Blocks.OfType<BlockUIContainer>())
+            foreach (var inner in blocks.OfType<BlockUIContainer>())
             {
+                if (inner.Tag is MarkdownDetailView detail)
+                {
+                    detail.Expander.FontSize = _transcriptFontSize;
+                    ApplyTranscriptFontSizeToDocument(detail.Viewer.Document);
+                }
+
                 // Code block: BlockUIContainer > Grid > TextBox (Tag="codeblock")
                 // Also handles legacy StackPanel wrappers from earlier code paths.
                 var codeBox = inner.Child switch
@@ -27530,7 +27537,7 @@ public partial class MainWindow : Window
                         button.FontSize = _transcriptFontSize;
             }
 
-            foreach (var para in section.Blocks.OfType<Paragraph>())
+            foreach (var para in blocks.OfType<Paragraph>())
             {
                 if (para.Tag is string headingTag)
                 {
@@ -27540,12 +27547,11 @@ public partial class MainWindow : Window
             }
 
             // Recurse into nested Sections (NarrativeSection → inner Section → content)
-            foreach (var nested in section.Blocks.OfType<Section>())
-                ApplySectionBlocks(nested);
+            foreach (var nested in blocks.OfType<Section>())
+                ApplyBlocks(nested.Blocks);
         }
 
-        foreach (var block in document.Blocks.OfType<Section>())
-            ApplySectionBlocks(block);
+        ApplyBlocks(document.Blocks);
 
         // Tour quick reply: BlockUIContainer added directly to document (not inside a Section)
         // Structure: BlockUIContainer > WrapPanel > Button
@@ -46580,6 +46586,7 @@ public partial class MainWindow : Window
         // document height synchronously, clamping VerticalOffset before the rebuild adds
         // content back. That clamp is what causes the scroll thumb to jump mid-transcript.
         var oldBlocks = entry.Section.Blocks.ToList();
+        DisposeTranscriptMarkdownDetails(oldBlocks);
         int shared = Math.Min(oldBlocks.Count, newBlocks.Count);
 
         for (int i = 0; i < shared; i++)
@@ -46735,12 +46742,48 @@ public partial class MainWindow : Window
 
         var normalized = responseText.Replace("\r\n", "\n").Replace('\r', '\n');
         var lines = normalized.Split('\n');
+        var detailRegions = MarkdownDetailParser.Parse(lines);
+        var detailRegionsByStart = detailRegions.ToDictionary(region => region.StartLine);
+        var validDetailRegions = detailRegions.Where(region => region.Diagnostic is null).ToArray();
+        var detailState = CreateTranscriptDetailStateContext(entry);
+        var detailKeys = detailState?.Identity.GetSectionKeys(validDetailRegions.Select(region =>
+            new MarkdownDetailSection(region.Label, region.Body)));
+        var detailIndex = 0;
+        foreach (var diagnostic in detailRegions.Where(region => region.Diagnostic is not null))
+            SquadDashTrace.Write("MarkdownDetail",
+                $"Transcript line {diagnostic.StartLine + 1}: {diagnostic.Diagnostic}");
         var paragraphLines = new List<string>();
 
         for (var index = 0; index < lines.Length; index++)
         {
             var line = lines[index];
             var trimmed = line.TrimStart();
+
+            if (detailRegionsByStart.TryGetValue(index, out var detailRegion))
+            {
+                foreach (var block in BuildParagraphBlocks(paragraphLines))
+                    yield return block;
+                paragraphLines.Clear();
+
+                if (detailRegion.Diagnostic is null)
+                {
+                    var key = detailKeys is null ? null : detailKeys[detailIndex];
+                    detailIndex++;
+                    yield return BuildTranscriptDetailBlock(entry, detailRegion, detailState, key);
+                }
+                else
+                {
+                    var literalLines = lines
+                        .Skip(detailRegion.StartLine)
+                        .Take(detailRegion.EndLine - detailRegion.StartLine + 1)
+                        .ToList();
+                    foreach (var block in BuildParagraphBlocks(literalLines))
+                        yield return block;
+                }
+
+                index = detailRegion.EndLine;
+                continue;
+            }
 
             // Code fence
             if (MarkdownDocumentRenderer.TryReadFenceStart(trimmed, out var fenceLength))
@@ -46789,6 +46832,61 @@ public partial class MainWindow : Window
             hintRun.SetResourceReference(TextElement.ForegroundProperty, "KeyboardHintText");
             hintParagraph.Inlines.Add(hintRun);
             yield return hintParagraph;
+        }
+    }
+
+    private MarkdownDetailStateContext? CreateTranscriptDetailStateContext(TranscriptResponseEntry entry)
+    {
+        var workspaceFolder = _currentWorkspace?.FolderPath;
+        if (string.IsNullOrWhiteSpace(workspaceFolder))
+            return null;
+
+        var entityId = $"{entry.Turn.OwnerThread.ThreadId}:{entry.Turn.StartedAt.UtcTicks}:{entry.Sequence}";
+        return new MarkdownDetailStateContext(
+            MarkdownDetailIdentity.Create(workspaceFolder, "transcript-response", entityId, "response"),
+            _transcriptDetailStateStore);
+    }
+
+    private Block BuildTranscriptDetailBlock(
+        TranscriptResponseEntry entry,
+        MarkdownDetailRegion region,
+        MarkdownDetailStateContext? detailState,
+        string? key)
+    {
+        var body = new FlowDocument
+        {
+            FontFamily = entry.Turn.OwnerThread.Document.FontFamily,
+            FontSize = _transcriptFontSize,
+            Foreground = entry.Turn.OwnerThread.Document.Foreground,
+            Background = Brushes.Transparent,
+            PagePadding = new Thickness(0)
+        };
+        foreach (var block in BuildResponseBlocks(entry, region.Body, allowQuickReplies: false).ToArray())
+            body.Blocks.Add(block);
+        MarkdownVisibleContent.Bind(body);
+
+        var detail = new MarkdownDetailView(entry.Turn.OwnerThread.Document, body, region.Label, key, detailState);
+        detail.Expander.FontSize = _transcriptFontSize;
+        return new BlockUIContainer(detail.Expander)
+        {
+            Tag = detail,
+            Margin = new Thickness(0, 2, 0, 8)
+        };
+    }
+
+    private static void DisposeTranscriptMarkdownDetails(IEnumerable<Block> blocks)
+    {
+        foreach (var block in blocks)
+        {
+            if (block is BlockUIContainer { Tag: MarkdownDetailView detail })
+            {
+                MarkdownVisibleContent.Detach(detail.Viewer.Document);
+                detail.Dispose();
+            }
+            else if (block is Section section)
+            {
+                DisposeTranscriptMarkdownDetails(section.Blocks.Cast<Block>());
+            }
         }
     }
 
