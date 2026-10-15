@@ -78,6 +78,15 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     }
 
     [Test]
+    public void WorkspaceLoad_UsesSmallInitialCoordinatorRenderWindow()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "TranscriptConversationManager.cs"));
+
+        Assert.That(source, Does.Contain("private const int InitialTurnWindow = 6;"),
+            "Startup should render only the transcript tail; older coordinator turns are virtual-prepended on scroll.");
+    }
+
+    [Test]
     public void PersistedToolRendering_DefersDetailTextUntilToolExpanderOpens()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
@@ -90,6 +99,47 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
             Assert.That(source, Does.Contain("private static string BuildToolDetailText(ToolTranscriptEntry entry)"));
             Assert.That(source, Does.Not.Contain(
                 "entry.DetailTextBox.Text = entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent"));
+        });
+    }
+
+    [Test]
+    public void PersistedToolRendering_DefersCapturedEditExtractionUntilNeeded()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("private static IReadOnlyList<CapturedFileEdit> EnsureCapturedEdits(ToolTranscriptEntry entry)"));
+            Assert.That(source, Does.Contain("ReferenceEquals(entry.Turn.OwnerThread.CurrentTurn, entry.Turn)"));
+            Assert.That(source, Does.Contain("entry.CapturedEdits = tool.CapturedEdits is { Count: > 0 }")
+                .And.Contain(": null;"));
+            Assert.That(source, Does.Not.Contain(
+                "entry.CapturedEdits = tool.CapturedEdits is { Count: > 0 }\r\n            ? tool.CapturedEdits\r\n            : ToolTranscriptFormatter.TryExtractCapturedEdits"));
+        });
+    }
+
+    [Test]
+    public void ResponseRendering_DisablesFusionDiagnosticsDuringNormalHydration()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("private static readonly bool EnableFusionPatternTrace = false;"));
+            Assert.That(source, Does.Contain("if (EnableFusionPatternTrace)\r\n            TraceFusionPatternsInRawText"));
+        });
+    }
+
+    [Test]
+    public void TranscriptHydration_DefersPromptNavGeometryDuringBulkRender()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("private bool IsBulkTranscriptDocumentLoadActive(TranscriptThreadState thread)"));
+            Assert.That(source, Does.Contain("SyncPromptNavButtons(allowGeometry: !IsBulkTranscriptDocumentLoadActive(thread));"));
+            Assert.That(source, Does.Contain("box.EndChange();\r\n        if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))\r\n            SchedulePromptNavGeometryRefresh();"));
         });
     }
 
