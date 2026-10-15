@@ -151,13 +151,33 @@ public sealed class EmbeddedCodeRegionBlock : Border
             ActiveRegion = null;
         };
 
-        // Diagnostic trace for the Space-leak investigation: one Space press reveals whether the
-        // TextArea genuinely owns OS keyboard focus at keydown time, or whether focus has leaked
-        // back to the host (which is why the space lands outside the region).
+        // Deterministic Space handling: insert an unmodified Space into THIS region's own document
+        // at PreviewKeyDown — before WPF's text-input pipeline can divert it to the host RichTextBox,
+        // which special-cases Space in its own TextBoxBase editor and otherwise steals the keystroke
+        // (the space would land in the host prompt instead of the focused region). See
+        // EmbeddedRegionSpaceRouter for the pure decision. Diagnostic trace retained.
         _editorControl.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == Key.Space)
-                Trace($"EMBEDDED_CODE_SPACE_KEY textAreaFocused={_editor.IsTextInputSurfaceFocused} focusWithin={_editor.IsKeyboardFocusWithin} active={ReferenceEquals(ActiveRegion, this)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+            if (e.Key != Key.Space)
+                return;
+
+            // Focus is genuinely inside THIS region only when the editor owns keyboard focus AND
+            // this region is the tracked active one — mirrors how the nav/redirect handlers gate
+            // themselves, so a stale/unfocused region never swallows a Space.
+            var regionHasFocus = _editor.IsKeyboardFocusWithin && ReferenceEquals(ActiveRegion, this);
+            Trace($"EMBEDDED_CODE_SPACE_KEY textAreaFocused={_editor.IsTextInputSurfaceFocused} focusWithin={_editor.IsKeyboardFocusWithin} active={ReferenceEquals(ActiveRegion, this)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+
+            if (!EmbeddedRegionSpaceRouter.ShouldInsertSpaceIntoRegion(e.Key, Keyboard.Modifiers, regionHasFocus))
+                return;
+
+            // Insert the space authoritatively before WPF's text-input pipeline can divert it to the
+            // host RichTextBox (which special-cases Space in its own editor and would otherwise steal
+            // it). Marking KeyDown handled suppresses the subsequent TextInput, so there is no
+            // double-insert and no host leak. Modified combos (Shift+Space Smooth Dictation, etc.) are
+            // never reached here because the router requires ModifierKeys.None.
+            _editor.InsertText(" ");
+            e.Handled = true;
+            Trace($"EMBEDDED_CODE_SPACE_INSERT caret={_editor.CaretOffset} textLen={_editor.TextLength}");
         };
 
         // Keep Content (the serialization source of truth read by ToFencedText/GetPlainText)

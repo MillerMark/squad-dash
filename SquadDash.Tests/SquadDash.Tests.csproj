@@ -205,6 +205,7 @@
     <Compile Include="..\SquadDash\EmbeddedCodeRegionManager.cs" Link="Source\EmbeddedCodeRegionManager.cs" />
     <Compile Include="..\SquadDash\EmbeddedFenceDetector.cs" Link="Source\EmbeddedFenceDetector.cs" />
     <Compile Include="..\SquadDash\EmbeddedRegionInputRouter.cs" Link="Source\EmbeddedRegionInputRouter.cs" />
+    <Compile Include="..\SquadDash\EmbeddedRegionSpaceRouter.cs" Link="Source\EmbeddedRegionSpaceRouter.cs" />
     <Compile Include="..\SquadDash\StickyCodeBlockBehavior.cs" Link="Source\StickyCodeBlockBehavior.cs" />
     <Compile Include="..\SquadDash\SquadDashTrace.cs" Link="Source\SquadDashTrace.cs" />
     <Compile Include="..\SquadDash\SquadDashRuntimeStamp.cs" Link="Source\SquadDashRuntimeStamp.cs" />

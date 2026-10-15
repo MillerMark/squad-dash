@@ -1427,6 +1427,62 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(editor.Text, Is.EqualTo("h o"));
     }
 
+    // ── Unmodified Space while this region is focused → insert into region and handle ───────
+    //
+    // Regression guard for the host RichTextBox diverting the Space text input away from the
+    // focused nested TextArea (Space fired no PROMPT_EMBEDDED_CODE_TEXT_INPUT, yet the host
+    // prompt's text grew). EmbeddedRegionSpaceRouter is the pure decision the region editor's
+    // PreviewKeyDown uses to insert the space itself and mark the key handled before WPF can
+    // divert it. The genuinely interactive live-key behavior remains human-verified at the gate.
+
+    [Test]
+    public void ShouldInsertSpaceIntoRegion_UnmodifiedSpaceRegionFocused_Handles()
+    {
+        Assert.That(
+            EmbeddedRegionSpaceRouter.ShouldInsertSpaceIntoRegion(
+                Key.Space, ModifierKeys.None, regionHasFocus: true),
+            Is.True);
+    }
+
+    [Test]
+    public void ShouldInsertSpaceIntoRegion_ShiftSpace_DoesNotHandle()
+    {
+        // Shift+Space (Smooth Dictation) must pass through untouched.
+        Assert.That(
+            EmbeddedRegionSpaceRouter.ShouldInsertSpaceIntoRegion(
+                Key.Space, ModifierKeys.Shift, regionHasFocus: true),
+            Is.False);
+    }
+
+    [Test]
+    public void ShouldInsertSpaceIntoRegion_CtrlSpace_DoesNotHandle()
+    {
+        Assert.That(
+            EmbeddedRegionSpaceRouter.ShouldInsertSpaceIntoRegion(
+                Key.Space, ModifierKeys.Control, regionHasFocus: true),
+            Is.False);
+    }
+
+    [Test]
+    public void ShouldInsertSpaceIntoRegion_NoRegionFocused_DoesNotHandle()
+    {
+        // No region has focus — ordinary host typing must behave exactly as before.
+        Assert.That(
+            EmbeddedRegionSpaceRouter.ShouldInsertSpaceIntoRegion(
+                Key.Space, ModifierKeys.None, regionHasFocus: false),
+            Is.False);
+    }
+
+    [Test]
+    public void ShouldInsertSpaceIntoRegion_NonSpaceKey_DoesNotHandle()
+    {
+        // The handler only reacts to Space; other keys are never diverted here.
+        Assert.That(
+            EmbeddedRegionSpaceRouter.ShouldInsertSpaceIntoRegion(
+                Key.A, ModifierKeys.None, regionHasFocus: true),
+            Is.False);
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void InsertHostText_Space_LandsInsideRegionContent()
     {
