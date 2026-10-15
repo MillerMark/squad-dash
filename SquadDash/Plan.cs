@@ -179,7 +179,13 @@ internal sealed record PlanHumanReviewSelection(
     [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
     [property: JsonPropertyName("reviewTarget")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                string? ReviewTarget = null);
+                                                string? ReviewTarget = null,
+    [property: JsonPropertyName("answer")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? Answer = null,
+    [property: JsonPropertyName("note")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                string? Note = null);
 
 /// <summary>Auditable disposition of a human-review requirement clarification.</summary>
 internal sealed record PlanHumanReviewRequirementDisposition(

@@ -13050,11 +13050,11 @@ public partial class MainWindow : Window
         IReadOnlyList<PlanHumanReviewChecklistItem> checklistItems,
         string? activityGateId = null)
     {
-        var uncheckedItems = checklistItems.Where(item => !item.IsChecked).ToArray();
-        if (uncheckedItems.Length == 0)
+        var unapprovedItems = checklistItems.Where(item => !item.IsChecked).ToArray();
+        if (unapprovedItems.Length == 0)
             return;
 
-        activityGateId ??= uncheckedItems
+        activityGateId ??= unapprovedItems
             .Select(item => item.GateId)
             .FirstOrDefault(gateId => plan.ApprovalGates.Any(gate =>
                 string.Equals(gate.GateId, gateId, StringComparison.Ordinal)));
@@ -13067,16 +13067,16 @@ public partial class MainWindow : Window
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
             task?.DisplayStepLabel,
             task?.Title ?? taskId);
-        var checklistText = string.Join("\n", uncheckedItems.Select(item => $"- {item.Text}"));
+        var checklistText = string.Join("\n", unapprovedItems.Select(FormatUnapprovedReviewItem));
         var context =
             $"Plan ID: {plan.PlanId}\n" +
             $"Revision: {plan.Revision}\n" +
             $"Task ID: {taskId}\n" +
-            $"Candidate commit: {uncheckedItems[0].CandidateCommit}\n\n" +
+            $"Candidate commit: {unapprovedItems[0].CandidateCommit}\n\n" +
             "The user is responding at an existing human-review boundary. Address only the requested " +
-            "unchecked verification items and keep the plan paused. The response may be discussion, a direct " +
+            "unapproved verification items and keep the plan paused. The response may be discussion, a direct " +
             "correction, plan rework, or a bounded amendment; report the chosen outcome through the correlated " +
-            "PLAN_REVIEW_RESPONSE_JSON contract supplied in the prompt.\n\nUnchecked verification items:\n" + checklistText +
+            "PLAN_REVIEW_RESPONSE_JSON contract supplied in the prompt.\n\nUnapproved verification items:\n" + checklistText +
             (activityGate is not null && approvalToken is not null
                 ? "\n\n" + PlanReviewResponseParser.BuildInstruction(
                     plan, activityGate, approvalToken, taskId)
@@ -13093,21 +13093,21 @@ public partial class MainWindow : Window
                 RemovalWarning: "This plan attachment anchors the correction to the correct plan and revision. Remove it anyway?"),
             new(
                 CommitSha: string.Empty,
-                Description: "Required unchecked-item context",
+                Description: "Required unapproved-item context",
                 OriginalPrompt: null,
                 ContentBlock: BuildTypedAttachmentBlock(
                     "plan-review-context",
-                    "Required unchecked-item context",
+                    "Required unapproved-item context",
                     context),
                 RequiresRemovalConfirmation: true,
-                RemovalWarning: "This attachment identifies the unchecked verification items and keeps the plan paused correctly. Remove it anyway?"),
+                RemovalWarning: "This attachment identifies the unapproved verification items and keeps the plan paused correctly. Remove it anyway?"),
         };
         var queueItemId = QueueEditablePlanPrompt(
-            $"Address the unchecked verification items for {stepLabel}.\r\n\r\n" +
+            $"Address the unapproved verification items for {stepLabel}.\r\n\r\n" +
             "Correct the following behavior:\r\n\r\n" +
             "[Describe the correction you want]\r\n",
             "[Describe the correction you want]",
-            "Address unchecked items",
+            "Address unapproved items",
             "plan-review-correction-draft",
             attachments);
         if (!string.IsNullOrWhiteSpace(activityGateId))
@@ -13122,6 +13122,85 @@ public partial class MainWindow : Window
             SyncGateChangeActivity(isPromptRunning: false);
             SyncPlanTaskCorrectionActivity(isPromptRunning: false);
         }
+    }
+
+    private static string FormatUnapprovedReviewItem(PlanHumanReviewChecklistItem item)
+    {
+        var answer = item.IsExplicitNo ? "No" : "Unanswered";
+        var note = PlanHumanReviewItemResponse.NormalizeNote(item.Note);
+        var text = $"- Question: {item.Text}\n  Answer: {answer}";
+        if (!string.IsNullOrWhiteSpace(note))
+            text += "\n  User note: " + note;
+        return text;
+    }
+
+    private void QueueApprovedReviewNotesFollowUp(Plan completedPlan)
+    {
+        var notedItems = PlanHumanReviewChecklist.Build(completedPlan, completedPlan.ApprovalGates)
+            .Where(item => item.IsChecked && !string.IsNullOrWhiteSpace(item.Note))
+            .ToArray();
+        if (notedItems.Length == 0)
+            return;
+
+        var notes = string.Join("\n", notedItems.Select(item =>
+            "- Question: " + item.Text + "\n" +
+            "  Answer: Yes\n" +
+            "  User note: " + PlanHumanReviewItemResponse.NormalizeNote(item.Note)));
+        var prompt =
+            $"The plan \"{completedPlan.Title}\" ({completedPlan.PlanId}) is complete. " +
+            "The user approved these human-review items but left notes. Review them now and decide whether any immediate follow-up is warranted. " +
+            "If no action is needed, say so briefly.\n\n" +
+            "Approved review items with user notes:\n" +
+            notes;
+
+        EnqueuePrompt(
+            prompt,
+            isSystemInjected: true,
+            forceAtTail: true,
+            sourceTag: "plan-approved-review-notes");
+    }
+
+    private void AddressUnapprovedItemsFromInbox(ApprovalClickToken token)
+    {
+        var plan = _planStore?.Load(token.PlanId);
+        if (plan is null)
+        {
+            ReportPlanActionIssue(
+                token.PlanId,
+                "Address unapproved items",
+                "The plan could not be loaded.");
+            return;
+        }
+
+        var gates = plan.ApprovalGates
+            .Where(gate => token.GateIds.Contains(gate.GateId, StringComparer.Ordinal) &&
+                           gate.Status == PlanGateStatus.AwaitingApproval)
+            .OrderBy(gate => gate.AfterTaskIds
+                .Select(taskId => plan.Tasks.ToList().FindIndex(task =>
+                    string.Equals(task.TaskId, taskId, StringComparison.Ordinal)))
+                .Where(index => index >= 0)
+                .DefaultIfEmpty(int.MaxValue)
+                .Min())
+            .ToArray();
+        var unapprovedItems = PlanHumanReviewChecklist.Build(plan, gates)
+            .Where(item => !item.IsChecked)
+            .ToArray();
+        if (unapprovedItems.Length == 0)
+            return;
+
+        var firstGate = gates.FirstOrDefault(gate =>
+            string.Equals(gate.GateId, unapprovedItems[0].GateId, StringComparison.Ordinal));
+        var reviewedTaskId = firstGate?.AfterTaskIds.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(reviewedTaskId))
+        {
+            ReportPlanActionIssue(
+                plan.PlanId,
+                "Address unapproved items",
+                "SquadDash could not identify the reviewed task for these items.");
+            return;
+        }
+
+        QueueAddressUncheckedItems(plan, reviewedTaskId, unapprovedItems, firstGate!.GateId);
     }
 
     private async Task QueuePlanRecoveryCorrectionAsync(PendingDecomposePlan plan, string taskId)
@@ -18489,6 +18568,8 @@ public partial class MainWindow : Window
             onOpenEvidence: task => OpenApprovalStepEvidence(plan, task),
             onChecklistChanged: (item, isChecked) =>
                 RecordHumanReviewChecklistSelection(plan.PlanId, item, isChecked),
+            onChecklistResponseChanged: (item, response) =>
+                RecordHumanReviewChecklistResponse(plan.PlanId, item, response),
             onClarifyItem: item => QueueClarifyHumanReviewItem(plan, item),
             onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
             onAddressUncheckedItems: uncheckedItems =>
@@ -18560,6 +18641,8 @@ public partial class MainWindow : Window
             onOpenEvidence: task => OpenApprovalStepEvidence(plan, task),
             onChecklistChanged: (item, isChecked) =>
                 RecordHumanReviewChecklistSelection(plan.PlanId, item, isChecked),
+            onChecklistResponseChanged: (item, response) =>
+                RecordHumanReviewChecklistResponse(plan.PlanId, item, response),
             onClarifyItem: item => QueueClarifyHumanReviewItem(plan, item),
             onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
             onAddressUncheckedItems: uncheckedItems =>
@@ -19486,6 +19569,7 @@ public partial class MainWindow : Window
                 {
                     completedAtApproval = true;
                     PublishPlanCompletionSummary(completedPlan);
+                    QueueApprovedReviewNotesFollowUp(completedPlan);
                     ScheduleDecomposeSystemEntry(
                         PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(
                             completedPlan, "Final human approval accepted"));
@@ -21201,18 +21285,29 @@ public partial class MainWindow : Window
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
-    private async void RecordHumanReviewChecklistSelection(
+    private void RecordHumanReviewChecklistSelection(
         string planId,
         PlanHumanReviewChecklistItem item,
         bool isChecked)
+        => RecordHumanReviewChecklistResponse(
+            planId,
+            item,
+            new PlanHumanReviewItemResponse(isChecked ? true : null, item.Note));
+
+    private async void RecordHumanReviewChecklistResponse(
+        string planId,
+        PlanHumanReviewChecklistItem item,
+        PlanHumanReviewItemResponse response)
     {
         var current = _planStore?.Load(planId);
         if (current is null) return;
-        var updated = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+        var normalized = response.Normalized();
+        var updated = PlanStoreUpdater.ApplyGateHumanReviewResponse(
             current,
             item.GateId,
             item.ItemId,
-            isChecked,
+            normalized.IsApproved,
+            normalized.Note,
             item.CandidateCommit,
             item.ReviewTarget);
         if (ReferenceEquals(updated, current)) return;
@@ -21227,7 +21322,7 @@ public partial class MainWindow : Window
 
         if (_approvalTranscriptCards.TryGetValue(planId, out var cards))
             foreach (var card in cards)
-                card.SetChecklistSelection(item, isChecked);
+                card.SetChecklistResponse(item, normalized);
 
         try
         {
@@ -22205,8 +22300,8 @@ public partial class MainWindow : Window
                     return await AcceptInterruptedStepAfterReviewAsync(latest);
                 });
             var addressButton = AddAction(
-                "✎ Address Unchecked Items…",
-                "Create an editable queued prompt with the current plan and unchecked verification items attached as protected context.",
+                "✎ Address Unapproved Items…",
+                "Create an editable queued prompt with the current plan and unapproved verification items attached as protected context.",
                 () => QueueAddressUncheckedItems(
                     _planStore?.Load(durablePlan!.PlanId) ?? durablePlan!,
                     taskId,
@@ -57958,6 +58053,7 @@ public partial class MainWindow : Window
                                 workspaceFolder: _currentWorkspace?.FolderPath,
                                 loadPlan: planId => _planStore?.Load(planId),
                                 onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection,
+                                onHumanReviewResponseChanged: RecordHumanReviewChecklistResponse,
                                 resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id),
                                 openInboxMessage: id => OpenOrFocusInboxMessage(id));
                             win.Owner = this;
@@ -59844,6 +59940,7 @@ public partial class MainWindow : Window
             workspaceFolder: _currentWorkspace?.FolderPath,
             loadPlan: readOnlyFixture ? null : planId => _planStore?.Load(planId),
             onHumanReviewSelectionChanged: readOnlyFixture ? null : RecordHumanReviewChecklistSelection,
+            onHumanReviewResponseChanged: readOnlyFixture ? null : RecordHumanReviewChecklistResponse,
             resolveMessageFilePath: readOnlyFixture ? null : id => _inboxStore?.GetMessageFilePath(id),
             openInboxMessage: readOnlyFixture ? null : id => OpenOrFocusInboxMessage(id));
         win.Owner = CanShowOwnedWindow() ? this : null;
@@ -59897,6 +59994,10 @@ public partial class MainWindow : Window
                 string.Equals(
                     action.RouteMode,
                     DurableApprovalRequestManager.ApprovalReviewRouteMode,
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode,
                     StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(
                     action.RouteMode,
@@ -59967,6 +60068,7 @@ public partial class MainWindow : Window
             workspaceFolder: _currentWorkspace?.FolderPath,
             loadPlan: planId => _planStore?.Load(planId),
             onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection,
+            onHumanReviewResponseChanged: RecordHumanReviewChecklistResponse,
             resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id),
             openInboxMessage: id => OpenOrFocusInboxMessage(id));
         win.Owner = CanShowOwnedWindow() ? this : null;
@@ -62734,6 +62836,17 @@ public partial class MainWindow : Window
                 if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
                     throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
                 await HandleApprovalClickAsync(payload.ToClickToken());
+                return true;
+            }
+
+            if (string.Equals(
+                    action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
+                    throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
+                AddressUnapprovedItemsFromInbox(payload.ToClickToken());
                 return true;
             }
 

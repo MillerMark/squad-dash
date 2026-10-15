@@ -90,7 +90,7 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Optional action that starts a free-form follow-up-step conversation.</summary>
         internal Button? RequestChangesButton { get; init; }
 
-        /// <summary>Optional action scoped to currently unchecked human-verification items.</summary>
+        /// <summary>Optional action scoped to currently unapproved human-verification items.</summary>
         internal Button? AddressUncheckedItemsButton { get; init; }
 
         /// <summary>Optional note text box where the user can add a comment before approving.</summary>
@@ -141,11 +141,14 @@ internal static class TranscriptApprovalCardBuilder
         /// <summary>Returns whether every current human-verification item is checked.</summary>
         internal Func<bool> CanApprove { get; init; } = static () => true;
 
-        /// <summary>Returns whether at least one current human-verification item is unchecked.</summary>
+        /// <summary>Returns whether at least one current human-verification item is unapproved.</summary>
         internal Func<bool> CanAddressUncheckedItems { get; init; } = static () => false;
 
         /// <summary>Updates one checklist item from another live surface without writing it again.</summary>
         internal Action<PlanHumanReviewChecklistItem, bool> SetChecklistSelection { get; init; } = static (_, _) => { };
+
+        /// <summary>Updates one checklist response from another live surface without writing it again.</summary>
+        internal Action<PlanHumanReviewChecklistItem, PlanHumanReviewItemResponse> SetChecklistResponse { get; init; } = static (_, _) => { };
 
         /// <summary>True once a later coordinator turn has made this transcript card historical.</summary>
         internal bool IsRetired { get; set; }
@@ -168,6 +171,7 @@ internal static class TranscriptApprovalCardBuilder
         Action? onOpenInbox = null,
         Action<ReviewTaskEntry>? onOpenEvidence = null,
         Action<PlanHumanReviewChecklistItem, bool>? onChecklistChanged = null,
+        Action<PlanHumanReviewChecklistItem, PlanHumanReviewItemResponse>? onChecklistResponseChanged = null,
         Action<IReadOnlyList<PlanHumanReviewChecklistItem>>? onAddressUncheckedItems = null,
         Action<PlanHumanReviewChecklistItem>? onClarifyItem = null,
         Action<PlanHumanReviewChecklistItem>? onRefreshWordingItem = null,
@@ -240,11 +244,14 @@ internal static class TranscriptApprovalCardBuilder
         Border? reviewSection = null;
         Hyperlink? inspectPlanLink = null;
         var checklistItems = PlanHumanReviewChecklist.Build(plan, activeGates);
-        var checklistState = checklistItems.ToDictionary(
+        var checklistResponses = checklistItems.ToDictionary(
             item => item.GateId + "\0" + item.ItemId,
-            item => item.IsChecked,
+            PlanHumanReviewItemResponse.FromItem,
             StringComparer.Ordinal);
+        bool IsItemApproved(PlanHumanReviewChecklistItem item) =>
+            checklistResponses[item.GateId + "\0" + item.ItemId].IsApproved == true;
         var checklistBoxes = new List<Action<bool>>();  // each action: setChecked(value)
+        var checklistResponseSetters = new Dictionary<string, Action<PlanHumanReviewItemResponse>>(StringComparer.Ordinal);
         var externalChecklistSetters = new Dictionary<string, Action<bool>>(StringComparer.Ordinal);
         if (checklistItems.Count > 0)
         {
@@ -266,47 +273,71 @@ internal static class TranscriptApprovalCardBuilder
                 AutomationProperties.SetName(itemBlock, "Approval question");
                 questionBlock ??= itemBlock;
 
-                var boxSize = Math.Round((fontSize + 1) * 1.2);
-                var localChecked = item.IsChecked;
-                var localUncertain = item.WasPreviouslyChecked && !item.IsChecked;
+                var responseKey = item.GateId + "\0" + item.ItemId;
+                var response = checklistResponses[responseKey].Normalized();
+                var persistedResponse = response;
+                var suppressNoteUpdate = false;
 
-                var checkIconViewbox = Application.Current?.TryFindResource("PlanApprovalResolvedCheck") as Viewbox
-                    ?? new Viewbox();
-                checkIconViewbox.Visibility = localChecked ? Visibility.Visible : Visibility.Hidden;
-                checkIconViewbox.Margin = new Thickness(2);
-                var questionIconViewbox = Application.Current?.TryFindResource("TaskAwaitingHumanApproval") as Viewbox
-                    ?? new Viewbox();
-                questionIconViewbox.Visibility = localUncertain ? Visibility.Visible : Visibility.Hidden;
-                questionIconViewbox.Margin = new Thickness(4);
-                var stateIcons = new Grid();
-                stateIcons.Children.Add(checkIconViewbox);
-                stateIcons.Children.Add(questionIconViewbox);
-
-                var checkBorder = new Border
+                var yesChoice = BuildChecklistChoice(
+                    "Yes",
+                    fontSize + 1,
+                    Application.Current?.TryFindResource("PlanApprovalResolvedCheck") as Viewbox ?? new Viewbox(),
+                    isEnabled: true);
+                var noChoice = BuildChecklistChoice(
+                    "No",
+                    fontSize + 1,
+                    Application.Current?.TryFindResource("TaskFailed") as Viewbox ?? new Viewbox(),
+                    isEnabled: true);
+                var choicePanel = new StackPanel
                 {
-                    Width = boxSize,
-                    Height = boxSize,
-                    BorderThickness = new Thickness(1.5),
-                    CornerRadius = new CornerRadius(2),
-                    Background = Brushes.Transparent,
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 1, 8, 0),
                     VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(8, 2, 6, 0),
-                    Child = stateIcons,
-                    Cursor = Cursors.Hand,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(localUncertain
-                        ? PlanHumanReviewChecklist.ReconfirmationToolTip
-                        : "Check this after you personally verify that the statement is true."),
                 };
-                checkBorder.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
-                AutomationProperties.SetName(checkBorder, item.Text);
+                choicePanel.Children.Add(yesChoice.CheckBox);
+                choicePanel.Children.Add(noChoice.CheckBox);
+
+                var itemNoteLabel = CreateStyledTextBlock("Notes", fontSize - 1, "SubtleText");
+                itemNoteLabel.VerticalAlignment = VerticalAlignment.Center;
+                itemNoteLabel.Margin = new Thickness(8, 2, 5, 0);
+
+                var itemNoteBox = new TextBox
+                {
+                    Text = response.Note ?? string.Empty,
+                    MinWidth = 140,
+                    MinHeight = 24,
+                    MaxHeight = 28,
+                    AcceptsReturn = false,
+                    Focusable = true,
+                    IsReadOnly = false,
+                    IsTabStop = true,
+                    TextWrapping = TextWrapping.NoWrap,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    FontSize = fontSize - 1,
+                    Padding = new Thickness(6, 2, 6, 2),
+                    BorderThickness = new Thickness(1),
+                    ToolTip = ToolTipHelper.MakeThemedToolTip("Optional note for this verification item. Double-tap Ctrl while focused to dictate."),
+                };
+                ConfigureNoteEditor(itemNoteBox);
+                AttachNoteEditorMouseFocusHandlers(itemNoteBox);
+                itemNoteBox.SetResourceReference(TextBox.BackgroundProperty, "ApprovalFieldSurface");
+                itemNoteBox.SetResourceReference(TextBox.ForegroundProperty, "ImportantText");
+                itemNoteBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
+                AutomationProperties.SetName(itemNoteBox, $"Notes for {item.Text}");
 
                 var itemRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
                 itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                Grid.SetColumn(checkBorder, 0);
+                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.25, GridUnitType.Star) });
+                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                itemRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 140 });
+                Grid.SetColumn(choicePanel, 0);
                 Grid.SetColumn(itemBlock, 1);
-                itemRow.Children.Add(checkBorder);
+                Grid.SetColumn(itemNoteLabel, 2);
+                Grid.SetColumn(itemNoteBox, 3);
+                itemRow.Children.Add(choicePanel);
                 itemRow.Children.Add(itemBlock);
+                itemRow.Children.Add(itemNoteLabel);
+                itemRow.Children.Add(itemNoteBox);
 
                 if (onClarifyItem is not null || onRefreshWordingItem is not null)
                 {
@@ -331,6 +362,8 @@ internal static class TranscriptApprovalCardBuilder
                         target.ContextMenu = itemMenu;
                         target.PreviewMouseRightButtonUp += (_, e) =>
                         {
+                            if (ShouldDeferContextMenuToEditableTextBox(e.OriginalSource as DependencyObject, out TextBox? _))
+                                return;
                             itemMenu.PlacementTarget = target;
                             itemMenu.IsOpen = true;
                             e.Handled = true;
@@ -338,34 +371,85 @@ internal static class TranscriptApprovalCardBuilder
                     }
 
                     AttachReviewItemMenu(itemRow);
-                    AttachReviewItemMenu(checkBorder);
+                    AttachReviewItemMenu(choicePanel);
                     AttachReviewItemMenu(itemBlock);
                 }
 
                 var capturedItem = item;
-                void SetChecked(bool value, bool notify)
+                PlanHumanReviewItemResponse CurrentNormalizedResponse() =>
+                    new(response.IsApproved, PlanHumanReviewItemResponse.NormalizeNote(itemNoteBox.Text));
+
+                void RefreshResponseVisuals()
                 {
-                    localChecked = value;
-                    localUncertain = false;
-                    checkIconViewbox.Visibility = value ? Visibility.Visible : Visibility.Hidden;
-                    questionIconViewbox.Visibility = Visibility.Hidden;
-                    checkBorder.ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        "Check this after you personally verify that the statement is true.");
-                    checklistState[capturedItem.GateId + "\0" + capturedItem.ItemId] = value;
-                    if (notify)
-                        onChecklistChanged?.Invoke(capturedItem, value);
-                    UpdateApprovalAvailability();
+                    yesChoice.CheckBox.IsChecked = response.IsApproved == true;
+                    noChoice.CheckBox.IsChecked = response.IsApproved == false;
+                    yesChoice.Icon.Visibility = response.IsApproved == true ? Visibility.Visible : Visibility.Hidden;
+                    noChoice.Icon.Visibility = response.IsApproved == false ? Visibility.Visible : Visibility.Hidden;
+                    yesChoice.Border.Opacity = response.IsApproved is null or true ? 1 : 0.55;
+                    noChoice.Border.Opacity = response.IsApproved is null or false ? 1 : 0.55;
                 }
 
-                checkBorder.MouseDown += (_, e) =>
+                void NotifyResponseChanged(PlanHumanReviewItemResponse normalized)
                 {
-                    if (e.ChangedButton == MouseButton.Left)
-                        SetChecked(!localChecked, notify: true);
+                    persistedResponse = normalized;
+                    if (onChecklistResponseChanged is not null)
+                        onChecklistResponseChanged(capturedItem, normalized);
+                    else
+                        onChecklistChanged?.Invoke(capturedItem, normalized.IsApproved == true);
+                }
+
+                void ApplyResponse(PlanHumanReviewItemResponse next, bool notify, bool updateNoteBox)
+                {
+                    var normalized = next.Normalized();
+                    response = normalized;
+                    checklistResponses[responseKey] = normalized;
+                    if (updateNoteBox && !string.Equals(itemNoteBox.Text, normalized.Note ?? string.Empty, StringComparison.Ordinal))
+                    {
+                        suppressNoteUpdate = true;
+                        itemNoteBox.Text = normalized.Note ?? string.Empty;
+                        suppressNoteUpdate = false;
+                    }
+                    RefreshResponseVisuals();
+                    UpdateApprovalAvailability();
+                    if (notify && !Equals(normalized, persistedResponse))
+                        NotifyResponseChanged(normalized);
+                }
+
+                void SetAnswer(bool? value, bool notify)
+                {
+                    response = response with
+                    {
+                        IsApproved = response.IsApproved == value ? null : value,
+                        Note = itemNoteBox.Text,
+                    };
+                    ApplyResponse(response, notify, updateNoteBox: false);
+                }
+
+                yesChoice.CheckBox.Click += (_, _) => SetAnswer(true, notify: true);
+                noChoice.CheckBox.Click += (_, _) => SetAnswer(false, notify: true);
+                itemNoteBox.TextChanged += (_, _) =>
+                {
+                    if (suppressNoteUpdate)
+                        return;
+                    response = response with { Note = itemNoteBox.Text };
+                    checklistResponses[responseKey] = CurrentNormalizedResponse();
+                };
+                itemNoteBox.LostFocus += (_, _) =>
+                {
+                    var normalized = CurrentNormalizedResponse();
+                    ApplyResponse(normalized, notify: true, updateNoteBox: true);
                 };
 
-                checklistBoxes.Add(value => SetChecked(value, notify: true));
-                externalChecklistSetters[capturedItem.GateId + "\0" + capturedItem.ItemId] =
-                    value => SetChecked(value, notify: false);
+                RefreshResponseVisuals();
+                checklistBoxes.Add(value =>
+                    ApplyResponse(new PlanHumanReviewItemResponse(value ? true : null, itemNoteBox.Text), notify: true, updateNoteBox: false));
+                externalChecklistSetters[responseKey] =
+                    value => ApplyResponse(new PlanHumanReviewItemResponse(value ? true : null, response.Note), notify: false, updateNoteBox: true);
+                checklistResponseSetters[responseKey] =
+                    next =>
+                    {
+                        ApplyResponse(next, notify: false, updateNoteBox: true);
+                    };
                 questionStack.Children.Add(itemRow);
             }
 
@@ -703,14 +787,24 @@ internal static class TranscriptApprovalCardBuilder
         if (onAddressUncheckedItems is not null)
         {
             addressUncheckedItemsButton = TranscriptQuickReplyFactory.CreateButton(
-                "✎ Address Unchecked Items…",
+                "✎ Address Unapproved Items…",
                 fontSize,
-                toolTip: "Create an editable queued prompt, with protected plan context attached, describing what should change for the unchecked items");
-            AutomationProperties.SetName(addressUncheckedItemsButton, "Address unchecked items");
+                toolTip: "Create an editable queued prompt, with protected plan context attached, describing what should change for the unapproved items");
+            AutomationProperties.SetName(addressUncheckedItemsButton, "Address unapproved items");
             addressUncheckedItemsButton.Click += (_, _) =>
             {
                 var uncheckedItems = checklistItems
-                    .Where(item => !checklistState[item.GateId + "\0" + item.ItemId])
+                    .Where(item => !IsItemApproved(item))
+                    .Select(item =>
+                    {
+                        var response = checklistResponses[item.GateId + "\0" + item.ItemId].Normalized();
+                        return item with
+                        {
+                            IsChecked = response.IsApproved == true,
+                            Answer = PlanHumanReviewAnswer.FromApproval(response.IsApproved),
+                            Note = response.Note,
+                        };
+                    })
                     .ToArray();
                 onAddressUncheckedItems(uncheckedItems);
             };
@@ -806,24 +900,32 @@ internal static class TranscriptApprovalCardBuilder
             InboxLink = inboxLink,
             InboxMessageLink = inboxMessageLink,
             CommitLinks = commitLinks,
-            CanApprove = () => checklistState.Count == 0 || checklistState.Values.All(value => value),
-            CanAddressUncheckedItems = () => checklistState.Values.Any(value => !value),
+            CanApprove = () => checklistResponses.Count == 0 ||
+                               checklistResponses.Values.All(value => value.IsApproved == true),
+            CanAddressUncheckedItems = () => checklistResponses.Values.Any(value => value.IsApproved != true),
             SetChecklistSelection = (item, value) =>
             {
                 if (externalChecklistSetters.TryGetValue(item.GateId + "\0" + item.ItemId, out var setter))
                     setter(value);
             },
+            SetChecklistResponse = (item, response) =>
+            {
+                if (checklistResponseSetters.TryGetValue(item.GateId + "\0" + item.ItemId, out var setter))
+                    setter(response);
+            },
         };
 
         void UpdateApprovalAvailability()
         {
-            var allChecked = checklistState.Count == 0 || checklistState.Values.All(value => value);
+            var allChecked = checklistResponses.Count == 0 ||
+                             checklistResponses.Values.All(value => value.IsApproved == true);
             if (approveButton is not null)
                 approveButton.IsEnabled = allChecked;
             if (requestChangesButton is not null)
                 requestChangesButton.IsEnabled = true;
             if (addressUncheckedItemsButton is not null)
-                addressUncheckedItemsButton.IsEnabled = checklistState.Values.Any(value => !value);
+                addressUncheckedItemsButton.IsEnabled =
+                    checklistResponses.Values.Any(value => value.IsApproved != true);
         }
     }
 
@@ -1020,7 +1122,105 @@ internal static class TranscriptApprovalCardBuilder
 
     // ── Private helpers ──────────────────────────────────────────────────
 
-    private static void ConfigureNoteEditor(TextBox noteBox)
+    private static (CheckBox CheckBox, Border Border, Viewbox Icon) BuildChecklistChoice(
+        string label,
+        double fontSize,
+        Viewbox icon,
+        bool isEnabled)
+    {
+        var boxSize = Math.Round(fontSize * 1.1);
+        icon.Visibility = Visibility.Hidden;
+        icon.Margin = new Thickness(label == "No" ? 3 : 2);
+
+        var iconHost = new Border
+        {
+            Width = boxSize,
+            Height = boxSize,
+            BorderThickness = new Thickness(1.5),
+            CornerRadius = new CornerRadius(2),
+            Background = Brushes.Transparent,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 4, 0),
+            Child = icon,
+        };
+        iconHost.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+
+        var text = new TextBlock
+        {
+            Text = label,
+            FontSize = fontSize - 2,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        text.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+
+        var content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0),
+        };
+        content.Children.Add(iconHost);
+        content.Children.Add(text);
+
+        var checkBox = new CheckBox
+        {
+            Content = content,
+            IsEnabled = isEnabled,
+            Cursor = isEnabled ? Cursors.Hand : Cursors.Arrow,
+            Template = BuildContentOnlyCheckBoxTemplate(),
+            Margin = new Thickness(0, 0, 10, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = ToolTipHelper.MakeThemedToolTip(label == "Yes"
+                ? "Mark this item approved."
+                : "Mark this item unapproved."),
+        };
+        AutomationProperties.SetName(checkBox, label);
+        return (checkBox, iconHost, icon);
+    }
+
+    private static ControlTemplate BuildContentOnlyCheckBoxTemplate()
+    {
+#pragma warning disable CS0618 // FrameworkElementFactory is the supported code-only template API here.
+        var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+#pragma warning restore CS0618
+        presenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Stretch);
+        presenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        presenter.SetBinding(
+            ContentPresenter.ContentProperty,
+            new System.Windows.Data.Binding(nameof(ContentControl.Content))
+            {
+                RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent,
+            });
+        return new ControlTemplate(typeof(CheckBox)) { VisualTree = presenter };
+    }
+
+    private static void AttachNoteEditorMouseFocusHandlers(TextBox noteBox)
+    {
+        var noteSelectionAnchor = 0;
+        noteBox.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            FocusNoteEditorAtPoint(noteBox, e.GetPosition(noteBox));
+            noteSelectionAnchor = noteBox.CaretIndex;
+            noteBox.CaptureMouse();
+            e.Handled = true;
+        };
+        noteBox.PreviewMouseMove += (_, e) =>
+        {
+            if (e.LeftButton != MouseButtonState.Pressed || !noteBox.IsMouseCaptured) return;
+            var index = noteBox.GetCharacterIndexFromPoint(e.GetPosition(noteBox), snapToText: true);
+            if (index < 0) index = noteBox.Text.Length;
+            noteBox.SelectionStart = Math.Min(noteSelectionAnchor, index);
+            noteBox.SelectionLength = Math.Abs(index - noteSelectionAnchor);
+            e.Handled = true;
+        };
+        noteBox.PreviewMouseLeftButtonUp += (_, e) =>
+        {
+            if (!noteBox.IsMouseCaptured) return;
+            noteBox.ReleaseMouseCapture();
+            e.Handled = true;
+        };
+    }
+
+    internal static void ConfigureNoteEditor(TextBox noteBox)
     {
         noteBox.AddHandler(
             TextCompositionManager.PreviewTextInputEvent,

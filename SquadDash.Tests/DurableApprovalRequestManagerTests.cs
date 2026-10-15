@@ -531,7 +531,10 @@ public class DurableApprovalRequestManagerTests
         Assert.Multiple(() =>
         {
             Assert.That(message.Body, Does.Not.Contain(ManualTestKitChecklistComposer.SetupErrorMarker));
-            Assert.That(message.Actions, Is.Empty, "Review selections are still required before continuing.");
+            Assert.That(message.Actions, Has.Count.EqualTo(1),
+                "Review selections are still required before continuing, but the user can address unapproved items.");
+            Assert.That(message.Actions[0].RouteMode,
+                Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
             foreach (var requirement in requirements)
             {
                 Assert.That(message.Body, Does.Contain($"☐ {requirement.Question}"));
@@ -671,7 +674,7 @@ public class DurableApprovalRequestManagerTests
                 Assert.That(message.Actions, Has.Count.EqualTo(missingRecipe ? 0 : 1));
                 if (!missingRecipe)
                     Assert.That(message.Actions[0].RouteMode,
-                        Is.EqualTo(DurableApprovalRequestManager.ApprovalRouteMode));
+                        Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
             });
         }
     }
@@ -936,11 +939,17 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
-    public void BuildActions_ReturnsNoSeparateReviewActionWhileChecksRemain()
+    public void BuildActions_ReturnsAddressUnapprovedActionWhileChecksRemain()
     {
         var plan = MakePlan();
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-001", "GATE-002"]);
-        Assert.That(actions, Is.Empty);
+        Assert.Multiple(() =>
+        {
+            Assert.That(actions, Has.Count.EqualTo(1));
+            Assert.That(actions[0].Label, Is.EqualTo("Address Unapproved Items…"));
+            Assert.That(actions[0].RouteMode,
+                Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
+        });
     }
 
     [Test]

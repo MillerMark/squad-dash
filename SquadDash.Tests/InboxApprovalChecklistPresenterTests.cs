@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
 using NUnit.Framework;
@@ -11,7 +12,7 @@ namespace SquadDash.Tests;
 internal sealed class InboxApprovalChecklistPresenterTests
 {
     [Test, Apartment(ApartmentState.STA)]
-    public void Attach_ReplacesPersistedGlyphWithLiveCheckboxAndReportsChanges()
+    public void Attach_ReplacesPersistedGlyphWithLiveYesNoControlsNotesAndReportsChanges()
     {
         var document = MarkdownFlowDocumentBuilder.BuildInbox(
             """
@@ -28,29 +29,32 @@ internal sealed class InboxApprovalChecklistPresenterTests
             "gate-1", "new-result", "new-result", "Does the new result appear?",
             PlanHumanReviewChecklist.UncommittedCandidate, false, false, null);
         PlanHumanReviewChecklistItem? changedItem = null;
-        bool? changedValue = null;
+        PlanHumanReviewItemResponse? changedResponse = null;
 
         var attached = InboxApprovalChecklistPresenter.Attach(
             document,
             [item],
-            (changed, value) => { changedItem = changed; changedValue = value; },
+            (changed, response) => { changedItem = changed; changedResponse = response; },
             fontSize: 19);
-        var checkbox = FindCheckBox(document.Blocks);
-        checkbox!.IsChecked = true;
+        var root = FindChecklistRoot(document.Blocks)!;
+        var boxes = FindCheckBoxes(root).ToArray();
+        boxes[0].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
         var expectedFontSize = 19 * InboxApprovalChecklistPresenter.ChecklistFontScale;
 
         Assert.Multiple(() =>
         {
             Assert.That(attached, Is.EqualTo(1));
-            Assert.That(checkbox.FontSize, Is.EqualTo(expectedFontSize));
-            Assert.That(checkbox.Content, Is.TypeOf<Grid>());
             Assert.That(changedItem, Is.EqualTo(item));
-            Assert.That(changedValue, Is.True);
+            Assert.That(changedResponse?.IsApproved, Is.True);
+            Assert.That(root.Children.OfType<TextBlock>().Single().FontSize, Is.EqualTo(expectedFontSize));
+            Assert.That(boxes, Has.Length.EqualTo(2));
+            Assert.That(boxes[0].IsChecked, Is.True);
+            Assert.That(boxes[1].IsChecked, Is.False);
+            Assert.That(root.Children.OfType<Grid>().Single().Children.OfType<TextBox>().Single(), Is.Not.Null);
         });
 
-        var content = (Grid)checkbox.Content;
-        var border = content.Children.OfType<Border>().Single();
-        var label = content.Children.OfType<TextBlock>().Single();
+        var yesContent = (StackPanel)boxes[0].Content;
+        var yesBorder = yesContent.Children.OfType<Border>().Single();
         var list = document.Blocks.OfType<List>()
             .Single(candidate => candidate.MarkerStyle == TextMarkerStyle.None);
         var orderedLists = document.Blocks.OfType<List>()
@@ -58,17 +62,14 @@ internal sealed class InboxApprovalChecklistPresenterTests
             .ToArray();
         Assert.Multiple(() =>
         {
-            Assert.That(label.Text, Is.EqualTo(item.Text));
-            Assert.That(label.TextWrapping, Is.EqualTo(TextWrapping.Wrap));
-            Assert.That(label.FontSize, Is.EqualTo(expectedFontSize));
-            Assert.That(border.Width, Is.EqualTo(Math.Round(expectedFontSize * 1.2)));
-            Assert.That(border.Height, Is.EqualTo(Math.Round(expectedFontSize * 1.2)));
-            Assert.That(border.BorderThickness, Is.EqualTo(new Thickness(1.5)));
-            Assert.That(border.CornerRadius, Is.EqualTo(new CornerRadius(2)));
-            Assert.That(((Grid)border.Child).Children.OfType<Viewbox>().First().Visibility,
-                Is.EqualTo(Visibility.Visible));
-            Assert.That(
-                checkbox.Margin.Top,
+            Assert.That(root.Children.OfType<TextBlock>().Single().Text, Is.EqualTo(item.Text));
+            Assert.That(root.Children.OfType<TextBlock>().Single().TextWrapping, Is.EqualTo(TextWrapping.Wrap));
+            Assert.That(yesBorder.Width, Is.EqualTo(Math.Round(expectedFontSize * 1.2)));
+            Assert.That(yesBorder.Height, Is.EqualTo(Math.Round(expectedFontSize * 1.2)));
+            Assert.That(yesBorder.BorderThickness, Is.EqualTo(new Thickness(1.5)));
+            Assert.That(yesBorder.CornerRadius, Is.EqualTo(new CornerRadius(2)));
+            Assert.That(((Viewbox)yesBorder.Child).Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(root.Margin.Top,
                 Is.EqualTo(2 + (expectedFontSize * InboxApprovalChecklistPresenter.ChecklistTopSpacingScale)));
             Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
             Assert.That(orderedLists, Has.Length.EqualTo(2));
@@ -91,21 +92,21 @@ internal sealed class InboxApprovalChecklistPresenterTests
             PlanHumanReviewChecklist.UncommittedCandidate, false, false, null);
 
         InboxApprovalChecklistPresenter.Attach(document, [item], (_, _) => { }, fontSize: 14);
-        var checkbox = FindCheckBox(document.Blocks)!;
+        var root = FindChecklistRoot(document.Blocks)!;
         var expectedFontSize = 14 * InboxApprovalChecklistPresenter.ChecklistFontScale;
 
-        checkbox.Measure(new Size(180, double.PositiveInfinity));
-        var label = ((Grid)checkbox.Content).Children.OfType<TextBlock>().Single();
+        root.Measure(new Size(180, double.PositiveInfinity));
+        var label = root.Children.OfType<TextBlock>().Single();
         Assert.Multiple(() =>
         {
-            Assert.That(checkbox.DesiredSize.Width, Is.LessThanOrEqualTo(180));
+            Assert.That(root.DesiredSize.Width, Is.LessThanOrEqualTo(180));
             Assert.That(label.FontSize, Is.EqualTo(expectedFontSize));
             Assert.That(label.DesiredSize.Height, Is.GreaterThan(expectedFontSize * 2));
         });
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void Attach_PreviouslyConfirmedItem_ShowsQuestionUntilReconfirmed()
+    public void Attach_PreviouslyConfirmedItem_StartsUnansweredUntilReconfirmed()
     {
         const string question = "Does the corrected result still appear?";
         var document = MarkdownFlowDocumentBuilder.BuildInbox($"- ? {question}", 14);
@@ -114,24 +115,20 @@ internal sealed class InboxApprovalChecklistPresenterTests
             "abcdef123456", false, true, "abcdef123456", ReviewTarget: "target-2");
 
         InboxApprovalChecklistPresenter.Attach(document, [item], (_, _) => { }, fontSize: 14);
-        var checkbox = FindCheckBox(document.Blocks)!;
-        var border = ((Grid)checkbox.Content).Children.OfType<Border>().Single();
-        var icons = ((Grid)border.Child).Children.OfType<Viewbox>().ToArray();
-        var tooltipText = (TextBlock)((ToolTip)checkbox.ToolTip).Content;
+        var boxes = FindCheckBoxes(FindChecklistRoot(document.Blocks)!).ToArray();
 
         Assert.Multiple(() =>
         {
-            Assert.That(icons[0].Visibility, Is.EqualTo(Visibility.Hidden));
-            Assert.That(icons[1].Visibility, Is.EqualTo(Visibility.Visible));
-            Assert.That(tooltipText.Text, Is.EqualTo(PlanHumanReviewChecklist.ReconfirmationToolTip));
+            Assert.That(boxes[0].IsChecked, Is.False);
+            Assert.That(boxes[1].IsChecked, Is.False);
         });
 
-        checkbox.IsChecked = true;
+        boxes[0].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
 
         Assert.Multiple(() =>
         {
-            Assert.That(icons[0].Visibility, Is.EqualTo(Visibility.Visible));
-            Assert.That(icons[1].Visibility, Is.EqualTo(Visibility.Hidden));
+            Assert.That(boxes[0].IsChecked, Is.True);
+            Assert.That(boxes[1].IsChecked, Is.False);
         });
     }
 
@@ -160,7 +157,7 @@ internal sealed class InboxApprovalChecklistPresenterTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
-    public void Attach_FormulaWithMarkdownAsterisksStillBecomesLiveCheckbox()
+    public void Attach_FormulaWithMarkdownAsterisksStillBecomesLiveChecklist()
     {
         const string question = "Can you author a*x^2 + b*x + c without entering any GUID?";
         var document = MarkdownFlowDocumentBuilder.BuildInbox($"- ☐ {question}", 14);
@@ -171,38 +168,76 @@ internal sealed class InboxApprovalChecklistPresenterTests
         var attached = InboxApprovalChecklistPresenter.Attach(
             document, [item], (_, _) => { }, fontSize: 14);
 
-        var checkbox = FindCheckBox(document.Blocks);
+        var root = FindChecklistRoot(document.Blocks)!;
         var list = document.Blocks.OfType<List>().Single();
-        var label = ((Grid)checkbox!.Content).Children.OfType<TextBlock>().Single();
         Assert.Multiple(() =>
         {
             Assert.That(attached, Is.EqualTo(1));
-            Assert.That(label.Text, Is.EqualTo(question));
+            Assert.That(root.Children.OfType<TextBlock>().Single().Text, Is.EqualTo(question));
             Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
         });
     }
 
-    private static CheckBox? FindCheckBox(BlockCollection blocks)
+    [Test, Apartment(ApartmentState.STA)]
+    public void Attach_NoCanBeSelectedAndSelectedAgainToClear()
+    {
+        const string question = "Does the result fail?";
+        var document = MarkdownFlowDocumentBuilder.BuildInbox($"- ☐ {question}", 14);
+        var item = new PlanHumanReviewChecklistItem(
+            "gate-1", "failure", "failure", question,
+            PlanHumanReviewChecklist.UncommittedCandidate, false, false, null);
+        PlanHumanReviewItemResponse? response = null;
+
+        InboxApprovalChecklistPresenter.Attach(document, [item], (_, changed) => response = changed, fontSize: 14);
+        var boxes = FindCheckBoxes(FindChecklistRoot(document.Blocks)!).ToArray();
+
+        boxes[1].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+        Assert.Multiple(() =>
+        {
+            Assert.That(response?.IsApproved, Is.False);
+            Assert.That(boxes[0].IsChecked, Is.False);
+            Assert.That(boxes[1].IsChecked, Is.True);
+        });
+
+        boxes[1].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+        Assert.Multiple(() =>
+        {
+            Assert.That(response?.IsApproved, Is.Null);
+            Assert.That(boxes[0].IsChecked, Is.False);
+            Assert.That(boxes[1].IsChecked, Is.False);
+        });
+    }
+
+    private static StackPanel? FindChecklistRoot(BlockCollection blocks)
     {
         foreach (var block in blocks)
         {
             if (block is Paragraph paragraph)
             {
-                var checkbox = paragraph.Inlines.OfType<InlineUIContainer>()
+                var root = paragraph.Inlines.OfType<InlineUIContainer>()
                     .Select(container => container.Child)
-                    .OfType<CheckBox>()
-                    .FirstOrDefault();
-                if (checkbox is not null) return checkbox;
+                    .OfType<StackPanel>()
+                    .FirstOrDefault(panel => FindCheckBoxes(panel).Count() == 2);
+                if (root is not null) return root;
             }
             else if (block is List list)
             {
                 foreach (var item in list.ListItems)
                 {
-                    var checkbox = FindCheckBox(item.Blocks);
-                    if (checkbox is not null) return checkbox;
+                    var root = FindChecklistRoot(item.Blocks);
+                    if (root is not null) return root;
                 }
             }
         }
         return null;
+    }
+
+    private static IEnumerable<CheckBox> FindCheckBoxes(DependencyObject root)
+    {
+        if (root is CheckBox checkBox)
+            yield return checkBox;
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        foreach (var nested in FindCheckBoxes(child))
+            yield return nested;
     }
 }

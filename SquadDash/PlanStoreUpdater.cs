@@ -2637,6 +2637,26 @@ internal static class PlanStoreUpdater
         string candidateCommit,
         string? reviewTarget = null,
         DateTimeOffset? updatedAt = null)
+        => ApplyGateHumanReviewResponse(
+            existing,
+            gateId,
+            itemId,
+            isChecked ? true : null,
+            note: null,
+            candidateCommit: candidateCommit,
+            reviewTarget: reviewTarget,
+            updatedAt: updatedAt);
+
+    /// <summary>Records one human-review answer and note without resolving or reopening the gate.</summary>
+    internal static Plan ApplyGateHumanReviewResponse(
+        Plan existing,
+        string gateId,
+        string itemId,
+        bool? isApproved,
+        string? note,
+        string candidateCommit,
+        string? reviewTarget = null,
+        DateTimeOffset? updatedAt = null)
     {
         if (string.IsNullOrWhiteSpace(itemId) || string.IsNullOrWhiteSpace(candidateCommit))
             return existing;
@@ -2645,9 +2665,15 @@ internal static class PlanStoreUpdater
         if (gate is null || gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval))
             return existing;
 
+        var normalizedNote = PlanHumanReviewItemResponse.NormalizeNote(note);
         var selection = new PlanHumanReviewSelection(
-            itemId.Trim(), isChecked, candidateCommit.Trim(), updatedAt ?? DateTimeOffset.UtcNow,
-            reviewTarget);
+            itemId.Trim(),
+            isApproved == true,
+            candidateCommit.Trim(),
+            updatedAt ?? DateTimeOffset.UtcNow,
+            reviewTarget,
+            PlanHumanReviewAnswer.FromApproval(isApproved),
+            normalizedNote);
         var selections = (gate.HumanReviewSelections ?? [])
             .Where(existingSelection =>
                 !string.Equals(existingSelection.ItemId, selection.ItemId, StringComparison.Ordinal) ||

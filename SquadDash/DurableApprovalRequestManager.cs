@@ -51,6 +51,7 @@ internal sealed class DurableApprovalRequestManager
     internal const string AttachmentType = "approval-gate";
     internal const string ApprovalRouteMode = "approval-gate";
     internal const string ApprovalReviewRouteMode = "approval-gate-review";
+    internal const string ApprovalAddressUnapprovedRouteMode = "approval-gate-address-unapproved";
     internal const string RunbookAttachmentType = "inbox-message-ref";
     internal const string OperatorGuideAttachmentType = "approval-operator-guide";
     internal const string ApprovalRunbookLink = "app://open-approval-runbook";
@@ -1097,6 +1098,17 @@ internal sealed class DurableApprovalRequestManager
             .Cast<PlanApprovalGate>()
             .ToArray();
         var checklist = PlanHumanReviewChecklist.Build(plan, activeGates);
+        if (approvalSetupValid && checklist.Count > 0 && checklist.Any(item => !item.IsChecked))
+        {
+            actions.Add(new InboxAction
+            {
+                Label = "Address Unapproved Items…",
+                RouteMode = ApprovalAddressUnapprovedRouteMode,
+                Prompt = JsonSerializer.Serialize(payload, StateSerializerOptions),
+                Hint = "Prepare a correction or clarification prompt for every item that is not explicitly marked Yes.",
+            });
+        }
+
         if (approvalSetupValid && (checklist.Count == 0 || checklist.All(item => item.IsChecked)))
         {
             actions.Add(new InboxAction

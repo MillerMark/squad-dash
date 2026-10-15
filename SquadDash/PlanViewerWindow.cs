@@ -1338,10 +1338,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (_onAddressUncheckedItems is not null)
                 {
                     addressUncheckedButton = TranscriptQuickReplyFactory.CreateButton(
-                        "✎ Address Unchecked Items…",
+                        "✎ Address Unapproved Items…",
                         quickReplyFontSize,
                         toolTip: ToolTipHelper.MakeThemedToolTip(
-                            "Create an editable prompt containing the unchecked review items."));
+                            "Create an editable prompt containing the unapproved review items."));
                     addressUncheckedButton.Click += (_, _) =>
                     {
                         var currentItems = reviewAttention.Checklist.Select(item => item with

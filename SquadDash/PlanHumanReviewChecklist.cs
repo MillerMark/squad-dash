@@ -14,7 +14,56 @@ internal sealed record PlanHumanReviewChecklistItem(
     bool WasPreviouslyChecked,
     string? PreviouslyCheckedCommit,
     string? Title = null,
-    string? ReviewTarget = null);
+    string? ReviewTarget = null,
+    string? Answer = null,
+    string? Note = null)
+{
+    internal bool IsExplicitNo =>
+        string.Equals(Answer, PlanHumanReviewAnswer.No, StringComparison.Ordinal);
+
+    internal bool IsUnanswered =>
+        !IsChecked && !IsExplicitNo;
+}
+
+internal sealed record PlanHumanReviewItemResponse(bool? IsApproved, string? Note)
+{
+    internal static PlanHumanReviewItemResponse FromItem(PlanHumanReviewChecklistItem item) =>
+        new(
+            item.IsChecked
+                ? true
+                : item.IsExplicitNo
+                    ? false
+                    : null,
+            item.Note);
+
+    internal static string? NormalizeNote(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    internal PlanHumanReviewItemResponse Normalized() =>
+        this with { Note = NormalizeNote(Note) };
+}
+
+internal static class PlanHumanReviewAnswer
+{
+    internal const string Yes = "yes";
+    internal const string No = "no";
+
+    internal static string? FromApproval(bool? isApproved) =>
+        isApproved switch
+        {
+            true => Yes,
+            false => No,
+            _ => null,
+        };
+
+    internal static string Display(bool? isApproved) =>
+        isApproved switch
+        {
+            true => "Yes",
+            false => "No",
+            _ => "Unanswered",
+        };
+}
 
 /// <summary>Builds atomic, commit-scoped human review items for current and legacy plans.</summary>
 internal static class PlanHumanReviewChecklist
@@ -101,7 +150,20 @@ internal static class PlanHumanReviewChecklist
             previous?.IsChecked == true,
             previous?.CandidateCommit,
             ResolveDisplayTitle(title, requirementId),
-            reviewTarget));
+            reviewTarget,
+            ResolveAnswer(current),
+            PlanHumanReviewItemResponse.NormalizeNote(current?.Note)));
+    }
+
+    private static string? ResolveAnswer(PlanHumanReviewSelection? selection)
+    {
+        if (selection is null)
+            return null;
+        if (selection.IsChecked)
+            return PlanHumanReviewAnswer.Yes;
+        return string.Equals(selection.Answer, PlanHumanReviewAnswer.No, StringComparison.OrdinalIgnoreCase)
+            ? PlanHumanReviewAnswer.No
+            : null;
     }
 
     /// <summary>
