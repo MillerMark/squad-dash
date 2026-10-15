@@ -36888,6 +36888,56 @@ public partial class MainWindow : Window
         catch (Exception ex) { HandleUiCallbackException(nameof(SimulateBridgeDisposed_Click), ex); }
     }
 
+    /// <summary>
+    /// Developer → Simulation → "Prompt Undo Review" (PROMPTUNDO-20261015-006, GATE-001 review fixture).
+    /// Loads a scratch prompt made of host text BEFORE and AFTER a multi-line embedded code region so a
+    /// reviewer can reproduce every undo/redo selection scenario (forward/backward host selection,
+    /// collapsed caret, in-region selection, redo, in-region Ctrl+Z routing, and a boundary-straddling
+    /// selection that starts in host text and ends inside the region).
+    /// <para>
+    /// This drives the REAL undo path, not a mockup: <see cref="SetPromptTextBoxLogicalBuffer"/> runs the
+    /// production load — <see cref="RichTextBoxExtensions.SetPlainText"/> then
+    /// <see cref="EmbeddedCodeRegionManager.TryConvertNextFence"/> converts the fence into a live
+    /// <see cref="EmbeddedCodeRegionBlock"/> (AvalonEdit), and
+    /// <see cref="ActivatePromptUndoHistoryForCurrentTab"/> (re)baselines the single-authority
+    /// <see cref="_promptUndoHistory"/>. Thereafter Ctrl+Z / Ctrl+Y flow through
+    /// <see cref="Window_PreviewKeyDown"/> → <see cref="TryRoutePromptUndoRedo"/> →
+    /// <see cref="PromptUndoHistory.Undo"/>/<see cref="PromptUndoHistory.Redo"/> exactly as in normal use.
+    /// </para>
+    /// </summary>
+    private void SimulatePromptUndoReview_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            const string promptText =
+                """
+                Prompt Undo Review — host text BEFORE the region. Make a selection here (drag left→right for a forward selection, or right→left for a backward one), type to replace it, then press Ctrl+Z and confirm the exact selection and caret are restored.
+
+                ```csharp
+                int Add(int a, int b)
+                {
+                    return a + b;
+                }
+                ```
+
+                Host text AFTER the region. A selection may start up here in the host and end inside the code region above (a boundary-straddling selection); undo must restore it spanning the boundary with the caret on the correct end.
+                """;
+
+            // Load through the production buffer path: converts the fence into a real embedded code
+            // region and (re)baselines the single-authority prompt undo timeline for this tab. Reset the
+            // history so the reviewer starts from a clean baseline over the loaded content.
+            SetPromptTextBoxLogicalBuffer(
+                promptText,
+                caretIndex: 0,
+                reason: "prompt-undo-review-sim",
+                resetUndoHistory: true);
+
+            PromptTextBox.Focus();
+            SquadDashTrace.Write(TraceCategory.UI, "PROMPT_UNDO_REVIEW_SIM loaded host+region fixture");
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulatePromptUndoReview_Click), ex); }
+    }
+
     private async void SimulatePlanApprovalInboxVisible_Click(object sender, RoutedEventArgs e)
     {
         try { await StartDeveloperApprovalSimulationAsync(inboxVisible: true); }
