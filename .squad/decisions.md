@@ -4,6 +4,116 @@
 
 ---
 
+### 2026-10-15 — Single-authority prompt undo/redo across embedded code regions (PROMPTUNDO-20261015-001)
+
+**Status:** Architecture contract. Lead Architect: Orion Vale. This is the authoritative design
+contract consumed by Steps 2–6 of the approved plan **Custom Undo/Redo Across Embedded Code
+Regions**. It fixes ONE agreed model so downstream executors do not re-interpret the design
+per-task. It implements nothing: no manager, routing, coalescing, or tests are built here — those
+are Steps 2–6. No production behavior changes in this step.
+
+This decision does NOT reopen or modify the AvalonEdit region-editor decision
+(AVALONEDIT-20261014-001) or its GATE-001. It builds strictly on top of that seam
+(`IRegionCodeEditor` / `AvalonEditRegionEditor`), consuming it rather than altering it.
+
+**Verified root cause (motivation — checked at HEAD 011fb2e9):**
+- `EmbeddedCodeRegionManager.RenderSegments` (`SquadDash/EmbeddedCodeRegionManager.cs`) rebuilds the
+  whole `FlowDocument` whenever a region is created/re-rendered: it captures the caret offset (line
+  199, `rtb.GetCaretOffset()`), toggles `rtb.IsUndoEnabled = false` (lines 203–205), calls
+  `rtb.Document.Blocks.Clear()` and repopulates all blocks (lines 211–238), restores the caret via
+  `ResolveCaretPointerAfterRebuild` (line 240), then restores `IsUndoEnabled = true` (lines 245–246).
+  On WPF `TextBoxBase`, setting `IsUndoEnabled` false→true **discards the entire undo stack**, so
+  every region creation silently erases the native prompt undo history.
+- Native WPF undo cannot span a `RichTextBox` plus the live nested AvalonEdit `TextEditor` controls
+  hosted in `BlockUIContainer`s. The host `RichTextBox` and each region's AvalonEdit maintain
+  independent undo stacks; a WPF Ctrl+Z inside a region hits the region's stack, outside it hits the
+  host's — there is no shared timeline and no cross-boundary coalescing.
+- Therefore the ONLY way to give the user one coherent Ctrl+Z/Ctrl+Y timeline over a prompt that
+  mixes host text and embedded regions is a single custom authority that owns the keys and snapshots
+  the lossless flat serialization.
+
+**Verified supporting facts:**
+- `RichTextBoxExtensions.GetPlainText()` (line 60) and `ToFencedText()` (line ~326, via
+  `GetFencedPlainText`) give a lossless flat round-trip: a region serializes to its exact fenced text
+  and `SetPlainText` reconstructs identical structure (the same round-trip the empty-region Backspace
+  "no resurrection" guarantee relies on).
+- `RichTextBoxExtensions.GetCharOffset`/`GetTextPointerAt` (lines 137, 208) define ONE flat offset
+  space over that serialization. For a host `TextPointer` they treat an embedded region as a single
+  indivisible unit occupying `region.ToFencedText().Length` characters starting at the region's
+  fenced-span start; `GetCaretOffset`/`SetCaretOffset` and `GetSelectionStart`/`GetSelectionLength`
+  (lines 258–271) are expressed in that space.
+- The per-region editor exposes `CaretOffset`, `SelectionStart`, `SelectionLength` **local to the
+  region text** through `IRegionCodeEditor` (`SquadDash/IRegionCodeEditor.cs`, lines 79–85), backed by
+  `AvalonEditRegionEditor` (`SquadDash/AvalonEditRegionEditor.cs`, lines 57–73). AvalonEdit maintains
+  its own undo stack per `TextEditor`.
+- Prompt key handling already lives in `MainWindow.xaml.cs` `PromptTextBox` preview-key path
+  (Ctrl+Shift+Z redo at line 28706; Ctrl+Z-adjacent handling near 28009/28212). This is where the
+  single-authority Ctrl+Z/Ctrl+Y interception hooks in Step 3.
+
+**Decision — the authoritative contract (Steps 2–6 MUST conform):**
+
+**1. Single authority owns the keys.** A single `PromptUndoManager` owns Ctrl+Z (undo) and
+Ctrl+Y / Ctrl+Shift+Z (redo) for the ENTIRE prompt `RichTextBox`, **including when keyboard focus is
+inside an embedded region's AvalonEdit control**. There is exactly one undo timeline per prompt. No
+component other than the manager mutates undo/redo state.
+
+**2. The undo unit is a flat snapshot.** One history entry is an immutable snapshot
+`{ serializedText, caretOffset, anchorOffset }` where `serializedText` is the full flat prompt
+serialization via `GetPlainText()` / `ToFencedText()` — the same lossless round-trip described above.
+Restoring an entry = `SetPlainText(serializedText)` followed by restoring the selection/caret from
+the two offsets. Because the serialization is lossless over host text AND region fenced spans,
+restoring reconstructs the exact mixed structure (including empty regions, honoring the "no
+resurrection" guarantee).
+
+**3. Absolute flat coordinate space.** `caretOffset` and `anchorOffset` are ABSOLUTE offsets measured
+from the start of the single flat serialized prompt — a coordinate space that spans host text AND
+every embedded region's fenced span (the space defined by `GetCharOffset`/`GetTextPointerAt`). A
+caret inside a region is the region's fenced-span start offset plus the caret's region-local offset.
+Because both endpoints live in this one space, a single selection may straddle the host↔region
+boundary in EITHER orientation (anchor in host / caret in region, OR anchor in region / caret in
+host). There is no separate "which control" field — the absolute offset alone locates each endpoint,
+and `GetTextPointerAt` (plus region-local mapping) resolves it back on restore.
+
+**4. Selection-direction rule.** `anchorOffset` (the fixed end, where the selection began) and
+`caretOffset` (the moving end, where the caret currently is) are stored SEPARATELY. A forward
+selection has `anchorOffset < caretOffset`; a backward selection has `caretOffset < anchorOffset`;
+when there is no selection `anchorOffset == caretOffset`. The manager's authoritative range is the
+absolute span `[min(anchor,caret), max(anchor,caret)]` PLUS the stored direction, so undo/redo
+restores a forward selection and a backward selection each with the active caret on the correct end.
+
+**5. Single-authority routing suppresses all native undo.** The manager's ownership is exclusive: it
+MUST suppress (a) the native `RichTextBox` undo (the host must not accumulate or service its own
+undo under the manager), and (b) each embedded region's AvalonEdit per-region undo stack, so an
+in-region Ctrl+Z never pops only the region's local stack. Routing intercepts the keys at the host
+preview-key stage (`MainWindow.xaml.cs` prompt key path) regardless of whether focus is in the host
+or inside a region. Suppression mechanism is Step 3's implementation choice, but the OBSERVABLE
+contract is: no native undo path (host or region) ever services a user Ctrl+Z/Ctrl+Y — only the
+`PromptUndoManager` does.
+
+**6. Coalescing and clear-on-send.** Rapid consecutive edits COALESCE (debounce) into a single undo
+entry rather than one-entry-per-keystroke, so a burst of typing undoes as one unit. The undo/redo
+history CLEARS when the prompt is sent (a sent prompt starts a fresh empty timeline). Debounce window
+and the precise "edit boundary" rules are Step 4's to tune, but the model is fixed here: snapshot on a
+debounced edit boundary; clear on send.
+
+**Non-goals / constraints honored:**
+- No speculative v2 reuse layer, no abstractions beyond what this feature needs.
+- Does not design the snapshot engine internals, the routing implementation, the coalescing timer, the
+  tests, or the review fixture — only the shared model those steps agree on.
+- Does not reopen AVALONEDIT-20261014-001 or GATE-001; the region editor seam is consumed as-is.
+
+**Consumers (each builds on this contract):**
+- **Step 2 — snapshot engine:** implements the `{ serializedText, caretOffset, anchorOffset }`
+  capture/restore over `GetPlainText()`/`SetPlainText()` in the absolute flat space (§2–§4).
+- **Step 3 — Ctrl+Z/Ctrl+Y routing:** hooks the host preview-key path, enforces single-authority
+  suppression of host + region undo (§1, §5).
+- **Step 4 — coalescing / clear-on-send:** debounce into one entry; clear on send (§6).
+- **Step 5 — deterministic tests:** assert absolute-offset restore, straddling selections in both
+  orientations, direction preservation, coalescing, and clear-on-send (§3, §4, §6).
+- **Step 6 — review fixture:** a reproducible path exercising cross-region undo/redo for human review.
+
+---
+
 ### 2026-10-14 — AvalonEdit region-editor integration & theming strategy (AVALONEDIT-20261014-001)
 
 **Status:** Architecture contract. Lead Architect: Orion Vale. This is the integration and
