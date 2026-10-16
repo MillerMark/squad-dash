@@ -374,6 +374,7 @@ public partial class MainWindow : Window
         _approvalTranscriptCards = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PlanApprovalReviewWindow>
         _openPlanApprovalReviewWindows = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Task> _pendingHumanReviewWrites = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PlanValidationDetailsWindow>
         _openPlanValidationDetailsWindows = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
@@ -19617,6 +19618,7 @@ public partial class MainWindow : Window
         foreach (var window in _openInboxWindows.Where(window => window.MessageId == messageId).ToArray())
             window.BeginApprovalUpdate();
 
+        await FlushPendingHumanReviewWritesAsync(clickToken.PlanId);
         var plan = _planStore.Load(clickToken.PlanId);
         if (plan is null)
         {
@@ -21508,13 +21510,78 @@ public partial class MainWindow : Window
             item,
             new PlanHumanReviewItemResponse(isChecked ? true : null, item.Note));
 
-    private async void RecordHumanReviewChecklistResponse(
+    private void RecordHumanReviewChecklistResponse(
         string planId,
         PlanHumanReviewChecklistItem item,
         PlanHumanReviewItemResponse response)
     {
         var normalized = response.Normalized();
         SynchronizeHumanReviewResponseSurfaces(planId, item, normalized);
+        var prior = _pendingHumanReviewWrites.TryGetValue(planId, out var pending)
+            ? pending
+            : Task.CompletedTask;
+        var write = RecordHumanReviewChecklistResponseAsync(planId, item, normalized, prior);
+        _pendingHumanReviewWrites[planId] = write;
+        _ = ClearHumanReviewWriteWhenCompleteAsync(planId, write);
+    }
+
+    private async Task FlushPendingHumanReviewWritesAsync(string planId)
+    {
+        while (_pendingHumanReviewWrites.TryGetValue(planId, out var pending))
+        {
+            try
+            {
+                await pending;
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write(
+                    "Approval",
+                    $"Pending human-review write failed before approval plan={planId}: {ex.Message}");
+            }
+
+            if (!_pendingHumanReviewWrites.TryGetValue(planId, out var current) ||
+                ReferenceEquals(current, pending))
+                break;
+        }
+    }
+
+    private async Task ClearHumanReviewWriteWhenCompleteAsync(string planId, Task write)
+    {
+        try
+        {
+            await write;
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Human-review write failed plan={planId}: {ex.Message}");
+        }
+        finally
+        {
+            if (_pendingHumanReviewWrites.TryGetValue(planId, out var current) &&
+                ReferenceEquals(current, write))
+                _pendingHumanReviewWrites.Remove(planId);
+        }
+    }
+
+    private async Task RecordHumanReviewChecklistResponseAsync(
+        string planId,
+        PlanHumanReviewChecklistItem item,
+        PlanHumanReviewItemResponse normalized,
+        Task prior)
+    {
+        try
+        {
+            await prior;
+        }
+        catch
+        {
+            // Continue with the latest visible selection; individual failures are reported by
+            // the failed write itself and should not strand later reviewer choices.
+        }
+
         await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
 
         var current = _planStore?.Load(planId);

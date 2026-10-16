@@ -158,6 +158,29 @@ internal sealed class PlanRecoveryGitWiringTests
     }
 
     [Test]
+    public void ApprovalClick_WaitsForPendingHumanReviewWritesBeforeLoadingPlan()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var method = ReadMember(source, "HandleApprovalClickAsync");
+        var flush = method.IndexOf(
+            "await FlushPendingHumanReviewWritesAsync(clickToken.PlanId);",
+            StringComparison.Ordinal);
+        var load = method.IndexOf("_planStore.Load(clickToken.PlanId)", StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(flush, Is.GreaterThanOrEqualTo(0),
+                "A final Yes click can still be queued when Continue is clicked from the same card.");
+            Assert.That(load, Is.GreaterThan(flush),
+                "Approval must validate against the plan after pending checklist writes are durable.");
+            Assert.That(source, Does.Contain("private async Task FlushPendingHumanReviewWritesAsync(string planId)"));
+            Assert.That(source, Does.Contain("private readonly Dictionary<string, Task> _pendingHumanReviewWrites"));
+            Assert.That(source, Does.Contain("private void RecordHumanReviewChecklistResponse("));
+            Assert.That(source, Does.Not.Contain("private async void RecordHumanReviewChecklistResponse("));
+        });
+    }
+
+    [Test]
     public void HumanReviewValidation_UsesBoundedCancelableAncestryQuery()
     {
         var method = ReadMember(ReadSource("MainWindow.xaml.cs"), "ValidateHumanReviewStepAcceptanceAsync");
