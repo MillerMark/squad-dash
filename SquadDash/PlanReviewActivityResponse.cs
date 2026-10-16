@@ -21,14 +21,15 @@ internal sealed record PlanReviewActivityResponse(
     [property: JsonPropertyName("summary")] string Summary);
 
 /// <summary>
-/// Tracks the editable correction prompt created from an approval card so its action surface
+/// Tracks the correction prompt created from an approval card so its action surface
 /// and matching Plan Viewer checkpoint can show one non-duplicable working state.
 /// </summary>
 internal sealed record PendingPlanReviewCorrectionContext(
     string QueueItemId,
     string PlanId,
     string GateId,
-    string TaskId);
+    string TaskId,
+    bool IsDirectSubmitted = false);
 
 /// <summary>
 /// Tracks the editable bounded-correction prompt for an interrupted plan task. This is separate
@@ -113,8 +114,10 @@ internal static class PlanReviewCorrectionTaskActivityPolicy
                  dispatchedSourceTag,
                  "plan-review-response-repair",
                  StringComparison.Ordinal));
-        return isMatchingDispatch
-            ? PlanTaskCorrectionActivityState.Running
+        if (isMatchingDispatch)
+            return PlanTaskCorrectionActivityState.Running;
+        return context.IsDirectSubmitted
+            ? PlanTaskCorrectionActivityState.Submitted
             : PlanTaskCorrectionActivityState.Drafting;
     }
 }

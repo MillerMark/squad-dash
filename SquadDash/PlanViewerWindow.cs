@@ -1338,10 +1338,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 if (_onAddressUncheckedItems is not null)
                 {
                     addressUncheckedButton = TranscriptQuickReplyFactory.CreateButton(
-                        "✎ Address Unapproved Items…",
+                        PlanReviewActionPresentation.AddressUnapprovedItemsLabel,
                         quickReplyFontSize,
                         toolTip: ToolTipHelper.MakeThemedToolTip(
-                            "Create an editable prompt containing the unapproved review items."));
+                            PlanReviewActionPresentation.AddressUnapprovedItemsToolTip));
                     addressUncheckedButton.Click += (_, _) =>
                     {
                         var currentItems = reviewAttention.Checklist.Select(item => item with
@@ -1692,9 +1692,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             var statusText = new TextBlock
             {
-                Text = interruptedCorrectionState == PlanTaskCorrectionActivityState.Running
-                    ? $"Correcting {correctedStep}…"
-                    : $"Correction prompt prepared for {correctedStep}.",
+                Text = interruptedCorrectionState switch
+                {
+                    PlanTaskCorrectionActivityState.Running => $"Correcting {correctedStep}…",
+                    PlanTaskCorrectionActivityState.Submitted => $"Correction submitted for {correctedStep}; waiting to run.",
+                    _ => $"Correction prompt prepared for {correctedStep}.",
+                },
                 VerticalAlignment = VerticalAlignment.Center,
             };
             statusText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");

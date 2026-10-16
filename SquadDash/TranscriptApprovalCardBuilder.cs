@@ -193,6 +193,8 @@ internal static class TranscriptApprovalCardBuilder
         Button? approveButton = null;
         Button? requestChangesButton = null;
         Button? addressUncheckedItemsButton = null;
+        StackPanel? approvalNoteSection = null;
+        TextBox? approvalNoteBox = null;
 
         var stack = new StackPanel { Margin = new Thickness(4) };
 
@@ -724,6 +726,7 @@ internal static class TranscriptApprovalCardBuilder
 
         // ── Approval note input ──────────────────────────────────────────
         var noteSection = new StackPanel();
+        approvalNoteSection = noteSection;
         var noteLabel = CreateStyledTextBlock("Approval note (optional):", fontSize - 1, "SubtleText");
         noteLabel.Margin = new Thickness(0, 8, 0, 2);
         noteSection.Children.Add(noteLabel);
@@ -743,6 +746,7 @@ internal static class TranscriptApprovalCardBuilder
             BorderThickness = new Thickness(1),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
+        approvalNoteBox = noteBox;
         ConfigureNoteEditor(noteBox);
         noteBox.SetResourceReference(TextBox.BackgroundProperty, "ApprovalFieldSurface");
         noteBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
@@ -842,9 +846,9 @@ internal static class TranscriptApprovalCardBuilder
         if (onAddressUncheckedItems is not null)
         {
             addressUncheckedItemsButton = TranscriptQuickReplyFactory.CreateButton(
-                "✎ Address Unapproved Items…",
+                PlanReviewActionPresentation.AddressUnapprovedItemsLabel,
                 fontSize,
-                toolTip: "Create an editable queued prompt, with protected plan context attached, describing what should change for the unapproved items");
+                toolTip: PlanReviewActionPresentation.AddressUnapprovedItemsToolTip);
             AutomationProperties.SetName(addressUncheckedItemsButton, "Address unapproved items");
             addressUncheckedItemsButton.Click += (_, _) =>
             {
@@ -976,6 +980,10 @@ internal static class TranscriptApprovalCardBuilder
                              checklistResponses.Values.All(value => value.IsApproved == true);
             if (approveButton is not null)
                 approveButton.IsEnabled = allChecked;
+            if (approvalNoteSection is not null)
+                approvalNoteSection.Visibility = allChecked ? Visibility.Visible : Visibility.Collapsed;
+            if (approvalNoteBox is not null)
+                approvalNoteBox.IsEnabled = allChecked;
             if (requestChangesButton is not null)
                 requestChangesButton.IsEnabled = true;
             if (addressUncheckedItemsButton is not null)
@@ -1031,14 +1039,13 @@ internal static class TranscriptApprovalCardBuilder
         SetReviewInteractionState(card, isInteractive: true);
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.ActionsPanel.Visibility = Visibility.Visible;
-        card.NoteSection.Visibility = Visibility.Visible;
+        SyncApprovalNoteSection(card);
         card.ReworkIndicator.Visibility = Visibility.Collapsed;
         card.ApproveButton.IsEnabled = card.CanApprove();
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = true;
         if (card.AddressUncheckedItemsButton is not null)
             card.AddressUncheckedItemsButton.IsEnabled = card.CanAddressUncheckedItems();
-        card.NoteTextBox.IsEnabled = true;
     }
 
     /// <summary>Leaves a historical card visible while making its resolved state unambiguous.</summary>
@@ -1086,6 +1093,25 @@ internal static class TranscriptApprovalCardBuilder
         card.ReworkIndicator.Visibility = Visibility.Visible;
     }
 
+    /// <summary>Keeps approval unavailable after the scoped correction request has been submitted.</summary>
+    internal static void ShowChangeRequestSubmittedState(CardResult card)
+    {
+        if (card.IsRetired) return;
+        card.RootElement.Visibility = Visibility.Visible;
+        SetReviewInteractionState(card, isInteractive: false);
+        card.ApproveButton.IsEnabled = false;
+        if (card.RequestChangesButton is not null)
+            card.RequestChangesButton.IsEnabled = false;
+        if (card.AddressUncheckedItemsButton is not null)
+            card.AddressUncheckedItemsButton.IsEnabled = false;
+        card.NoteTextBox.IsEnabled = false;
+        card.NoteSection.Visibility = Visibility.Collapsed;
+        card.ActionsPanel.Visibility = Visibility.Collapsed;
+        card.SpinnerOverlay.Visibility = Visibility.Collapsed;
+        card.ReworkIndicator.Text = "Unapproved items submitted. Waiting for AI to start the correction.";
+        card.ReworkIndicator.Visibility = Visibility.Visible;
+    }
+
     /// <summary>
     /// Removes the duplicate approval surface while its submitted correction is running.
     /// The task-level activity indicator remains the single visible progress signal.
@@ -1109,15 +1135,21 @@ internal static class TranscriptApprovalCardBuilder
         card.RootElement.Visibility = Visibility.Visible;
         SetReviewInteractionState(card, isInteractive: true);
         card.ActionsPanel.Visibility = Visibility.Visible;
-        card.NoteSection.Visibility = Visibility.Visible;
+        SyncApprovalNoteSection(card);
         card.ApproveButton.IsEnabled = card.CanApprove();
         if (card.RequestChangesButton is not null)
             card.RequestChangesButton.IsEnabled = true;
         if (card.AddressUncheckedItemsButton is not null)
             card.AddressUncheckedItemsButton.IsEnabled = card.CanAddressUncheckedItems();
-        card.NoteTextBox.IsEnabled = true;
         card.SpinnerOverlay.Visibility = Visibility.Collapsed;
         card.ReworkIndicator.Visibility = Visibility.Collapsed;
+    }
+
+    private static void SyncApprovalNoteSection(CardResult card)
+    {
+        var canApprove = card.CanApprove();
+        card.NoteSection.Visibility = canApprove ? Visibility.Visible : Visibility.Collapsed;
+        card.NoteTextBox.IsEnabled = canApprove;
     }
 
     /// <summary>

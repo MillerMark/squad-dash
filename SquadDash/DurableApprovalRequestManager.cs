@@ -1102,10 +1102,10 @@ internal sealed class DurableApprovalRequestManager
         {
             actions.Add(new InboxAction
             {
-                Label = "Address Unapproved Items…",
+                Label = PlanReviewActionPresentation.AddressUnapprovedItemsLabel,
                 RouteMode = ApprovalAddressUnapprovedRouteMode,
                 Prompt = JsonSerializer.Serialize(payload, StateSerializerOptions),
-                Hint = "Prepare a correction or clarification prompt for every item that is not explicitly marked Yes.",
+                Hint = PlanReviewActionPresentation.AddressUnapprovedItemsToolTip,
             });
         }
 

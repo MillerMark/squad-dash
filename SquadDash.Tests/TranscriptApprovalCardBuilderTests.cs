@@ -111,6 +111,44 @@ public class TranscriptApprovalCardBuilderTests
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void ApprovalNoteSection_OnlyShowsWhenEveryReviewItemIsApproved()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { });
+        var item = PlanHumanReviewChecklist.Build(plan, plan.ApprovalGates).Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.CanApprove(), Is.False);
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.NoteTextBox.IsEnabled, Is.False);
+        });
+
+        card.SetChecklistSelection(item, true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.CanApprove(), Is.True);
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.NoteTextBox.IsEnabled, Is.True);
+        });
+
+        card.SetChecklistSelection(item, false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.CanApprove(), Is.False);
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.NoteTextBox.IsEnabled, Is.False);
+        });
+    }
+
     [Test]
     public void BuildApproveLabel_SingleGate_ReturnsCheckpointLabel()
     {
@@ -192,10 +230,37 @@ public class TranscriptApprovalCardBuilderTests
         Assert.Multiple(() =>
         {
             Assert.That(card.ActionsPanel.Visibility, Is.EqualTo(Visibility.Visible));
-            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
             Assert.That(card.ReviewSection!.IsEnabled, Is.True);
             Assert.That(card.RequestChangesButton!.IsEnabled, Is.True);
             Assert.That(card.ReworkIndicator.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ChangeRequestSubmittedState_RemovesDuplicateActionsUntilRunning()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { },
+            onRequestChanges: () => { },
+            onAddressUncheckedItems: _ => { });
+
+        TranscriptApprovalCardBuilder.ShowChangeRequestSubmittedState(card);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.ActionsPanel.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.ReviewSection!.IsEnabled, Is.False);
+            Assert.That(card.RequestChangesButton!.IsEnabled, Is.False);
+            Assert.That(card.AddressUncheckedItemsButton!.IsEnabled, Is.False);
+            Assert.That(card.ReworkIndicator.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.ReworkIndicator.Text, Does.Contain("submitted"));
         });
     }
 
@@ -730,6 +795,8 @@ public class TranscriptApprovalCardBuilderTests
         var plan = BuildTestPlan();
         var card = TranscriptApprovalCardBuilder.Build(
             BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+        var item = PlanHumanReviewChecklist.Build(plan, plan.ApprovalGates).Single();
+        card.SetChecklistSelection(item, true);
 
         var shouldDefer = TranscriptApprovalCardBuilder.ShouldDeferContextMenuToEditableTextBox(
             card.NoteTextBox,

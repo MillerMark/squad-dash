@@ -13047,6 +13047,52 @@ public partial class MainWindow : Window
         return item.Id;
     }
 
+    private string QueueLockedPlanPromptForDispatch(
+        string text,
+        string displayLabel,
+        string sourceTag,
+        IReadOnlyList<FollowUpAttachment> attachments,
+        string readOnlyDisplayText)
+    {
+        var item = new PromptQueueItem
+        {
+            Text = text,
+            SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
+            QueueNumber = NextQueueNumber(),
+            SourceTag = sourceTag,
+            DisplayLabel = displayLabel,
+            IsLocked = true,
+            ReadOnlyDisplayText = readOnlyDisplayText,
+            CaretIndex = text.Length,
+            SelectionStart = text.Length,
+        };
+        _promptQueue.EnqueueItemAtFront(item);
+        _promptQueue.RenumberSequentially();
+        if (attachments.Count > 0)
+            _followUpAttachments[item.Id] = attachments.ToList();
+
+        SyncQueuePanel();
+        SquadDashTrace.Write(
+            "Queue",
+            $"Enqueued locked prompt {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
+        return item.Id;
+    }
+
+    private void DispatchQueuedLockedPlanPrompt()
+    {
+        if (_lastQuickReplyEntry?.AllowQuickReplies == true)
+            _pec.DisableQuickReplies(_lastQuickReplyEntry);
+        ClearActiveQuickReplyState(_lastQuickReplyEntry);
+        if (_queueManuallyPaused || _queuePausePending)
+            SetQueuePaused(false);
+        ResetQueuePausedState();
+        SyncQueuePanel();
+        if (_loopIsWaiting)
+            _loopController.CancelLoopWait();
+        _loopFollowUpTcs?.TrySetResult(true);
+        _ = DrainQueueAsync();
+    }
+
     private void QueueAddressUncheckedItems(
         Plan plan,
         string taskId,
@@ -13105,26 +13151,29 @@ public partial class MainWindow : Window
                 RequiresRemovalConfirmation: true,
                 RemovalWarning: "This attachment identifies the unapproved verification items and keeps the plan paused correctly. Remove it anyway?"),
         };
-        var queueItemId = QueueEditablePlanPrompt(
-            $"Address the unapproved verification items for {stepLabel}.\r\n\r\n" +
-            "Correct the following behavior:\r\n\r\n" +
-            "[Describe the correction you want]\r\n",
-            "[Describe the correction you want]",
+        var queueItemId = QueueLockedPlanPromptForDispatch(
+            $"Address the unapproved or unanswered verification items for {stepLabel}.\r\n\r\n" +
+            "Use the attached plan-review context. It includes each item, its answer, and any user note. " +
+            "Correct, clarify, or discuss only those items, keep the plan paused, and report the outcome " +
+            "through the supplied PLAN_REVIEW_RESPONSE_JSON contract.",
             "Address unapproved items",
             "plan-review-correction-draft",
-            attachments);
+            attachments,
+            "Submitting unapproved or unanswered review items for correction. The protected context includes the current plan, each item answer, and the item-specific notes.");
         if (!string.IsNullOrWhiteSpace(activityGateId))
         {
             _pendingPlanReviewCorrectionContext = new PendingPlanReviewCorrectionContext(
                 queueItemId,
                 plan.PlanId,
                 activityGateId,
-                taskId);
+                taskId,
+                IsDirectSubmitted: true);
             if (approvalToken is not null && approvalToken.GateIds.Contains(activityGateId, StringComparer.Ordinal))
                 _pendingGateResponseContext = new PendingGateResponseContext(approvalToken, activityGateId);
             SyncGateChangeActivity(isPromptRunning: false);
             SyncPlanTaskCorrectionActivity(isPromptRunning: false);
         }
+        DispatchQueuedLockedPlanPrompt();
     }
 
     private static string FormatUnapprovedReviewItem(PlanHumanReviewChecklistItem item)
@@ -18577,8 +18626,6 @@ public partial class MainWindow : Window
             onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
             onAddressUncheckedItems: uncheckedItems =>
             {
-                if (cardResult is not null)
-                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
                 var reviewedTaskId = activeGates
                     .FirstOrDefault(candidate => string.Equals(
                         candidate.GateId,
@@ -18587,7 +18634,11 @@ public partial class MainWindow : Window
                     .AfterTaskIds.FirstOrDefault()
                     ?? gate.AfterTaskIds.FirstOrDefault();
                 if (!string.IsNullOrWhiteSpace(reviewedTaskId))
+                {
+                    if (cardResult is not null)
+                        TranscriptApprovalCardBuilder.ShowChangeRequestSubmittedState(cardResult);
                     QueueAddressUncheckedItems(plan, reviewedTaskId, uncheckedItems, gate.GateId);
+                }
             });
 
         if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
@@ -18650,8 +18701,6 @@ public partial class MainWindow : Window
             onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
             onAddressUncheckedItems: uncheckedItems =>
             {
-                if (cardResult is not null)
-                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
                 var reviewedTaskId = activeGates
                     .FirstOrDefault(candidate => string.Equals(
                         candidate.GateId,
@@ -18660,7 +18709,11 @@ public partial class MainWindow : Window
                     .AfterTaskIds.FirstOrDefault()
                     ?? gate.AfterTaskIds.FirstOrDefault();
                 if (!string.IsNullOrWhiteSpace(reviewedTaskId))
+                {
+                    if (cardResult is not null)
+                        TranscriptApprovalCardBuilder.ShowChangeRequestSubmittedState(cardResult);
                     QueueAddressUncheckedItems(plan, reviewedTaskId, uncheckedItems, gate.GateId);
+                }
             });
 
         if (_openPlanApprovalReviewWindows.TryGetValue(plan.PlanId, out var existing))
@@ -18780,6 +18833,8 @@ public partial class MainWindow : Window
                 {
                     if (isPromptRunning)
                         TranscriptApprovalCardBuilder.HideWhileCorrectionRuns(card);
+                    else if (_pendingPlanReviewCorrectionContext.IsDirectSubmitted)
+                        TranscriptApprovalCardBuilder.ShowChangeRequestSubmittedState(card);
                     else
                         TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(card);
                 }
@@ -22354,8 +22409,8 @@ public partial class MainWindow : Window
                     return await AcceptInterruptedStepAfterReviewAsync(latest);
                 });
             var addressButton = AddAction(
-                "✎ Address Unapproved Items…",
-                "Create an editable queued prompt with the current plan and unapproved verification items attached as protected context.",
+                PlanReviewActionPresentation.AddressUnapprovedItemsLabel,
+                PlanReviewActionPresentation.AddressUnapprovedItemsToolTip,
                 () => QueueAddressUncheckedItems(
                     _planStore?.Load(durablePlan!.PlanId) ?? durablePlan!,
                     taskId,

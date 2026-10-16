@@ -498,7 +498,9 @@ internal sealed class TranscriptQuickReplyFactoryTests
         var cardPanel = new WrapPanel();
         var disabled = TranscriptQuickReplyFactory.CreateButton("Step 7 Is Complete", 14);
         disabled.IsEnabled = false;
-        var address = TranscriptQuickReplyFactory.CreateButton("✎ Address Unapproved Items…", 14);
+        var address = TranscriptQuickReplyFactory.CreateButton(
+            PlanReviewActionPresentation.AddressUnapprovedItemsLabel,
+            14);
         cardPanel.Children.Add(disabled);
         cardPanel.Children.Add(address);
         section.Blocks.Add(TranscriptQuickReplyFactory.CreateContainer(
@@ -509,7 +511,7 @@ internal sealed class TranscriptQuickReplyFactoryTests
         var buttons = TranscriptQuickReplyFactory.FindLatestActionButtons(document.Blocks);
 
         Assert.That(buttons.Select(button => button.Content),
-            Is.EqualTo(new object[] { "✎ Address Unapproved Items…" }));
+            Is.EqualTo(new object[] { PlanReviewActionPresentation.AddressUnapprovedItemsLabel }));
     }
 
     [Test]

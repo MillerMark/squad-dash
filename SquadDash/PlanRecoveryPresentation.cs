@@ -283,9 +283,14 @@ internal static class PlanRecoveryActionSetBuilder
         if (correctionActivity != PlanTaskCorrectionActivityState.None)
         {
             return new PlanRecoveryActionSetPresentation(
-                correctionActivity == PlanTaskCorrectionActivityState.Running
-                    ? $"SquadDash is continuing the preserved repair for {stepLabel}."
-                    : $"A correction for {stepLabel} is ready to run.",
+                correctionActivity switch
+                {
+                    PlanTaskCorrectionActivityState.Running =>
+                        $"SquadDash is continuing the preserved repair for {stepLabel}.",
+                    PlanTaskCorrectionActivityState.Submitted =>
+                        $"A correction for {stepLabel} has been submitted and is waiting to run.",
+                    _ => $"A correction for {stepLabel} is ready to run.",
+                },
                 actions);
         }
 

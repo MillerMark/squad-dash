@@ -108,6 +108,27 @@ internal sealed class PlanReviewActivityResponseTests
     }
 
     [Test]
+    public void ReviewCorrectionTaskActivity_DirectSubmittedQueueItemShowsSubmittedBeforeDispatch()
+    {
+        var correction = new PendingPlanReviewCorrectionContext(
+            "queue-1",
+            "PLAN-1",
+            "GATE-REVIEW",
+            "TASK-1",
+            IsDirectSubmitted: true);
+
+        var state = PlanReviewCorrectionTaskActivityPolicy.Resolve(
+            correction,
+            "PLAN-1",
+            "TASK-1",
+            isPromptRunning: false,
+            dispatchedItemId: null,
+            dispatchedSourceTag: null);
+
+        Assert.That(state, Is.EqualTo(PlanTaskCorrectionActivityState.Submitted));
+    }
+
+    [Test]
     public void TaskCorrectionActivity_StartsWhenEditableQueueItemIsDequeued()
     {
         var correction = new PendingPlanTaskCorrectionContext(
