@@ -18596,6 +18596,7 @@ public partial class MainWindow : Window
                 !string.Equals(plan.PlanId, onlyPlanId, StringComparison.Ordinal))
                 continue;
             if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval) continue;
+            if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId)) continue;
             // A proposed plan revision is the higher-priority decision. Approving a checkpoint
             // from the currently authoritative definition while that proposal is unresolved is
             // both confusing and potentially stale. "Keep current plan" restores this surface.
@@ -19185,6 +19186,13 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId))
+            {
+                SquadDashTrace.Write("Approval",
+                    $"Approval callout suppressed while plan is paused plan={plan.PlanId} gate={gate.GateId}.");
+                return;
+            }
+
             var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
             if (_shownApprovalCalloutMessageIds.Contains(messageId))
                 return;

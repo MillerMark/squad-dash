@@ -193,6 +193,44 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     }
 
     [Test]
+    public void AwaitingApprovalRestore_UsesPauseSuppressionBeforeCallout()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var restoreStart = source.IndexOf(
+            "private void RestoreAwaitingApprovalGateUI(string? onlyPlanId = null)",
+            StringComparison.Ordinal);
+        var restoreEnd = source.IndexOf(
+            "private void SuppressCheckpointApprovalCardsForPendingRevision(",
+            restoreStart,
+            StringComparison.Ordinal);
+        var calloutStart = source.IndexOf(
+            "private async Task TryShowApprovalCalloutAsync(",
+            StringComparison.Ordinal);
+        var calloutEnd = source.IndexOf(
+            "private async Task TryShowDeferredApprovalCalloutAsync()",
+            calloutStart,
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restoreStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(restoreEnd, Is.GreaterThan(restoreStart));
+            Assert.That(calloutStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(calloutEnd, Is.GreaterThan(calloutStart));
+        });
+
+        var restoreMethod = source[restoreStart..restoreEnd];
+        var calloutMethod = source[calloutStart..calloutEnd];
+        Assert.Multiple(() =>
+        {
+            Assert.That(restoreMethod, Does.Contain("if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId)) continue;"),
+                "Startup restore must not pick a paused awaiting-approval plan as the attention target.");
+            Assert.That(calloutMethod, Does.Contain("if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId))"),
+                "Callout display must share the paused-plan suppression gate used by transcript cards.");
+        });
+    }
+
+    [Test]
     public void PersistedTurnRendering_DoesNotAttachCurrentRecoveryActionsToHistoryBatches()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

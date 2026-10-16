@@ -2081,6 +2081,7 @@ internal static class PlanStoreUpdater
         plan = RepairInterruptedMissingTaskIdentity(plan);
         plan = RepairLegacyImplicitHumanProofApproval(plan);
         plan = RepairTasklessAcceptedWorkBoundary(plan);
+        plan = RepairAwaitingApprovalPendingBoundary(plan);
 
         // A terminal plan cannot legitimately have a recovery action. This also repairs plans
         // written by the old final-acceptance/empty-runner race even when its generic stop reason
@@ -2144,6 +2145,25 @@ internal static class PlanStoreUpdater
         }
 
         return plan;
+    }
+
+    private static Plan RepairAwaitingApprovalPendingBoundary(Plan plan)
+    {
+        if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval ||
+            plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
+            return plan;
+
+        var readyPendingGateIds = ApprovalGateReadinessEvaluator.EvaluateGates(plan)
+            .Where(state => state.IsReady)
+            .Select(state => state.GateId)
+            .Where(gateId => plan.ApprovalGates.Any(gate =>
+                string.Equals(gate.GateId, gateId, StringComparison.Ordinal) &&
+                gate.Status == PlanGateStatus.Pending))
+            .ToArray();
+
+        return readyPendingGateIds.Length == 0
+            ? plan
+            : ApplyFullStopAtGates(plan, readyPendingGateIds);
     }
 
     /// <summary>

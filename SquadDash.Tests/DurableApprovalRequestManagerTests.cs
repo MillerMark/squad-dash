@@ -216,6 +216,30 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
+    public async Task AppendCheckpoint_ReopeningSameGateClearsStaleResolvedReceipt()
+    {
+        var plan = MakePlan();
+        var gate = plan.ApprovalGates[0];
+        var snapshot = MakeSnapshot();
+        await _manager.AppendCheckpointAsync(plan, gate, snapshot);
+        await _manager.ResolveCheckpointAsync(plan, gate.GateId, "Reconciled from the authoritative plan state after restart.");
+
+        await _manager.AppendCheckpointAsync(plan, gate, snapshot);
+
+        var state = _manager.GetState(plan.PlanId)!;
+        var msg = _inbox.GetById(DurableApprovalRequestManager.BuildMessageId(plan.PlanId))!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.Archived, Is.False);
+            Assert.That(state.ActiveGateIds, Is.EqualTo(new[] { gate.GateId }));
+            Assert.That(state.ResolvedCheckpoints, Is.Empty);
+            Assert.That(msg.Body, Does.Not.Contain("All checkpoints resolved"));
+            Assert.That(msg.Body, Does.Not.Contain("resolved checkpoint"));
+            Assert.That(msg.Read, Is.False);
+        });
+    }
+
+    [Test]
     public async Task RefreshEvidence_UpdatesSnapshotWithoutAddingProgressNoiseToDecisionBody()
     {
         var plan = MakePlan();

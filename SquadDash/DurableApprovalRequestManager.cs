@@ -103,11 +103,17 @@ internal sealed class DurableApprovalRequestManager
                 var updatedGateIds = state is not null
                     ? state.ActiveGateIds.Append(gate.GateId).Distinct(StringComparer.Ordinal).ToList()
                     : new List<string> { gate.GateId };
+                var resolvedCheckpoints = state is not null
+                    ? state.ResolvedCheckpoints
+                        .Where(entry => !string.Equals(entry.GateId, gate.GateId, StringComparison.Ordinal))
+                        .ToList()
+                    : [];
 
                 var newState = (state ?? new DurableApprovalState(plan.PlanId, [], []))
                     with
                     {
                         ActiveGateIds = updatedGateIds,
+                        ResolvedCheckpoints = resolvedCheckpoints,
                         LastNotifiedAt = null,
                         Archived = false,
                         Version = (state?.Version ?? 0) + 1,
