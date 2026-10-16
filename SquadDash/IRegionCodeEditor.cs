@@ -85,6 +85,13 @@ public interface IRegionCodeEditor
     int SelectionLength { get; set; }
 
     /// <summary>
+    /// Returns the directed selection endpoints (fixed anchor, moving end), or the caret twice
+    /// when collapsed. A whole-word selection may contain the physical caret inside its range;
+    /// the moving endpoint must still cover the full selection rather than stop at that caret.
+    /// </summary>
+    (int anchorOffset, int caretOffset) GetSelectionOffsets();
+
+    /// <summary>
     /// Restores a selection inside the editor from explicit local <paramref name="anchorOffset"/>
     /// (the fixed end) and <paramref name="caretOffset"/> (the moving end), preserving direction:
     /// the active caret lands at <paramref name="caretOffset"/> whether it is the lower or higher

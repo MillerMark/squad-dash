@@ -508,18 +508,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// by adding the region's content-base offset.
     /// </summary>
     internal (int anchorLocal, int caretLocal) GetContentSelectionLocal()
-    {
-        var caret = _editor.CaretOffset;
-        var selLength = _editor.SelectionLength;
-        if (selLength <= 0)
-            return (caret, caret);
-
-        var selStart = _editor.SelectionStart;
-        var selEnd = selStart + selLength;
-        // AvalonEdit's caret marks the moving end; the anchor is the opposite end of the selection.
-        var anchor = caret == selStart ? selEnd : selStart;
-        return (anchor, caret);
-    }
+        => _editor.GetSelectionOffsets();
 
     /// <summary>
     /// Restores a selection inside this region's content editor from region-local

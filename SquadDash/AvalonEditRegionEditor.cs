@@ -91,20 +91,29 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         }
     }
 
+    public (int anchorOffset, int caretOffset) GetSelectionOffsets()
+    {
+        var selection = _editor.TextArea.Selection;
+        if (selection.IsEmpty)
+            return (CaretOffset, CaretOffset);
+
+        // Whole-word mouse selection leaves the caret at the click, not necessarily an endpoint.
+        // AvalonEdit's selection retains the full, directed range independently of that caret.
+        return (_editor.Document.GetOffset(selection.StartPosition.Location),
+            _editor.Document.GetOffset(selection.EndPosition.Location));
+    }
+
     public void RestoreSelection(int anchorOffset, int caretOffset)
     {
         var length = _editor.Document.TextLength;
         anchorOffset = Math.Clamp(anchorOffset, 0, length);
         caretOffset = Math.Clamp(caretOffset, 0, length);
 
-        var min = Math.Min(anchorOffset, caretOffset);
-        var max = Math.Max(anchorOffset, caretOffset);
-
-        if (min == max)
+        if (anchorOffset == caretOffset)
             _editor.TextArea.ClearSelection();
         else
             _editor.TextArea.Selection =
-                ICSharpCode.AvalonEdit.Editing.Selection.Create(_editor.TextArea, min, max);
+                ICSharpCode.AvalonEdit.Editing.Selection.Create(_editor.TextArea, anchorOffset, caretOffset);
 
         // Place the caret on the moving end so a forward and a backward selection each restore with
         // the active caret on the correct side (AvalonEdit renders the highlight from the selection,

@@ -19,10 +19,10 @@ internal sealed class EmbeddedCodeRegionPreEditUndoTests
         public PromptUndoHistory History { get; }
         public bool Suppress { get; set; }
 
-        public LiveHistory()
+        public LiveHistory(string document = MixedDocument)
         {
             EmbeddedCodeRegionBlock.ClearActiveRegion();
-            Host.SetPlainText(MixedDocument);
+            Host.SetPlainText(document);
             EmbeddedCodeRegionManager.ConvertAllFences(Host);
             Host.SetCaretOffset(0);
             History = new PromptUndoHistory(Host);
@@ -116,6 +116,74 @@ internal sealed class EmbeddedCodeRegionPreEditUndoTests
         Assert.That(PromptUndoManager.CaptureSnapshot(live.Host, live.Region), Is.EqualTo(expected));
         Assert.That(live.Region.GetContentSelectionLocal(), Is.EqualTo((anchor, caret)));
         Assert.That(live.Host.Selection.IsEmpty, Is.True);
+        Assert.That(live.History.Redo(), Is.True);
+        Assert.That(PromptUndoManager.CaptureSnapshot(live.Host, live.Region), Is.EqualTo(edited));
+    }
+
+    [TestCase(4, 7, 6, true)]
+    [TestCase(7, 4, 5, true)]
+    [TestCase(4, 7, 7, true)]
+    [TestCase(7, 4, 4, true)]
+    [TestCase(4, 7, 6, false)]
+    [TestCase(7, 4, 5, false)]
+    [TestCase(4, 7, 7, false)]
+    [TestCase(7, 4, 4, false)]
+    public void WholeWordReplacement_UndoCapturesFullDirectedSelection_WhenCaretCanBeInsideWord(
+        int anchor, int movingEnd, int physicalCaret, bool nativeInput)
+    {
+        const string document = "Hello\n```python\ndef add(x):\n    return x\n```\nWorld";
+        using var live = new LiveHistory(document);
+        var region = live.Region;
+        var editor = GetEditor(region);
+        region.FocusContentAtPosition(physicalCaret);
+        // Whole-word mouse selection can leave the physical caret at the clicked character,
+        // inside the highlight. Establish that native state, not an undo snapshot.
+        editor.TextArea.Selection =
+            ICSharpCode.AvalonEdit.Editing.Selection.Create(editor.TextArea, anchor, movingEnd);
+        Assert.That(editor.SelectedText, Is.EqualTo("add"));
+        Assert.That(editor.CaretOffset, Is.EqualTo(physicalCaret));
+
+        var preEditNotifications = 0;
+        void ObservePreEdit(object? sender, EventArgs e)
+        {
+            if (!ReferenceEquals(sender, region))
+                return;
+            preEditNotifications++;
+            Assert.That(editor.Text, Is.EqualTo("def add(x):\n    return x"));
+            Assert.That(editor.SelectionStart, Is.EqualTo(4));
+            Assert.That(editor.SelectionLength, Is.EqualTo(3), "native selection is intact at update-start");
+            Assert.That(editor.CaretOffset, Is.EqualTo(physicalCaret));
+        }
+
+        EmbeddedCodeRegionBlock.AnyRegionContentEditing += ObservePreEdit;
+        try
+        {
+            if (nativeInput)
+                editor.TextArea.PerformTextInput("Q");
+            else
+                region.InsertHostText("Q");
+        }
+        finally
+        {
+            EmbeddedCodeRegionBlock.AnyRegionContentEditing -= ObservePreEdit;
+        }
+
+        Assert.That(preEditNotifications, Is.EqualTo(1));
+        Assert.That(region.Content, Is.EqualTo("def Q(x):\n    return x"));
+        Assert.That(live.History.Count, Is.EqualTo(2));
+        var edited = PromptUndoManager.CaptureSnapshot(live.Host, region);
+
+        Assert.That(live.History.Undo(), Is.True);
+        var restored = GetEditor(live.Region);
+        Assert.That(restored.SelectedText, Is.EqualTo("add"), "undo must highlight all three letters");
+        Assert.That(restored.SelectionLength, Is.EqualTo(3));
+        Assert.That(restored.CaretOffset, Is.EqualTo(movingEnd));
+        Assert.That(live.Region.GetContentSelectionLocal(), Is.EqualTo((anchor, movingEnd)));
+        Assert.That(restored.Document.GetOffset(restored.TextArea.Selection.StartPosition.Location), Is.EqualTo(anchor));
+        Assert.That(restored.Document.GetOffset(restored.TextArea.Selection.EndPosition.Location), Is.EqualTo(movingEnd));
+        Assert.That(PromptUndoManager.CaptureSnapshot(live.Host, live.Region),
+            Is.EqualTo(new PromptSnapshot(document, 15 + movingEnd, 15 + anchor)));
+
         Assert.That(live.History.Redo(), Is.True);
         Assert.That(PromptUndoManager.CaptureSnapshot(live.Host, live.Region), Is.EqualTo(edited));
     }
