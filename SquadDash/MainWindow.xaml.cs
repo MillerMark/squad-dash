@@ -28284,10 +28284,11 @@ public partial class MainWindow : Window
             if (targetRegion != null && !hitToggle)
             {
                 if (!EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
-                        hitRegion: true, hitToggle: hitToggle, hitContentTextBox: hitContentEditor))
+                        hitRegion: true, hitToggle: hitToggle, hitContentTextBox: hitContentEditor,
+                        hitLanguagePicker: targetRegion.IsLanguagePickerHit(hitElement)))
                 {
-                    SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=content-editor-native");
-                    return; // Let the nested editor select natively.
+                    SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=nested-control-native");
+                    return; // Let the editor select or the language button open its picker.
                 }
 
                 SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=region-focus-end");
@@ -29202,22 +29203,7 @@ public partial class MainWindow : Window
     /// consistently detect "this element lives inside an embedded code region".
     /// </summary>
     private static EmbeddedCodeRegionBlock? FindEmbeddedCodeRegion(object? value)
-    {
-        if (value is not DependencyObject current)
-            return null;
-
-        while (current is not null)
-        {
-            if (current is EmbeddedCodeRegionBlock region)
-                return region;
-
-            current = current is Visual or System.Windows.Media.Media3D.Visual3D
-                ? VisualTreeHelper.GetParent(current)
-                : LogicalTreeHelper.GetParent(current);
-        }
-
-        return null;
-    }
+        => EmbeddedCodeRegionBlock.FindContainingRegion(value as DependencyObject);
 
     /// <summary>
     /// Returns the embedded code region that currently owns keyboard focus, or

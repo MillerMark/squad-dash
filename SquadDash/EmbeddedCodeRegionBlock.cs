@@ -26,9 +26,8 @@ namespace SquadDash;
 /// read-only code blocks already rendered in transcripts.
 /// </para>
 /// <para>
-/// <see cref="Language"/> is a data-model field only, per plan scope — it participates in
-/// fence serialization (<see cref="ToFencedText"/>) but no language-picker UI is provided in
-/// this step; a future plan may add one.
+/// The language picker writes <see cref="Language"/> directly so mode changes participate in
+/// fence serialization (<see cref="ToFencedText"/>) and the shared prompt undo timeline.
 /// </para>
 /// </summary>
 public sealed class EmbeddedCodeRegionBlock : Border
@@ -36,9 +35,32 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// Fence content, excluding the opening/closing ``` markers and the language tag.
     public string Content { get; set; }
 
-    /// Optional language tag (e.g. "python"). Empty string means no language tag.
-    public new string Language { get; set; }
+    /// Persistent fence token: empty for auto detect, "text" for plain text, otherwise a grammar.
+    public new string Language
+    {
+        get => _language;
+        set
+        {
+            var token = value ?? string.Empty;
+            if (_language == token)
+                return;
+            AnyRegionContentEditing?.Invoke(this, EventArgs.Empty);
+            _language = token;
+            _languageLabel.Text = RegionLanguagePicker.GetLabel(token);
+            System.Windows.Automation.AutomationProperties.SetName(
+                _languageButton, $"Code language: {_languageLabel.Text}");
+            PickerModeChanged?.Invoke(this, EventArgs.Empty);
+            AnyRegionContentEdited?.Invoke(this, EventArgs.Empty);
+        }
+    }
 
+    /// Selected mode and token are the input for the later highlighting/auto-detect stage.
+    public RegionLanguageMode PickerMode => RegionLanguagePicker.GetMode(Language);
+    public event EventHandler? PickerModeChanged;
+
+    private string _language;
+    private readonly TextBlock _languageLabel;
+    private readonly Button _languageButton;
     private readonly IRegionCodeEditor _editor;
     private readonly Control _editorControl;
     private RichTextBox? _hostRichTextBox;
@@ -61,7 +83,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     internal static EmbeddedCodeRegionBlock? ActiveRegion { get; private set; }
 
     /// <summary>
-    /// Raised whenever the text INSIDE any embedded region's editor changes (the region's own
+    /// Raised whenever a region's language token or text INSIDE its editor changes (the region's own
     /// AvalonEdit edit, which never surfaces as the host <see cref="RichTextBox"/>'s TextChanged).
     /// The single-authority prompt undo/redo owner (<c>MainWindow</c> driving
     /// <see cref="PromptUndoHistory"/>, PROMPTUNDO-20261015-003) subscribes once so in-region typing
@@ -69,7 +91,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     internal static event EventHandler? AnyRegionContentEdited;
 
-    /// Raised before a region document update, while its original selection and text still exist.
+    /// Raised before a region document/token update, while its original selection and text still exist.
     internal static event EventHandler? AnyRegionContentEditing;
 
     /// Clears <see cref="ActiveRegion"/> unconditionally. Called when a host-prompt gesture makes
@@ -86,24 +108,26 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// <para>
     /// Returns <c>false</c> when the click landed on the region's nested content
     /// <see cref="TextBox"/> (<paramref name="hitContentTextBox"/>) or on the collapse toggle
-    /// (<paramref name="hitToggle"/>). For a content-box click the host MUST NOT handle the
+    /// (<paramref name="hitToggle"/>) or language picker (<paramref name="hitLanguagePicker"/>).
+    /// For a content-box click the host MUST NOT handle the
     /// Preview event: doing so suppresses the bubbling <c>MouseLeftButtonDown</c> the TextBox
     /// relies on for native caret placement, double-click word-select, click-drag and
     /// double-click-drag selection — the regression this guard previously caused.
     /// </para>
     /// <para>
-    /// Returns <c>true</c> only for clicks on region chrome (background/label) with no nested
-    /// editor or toggle under the cursor, where there is no native text selection to preserve
+    /// Returns <c>true</c> only for clicks on region chrome with no nested
+    /// editor, toggle, or picker under the cursor, where there is no native interaction to preserve
     /// and the gesture should instead focus the region's content.
     /// </para>
     /// </summary>
-    public static bool ShouldClaimRegionMouseGesture(bool hitRegion, bool hitToggle, bool hitContentTextBox)
-        => hitRegion && !hitToggle && !hitContentTextBox;
+    public static bool ShouldClaimRegionMouseGesture(
+        bool hitRegion, bool hitToggle, bool hitContentTextBox, bool hitLanguagePicker = false)
+        => hitRegion && !hitToggle && !hitContentTextBox && !hitLanguagePicker;
 
     private EmbeddedCodeRegionBlock(string content, string language)
     {
         Content = content ?? string.Empty;
-        Language = language ?? string.Empty;
+        _language = language ?? string.Empty;
         Tag = "embedded-code-region";
 
         _editor = new AvalonEditRegionEditor(Content);
@@ -357,18 +381,43 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 e.Handled = true;
         };
 
-        var languageLabel = new TextBlock
+        _languageLabel = new TextBlock
         {
-            Text = string.IsNullOrEmpty(Language) ? "Auto Detect -- Plain Text" : Language,
+            Text = RegionLanguagePicker.GetLabel(Language),
             FontFamily = new FontFamily("Segoe UI"), // Variable width font
             FontSize = 12,
-            Margin = new Thickness(8, 4, 8, 4),
             VerticalAlignment = VerticalAlignment.Center,
-            Opacity = 0.7, // Subtle text
             FontStyle = FontStyles.Italic,
             Background = System.Windows.Media.Brushes.Transparent,
         };
-        languageLabel.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        var labelContent = new StackPanel { Orientation = Orientation.Horizontal };
+        labelContent.Children.Add(_languageLabel);
+        var arrow = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M 0,0 L 8,0 L 4,4 Z"),
+            Margin = new Thickness(6, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        arrow.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "LabelText");
+        labelContent.Children.Add(arrow);
+        _languageButton = new Button
+        {
+            Content = labelContent,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(8, 2, 8, 2),
+            ToolTip = "Choose code language",
+            Cursor = Cursors.Hand,
+        };
+        _languageButton.SetResourceReference(StyleProperty, "RegionLanguageButtonStyle");
+        System.Windows.Automation.AutomationProperties.SetName(
+            _languageButton, $"Code language: {_languageLabel.Text}");
+        var languagePopup = BuildLanguagePopup();
+        _languageButton.Click += (_, e) =>
+        {
+            languagePopup.IsOpen = !languagePopup.IsOpen;
+            e.Handled = true;
+        };
+        Unloaded += (_, _) => languagePopup.IsOpen = false;
 
         // The editor rectangle chrome now lives on an INNER border so the label can sit
         // visually above (outside) it. The outer EmbeddedCodeRegionBlock itself stays
@@ -396,8 +445,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
         editorBorder.BorderBrush = halfContrastBorderBrush;
 
         var stack = new StackPanel();
-        stack.Children.Add(languageLabel);
+        stack.Children.Add(_languageButton);
         stack.Children.Add(editorBorder);
+        stack.Children.Add(languagePopup);
 
         // The outer element (this Border) is purely a transparent layout host now; the
         // visible editor chrome is painted by the inner editorBorder above.
@@ -405,25 +455,124 @@ public sealed class EmbeddedCodeRegionBlock : Border
         Margin = new Thickness(0, 2, 0, 2);
         Child = stack;
 
-        // Route clicks on the transparent outer area or the language label to the content
-        // editor to enable editing. Clicks on the editor itself are handled above. This
-        // PreviewMouseDown ensures that even if a click lands on the label or background, we
-        // still focus the content editor instead of selecting the whole hosted BlockUIContainer.
+        // Background clicks focus the editor; native editor and picker clicks must pass through.
         PreviewMouseLeftButtonDown += (sender, e) =>
         {
             var clickedElement = InputHitTest(e.GetPosition(this)) as DependencyObject;
             Trace($"EMBEDDED_CODE_BORDER_MOUSE enter handled={e.Handled} hit={DescribeInputObject(clickedElement)} point=({e.GetPosition(this).X:F1},{e.GetPosition(this).Y:F1})");
-            if (IsVisualAncestorOrSelf(clickedElement, _editorControl))
+            if (IsVisualAncestorOrSelf(clickedElement, _editorControl) ||
+                IsLanguagePickerHit(clickedElement))
             {
-                Trace("EMBEDDED_CODE_BORDER_MOUSE exit reason=content-editor");
-                return; // Let the editor do normal caret placement, selection, and focus.
+                Trace("EMBEDDED_CODE_BORDER_MOUSE exit reason=nested-control");
+                return; // Let the editor select or the language button open its picker.
             }
 
-            // Label/background clicks focus the editor without selecting the whole hosted block.
+            // Background clicks focus the editor without selecting the whole hosted block.
             _editor.FocusEditor();
             e.Handled = true;
             Trace($"EMBEDDED_CODE_BORDER_MOUSE exit reason=header-focus handled=True focused={_editor.IsKeyboardFocusWithin} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         };
+    }
+
+    internal bool IsLanguagePickerHit(DependencyObject? element)
+        => IsVisualAncestorOrSelf(element, _languageButton);
+
+    internal static EmbeddedCodeRegionBlock? FindContainingRegion(DependencyObject? element)
+    {
+        while (element is not null)
+        {
+            if (element is EmbeddedCodeRegionBlock region)
+                return region;
+            // Prefer logical ownership so picker input crosses the Popup's separate visual root.
+            element = LogicalTreeHelper.GetParent(element) ??
+                (element is Visual or Visual3D ? VisualTreeHelper.GetParent(element) : null);
+        }
+        return null;
+    }
+
+    private Popup BuildLanguagePopup()
+    {
+        var items = new StackPanel();
+        KeyboardNavigation.SetDirectionalNavigation(items, KeyboardNavigationMode.Cycle);
+        KeyboardNavigation.SetTabNavigation(items, KeyboardNavigationMode.Cycle);
+        var border = new Border
+        {
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(4),
+            Child = new ScrollViewer
+            {
+                MaxHeight = 320,
+                MinWidth = 180,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = items,
+            },
+        };
+        border.SetResourceReference(BackgroundProperty, "CardSurface");
+        border.SetResourceReference(BorderBrushProperty, "SubtleBorder");
+        var popup = new Popup
+        {
+            PlacementTarget = _languageButton,
+            Placement = PlacementMode.Bottom,
+            StaysOpen = false,
+            AllowsTransparency = true,
+            Child = border,
+        };
+        foreach (var option in RegionLanguagePicker.Options)
+        {
+            var button = new Button
+            {
+                Content = option.DisplayName,
+                Tag = option,
+                Padding = new Thickness(8, 4, 8, 4),
+            };
+            button.SetResourceReference(StyleProperty, "RegionLanguageButtonStyle");
+            button.Click += (_, e) =>
+            {
+                Language = option.FenceToken;
+                popup.IsOpen = false;
+                _languageButton.Focus();
+                e.Handled = true;
+            };
+            items.Children.Add(button);
+        }
+        popup.Opened += (_, _) =>
+        {
+            Button? selected = null;
+            foreach (Button button in items.Children)
+            {
+                var option = (RegionLanguageOption)button.Tag;
+                var isSelected = string.Equals(option.FenceToken, Language, StringComparison.OrdinalIgnoreCase);
+                button.FontWeight = isSelected ? FontWeights.Bold : FontWeights.Normal;
+                System.Windows.Automation.AutomationProperties.SetHelpText(button, isSelected ? "Selected" : "");
+                if (isSelected)
+                    selected = button;
+            }
+            var focusTarget = selected ?? (Button)items.Children[0];
+            focusTarget.Focus();
+            focusTarget.BringIntoView();
+        };
+        border.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                popup.IsOpen = false;
+                _languageButton.Focus();
+                e.Handled = true;
+            }
+            else if (e.Key is Key.Enter or Key.Space && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                var button = items.Children.Cast<Button>().FirstOrDefault(
+                    item => IsVisualAncestorOrSelf(e.OriginalSource as DependencyObject, item));
+                if (button is not null)
+                {
+                    e.Handled = true;
+                    button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                }
+            }
+        };
+        return popup;
     }
 
     internal void AttachHost(RichTextBox hostRichTextBox)

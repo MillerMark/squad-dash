@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 
@@ -172,7 +173,8 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(region.BorderThickness, Is.EqualTo(new Thickness(0)));
 
         var stack = (StackPanel)region.Child;
-        var label = (TextBlock)stack.Children[0];
+        var trigger = (Button)stack.Children[0];
+        var label = (TextBlock)((StackPanel)trigger.Content).Children[0];
         var editorBorder = (Border)stack.Children[1];
 
         Assert.That(label.Text, Is.EqualTo("python"));
@@ -194,7 +196,7 @@ internal sealed class EmbeddedCodeRegionTests
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
 
         var stack = (StackPanel)region.Child;
-        var label = (TextBlock)stack.Children[0];
+        var label = (TextBlock)((StackPanel)((Button)stack.Children[0]).Content).Children[0];
 
         Assert.That(label.FontStyle, Is.EqualTo(FontStyles.Italic),
             "language label must render italic");
@@ -212,11 +214,169 @@ internal sealed class EmbeddedCodeRegionTests
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
         var region = (EmbeddedCodeRegionBlock)((BlockUIContainer)rtb.Document.Blocks.FirstBlock!).Child;
 
-        // Language is a data-model field set programmatically here — no picker UI ships
-        // with this step, per plan scope.
+        // Programmatic token updates use the same mode/label/serialization path as the picker.
         region.Language = "python";
 
         Assert.That(rtb.GetPlainText(), Is.EqualTo("```python\nx = 1\n```"));
+        Assert.That(region.PickerMode, Is.EqualTo(RegionLanguageMode.ExplicitLanguage));
+        Assert.That(LanguageLabel(region).Text, Is.EqualTo("python"));
+    }
+
+    private static TextBlock LanguageLabel(EmbeddedCodeRegionBlock region)
+        => (TextBlock)((StackPanel)((Button)((StackPanel)region.Child).Children[0]).Content).Children[0];
+
+    private static Popup LanguagePopup(EmbeddedCodeRegionBlock region)
+        => (Popup)((StackPanel)region.Child).Children[2];
+
+    private static Button[] LanguageOptions(EmbeddedCodeRegionBlock region)
+        => ((StackPanel)((ScrollViewer)((Border)LanguagePopup(region).Child).Child).Content)
+            .Children.Cast<Button>().ToArray();
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void LanguagePicker_ListsSpecialModesThenEveryInstalledGrammar_InOrder()
+    {
+        var options = RegionLanguagePicker.Options;
+        Assert.That(options.Take(2).Select(option => option.DisplayName),
+            Is.EqualTo(new[] { "Auto detect", "Plain text" }));
+        Assert.That(options.Take(2).Select(option => option.Mode),
+            Is.EqualTo(new[] { RegionLanguageMode.AutoDetect, RegionLanguageMode.PlainText }));
+        var grammars = ICSharpCode.AvalonEdit.Highlighting.HighlightingManager.Instance.HighlightingDefinitions
+            .Select(grammar => grammar.Name).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
+        Assert.That(grammars, Is.Not.Empty);
+        Assert.That(options.Skip(2).Select(option => option.GrammarName), Is.EqualTo(grammars));
+        Assert.That(options.Select(option => option.FenceToken), Is.Unique);
+        Assert.That(options.Skip(2).All(option => option.Mode == RegionLanguageMode.ExplicitLanguage), Is.True);
+
+        var region = EmbeddedCodeRegionBlock.Build("hello", "");
+        Assert.That(LanguageOptions(region).Select(button => button.Content),
+            Is.EqualTo(options.Select(option => option.DisplayName)));
+        Assert.That(LanguageOptions(region).Select(button => button.Tag), Is.EqualTo(options));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void LanguagePicker_TargetsHeaderBottom_AndDoesNotClaimNativeButtonGesture()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("hello", "");
+        var trigger = (Button)((StackPanel)region.Child).Children[0];
+        var popup = LanguagePopup(region);
+        Assert.That(popup.PlacementTarget, Is.SameAs(trigger));
+        Assert.That(popup.Placement, Is.EqualTo(PlacementMode.Bottom));
+        Assert.That(popup.StaysOpen, Is.False);
+        Assert.That(trigger.ToolTip, Is.EqualTo("Choose code language"));
+        Assert.That(trigger.Focusable, Is.True);
+        Assert.That(region.IsLanguagePickerHit(trigger), Is.True);
+        Assert.That(EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
+            true, false, false, region.IsLanguagePickerHit(trigger)), Is.False);
+        Assert.That(EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(true, false, false), Is.True);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void LanguagePicker_KeyboardGuardFindsRegionAcrossPopupLogicalOwnership()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("hello", "");
+        Assert.That(EmbeddedCodeRegionBlock.FindContainingRegion(LanguageOptions(region)[1]), Is.SameAs(region));
+        Assert.That(EmbeddedCodeRegionBlock.FindContainingRegion(LanguageLabel(region)), Is.SameAs(region));
+        Assert.That(EmbeddedCodeRegionBlock.FindContainingRegion(
+            ((Border)((StackPanel)region.Child).Children[1]).Child), Is.SameAs(region));
+        Assert.That(EmbeddedCodeRegionBlock.FindContainingRegion(new Button()), Is.Null);
+    }
+
+    [TestCase(Key.Enter), TestCase(Key.Space), TestCase(Key.Escape), Apartment(ApartmentState.STA)]
+    public void LanguagePicker_KeyboardSelectionAndDismissal_DoNotLeakToPrompt(Key key)
+    {
+        var region = EmbeddedCodeRegionBlock.Build("hello", "python");
+        var button = LanguageOptions(region)[1];
+        var args = new KeyEventArgs(Keyboard.PrimaryDevice, new PickerPresentationSource(), 0, key)
+        {
+            RoutedEvent = Keyboard.PreviewKeyDownEvent,
+        };
+        button.RaiseEvent(args);
+        Assert.That(args.Handled, Is.True);
+        Assert.That(region.Language, Is.EqualTo(key == Key.Escape ? "python" : "text"));
+    }
+
+    private sealed class PickerPresentationSource : PresentationSource
+    {
+        public override System.Windows.Media.Visual? RootVisual { get; set; }
+        public override bool IsDisposed => false;
+        protected override System.Windows.Media.CompositionTarget? GetCompositionTargetCore() => null;
+    }
+
+    private static System.Collections.Generic.IEnumerable<TestCaseData> PickerRoundTripCases()
+    {
+        foreach (var option in RegionLanguagePicker.Options)
+        foreach (var content in new[] { "int x = 1;", "before\n```\ninner\n```\nafter" })
+            yield return new TestCaseData(option.FenceToken, option.Mode, content);
+    }
+
+    [TestCaseSource(nameof(PickerRoundTripCases)), Apartment(ApartmentState.STA)]
+    public void LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode(
+        string token, RegionLanguageMode mode, string content)
+    {
+        var rtb = new RichTextBox();
+        var initialToken = token == "text" ? "python" : "text";
+        rtb.SetPlainText("before\n" + EmbeddedFenceDetector.BuildFencedText(content, initialToken) + "\nafter");
+        Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(rtb), Is.True);
+        var region = RichTextBoxExtensions.EnumerateEmbeddedRegions(rtb).Single();
+        var button = LanguageOptions(region).Single(button => ((RegionLanguageOption)button.Tag).FenceToken == token);
+        var changes = 0;
+        region.PickerModeChanged += (_, _) => changes++;
+
+        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+        Assert.That(changes, Is.EqualTo(1));
+        Assert.That(region.Language, Is.EqualTo(token));
+        Assert.That(region.PickerMode, Is.EqualTo(mode));
+        Assert.That(LanguageLabel(region).Text, Is.EqualTo(
+            mode == RegionLanguageMode.AutoDetect ? "Auto detect -- Plain text" : button.Content));
+        var serialized = rtb.GetPlainText();
+        var fence = content.Contains('`') ? "````" : "```";
+        Assert.That(serialized, Is.EqualTo($"before\n{fence}{token}\n{content}\n{fence}\nafter"));
+
+        var restored = new RichTextBox();
+        restored.SetPlainText(serialized);
+        Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(restored), Is.True);
+        var restoredRegion = RichTextBoxExtensions.EnumerateEmbeddedRegions(restored).Single();
+        Assert.That(restoredRegion.PickerMode, Is.EqualTo(mode));
+        Assert.That(restoredRegion.Language, Is.EqualTo(token));
+        Assert.That(restoredRegion.Content, Is.EqualTo(content));
+        Assert.That(LanguageLabel(restoredRegion).Text, Is.EqualTo(LanguageLabel(region).Text));
+        Assert.That(restored.GetPlainText(), Is.EqualTo(serialized));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void LanguagePicker_SelectionNotifiesSharedUndoBeforeAndAfter_AndSameModeIsNoOp()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("hello", "python");
+        var snapshots = new System.Collections.Generic.List<string>();
+        void Capture(object? sender, EventArgs e)
+        {
+            if (ReferenceEquals(sender, region))
+                snapshots.Add(region.ToFencedText());
+        }
+        EmbeddedCodeRegionBlock.AnyRegionContentEditing += Capture;
+        EmbeddedCodeRegionBlock.AnyRegionContentEdited += Capture;
+        try
+        {
+            var plainText = LanguageOptions(region)[1];
+            plainText.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            plainText.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(snapshots, Is.EqualTo(new[] { "```python\nhello\n```", "```text\nhello\n```" }));
+        }
+        finally
+        {
+            EmbeddedCodeRegionBlock.AnyRegionContentEditing -= Capture;
+            EmbeddedCodeRegionBlock.AnyRegionContentEdited -= Capture;
+        }
+    }
+
+    [TestCase("custom-lang"), TestCase("csharp"), TestCase("f#"), Apartment(ApartmentState.STA)]
+    public void LanguagePicker_UnregisteredLegacyTag_RemainsLossless(string token)
+    {
+        var region = EmbeddedCodeRegionBlock.Build("hello", token);
+        Assert.That(region.Language, Is.EqualTo(token));
+        Assert.That(region.PickerMode, Is.EqualTo(RegionLanguageMode.ExplicitLanguage));
+        Assert.That(region.ToFencedText(), Is.EqualTo($"```{token}\nhello\n```"));
     }
 
     [Test, Apartment(ApartmentState.STA)]

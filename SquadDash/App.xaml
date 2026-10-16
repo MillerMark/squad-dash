@@ -98,6 +98,15 @@
                 </Setter>
             </Style>
 
+            <Style x:Key="RegionLanguageButtonStyle" TargetType="Button" BasedOn="{StaticResource FlatButtonStyle}">
+                <Setter Property="Foreground" Value="{DynamicResource LabelText}"/>
+                <Style.Triggers>
+                    <Trigger Property="IsKeyboardFocused" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource HoverSurface}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
+
             <!-- Docking map slot button — removes Windows chrome, themed hover, active-panel overlay -->
             <Style x:Key="DockSlotButtonStyle" TargetType="Button">
                 <Setter Property="Background"   Value="{DynamicResource ChromeSurface}"/>

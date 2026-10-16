@@ -199,6 +199,7 @@
     <Compile Include="..\SquadDash\CopyButton.cs" Link="Source\CopyButton.cs" />
     <Compile Include="..\SquadDash\CopyableCodeBlockBuilder.cs" Link="Source\CopyableCodeBlockBuilder.cs" />
     <Compile Include="..\SquadDash\EmbeddedCodeRegionBlock.cs" Link="Source\EmbeddedCodeRegionBlock.cs" />
+    <Compile Include="..\SquadDash\RegionLanguagePicker.cs" Link="Source\RegionLanguagePicker.cs" />
     <Compile Include="..\SquadDash\IRegionCodeEditor.cs" Link="Source\IRegionCodeEditor.cs" />
     <Compile Include="..\SquadDash\AvalonEditRegionEditor.cs" Link="Source\AvalonEditRegionEditor.cs" />
     <Compile Include="..\SquadDash\EmbeddedCaretNavMath.cs" Link="Source\EmbeddedCaretNavMath.cs" />
