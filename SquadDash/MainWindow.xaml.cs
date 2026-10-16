@@ -11879,9 +11879,7 @@ public partial class MainWindow : Window
 
     private async Task RestoreRevisionAwaitingApprovalGateUIAsync(Plan active)
     {
-        if (_planApprovalRuntime is not null)
-            await _planApprovalRuntime.RestoreAsync([active]);
-        RestoreAwaitingApprovalGateUI(active.PlanId);
+        await RestoreAwaitingApprovalGateUIAsync(active.PlanId);
     }
 
     private static string ResolvePlanRevisionBoundaryTaskId(Plan updated, Plan previous)
@@ -18586,21 +18584,58 @@ public partial class MainWindow : Window
     /// that was persisted with <see cref="PlanLifecycleStatus.AwaitingApproval"/>.
     /// Does not re-fire sound or push notifications (gate.NotifiedAt is already set).
     /// </summary>
-    private void RestoreAwaitingApprovalGateUI(string? onlyPlanId = null)
+    private void RestoreAwaitingApprovalGateUI(string? onlyPlanId = null) =>
+        _ = RestoreAwaitingApprovalGateUIAsync(onlyPlanId);
+
+    private async Task RestoreAwaitingApprovalGateUIAsync(string? onlyPlanId = null)
     {
         if (_planStore is null || _planApprovalRuntime is null) return;
-        (Plan Plan, PlanApprovalGate Gate)? attentionRequest = null;
-        foreach (var plan in _planStore.LoadAll())
+        var eligiblePlans = _planStore.LoadAll()
+            .Where(plan =>
+            {
+                if (onlyPlanId is not null &&
+                    !string.Equals(plan.PlanId, onlyPlanId, StringComparison.Ordinal))
+                    return false;
+                if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval)
+                    return false;
+                if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId))
+                    return false;
+                // A proposed plan revision is the higher-priority decision. Approving a checkpoint
+                // from the currently authoritative definition while that proposal is unresolved is
+                // both confusing and potentially stale. "Keep current plan" restores this surface.
+                if (HasPendingPlanRevision(plan.PlanId))
+                    return false;
+                return plan.ApprovalGates.Any(g => g.Status == PlanGateStatus.AwaitingApproval);
+            })
+            .ToArray();
+
+        if (eligiblePlans.Length == 0)
         {
-            if (onlyPlanId is not null &&
-                !string.Equals(plan.PlanId, onlyPlanId, StringComparison.Ordinal))
-                continue;
-            if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval) continue;
-            if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId)) continue;
-            // A proposed plan revision is the higher-priority decision. Approving a checkpoint
-            // from the currently authoritative definition while that proposal is unresolved is
-            // both confusing and potentially stale. "Keep current plan" restores this surface.
-            if (HasPendingPlanRevision(plan.PlanId)) continue;
+            SyncLoopPanel();
+            return;
+        }
+
+        try
+        {
+            await _planApprovalRuntime.RestoreAsync(eligiblePlans);
+            if (_inboxStore is not null)
+            {
+                var messages = _inboxStore.LoadAll();
+                _inboxPanel?.Refresh(messages);
+                ReconcileOpenInboxWindows(messages);
+            }
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Could not restore approval runtime tokens before transcript card restore: {ex.Message}");
+        }
+
+        (Plan Plan, PlanApprovalGate Gate)? attentionRequest = null;
+        foreach (var candidate in eligiblePlans)
+        {
+            var plan = _planStore.Load(candidate.PlanId) ?? candidate;
             var awaitingGate = plan.ApprovalGates
                 .FirstOrDefault(g => g.Status == PlanGateStatus.AwaitingApproval);
             if (awaitingGate is null) continue;
@@ -18608,7 +18643,7 @@ public partial class MainWindow : Window
             if (token is null) continue;
             _activePlanAwaitingGateApproval ??= awaitingGate.GateId;
             var snapshot = BuildLightweightApprovalSnapshot(plan, awaitingGate);
-            Dispatcher.BeginInvoke(
+            _ = Dispatcher.BeginInvoke(
                 () => AppendGateApprovalActions(plan, awaitingGate, snapshot, token),
                 System.Windows.Threading.DispatcherPriority.Background);
             attentionRequest ??= (plan, awaitingGate);
@@ -18618,7 +18653,7 @@ public partial class MainWindow : Window
         {
             // The original attention cue does not survive a process restart. Replay one
             // cue after layout settles so the durable request is discoverable again.
-            Dispatcher.BeginInvoke(
+            _ = Dispatcher.BeginInvoke(
                 new Action(async () => await TryShowApprovalCalloutAsync(request.Plan, request.Gate)),
                 System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
@@ -42137,7 +42172,7 @@ public partial class MainWindow : Window
             () => RestorePendingDecomposeApprovalSurfaces(promoteUnaddressedToInbox: true));
         // Transcript hydration replaces the document. Restore durable approval cards only
         // after that replacement so a restart cannot silently erase the required action.
-        TraceWorkspaceLoadPhase("awaiting-approval-gates", () => RestoreAwaitingApprovalGateUI());
+        await TraceWorkspaceLoadPhaseAsync("awaiting-approval-gates", () => RestoreAwaitingApprovalGateUIAsync());
         // Pending plan-revision cards are also live WPF controls. Restoring them before
         // LoadWorkspaceConversationAsync adds them to the document that hydration discards.
         // Restore after checkpoint cards so the unresolved revision action remains visible.

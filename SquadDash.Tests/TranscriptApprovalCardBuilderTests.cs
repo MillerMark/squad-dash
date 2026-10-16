@@ -5,6 +5,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -607,6 +608,87 @@ public class TranscriptApprovalCardBuilderTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void Build_PreviousYesNoAnswers_ShowColoredQuestionMarkersUntilReconfirmed()
+    {
+        var application = Application.Current ?? new Application();
+        var approvalBrush = Brushes.LimeGreen;
+        var failureBrush = Brushes.IndianRed;
+        application.Resources["PlanApprovalResolved"] = approvalBrush;
+        application.Resources["TaskFailedFill"] = failureBrush;
+
+        var yesCard = BuildCardWithHistoricalSelection(new PlanHumanReviewSelection(
+            "legacy#1",
+            true,
+            "old-candidate",
+            DateTimeOffset.UtcNow.AddMinutes(-5)));
+        var yesBoxes = EnumerateFrameworkElements(yesCard.ReviewSection!)
+            .OfType<CheckBox>()
+            .ToArray();
+        var yesMarker = FindChoiceMarker(yesBoxes[0]);
+        var yesIcon = FindChoiceIcon(yesBoxes[0]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(yesBoxes[0].IsChecked, Is.True);
+            Assert.That(yesBoxes[1].IsChecked, Is.False);
+            Assert.That(yesMarker.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(yesMarker.Foreground, Is.SameAs(approvalBrush));
+            Assert.That(yesIcon.Visibility, Is.EqualTo(Visibility.Hidden));
+        });
+
+        yesBoxes[0].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(yesMarker.Visibility, Is.EqualTo(Visibility.Hidden));
+            Assert.That(yesIcon.Visibility, Is.EqualTo(Visibility.Visible));
+        });
+
+        var noCard = BuildCardWithHistoricalSelection(new PlanHumanReviewSelection(
+            "legacy#1",
+            false,
+            "old-candidate",
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            Answer: PlanHumanReviewAnswer.No));
+        var noBoxes = EnumerateFrameworkElements(noCard.ReviewSection!)
+            .OfType<CheckBox>()
+            .ToArray();
+        var noMarker = FindChoiceMarker(noBoxes[1]);
+        var noIcon = FindChoiceIcon(noBoxes[1]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(noBoxes[0].IsChecked, Is.False);
+            Assert.That(noBoxes[1].IsChecked, Is.True);
+            Assert.That(noMarker.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(noMarker.Foreground, Is.SameAs(failureBrush));
+            Assert.That(noIcon.Visibility, Is.EqualTo(Visibility.Hidden));
+        });
+
+        noBoxes[1].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(noMarker.Visibility, Is.EqualTo(Visibility.Hidden));
+            Assert.That(noIcon.Visibility, Is.EqualTo(Visibility.Visible));
+        });
+
+        static TranscriptApprovalCardBuilder.CardResult BuildCardWithHistoricalSelection(
+            PlanHumanReviewSelection selection)
+        {
+            var plan = BuildTestPlan();
+            var gate = plan.ApprovalGates[0] with { HumanReviewSelections = [selection] };
+            var planWithSelection = plan with { ApprovalGates = [gate] };
+            return TranscriptApprovalCardBuilder.Build(
+                BuildTestSnapshot(),
+                planWithSelection,
+                gate,
+                14,
+                _ => { });
+        }
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void Build_FullEvidenceLink_OpensTheSelectedStepEvidence()
     {
         var plan = BuildTestPlan();
@@ -1018,6 +1100,22 @@ public class TranscriptApprovalCardBuilderTests
         foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
             foreach (var descendant in EnumerateFrameworkElements(child))
                 yield return descendant;
+    }
+
+    private static Viewbox FindChoiceIcon(CheckBox choice)
+    {
+        var content = (StackPanel)choice.Content;
+        var border = content.Children.OfType<Border>().Single();
+        var slot = (Grid)border.Child;
+        return slot.Children.OfType<Viewbox>().Single();
+    }
+
+    private static TextBlock FindChoiceMarker(CheckBox choice)
+    {
+        var content = (StackPanel)choice.Content;
+        var border = content.Children.OfType<Border>().Single();
+        var slot = (Grid)border.Child;
+        return slot.Children.OfType<TextBlock>().Single();
     }
 
     [Test]

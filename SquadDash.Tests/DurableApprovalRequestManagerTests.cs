@@ -75,10 +75,8 @@ public class DurableApprovalRequestManagerTests
         Assert.That(msg!.Subject, Does.Contain("Test Plan"));
         Assert.That(msg.Read, Is.False);
         Assert.That(msg.Priority, Is.EqualTo("high"));
-        Assert.That(msg.Actions, Has.Count.EqualTo(1));
-        Assert.That(msg.Actions[0].RouteMode,
-            Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode),
-            "Unchecked review items can now be sent back as unapproved instead of hiding all actions.");
+        Assert.That(msg.Actions, Is.Empty,
+            "Unchecked review items stay on the inline Inbox review surface until they are answered.");
     }
 
     [Test]
@@ -210,9 +208,8 @@ public class DurableApprovalRequestManagerTests
 
         var msg = _inbox.GetById("approval-gate-PLAN-001");
         Assert.That(msg!.Read, Is.False);
-        Assert.That(msg.Actions, Has.Count.EqualTo(1));
-        Assert.That(msg.Actions[0].RouteMode,
-            Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
+        Assert.That(msg.Actions, Is.Empty,
+            "Reopened requests should not recreate the separate address-unapproved action while inline checks remain.");
     }
 
     [Test]
@@ -559,10 +556,8 @@ public class DurableApprovalRequestManagerTests
         Assert.Multiple(() =>
         {
             Assert.That(message.Body, Does.Not.Contain(ManualTestKitChecklistComposer.SetupErrorMarker));
-            Assert.That(message.Actions, Has.Count.EqualTo(1),
-                "Review selections are still required before continuing, but the user can address unapproved items.");
-            Assert.That(message.Actions[0].RouteMode,
-                Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
+            Assert.That(message.Actions, Is.Empty,
+                "Review selections remain in the inline Inbox checklist until every required item is answered.");
             foreach (var requirement in requirements)
             {
                 Assert.That(message.Body, Does.Contain($"☐ {requirement.Question}"));

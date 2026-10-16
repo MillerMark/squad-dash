@@ -131,6 +131,9 @@ internal sealed class InboxApprovalChecklistPresenterTests
     [Test, Apartment(ApartmentState.STA)]
     public void Attach_PreviouslyConfirmedItem_StartsUnansweredUntilReconfirmed()
     {
+        var application = Application.Current ?? new Application();
+        var approvalBrush = Brushes.LimeGreen;
+        application.Resources["PlanApprovalResolved"] = approvalBrush;
         const string question = "Does the corrected result still appear?";
         var document = MarkdownFlowDocumentBuilder.BuildInbox($"- ? {question}", 14);
         var item = new PlanHumanReviewChecklistItem(
@@ -147,6 +150,7 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(boxes[0].IsChecked, Is.True);
             Assert.That(boxes[1].IsChecked, Is.False);
             Assert.That(yesMarker.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(yesMarker.Foreground, Is.SameAs(approvalBrush));
             Assert.That(yesIcon.Visibility, Is.EqualTo(Visibility.Hidden));
         });
 
@@ -164,6 +168,9 @@ internal sealed class InboxApprovalChecklistPresenterTests
     [Test, Apartment(ApartmentState.STA)]
     public void Attach_PreviouslyRejectedItem_ShowsQuestionMarkInNoChoiceUntilReconfirmed()
     {
+        var application = Application.Current ?? new Application();
+        var failureBrush = Brushes.IndianRed;
+        application.Resources["TaskFailedFill"] = failureBrush;
         const string question = "Does the result still fail?";
         var document = MarkdownFlowDocumentBuilder.BuildInbox($"- ? {question}", 14);
         var item = new PlanHumanReviewChecklistItem(
@@ -182,6 +189,7 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(boxes[0].IsChecked, Is.False);
             Assert.That(boxes[1].IsChecked, Is.True);
             Assert.That(noMarker.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(noMarker.Foreground, Is.SameAs(failureBrush));
             Assert.That(noIcon.Visibility, Is.EqualTo(Visibility.Hidden));
         });
 

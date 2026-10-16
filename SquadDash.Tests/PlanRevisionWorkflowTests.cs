@@ -958,7 +958,8 @@ internal sealed class PlanRevisionWorkflowTests
             Assert.That(helperBlock, Does.Contain("PlanLifecycleStatus.AwaitingApproval"));
             Assert.That(helperBlock, Does.Contain("HasReadyPendingApprovalGate(active)"));
             Assert.That(helperBlock, Does.Contain("PlanStoreUpdater.ApplyApprovalBoundaryRecovery(active)"));
-            Assert.That(helperBlock, Does.Contain("_planApprovalRuntime.RestoreAsync([active])"));
+            Assert.That(helperBlock, Does.Contain("await RestoreRevisionAwaitingApprovalGateUIAsync(active);"));
+            Assert.That(helperBlock, Does.Contain("await RestoreAwaitingApprovalGateUIAsync(active.PlanId);"));
             Assert.That(helperBlock, Does.Contain("ProcessPlanApprovalsAfterStepAsync("));
             Assert.That(helperBlock, Does.Contain("StartOrResumeDurablePlanAsync(active)"));
         });

@@ -1132,7 +1132,7 @@ internal sealed class DurableApprovalRequestManager
         var hasIncompleteChecklist = checklist.Count > 0 && checklist.Any(item => !item.IsChecked);
         var suppressIncompleteAction =
             suppressIncompleteChecklistActions &&
-            checklist.Any(RequiresInlineReconfirmation);
+            hasIncompleteChecklist;
         if (approvalSetupValid &&
             hasIncompleteChecklist &&
             !suppressIncompleteAction)
@@ -1160,10 +1160,6 @@ internal sealed class DurableApprovalRequestManager
 
         return actions;
     }
-
-    private static bool RequiresInlineReconfirmation(PlanHumanReviewChecklistItem item) =>
-        item.IsUnanswered &&
-        (item.WasPreviouslyAnsweredYes || item.WasPreviouslyAnsweredNo);
 
     /// <summary>Reads the durable approval state embedded in an Inbox message.</summary>
     internal static DurableApprovalState? ReadState(InboxMessage message) => DeserializeState(message);

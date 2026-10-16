@@ -197,7 +197,7 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var restoreStart = source.IndexOf(
-            "private void RestoreAwaitingApprovalGateUI(string? onlyPlanId = null)",
+            "private async Task RestoreAwaitingApprovalGateUIAsync(string? onlyPlanId = null)",
             StringComparison.Ordinal);
         var restoreEnd = source.IndexOf(
             "private void SuppressCheckpointApprovalCardsForPendingRevision(",
@@ -223,8 +223,16 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
         var calloutMethod = source[calloutStart..calloutEnd];
         Assert.Multiple(() =>
         {
-            Assert.That(restoreMethod, Does.Contain("if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId)) continue;"),
+            Assert.That(source, Does.Contain(
+                "await TraceWorkspaceLoadPhaseAsync(\"awaiting-approval-gates\", () => RestoreAwaitingApprovalGateUIAsync());"),
+                "Workspace load must await token restoration before expecting the transcript card to exist.");
+            Assert.That(restoreMethod, Does.Contain("ShouldSuppressApprovalCardForPausedPlan(plan.PlanId)"),
                 "Startup restore must not pick a paused awaiting-approval plan as the attention target.");
+            Assert.That(restoreMethod, Does.Contain("await _planApprovalRuntime.RestoreAsync(eligiblePlans);"),
+                "A repaired awaiting-approval gate needs its runtime click token rebound before appending the card.");
+            Assert.That(restoreMethod.IndexOf("await _planApprovalRuntime.RestoreAsync(eligiblePlans);", StringComparison.Ordinal),
+                Is.LessThan(restoreMethod.IndexOf("_planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId)", StringComparison.Ordinal)),
+                "The transcript card restore must not check for a token until after runtime restoration.");
             Assert.That(calloutMethod, Does.Contain("if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId))"),
                 "Callout display must share the paused-plan suppression gate used by transcript cards.");
         });
