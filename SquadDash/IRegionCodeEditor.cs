@@ -14,9 +14,8 @@ namespace SquadDash;
 /// <para>
 /// AvalonEdit's surface/text/highlight colors are NOT driven by WPF <c>DynamicResource</c>, so
 /// the theme must be re-applied imperatively (see the AvalonEdit integration decision,
-/// AVALONEDIT-20261014-001). <see cref="Surface"/>/<see cref="Text"/> are used in Stage 1;
-/// <see cref="HighlightColors"/> is carried for the later syntax-highlighting task and is empty
-/// until then.
+/// AVALONEDIT-20261014-001). Highlight colors may be keyed by grammar/color name, color name,
+/// or the semantic role keys supplied by <see cref="RegionHighlightingPalettes"/>.
 /// </para>
 /// </summary>
 public sealed record RegionEditorPalette(
@@ -44,15 +43,18 @@ public interface IRegionEditorPaletteSource
 /// </summary>
 public sealed class ThemeResourcePaletteSource : IRegionEditorPaletteSource
 {
-    private static readonly IReadOnlyDictionary<string, HighlightingColor> NoHighlightColors =
-        new Dictionary<string, HighlightingColor>();
+    private readonly RegionHighlightingEngine _highlighting;
+
+    public ThemeResourcePaletteSource(RegionHighlightingEngine? highlighting = null) =>
+        _highlighting = highlighting ?? RegionHighlightingEngine.Default;
 
     public RegionEditorPalette CreatePalette()
     {
         var app = Application.Current;
         var surface = (app?.TryFindResource("CodeSurface") as Brush) ?? Brushes.Transparent;
         var text = (app?.TryFindResource("CodeText") as Brush) ?? SystemColors.ControlTextBrush;
-        return new RegionEditorPalette(surface, text, NoHighlightColors);
+        var isDark = surface is SolidColorBrush brush && RegionHighlightingPalettes.IsDark(brush.Color);
+        return new RegionEditorPalette(surface, text, _highlighting.CreatePaletteColors(isDark));
     }
 }
 
@@ -141,8 +143,14 @@ public interface IRegionCodeEditor
     /// Maps a point in the editor control's coordinate space to a text offset (best effort).
     int GetOffsetFromPoint(Point pointInControl);
 
-    /// Applies <paramref name="palette"/> to the editor's own surface/text colors.
+    /// Applies surface/text and syntax colors, invalidating the active rendering immediately.
     void ApplyPalette(RegionEditorPalette palette);
+
+    /// Updates the persistent picker token. Only an empty token permits content auto-detection.
+    void SetLanguage(string fenceToken);
+
+    string? HighlightingName { get; }
+    event EventHandler HighlightingChanged;
 
     /// Raised before a document update, while the pre-edit selection is still intact.
     event EventHandler TextChanging;

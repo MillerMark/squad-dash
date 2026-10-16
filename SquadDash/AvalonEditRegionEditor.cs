@@ -13,16 +13,22 @@ namespace SquadDash;
 /// <see cref="TextEditor"/>. Replaces the plain Consolas <see cref="TextBox"/> that previously
 /// hosted embedded code-region content, mapping each TextBox API the region relied on onto
 /// AvalonEdit's <c>Document</c>/<c>TextArea</c>/<c>Caret</c> surface (per the AvalonEdit
-/// integration decision, AVALONEDIT-20261014-001). No syntax highlighting is configured here —
-/// that is a later task; this editor paints plain surface/text colors only.
+/// integration decision, AVALONEDIT-20261014-001). Grammar selection and theme pushes share the
+/// region highlighting engine without changing the native editing/selection behavior.
 /// </summary>
 public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 {
     private readonly TextEditor _editor;
+    private readonly DispatcherTimer _autoDetectTimer;
+    private readonly RegionHighlightingEngine _highlighting;
+    private RegionEditorPalette _palette;
+    private string _fenceToken = RegionLanguagePicker.PlainTextToken;
     private bool _textChangedDuringUpdate;
 
-    public AvalonEditRegionEditor(string initialText)
+    public AvalonEditRegionEditor(string initialText, RegionHighlightingEngine? highlighting = null)
     {
+        _highlighting = highlighting ?? RegionHighlightingEngine.Default;
+        _palette = new ThemeResourcePaletteSource(_highlighting).CreatePalette();
         _editor = new TextEditor
         {
             FontFamily = new FontFamily("Consolas"),
@@ -40,6 +46,19 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         _editor.Options.EnableHyperlinks = false;
         _editor.Options.EnableEmailHyperlinks = false;
         _editor.Document.Text = initialText ?? string.Empty;
+        _autoDetectTimer = new DispatcherTimer(DispatcherPriority.Background, _editor.Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(250),
+        };
+        _autoDetectTimer.Tick += (_, _) =>
+        {
+            _autoDetectTimer.Stop();
+            if (RegionGrammarResolver.ShouldAutoDetect(_fenceToken))
+                RefreshHighlighting();
+        };
+        _editor.Unloaded += (_, _) => _autoDetectTimer.Stop();
+        _editor.Loaded += (_, _) => RefreshHighlighting();
+        ApplyPalette(_palette);
 
         // Single-authority undo/redo (PROMPTUNDO-20261015, §5): suppress THIS region's own
         // per-editor AvalonEdit undo stack so it never accumulates or services a user Ctrl+Z/Ctrl+Y.
@@ -56,12 +75,35 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
             if (!_textChangedDuringUpdate)
                 return;
             _textChangedDuringUpdate = false;
+            _autoDetectTimer.Stop();
+            if (_editor.IsLoaded && RegionGrammarResolver.ShouldAutoDetect(_fenceToken))
+                _autoDetectTimer.Start();
             TextChanged?.Invoke(this, e);
         };
     }
 
     public event EventHandler? TextChanging;
     public event EventHandler? TextChanged;
+    public event EventHandler? HighlightingChanged;
+    public string? HighlightingName => _editor.SyntaxHighlighting?.Name;
+    internal bool IsAutoDetectPending => _autoDetectTimer.IsEnabled;
+
+    public void SetLanguage(string fenceToken)
+    {
+        _fenceToken = fenceToken ?? string.Empty;
+        _autoDetectTimer.Stop();
+        RefreshHighlighting();
+    }
+
+    private void RefreshHighlighting()
+    {
+        var grammar = _highlighting.Resolve(_fenceToken, Text);
+        if (grammar == HighlightingName)
+            return;
+        _editor.SyntaxHighlighting = grammar is null ? null : _highlighting.CreateDefinition(grammar, _palette);
+        _editor.TextArea.TextView.Redraw();
+        HighlightingChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     public Control Control => _editor;
 
@@ -212,10 +254,11 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     public void ApplyPalette(RegionEditorPalette palette)
     {
-        // Stage 1: plain editor colors only. Surface/text are pushed imperatively because
-        // AvalonEdit does not honor DynamicResource. Highlight colors are carried on the palette
-        // for the later syntax-highlighting task and intentionally ignored here.
+        _palette = palette;
         _editor.Background = palette.Surface;
         _editor.Foreground = palette.Text;
+        if (_editor.SyntaxHighlighting is RegionHighlightingDefinition definition)
+            definition.ApplyPalette(palette);
+        _editor.TextArea.TextView.Redraw();
     }
 }

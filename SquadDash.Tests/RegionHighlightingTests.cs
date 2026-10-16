@@ -1,0 +1,643 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Threading;
+using ICSharpCode.AvalonEdit;
+using ICSharpCode.AvalonEdit.Document;
+using ICSharpCode.AvalonEdit.Highlighting;
+using ICSharpCode.AvalonEdit.Rendering;
+using SquadDash;
+
+namespace SquadDash.Tests;
+
+/// <summary>
+/// Headless, STA proof for the region syntax-highlighting stack added under
+/// AVALONEDIT-20261014-004: the shared <see cref="RegionHighlightingEngine"/> (built-in option
+/// registration, aliases, grammar/palette plug-ins, editor-local definition cloning), the UI-free
+/// <see cref="RegionHighlightingPalettes"/>, and the production wiring in
+/// <see cref="AvalonEditRegionEditor"/> / <see cref="EmbeddedCodeRegionBlock"/>.
+/// <para>
+/// These tests complement <c>RegionGrammarResolverTests</c> (which only covers the resolver policy).
+/// The focus here is: standard definitions never leak theme changes between editors or into the
+/// shared <see cref="HighlightingManager"/>, palettes are deterministic and theme-distinct, custom
+/// grammar+palette registration works in isolation from the <see cref="RegionHighlightingEngine.Default"/>
+/// singleton, and the real AvalonEdit-backed editor actually paints/recolors tokens and gates its
+/// auto-detect debounce on WPF load state.
+/// </para>
+/// <para>
+/// No visible window is ever shown. A few tests need a genuinely <c>IsLoaded</c> editor to exercise
+/// the auto-detect <see cref="DispatcherTimer"/>; those host the control in an offscreen, zero-size
+/// <see cref="HwndSource"/> and pump the dispatcher deterministically (no sleeps). Nothing here
+/// claims a human-observed/rendered result.
+/// </para>
+/// </summary>
+[TestFixture]
+[Apartment(ApartmentState.STA)]
+public sealed class RegionHighlightingTests
+{
+    [Test]
+    public void Options_ExposeAutoDetectPlainText_AndEveryInstalledGrammar()
+    {
+        var engine = new RegionHighlightingEngine();
+        var options = engine.Options;
+
+        var autoDetect = options.SingleOrDefault(o => o.FenceToken == "");
+        var plainText = options.SingleOrDefault(o => o.FenceToken == RegionLanguagePicker.PlainTextToken);
+        Assert.Multiple(() =>
+        {
+            Assert.That(autoDetect, Is.Not.Null, "an auto-detect option must be offered");
+            Assert.That(autoDetect!.DisplayName, Is.EqualTo("Auto detect"));
+            Assert.That(autoDetect.GrammarName, Is.Null);
+            Assert.That(plainText, Is.Not.Null, "a plain-text option must be offered");
+            Assert.That(plainText!.DisplayName, Is.EqualTo("Plain text"));
+            Assert.That(plainText.GrammarName, Is.Null);
+        });
+
+        var installed = HighlightingManager.Instance.HighlightingDefinitions
+            .Select(d => d.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        var grammarOptions = options.Where(o => o.GrammarName is not null).ToList();
+
+        Assert.That(grammarOptions, Has.Count.EqualTo(installed.Count),
+            "exactly one picker option per installed grammar (plus the two mode entries)");
+        Assert.That(grammarOptions.Select(o => o.GrammarName!).ToHashSet(StringComparer.Ordinal),
+            Is.EquivalentTo(installed));
+    }
+
+    [Test]
+    public void InstalledBuiltIns_ResolveToStandardDefinitions()
+    {
+        var engine = new RegionHighlightingEngine();
+        var palette = PaletteFrom(engine, isDark: true);
+
+        foreach (var definition in HighlightingManager.Instance.HighlightingDefinitions)
+        {
+            var token = SanitizeToken(definition.Name);
+
+            Assert.That(engine.ResolveFenceToken(token), Is.EqualTo(definition.Name),
+                $"installed grammar '{definition.Name}' must resolve from its serialized token '{token}'");
+
+            var cloned = engine.CreateDefinition(definition.Name, palette);
+            Assert.That(cloned.Name, Is.EqualTo(definition.Name));
+        }
+    }
+
+    [Test]
+    public void Aliases_ResolveToExpectedGrammars()
+    {
+        var engine = new RegionHighlightingEngine();
+
+        var expected = new (string Alias, string Grammar)[]
+        {
+            ("cs", "C#"), ("csharp", "C#"),
+            ("js", "JavaScript"), ("javascript", "JavaScript"),
+            ("cpp", "C++"), ("cxx", "C++"), ("cc", "C++"), ("c", "C++"),
+            ("ps", "PowerShell"), ("ps1", "PowerShell"),
+            ("vb", "VBNET"), ("visualbasic", "VBNET"),
+            ("xaml", "XML"),
+            ("htm", "HTML"),
+            ("aspx", "ASP/XHTML"), ("xhtml", "ASP/XHTML"),
+            ("latex", "TeX"),
+            ("diff", "Patch"),
+        };
+
+        Assert.Multiple(() =>
+        {
+            foreach (var (alias, grammar) in expected)
+                Assert.That(engine.ResolveFenceToken(alias), Is.EqualTo(grammar), $"alias '{alias}'");
+        });
+    }
+
+    [Test]
+    public void UnknownPinnedToken_ResolvesToNull()
+    {
+        var engine = new RegionHighlightingEngine();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(engine.ResolveFenceToken("brainfuck"), Is.Null);
+            Assert.That(engine.Resolve("brainfuck", "console.log('x')"), Is.Null,
+                "an unsupported pinned token stays null and never falls back to detection");
+        });
+    }
+
+    [Test]
+    public void CreateDefinition_RetainsRuleShape_AndUsesIndependentColorObjects()
+    {
+        var engine = new RegionHighlightingEngine();
+        var source = HighlightingManager.Instance.GetDefinition("C#");
+        Assert.That(source, Is.Not.Null, "C# built-in must be installed");
+
+        var cloned = engine.CreateDefinition("C#", PaletteFrom(engine, isDark: true));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cloned.MainRuleSet, Is.Not.SameAs(source!.MainRuleSet),
+                "the editor must own a private rule-set graph");
+            Assert.That(cloned.MainRuleSet.Rules, Has.Count.EqualTo(source!.MainRuleSet.Rules.Count),
+                "rule count (regex rules) must be preserved");
+            Assert.That(cloned.MainRuleSet.Spans, Has.Count.EqualTo(source.MainRuleSet.Spans.Count),
+                "span count must be preserved");
+        });
+
+        var colorName = source!.NamedHighlightingColors.First().Name;
+        Assert.That(cloned.GetNamedColor(colorName), Is.Not.SameAs(source.GetNamedColor(colorName)),
+            "named colors must be cloned, not shared with the global definition");
+    }
+
+    [Test]
+    public void TwoThemedDefinitions_AndRePush_NeverMutateManagerDefinition_ButRecolorRetainedObject()
+    {
+        var engine = new RegionHighlightingEngine();
+        var manager = HighlightingManager.Instance.GetDefinition("C#")!;
+        var managerBefore = Snapshot(manager);
+
+        var light = engine.CreateDefinition("C#", PaletteFrom(engine, isDark: false));
+        var dark = engine.CreateDefinition("C#", PaletteFrom(engine, isDark: true));
+
+        var lightColors = Snapshot(light);
+        var darkColors = Snapshot(dark);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Snapshot(manager), Is.EqualTo(managerBefore),
+                "cloning for either theme must not mutate the shared HighlightingManager definition");
+            Assert.That(lightColors, Is.Not.EqualTo(darkColors),
+                "light and dark clones must differ in at least one token color");
+        });
+
+        // Re-push a new (dark) palette onto the already-created LIGHT object.
+        light.ApplyPalette(PaletteFrom(engine, isDark: true));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Snapshot(light), Is.EqualTo(darkColors),
+                "the retained definition object must recolor in place to the newly pushed theme");
+            Assert.That(Snapshot(dark), Is.EqualTo(darkColors), "the sibling definition must be untouched");
+            Assert.That(Snapshot(manager), Is.EqualTo(managerBefore),
+                "re-pushing a palette must still never touch the global definition");
+        });
+    }
+
+    [Test]
+    public void DocumentHighlighter_PaintsTokenSections_AndPaletteDrivesTheirColors()
+    {
+        var engine = new RegionHighlightingEngine();
+        var doc = new TextDocument(
+            "using System;\npublic class P { void M() { int i = 0; } }");
+
+        var darkDef = engine.CreateDefinition("C#", PaletteFrom(engine, isDark: true));
+        var lightDef = engine.CreateDefinition("C#", PaletteFrom(engine, isDark: false));
+
+        var darkSections = HighlightAll(doc, darkDef);
+        var lightSections = HighlightAll(doc, lightDef);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(darkSections, Is.Not.Empty, "the highlighter must produce token sections");
+            Assert.That(darkSections.Any(s => s.Offset == 0 && s.Length == 5),
+                "the leading 'using' keyword token must be its own highlighted section");
+            Assert.That(darkSections.Any(s => s.Color is not null),
+                "at least one section must carry a resolved color");
+
+            var darkColors = darkSections.Select(s => s.Color).ToList();
+            var lightColors = lightSections.Select(s => s.Color).ToList();
+            Assert.That(darkColors, Is.Not.EqualTo(lightColors),
+                "the applied palette (not the default grammar colors) must drive the token colors");
+        });
+    }
+
+    [Test]
+    public void Palettes_LightAndDarkColors_AreDistinctForEveryRole()
+    {
+        var light = RegionHighlightingPalettes.CreateColors(isDark: false);
+        var dark = RegionHighlightingPalettes.CreateColors(isDark: true);
+
+        Assert.That(dark.Keys, Is.EquivalentTo(light.Keys), "both themes must define the same roles");
+
+        Assert.Multiple(() =>
+        {
+            foreach (var role in light.Keys)
+                Assert.That(ColorOf(dark[role]), Is.Not.EqualTo(ColorOf(light[role])),
+                    $"role '{role}' must have a theme-specific color");
+        });
+    }
+
+    [Test]
+    public void Palettes_ClassifySurfaces_AndContrastAgainstThem()
+    {
+        var darkSurface = Color.FromRgb(0x14, 0x11, 0x0D);
+        var lightSurface = Color.FromRgb(0xFB, 0xFA, 0xF7);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(RegionHighlightingPalettes.IsDark(darkSurface), Is.True);
+            Assert.That(RegionHighlightingPalettes.IsDark(lightSurface), Is.False);
+        });
+
+        Assert.Multiple(() =>
+        {
+            foreach (var isDark in new[] { false, true })
+            foreach (var (role, ink) in RegionHighlightingPalettes.CreateColors(isDark))
+            {
+                var surface = Luminance(isDark ? darkSurface : lightSurface);
+                var foreground = Luminance(ColorOf(ink)!.Value);
+                var contrast = (Math.Max(surface, foreground) + 0.05) / (Math.Min(surface, foreground) + 0.05);
+                Assert.That(contrast, Is.GreaterThanOrEqualTo(4.5), $"{role}, dark={isDark}");
+            }
+        });
+    }
+
+    [Test]
+    public void RegisterCustomGrammar_ExposesOption_NameAliasAndThemedCustomColor()
+    {
+        var engine = new RegionHighlightingEngine();
+        var defaultOptionsBefore = RegionHighlightingEngine.Default.Options.Count;
+
+        var lightInk = Colors.Fuchsia;
+        var darkInk = Colors.Cyan;
+        var definition = new SyntheticDefinition();
+
+        engine.Register(
+            new RegionLanguageOption("synthlang", "Synthetic", "SynthLang"),
+            () => definition,
+            isDark => new Dictionary<string, HighlightingColor>
+            {
+                ["SynthKeyword"] = new HighlightingColor
+                {
+                    Name = "SynthKeyword",
+                    Foreground = new FixedBrush(isDark ? darkInk : lightInk),
+                },
+            },
+            "slang");
+
+        Assert.Multiple(() =>
+        {
+            // Registration/options/name/alias.
+            Assert.That(engine.ResolveFenceToken("synthlang"), Is.EqualTo("SynthLang"));
+            Assert.That(engine.ResolveFenceToken("slang"), Is.EqualTo("SynthLang"), "the alias must resolve too");
+            Assert.That(engine.Options.Any(o => o.FenceToken == "synthlang" && o.DisplayName == "Synthetic"),
+                Is.True, "the custom grammar must appear in the picker options");
+
+            // Light/dark palette hook with the custom color.
+            Assert.That(ColorOf(engine.CreatePaletteColors(isDark: true)["SynthLang/SynthKeyword"]),
+                Is.EqualTo(darkInk));
+            Assert.That(ColorOf(engine.CreatePaletteColors(isDark: false)["SynthLang/SynthKeyword"]),
+                Is.EqualTo(lightInk));
+        });
+
+        // The custom color must flow all the way through CreateDefinition into the cloned graph.
+        var palette = new RegionEditorPalette(
+            new SolidColorBrush(Colors.Black),
+            new SolidColorBrush(Colors.White),
+            engine.CreatePaletteColors(isDark: true));
+        var cloned = engine.CreateDefinition("SynthLang", palette);
+        Assert.That(ColorOf(cloned.GetNamedColor("SynthKeyword")), Is.EqualTo(darkInk),
+            "the themed custom color must be applied to the editor-local definition");
+
+        // Isolation: registering on a local engine must never mutate the Default singleton.
+        Assert.Multiple(() =>
+        {
+            Assert.That(RegionHighlightingEngine.Default.ResolveFenceToken("synthlang"), Is.Null);
+            Assert.That(RegionHighlightingEngine.Default.ResolveFenceToken("slang"), Is.Null);
+            Assert.That(RegionHighlightingEngine.Default.Options.Count, Is.EqualTo(defaultOptionsBefore),
+                "the Default engine's option set must be unchanged");
+        });
+    }
+
+    [Test]
+    public void Register_RejectsDuplicateReservedAndNonExplicitTokens()
+    {
+        Assert.Multiple(() =>
+        {
+            // Reserved plain-text token.
+            Assert.That(() => Fresh().Register(
+                    new RegionLanguageOption("text", "X", "X"), () => new SyntheticDefinition()),
+                Throws.ArgumentException, "the reserved 'text' token must be rejected");
+
+            // Reserved auto-detect (empty) token.
+            Assert.That(() => Fresh().Register(
+                    new RegionLanguageOption("", "X", "X"), () => new SyntheticDefinition()),
+                Throws.ArgumentException, "an empty (auto-detect) token must be rejected");
+
+            // Fence token already taken by a built-in alias.
+            Assert.That(() => Fresh().Register(
+                    new RegionLanguageOption("csharp", "X", "X"), () => new SyntheticDefinition()),
+                Throws.ArgumentException, "a token already registered (as a built-in alias) must be rejected");
+
+            // Grammar name already registered (an installed built-in).
+            Assert.That(() => Fresh().Register(
+                    new RegionLanguageOption("synthlang", "X", "C#"), () => new SyntheticDefinition()),
+                Throws.ArgumentException, "a grammar name that is already registered must be rejected");
+
+            // Reserved/non-explicit alias.
+            Assert.That(() => Fresh().Register(
+                    new RegionLanguageOption("synthlang", "X", "SynthLang"), () => new SyntheticDefinition(),
+                    aliases: "text"),
+                Throws.ArgumentException, "a reserved/non-explicit alias must be rejected");
+
+            // A second registration reusing an already-registered custom grammar/token must fail.
+            var engine = Fresh();
+            engine.Register(new RegionLanguageOption("synthlang", "X", "SynthLang"), () => new SyntheticDefinition());
+            Assert.That(() => engine.Register(
+                    new RegionLanguageOption("synthlang", "Y", "SynthLang2"), () => new SyntheticDefinition()),
+                Throws.ArgumentException, "re-using a live fence token must be rejected");
+        });
+
+        static RegionHighlightingEngine Fresh() => new();
+    }
+
+    [Test]
+    public void CreateDefinition_RejectsFactoryNameMismatchRatherThanSilentlyDroppingPalette()
+    {
+        var engine = new RegionHighlightingEngine();
+        engine.Register(new RegionLanguageOption("mismatch", "Mismatch", "Mismatch"), () => new SyntheticDefinition());
+        Assert.That(() => engine.CreateDefinition("Mismatch", PaletteFrom(engine, true)),
+            Throws.InvalidOperationException);
+    }
+
+    [Test]
+    public void Block_BuildCsharp_HostsEditorWithCsharpSyntaxHighlighting()
+    {
+        var block = EmbeddedCodeRegionBlock.Build("Console.WriteLine(\"Hello, world!\");", "csharp");
+        var editor = LogicalDescendants<TextEditor>(block).Single();
+
+        Assert.That(editor.SyntaxHighlighting, Is.InstanceOf<RegionHighlightingDefinition>());
+        Assert.That(((IHighlightingDefinition)editor.SyntaxHighlighting).Name, Is.EqualTo("C#"));
+    }
+
+    [Test]
+    public void Block_PinPlainThenReturnToAuto_UnpinsThenAutoDetects_LabelAndFenceFollow()
+    {
+        var block = EmbeddedCodeRegionBlock.Build("Console.WriteLine(\"Hello, world!\");", "csharp");
+        var editor = LogicalDescendants<TextEditor>(block).Single();
+        var label = LogicalDescendants<TextBlock>(block).First();
+
+        // Pin to plain text: highlighting is removed, token persists, label reads plain text.
+        block.Language = RegionLanguagePicker.PlainTextToken;
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor.SyntaxHighlighting, Is.Null, "plain-text pinning must clear highlighting");
+            Assert.That(block.Language, Is.EqualTo(RegionLanguagePicker.PlainTextToken));
+            Assert.That(label.Text, Is.EqualTo("Plain text"));
+        });
+
+        // Return to auto-detect: the empty token is persisted and the C# content is detected.
+        block.Language = "";
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor.SyntaxHighlighting, Is.InstanceOf<RegionHighlightingDefinition>());
+            Assert.That(((IHighlightingDefinition)editor.SyntaxHighlighting).Name, Is.EqualTo("C#"));
+            Assert.That(block.Language, Is.EqualTo(""), "the auto-detect fence token stays empty");
+            Assert.That(label.Text, Does.Contain("C#"), "the label must surface the detected grammar");
+            Assert.That(block.ToFencedText().Split('\n')[0], Is.EqualTo("```"),
+                "serialization persists a bare fence when the region is left on auto-detect");
+        });
+    }
+
+    [Test]
+    public void Block_NotifyThemeChanged_RecolorsDefinition_WhileContentCaretSelectionStayStable()
+    {
+        var block = EmbeddedCodeRegionBlock.Build("Console.WriteLine(\"Hello, world!\");", "csharp");
+        var editor = LogicalDescendants<TextEditor>(block).Single();
+        var definition = (RegionHighlightingDefinition)editor.SyntaxHighlighting;
+
+        editor.Select(2, 5);
+        var textBefore = editor.Document.Text;
+        var selectionStart = editor.SelectionStart;
+        var selectionLength = editor.SelectionLength;
+        var caret = editor.TextArea.Caret.Offset;
+        var contentBefore = block.Content;
+
+        block.NotifyThemeChanged(PaletteFrom(RegionHighlightingEngine.Default, isDark: false));
+        var lightColors = Snapshot(definition);
+        block.NotifyThemeChanged(PaletteFrom(RegionHighlightingEngine.Default, isDark: true));
+        var darkColors = Snapshot(definition);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(lightColors, Is.Not.EqualTo(darkColors),
+                "a theme switch must recolor the live editor definition in place");
+            Assert.That(editor.Document.Text, Is.EqualTo(textBefore), "text must be untouched");
+            Assert.That(block.Content, Is.EqualTo(contentBefore), "serialized content must be untouched");
+            Assert.That(editor.SelectionStart, Is.EqualTo(selectionStart), "selection start must be stable");
+            Assert.That(editor.SelectionLength, Is.EqualTo(selectionLength), "selection length must be stable");
+            Assert.That(editor.TextArea.Caret.Offset, Is.EqualTo(caret), "caret must be stable");
+        });
+    }
+
+    [Test]
+    public void AutoDetectDebounce_Starts_OnEdit_WhenLoadedAndAutoDetect_StopsOnPin()
+    {
+        var editor = new AvalonEditRegionEditor("", new RegionHighlightingEngine());
+        using var _ = HostLoaded(editor.Control);
+
+        editor.SetLanguage(""); // auto-detect
+        Assert.That(editor.IsAutoDetectPending, Is.False, "SetLanguage must cancel any pending debounce");
+
+        editor.InsertText("console.log('x');");
+        Assert.That(editor.IsAutoDetectPending, Is.True,
+            "an edit on a loaded auto-detect editor must arm the debounce timer");
+
+        editor.SetLanguage(RegionLanguagePicker.PlainTextToken);
+        Assert.That(editor.IsAutoDetectPending, Is.False, "pinning a language must cancel the debounce");
+    }
+
+    [Test]
+    public void AutoDetectDebounce_DoesNotArm_WhenLanguageIsPinned()
+    {
+        var editor = new AvalonEditRegionEditor("", new RegionHighlightingEngine());
+        using var _ = HostLoaded(editor.Control);
+
+        editor.SetLanguage("csharp");
+        editor.InsertText("console.log('x');");
+
+        Assert.That(editor.IsAutoDetectPending, Is.False,
+            "a pinned (explicit) language must never arm the auto-detect debounce");
+    }
+
+    [Test]
+    public void AutoDetectDebounce_DoesNotArm_BeforeTheEditorIsLoaded()
+    {
+        var editor = new AvalonEditRegionEditor("", new RegionHighlightingEngine());
+
+        editor.SetLanguage(""); // auto-detect, but the control was never hosted/loaded
+        editor.InsertText("console.log('x');");
+
+        Assert.That(editor.IsAutoDetectPending, Is.False,
+            "the debounce must stay disarmed until the editor has actually loaded");
+    }
+
+    [Test]
+    public void AutoDetectDebounce_ReclassifiesAndClearsHighlightingAfterTypingPauses()
+    {
+        var editor = new AvalonEditRegionEditor("Console.WriteLine(1);");
+        using var host = HostLoaded(editor.Control);
+        editor.SetLanguage("");
+        Assert.That(editor.HighlightingName, Is.EqualTo("C#"));
+
+        EditAndWait("console.log(1);", "JavaScript");
+        EditAndWait("ordinary prose", null);
+
+        void EditAndWait(string text, string? expected)
+        {
+            var previous = editor.HighlightingName;
+            var frame = new DispatcherFrame();
+            var deadline = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            deadline.Tick += (_, _) => frame.Continue = false;
+            void Changed(object? sender, EventArgs args) => frame.Continue = false;
+            editor.HighlightingChanged += Changed;
+            try
+            {
+                editor.Text = text;
+                Assert.That(editor.HighlightingName, Is.EqualTo(previous), "typing must not classify synchronously");
+                Assert.That(editor.IsAutoDetectPending, Is.True);
+                deadline.Start();
+                Dispatcher.PushFrame(frame);
+                Assert.That(editor.HighlightingName, Is.EqualTo(expected), "the real timer must apply the new grammar");
+                Assert.That(editor.IsAutoDetectPending, Is.False);
+            }
+            finally
+            {
+                deadline.Stop();
+                editor.HighlightingChanged -= Changed;
+                editor.SetLanguage("text");
+            }
+            // Keep the next edit in Auto-detect, without changing the document.
+            editor.SetLanguage("");
+        }
+    }
+
+    private static string SanitizeToken(string name) =>
+        Regex.Replace(name.ToLowerInvariant(), @"[^a-z0-9_+.#\-]", "");
+
+    private static RegionEditorPalette PaletteFrom(RegionHighlightingEngine engine, bool isDark)
+    {
+        var surface = new SolidColorBrush(isDark ? Color.FromRgb(0x1E, 0x1E, 0x1E) : Colors.White);
+        var text = new SolidColorBrush(isDark ? Colors.White : Colors.Black);
+        return new RegionEditorPalette(surface, text, engine.CreatePaletteColors(isDark));
+    }
+
+    private static List<string> Snapshot(IHighlightingDefinition definition) =>
+        definition.NamedHighlightingColors
+            .Select(c => $"{c.Name}={ColorOf(c)}")
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToList();
+
+    private static List<HighlightedSection> HighlightAll(TextDocument document, IHighlightingDefinition definition)
+    {
+        var highlighter = new DocumentHighlighter(document, definition.MainRuleSet);
+        var sections = new List<HighlightedSection>();
+        for (var line = 1; line <= document.LineCount; line++)
+            sections.AddRange(highlighter.HighlightLine(line).Sections);
+        return sections;
+    }
+
+    /// <summary>
+    /// Reads a <see cref="HighlightingColor"/>'s foreground color without constructing AvalonEdit's
+    /// internal <c>SimpleHighlightingBrush</c>: prefer a <see cref="SolidColorBrush"/> from
+    /// <see cref="HighlightingBrush.GetBrush"/>, else fall back to <see cref="HighlightingBrush.GetColor"/>.
+    /// </summary>
+    private static Color? ColorOf(HighlightingColor? color)
+    {
+        var brush = color?.Foreground;
+        if (brush is null)
+            return null;
+        return brush.GetBrush(null!) is SolidColorBrush solid ? solid.Color : brush.GetColor(null!);
+    }
+
+    private static double Luminance(Color c)
+    {
+        static double Linear(byte channel)
+        {
+            var value = channel / 255.0;
+            return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+        }
+        return 0.2126 * Linear(c.R) + 0.7152 * Linear(c.G) + 0.0722 * Linear(c.B);
+    }
+
+    /// <summary>
+    /// Connects <paramref name="control"/> to an offscreen, zero-size, non-visible
+    /// <see cref="HwndSource"/> and pumps the dispatcher until WPF has raised its Loaded pass, so
+    /// <c>AvalonEditRegionEditor.IsAutoDetectPending</c> can be exercised against a genuinely
+    /// <see cref="UIElement.IsLoaded"/> editor. No window is shown.
+    /// </summary>
+    private static HwndSource HostLoaded(Control control)
+    {
+        var source = new HwndSource(new HwndSourceParameters("region-highlighting-test", 0, 0)
+        {
+            WindowStyle = 0, // no WS_VISIBLE
+        })
+        {
+            RootVisual = control,
+        };
+        Pump();
+        return source;
+    }
+
+    private static void Pump()
+    {
+        var frame = new DispatcherFrame();
+        Dispatcher.CurrentDispatcher.BeginInvoke(
+            DispatcherPriority.ContextIdle, new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
+    }
+
+    private static IEnumerable<T> LogicalDescendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(root))
+        {
+            if (child is not DependencyObject node)
+                continue;
+            if (node is T match)
+                yield return match;
+            foreach (var deeper in LogicalDescendants<T>(node))
+                yield return deeper;
+        }
+    }
+
+    /// <summary>A trivial, frozen single-color <see cref="HighlightingBrush"/> for custom palettes.</summary>
+    private sealed class FixedBrush : HighlightingBrush
+    {
+        private readonly SolidColorBrush _brush;
+
+        public FixedBrush(Color color)
+        {
+            _brush = new SolidColorBrush(color);
+            _brush.Freeze();
+        }
+
+        public override Brush GetBrush(ITextRunConstructionContext context) => _brush;
+    }
+
+    /// <summary>
+    /// Minimal, test-only grammar used to prove custom <see cref="RegionHighlightingEngine.Register"/>
+    /// options/palette hooks, deliberately NOT a real downstream grammar.
+    /// </summary>
+    private sealed class SyntheticDefinition : IHighlightingDefinition
+    {
+        private readonly HighlightingColor _keyword = new()
+        {
+            Name = "SynthKeyword",
+            Foreground = new FixedBrush(Colors.Black),
+        };
+
+        public SyntheticDefinition()
+        {
+            MainRuleSet = new HighlightingRuleSet { Name = null };
+            MainRuleSet.Rules.Add(new HighlightingRule { Regex = new Regex("synth"), Color = _keyword });
+        }
+
+        public string Name => "SynthLang";
+        public HighlightingRuleSet MainRuleSet { get; }
+        public IEnumerable<HighlightingColor> NamedHighlightingColors => new[] { _keyword };
+        public HighlightingColor GetNamedColor(string name) => name == "SynthKeyword" ? _keyword : null!;
+        public HighlightingRuleSet GetNamedRuleSet(string name) => null!;
+    }
+}

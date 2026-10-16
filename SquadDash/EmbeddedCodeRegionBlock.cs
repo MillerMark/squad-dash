@@ -46,15 +46,13 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 return;
             AnyRegionContentEditing?.Invoke(this, EventArgs.Empty);
             _language = token;
-            _languageLabel.Text = RegionLanguagePicker.GetLabel(token);
-            System.Windows.Automation.AutomationProperties.SetName(
-                _languageButton, $"Code language: {_languageLabel.Text}");
             PickerModeChanged?.Invoke(this, EventArgs.Empty);
+            UpdateLanguageLabel();
             AnyRegionContentEdited?.Invoke(this, EventArgs.Empty);
         }
     }
 
-    /// Selected mode and token are the input for the later highlighting/auto-detect stage.
+    /// Selected mode and token drive highlighting; auto-detection never changes the stored token.
     public RegionLanguageMode PickerMode => RegionLanguagePicker.GetMode(Language);
     public event EventHandler? PickerModeChanged;
 
@@ -134,10 +132,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
         _editor = new AvalonEditRegionEditor(Content);
         _editorControl = _editor.Control;
-        // Pull the current theme's surface/text colors once at construction so a region created
-        // between theme switches is themed immediately (AvalonEdit colors are not DynamicResource-
-        // driven; see ApplyEditorTheme and MainWindow.ApplyTheme's per-region fan-out).
-        _editor.ApplyPalette(new ThemeResourcePaletteSource().CreatePalette());
+        _editor.SetLanguage(Language);
+        PickerModeChanged += (_, _) => _editor.SetLanguage(Language);
+        _editor.HighlightingChanged += (_, _) => UpdateLanguageLabel();
 
         // Hosted controls inside a RichTextBox's BlockUIContainer must stop the left-button
         // gesture from reaching the host RichTextBox — otherwise WPF object-selects the whole
@@ -385,7 +382,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
         _languageLabel = new TextBlock
         {
-            Text = RegionLanguagePicker.GetLabel(Language),
+            Text = RegionLanguagePicker.GetLabel(Language, _editor.HighlightingName),
             FontFamily = new FontFamily("Segoe UI"), // Variable width font
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center,
@@ -612,11 +609,20 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
     /// <summary>
     /// Pushes the given <paramref name="palette"/> onto this region's editor so its surface/text
-    /// colors follow the active theme. Called from <c>MainWindow.ApplyTheme</c>'s per-region
+    /// and syntax colors follow the active theme. Called from <c>MainWindow.ApplyTheme</c>'s per-region
     /// fan-out after a theme dictionary swap (AvalonEdit colors are not DynamicResource-driven,
     /// so they must be re-applied imperatively; see AVALONEDIT-20261014-001).
     /// </summary>
     public void ApplyEditorTheme(RegionEditorPalette palette) => _editor.ApplyPalette(palette);
+
+    public void NotifyThemeChanged(RegionEditorPalette palette) => ApplyEditorTheme(palette);
+
+    private void UpdateLanguageLabel()
+    {
+        _languageLabel.Text = RegionLanguagePicker.GetLabel(Language, _editor.HighlightingName);
+        System.Windows.Automation.AutomationProperties.SetName(
+            _languageButton, $"Code language: {_languageLabel.Text}");
+    }
 
     /// Serializes this region back into an equivalent triple-backtick fenced block:
     /// a bare fence if no language is set, or ```&lt;language&gt; if one is present.

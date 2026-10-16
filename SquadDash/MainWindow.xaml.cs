@@ -56818,12 +56818,12 @@ public partial class MainWindow : Window
             agent.NotifyThemeChanged();
 
         // AvalonEdit-backed embedded code regions do NOT follow DynamicResource, so push the
-        // active theme's CodeSurface/CodeText onto each region's editor imperatively now that the
+        // active theme's surface/text and syntax palette into each region imperatively now that the
         // theme dictionaries have been swapped (AVALONEDIT-20261014-001, §3). Newly created
         // regions pull the same palette at construction, so one created between switches is themed.
         var regionPalette = _regionEditorPaletteSource.CreatePalette();
         foreach (var region in RichTextBoxExtensions.EnumerateEmbeddedRegions(PromptTextBox))
-            region.ApplyEditorTheme(regionPalette);
+            region.NotifyThemeChanged(regionPalette);
 
         foreach (var thread in _agentThreadRegistry.ThreadOrder)
             SyncThreadChip(thread);

@@ -200,6 +200,9 @@
     <Compile Include="..\SquadDash\CopyableCodeBlockBuilder.cs" Link="Source\CopyableCodeBlockBuilder.cs" />
     <Compile Include="..\SquadDash\EmbeddedCodeRegionBlock.cs" Link="Source\EmbeddedCodeRegionBlock.cs" />
     <Compile Include="..\SquadDash\RegionLanguagePicker.cs" Link="Source\RegionLanguagePicker.cs" />
+    <Compile Include="..\SquadDash\RegionGrammarResolver.cs" Link="Source\RegionGrammarResolver.cs" />
+    <Compile Include="..\SquadDash\RegionHighlightingEngine.cs" Link="Source\RegionHighlightingEngine.cs" />
+    <Compile Include="..\SquadDash\RegionHighlightingPalettes.cs" Link="Source\RegionHighlightingPalettes.cs" />
     <Compile Include="..\SquadDash\IRegionCodeEditor.cs" Link="Source\IRegionCodeEditor.cs" />
     <Compile Include="..\SquadDash\AvalonEditRegionEditor.cs" Link="Source\AvalonEditRegionEditor.cs" />
     <Compile Include="..\SquadDash\EmbeddedCaretNavMath.cs" Link="Source\EmbeddedCaretNavMath.cs" />
