@@ -48,6 +48,19 @@ public sealed class RegionGrammarAutoDetectTests
         Assert.That(aliasCalls, Is.EqualTo(new[] { "csharp" }));
     }
 
+    [TestCase("csharp", "C#")]
+    [TestCase("text", null)]
+    [Apartment(ApartmentState.STA)]
+    public void Resolve_PinnedFenceToken_OverridesConflictingBuiltInHeuristic(string token, string? expected)
+    {
+        var engine = new RegionHighlightingEngine();
+
+        Assert.That(engine.Resolve("", JavaScriptSample), Is.EqualTo("JavaScript"),
+            "the same content must trigger the real heuristic when the fence token is empty");
+        Assert.That(engine.Resolve(token, JavaScriptSample), Is.EqualTo(expected),
+            "an explicit or Plain text fence token must override conflicting content");
+    }
+
     [Test]
     public void Resolve_UnsupportedPinnedToken_ReturnsNull_WithoutHeuristic()
     {

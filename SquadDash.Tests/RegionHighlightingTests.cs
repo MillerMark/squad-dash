@@ -449,17 +449,37 @@ public sealed class RegionHighlightingTests
         Assert.That(editor.IsAutoDetectPending, Is.False, "pinning a language must cancel the debounce");
     }
 
-    [Test]
-    public void AutoDetectDebounce_DoesNotArm_WhenLanguageIsPinned()
+    [TestCase("csharp", "C#")]
+    [TestCase("text", null)]
+    public void AutoDetectDebounce_DoesNotArm_WhenLanguageIsPinned(string token, string? expected)
     {
         var editor = new AvalonEditRegionEditor("", new RegionHighlightingEngine());
-        using var _ = HostLoaded(editor.Control);
+        using var host = HostLoaded(editor.Control);
+        Assert.That(editor.Control.IsLoaded, Is.True, "pinning must be exercised on a loaded editor");
 
-        editor.SetLanguage("csharp");
+        editor.SetLanguage(token);
+        Assert.That(editor.HighlightingName, Is.EqualTo(expected));
+        var changes = 0;
+        editor.HighlightingChanged += (_, _) => changes++;
+
         editor.InsertText("console.log('x');");
+        AssertPinned();
+        editor.Text = "<!DOCTYPE html><html><body>changed</body></html>";
+        AssertPinned();
 
-        Assert.That(editor.IsAutoDetectPending, Is.False,
-            "a pinned (explicit) language must never arm the auto-detect debounce");
+        void AssertPinned()
+        {
+            Assert.That(RegionGrammarResolver.DetectBuiltIn(editor.Text), Is.Not.Null.And.Not.EqualTo(expected),
+                "edited content must be detectable as a different grammar if the pin were removed");
+            Assert.Multiple(() =>
+            {
+                Assert.That(editor.IsAutoDetectPending, Is.False,
+                    "neither Plain text nor an explicit language may re-arm detection after an edit");
+                Assert.That(editor.HighlightingName, Is.EqualTo(expected),
+                    "text changes must not replace the pinned highlighting");
+                Assert.That(changes, Is.Zero, "edits must not emit a highlighting change while pinned");
+            });
+        }
     }
 
     [Test]
