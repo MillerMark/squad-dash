@@ -61,6 +61,8 @@ public sealed class EmbeddedCodeRegionBlock : Border
     private string _language;
     private readonly TextBlock _languageLabel;
     private readonly Button _languageButton;
+    private readonly Popup _languagePopup;
+    internal Popup LanguagePickerPopup => _languagePopup;
     private readonly IRegionCodeEditor _editor;
     private readonly Control _editorControl;
     private RichTextBox? _hostRichTextBox;
@@ -411,13 +413,13 @@ public sealed class EmbeddedCodeRegionBlock : Border
         _languageButton.SetResourceReference(StyleProperty, "RegionLanguageButtonStyle");
         System.Windows.Automation.AutomationProperties.SetName(
             _languageButton, $"Code language: {_languageLabel.Text}");
-        var languagePopup = BuildLanguagePopup();
+        _languagePopup = BuildLanguagePopup();
         _languageButton.Click += (_, e) =>
         {
-            languagePopup.IsOpen = !languagePopup.IsOpen;
+            _languagePopup.IsOpen = !_languagePopup.IsOpen;
             e.Handled = true;
         };
-        Unloaded += (_, _) => languagePopup.IsOpen = false;
+        Unloaded += (_, _) => _languagePopup.IsOpen = false;
 
         // The editor rectangle chrome now lives on an INNER border so the label can sit
         // visually above (outside) it. The outer EmbeddedCodeRegionBlock itself stays
@@ -447,7 +449,8 @@ public sealed class EmbeddedCodeRegionBlock : Border
         var stack = new StackPanel();
         stack.Children.Add(_languageButton);
         stack.Children.Add(editorBorder);
-        stack.Children.Add(languagePopup);
+        // Keep the Popup unparented: WPF then isolates its input route from the document.
+        // Parenting it here lets region/host preview handlers swallow option and outside clicks.
 
         // The outer element (this Border) is purely a transparent layout host now; the
         // visible editor chrome is painted by the inner editorBorder above.
@@ -483,9 +486,11 @@ public sealed class EmbeddedCodeRegionBlock : Border
         {
             if (element is EmbeddedCodeRegionBlock region)
                 return region;
-            // Prefer logical ownership so picker input crosses the Popup's separate visual root.
-            element = LogicalTreeHelper.GetParent(element) ??
-                (element is Visual or Visual3D ? VisualTreeHelper.GetParent(element) : null);
+            // The picker has no document parent; its placement target retains region ownership.
+            element = element is Popup popup
+                ? popup.PlacementTarget
+                : LogicalTreeHelper.GetParent(element) ??
+                    (element is Visual or Visual3D ? VisualTreeHelper.GetParent(element) : null);
         }
         return null;
     }

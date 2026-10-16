@@ -226,7 +226,7 @@ internal sealed class EmbeddedCodeRegionTests
         => (TextBlock)((StackPanel)((Button)((StackPanel)region.Child).Children[0]).Content).Children[0];
 
     private static Popup LanguagePopup(EmbeddedCodeRegionBlock region)
-        => (Popup)((StackPanel)region.Child).Children[2];
+        => region.LanguagePickerPopup;
 
     private static Button[] LanguageOptions(EmbeddedCodeRegionBlock region)
         => ((StackPanel)((ScrollViewer)((Border)LanguagePopup(region).Child).Child).Content)
@@ -262,12 +262,71 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(popup.PlacementTarget, Is.SameAs(trigger));
         Assert.That(popup.Placement, Is.EqualTo(PlacementMode.Bottom));
         Assert.That(popup.StaysOpen, Is.False);
+        Assert.That(LogicalTreeHelper.GetParent(popup), Is.Null);
+        Assert.That(System.Windows.Media.VisualTreeHelper.GetParent(popup), Is.Null);
         Assert.That(trigger.ToolTip, Is.EqualTo("Choose code language"));
         Assert.That(trigger.Focusable, Is.True);
         Assert.That(region.IsLanguagePickerHit(trigger), Is.True);
         Assert.That(EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
             true, false, false, region.IsLanguagePickerHit(trigger)), Is.False);
         Assert.That(EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(true, false, false), Is.True);
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void LanguagePicker_OptionMouseDown_IsNotClaimedByRegionChrome()
+    {
+        var region = EmbeddedCodeRegionBlock.Build("hello", "python");
+        var button = LanguageOptions(region)[1];
+        var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+        {
+            RoutedEvent = Mouse.PreviewMouseDownEvent,
+        };
+
+        button.RaiseEvent(args);
+
+        Assert.That(args.Handled, Is.False,
+            "The region chrome must not swallow the option's native button gesture.");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void LanguagePicker_PopupMouseDown_DoesNotReachDocumentPreviewHandlers()
+    {
+        var host = new RichTextBox();
+        host.SetPlainText("```python\nhello\n```");
+        Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(host), Is.True);
+        var region = RichTextBoxExtensions.EnumerateEmbeddedRegions(host).Single();
+        var popup = LanguagePopup(region);
+        var hostMouseDowns = 0;
+        var regionMouseDowns = 0;
+        host.PreviewMouseDown += (_, _) => hostMouseDowns++;
+        region.PreviewMouseDown += (_, _) => regionMouseDowns++;
+        var trigger = (Button)((StackPanel)region.Child).Children[0];
+        try
+        {
+            trigger.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(popup.IsOpen, Is.True);
+            // Captured outside-click input traverses Popup before its native dismissal handler.
+            // Exercise that route without requiring an active desktop or moving the pointer.
+            var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+            {
+                RoutedEvent = Mouse.PreviewMouseDownEvent,
+            };
+            popup.RaiseEvent(args);
+
+            Assert.That(hostMouseDowns, Is.Zero);
+            Assert.That(regionMouseDowns, Is.Zero);
+            Assert.That(args.Handled, Is.False);
+            trigger.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(popup.IsOpen, Is.False);
+            trigger.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(popup.IsOpen, Is.True);
+            region.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+            Assert.That(popup.IsOpen, Is.False, "Removing the region must close its detached popup.");
+        }
+        finally
+        {
+            popup.IsOpen = false;
+        }
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -286,11 +345,22 @@ internal sealed class EmbeddedCodeRegionTests
     {
         var region = EmbeddedCodeRegionBlock.Build("hello", "python");
         var button = LanguageOptions(region)[1];
+        var popup = LanguagePopup(region);
         var args = new KeyEventArgs(Keyboard.PrimaryDevice, new PickerPresentationSource(), 0, key)
         {
             RoutedEvent = Keyboard.PreviewKeyDownEvent,
         };
-        button.RaiseEvent(args);
+        try
+        {
+            popup.IsOpen = true;
+            Assert.That(popup.IsOpen, Is.True);
+            button.RaiseEvent(args);
+            Assert.That(popup.IsOpen, Is.False);
+        }
+        finally
+        {
+            popup.IsOpen = false;
+        }
         Assert.That(args.Handled, Is.True);
         Assert.That(region.Language, Is.EqualTo(key == Key.Escape ? "python" : "text"));
     }
@@ -322,7 +392,18 @@ internal sealed class EmbeddedCodeRegionTests
         var changes = 0;
         region.PickerModeChanged += (_, _) => changes++;
 
-        button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var popup = LanguagePopup(region);
+        try
+        {
+            popup.IsOpen = true;
+            Assert.That(popup.IsOpen, Is.True);
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.That(popup.IsOpen, Is.False);
+        }
+        finally
+        {
+            popup.IsOpen = false;
+        }
 
         Assert.That(changes, Is.EqualTo(1));
         Assert.That(region.Language, Is.EqualTo(token));
