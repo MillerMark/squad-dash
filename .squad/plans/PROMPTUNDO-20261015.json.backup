@@ -2,7 +2,7 @@
   "planId": "PROMPTUNDO-20261015",
   "revision": "dd645ca94da0655f",
   "source": "tasks_json",
-  "lifecycleStatus": "awaiting-approval",
+  "lifecycleStatus": "executing",
   "title": "Custom Undo/Redo Across Embedded Code Regions",
   "branch": "feature/prompt-undo-across-regions",
   "summary": "Give the prompt editor a single PromptUndoManager that owns Ctrl\u002BZ/Ctrl\u002BY across host text and every embedded AvalonEdit region, restoring the exact selection and caret from a {serializedText, caretOffset, anchorOffset} snapshot over the flat GetPlainText()/ToFencedText() serialization. caretOffset and anchorOffset are absolute offsets in that one flat coordinate space, so a single selection may straddle the host\u2194region boundary and must still capture and restore with correct span and direction. Native RichTextBox undo and per-region AvalonEdit undo are suppressed so exactly one authority exists; edits coalesce and history clears on send.",
@@ -687,7 +687,10 @@
         "PROMPTUNDO-20261015-004"
       ],
       "priority": "mid",
-      "status": "human-review-required",
+      "status": "complete",
+      "commit": "ab14f249d6751c868c8dbb081393e4a746259f12",
+      "completedAt": "2026-10-16T11:09:21.3211857+00:00",
+      "completionSummary": "Step 6 \u2014 Added a Developer \u2192 Simulation entry \u0027Prompt Undo Review\u0027 that loads a prompt (host text, an embedded C# code region, then more host text) via the production SetPromptTextBoxLogicalBuffer path and drives the real single-authority undo action wiring so a reviewer can reproduce all seven undo/redo selection scenarios.",
       "agentAssignments": [
         {
           "agentHandle": "lyra-morn",
@@ -782,6 +785,13 @@
         }
       ],
       "displayStepLabel": "6",
+      "commits": [
+        {
+          "commit": "ab14f249d6751c868c8dbb081393e4a746259f12",
+          "relation": "task",
+          "reason": "Host-validated implementation handoff reviewed at the human checkpoint."
+        }
+      ],
       "reviewActivity": [
         {
           "kind": "manual-correction",
@@ -789,7 +799,14 @@
           "recordedAt": "2026-10-15T22:52:43.6167231+00:00"
         }
       ],
-      "executionMode": "implementation"
+      "executionMode": "implementation",
+      "completionSummaryItems": [
+        "Added MenuItem \u0027Prompt _Undo Review\u0027 under Developer \u2192 _Simulation in MainWindow.xaml with Click handler SimulatePromptUndoReview_Click.",
+        "Implemented SimulatePromptUndoReview_Click in MainWindow.xaml.cs to load a scratch prompt via production SetPromptTextBoxLogicalBuffer (resetUndoHistory:true), converting the fenced csharp block to a live EmbeddedCodeRegionBlock via EmbeddedCodeRegionManager.TryConvertNextFence and re-baselining PromptUndoHistory through ActivatePromptUndoHistoryForCurrentTab.",
+        "Arranged host text before AND after a multi-line embedded region so forward/backward host selection, collapsed caret, in-region selection, redo, in-region Ctrl\u002BZ single-authority routing, and host\u2192region boundary-straddling selection are all reachable through the real Window_PreviewKeyDown \u2192 TryRoutePromptUndoRedo (gated by PromptOwnsUndoContext) \u2192 _promptUndoHistory.Undo()/Redo() path, not a static visual.",
+        "Authored the GATE-001 approval procedure with all seven {{approval-check:...}} markers, each immediately after its contract-correct expected observation, delivered as the required Inbox message."
+      ],
+      "completionKind": "changed"
     },
     {
       "taskId": "PROMPTUNDO-20261015-007",
@@ -826,6 +843,17 @@
           "description": "Run NUnit with filters FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav and confirm all mapping/round-trip tests, including the two straddle cases, pass."
         }
       ],
+      "provenanceChain": {
+        "entries": [
+          {
+            "taskId": "PROMPTUNDO-20261015-007",
+            "sourceLabel": "AI-assessed validation",
+            "sourceKind": "AiAssessed",
+            "recoveryKind": "envelope-repair",
+            "recordedAt": "2026-10-16T11:14:04.43857+00:00"
+          }
+        ]
+      },
       "displayStepLabel": "7",
       "executionMode": "verification"
     }
@@ -841,9 +869,13 @@
       "beforeTaskIds": [
         "PROMPTUNDO-20261015-007"
       ],
-      "status": "pending",
+      "status": "approved",
+      "requestedAt": "2026-10-16T02:07:59.2157526+00:00",
+      "resolvedAt": "2026-10-16T11:09:21.3278838+00:00",
       "planRevision": "dd645ca94da0655f",
+      "notifiedAt": "2026-10-16T02:07:59.2157526+00:00",
       "presentationAnchor": "stage:4",
+      "resolvedBy": "MillerMark",
       "proofRequirements": [
         {
           "requirementId": "undo-restores-forward-host-selection",
@@ -942,21 +974,123 @@
           "title": "Single authority handles in-region undo"
         }
       ],
+      "proofEvidence": [
+        {
+          "requirementId": "undo-restores-forward-host-selection",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms a forward host-text selection re-highlights identically after undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "undo-restores-backward-host-selection",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms a backward host-text selection re-highlights with direction preserved after undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "undo-restores-collapsed-caret",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms a collapsed caret returns to its original offset after undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "undo-restores-in-region-selection",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms a selection made entirely inside a region re-highlights inside that region after undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "redo-reapplies-selection",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms Ctrl\u002BY re-applies an undone edit and its selection/caret. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "single-authority-in-region-undo",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms Ctrl\u002BZ inside a focused region is handled by the single PromptUndoManager, not the region\u0027s own AvalonEdit undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        }
+      ],
       "afterTaskIdsSpecified": true,
       "beforeTaskIdsSpecified": true,
-      "question": "Do prompt undo and redo restore host and in-region selection scenarios with the correct span, direction, and single-authority routing?"
+      "question": "Do prompt undo and redo restore host and in-region selection scenarios with the correct span, direction, and single-authority routing?",
+      "humanReviewSelections": [
+        {
+          "itemId": "undo-restores-forward-host-selection",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:41:56.6229052+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "undo-restores-backward-host-selection",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:42:25.357059+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "undo-restores-collapsed-caret",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:43:12.116952+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "redo-reapplies-selection",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:44:48.5641492+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "single-authority-in-region-undo",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:45:45.9013962+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "undo-restores-in-region-selection",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:54:43.0202902+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes",
+          "note": "I\u0027ve noticed is that it\u0027s hard to read selections inside of regions and I think it\u0027s because of the darker background, at least what I\u0027m gonna light them so the background has a lower contrast background. And then the selection indicator darkens it further. So what that means is inside a region I\u0027ve got black text on a dark blue background which is kind of hard to see. Maybe something we should follow up with at the end?"
+        }
+      ]
     }
   ],
   "progress": {
-    "completedCount": 5,
-    "totalCount": 7
+    "completedCount": 6,
+    "totalCount": 7,
+    "executingTaskId": "PROMPTUNDO-20261015-007"
   },
   "timestamps": {
     "createdAt": "2026-10-15T13:04:29.2649855+00:00",
     "acceptedAt": "2026-10-15T13:04:29.2649855+00:00",
     "startedAt": "2026-10-15T14:14:47.8421722+00:00",
     "interruptedAt": "2026-10-15T15:10:15.3728556+00:00",
-    "lastRunAt": "2026-10-15T23:38:03.4292462+00:00"
+    "lastRunAt": "2026-10-16T11:09:29.5777736+00:00"
   },
   "hostRevision": "dd645ca94da0655f",
   "validations": [],
