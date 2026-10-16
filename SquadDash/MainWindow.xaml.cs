@@ -378,6 +378,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, PlanValidationDetailsWindow>
         _openPlanValidationDetailsWindows = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _queuedApprovedReviewNotesFollowUps = new(StringComparer.Ordinal);
     private DispatcherTimer? _approvalResumeRetryTimer;
     private string? _approvalResumeRetryPlanId;
     private bool _approvalResumeRetryInFlight;
@@ -13300,28 +13301,30 @@ public partial class MainWindow : Window
 
     private void QueueApprovedReviewNotesFollowUp(Plan completedPlan)
     {
-        var notedItems = PlanHumanReviewChecklist.Build(completedPlan, completedPlan.ApprovalGates)
-            .Where(item => item.IsChecked && !string.IsNullOrWhiteSpace(item.Note))
-            .ToArray();
-        if (notedItems.Length == 0)
+        var prompt = PlanApprovedReviewNotesFollowUp.BuildPrompt(completedPlan);
+        if (prompt is null)
             return;
 
-        var notes = string.Join("\n", notedItems.Select(item =>
-            "- Question: " + item.Text + "\n" +
-            "  Answer: Yes\n" +
-            "  User note: " + PlanHumanReviewItemResponse.NormalizeNote(item.Note)));
-        var prompt =
-            $"The plan \"{completedPlan.Title}\" ({completedPlan.PlanId}) is complete. " +
-            "The user approved these human-review items but left notes. Review them now and decide whether any immediate follow-up is warranted. " +
-            "If no action is needed, say so briefly.\n\n" +
-            "Approved review items with user notes:\n" +
-            notes;
+        var key = PlanApprovedReviewNotesFollowUp.BuildCompletionKey(completedPlan);
+        if (!_queuedApprovedReviewNotesFollowUps.Add(key))
+            return;
 
         EnqueuePrompt(
             prompt,
             isSystemInjected: true,
             forceAtTail: true,
-            sourceTag: "plan-approved-review-notes");
+            sourceTag: PlanApprovedReviewNotesFollowUp.SourceTag);
+    }
+
+    private void QueueApprovedReviewNotesFollowUpOnCompletionTransition(
+        Plan? previousPlan,
+        Plan publishedPlan)
+    {
+        if (publishedPlan.LifecycleStatus != PlanLifecycleStatus.Completed ||
+            previousPlan?.LifecycleStatus == PlanLifecycleStatus.Completed)
+            return;
+
+        QueueApprovedReviewNotesFollowUp(publishedPlan);
     }
 
     private void AddressUnapprovedItemsFromInbox(ApprovalClickToken token)
@@ -19784,7 +19787,6 @@ public partial class MainWindow : Window
                 {
                     completedAtApproval = true;
                     PublishPlanCompletionSummary(completedPlan);
-                    QueueApprovedReviewNotesFollowUp(completedPlan);
                     ScheduleDecomposeSystemEntry(
                         PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(
                             completedPlan, "Final human approval accepted"));
@@ -62576,10 +62578,14 @@ public partial class MainWindow : Window
             error = "The plan store is unavailable.";
             return false;
         }
-        return TryPublishPlanProgressCore(
+        var previousPlan = TryLoadPlanForCompletionTransition(plan.PlanId);
+        var published = TryPublishPlanProgressCore(
             plan,
             persisted => _planStore.Save(persisted),
             out error);
+        if (published)
+            QueueApprovedReviewNotesFollowUpOnCompletionTransition(previousPlan, plan);
+        return published;
     }
 
     private bool TryPublishPlanRecoveryProgress(
@@ -62618,7 +62624,26 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General, $"PublishPlanRecoveryProgress event: {ex.Message}");
         }
         ReconcileDecomposeRecoveryInboxMessages(persistedPlan.PlanId);
+        QueueApprovedReviewNotesFollowUpOnCompletionTransition(expected, persistedPlan);
         return true;
+    }
+
+    private Plan? TryLoadPlanForCompletionTransition(string planId)
+    {
+        if (_planStore is null)
+            return null;
+
+        try
+        {
+            return _planStore.Load(planId);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Could not load previous plan state before publish plan={planId}: {ex.Message}");
+            return null;
+        }
     }
 
     private bool TryPublishPlanProgressCore(

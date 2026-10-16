@@ -424,6 +424,31 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
         });
     }
 
+    [Test]
+    public void ApprovedReviewNotes_AreQueuedFromCommonCompletionPublish()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var publish = Method(
+            main,
+            "private bool TryPublishPlanProgress(Plan plan, out string? error)",
+            "private bool TryPublishPlanRecoveryProgress(");
+        var recoveryPublish = Method(
+            main,
+            "private bool TryPublishPlanRecoveryProgress(",
+            "private Plan? TryLoadPlanForCompletionTransition(");
+        var finalApprovalCompletion = Method(
+            main,
+            "if (PlanExecutionBoundaryPolicy.IsReadyToComplete(resolution.UpdatedPlan))",
+            "if (resolution.ShouldResume && !completedAtApproval");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(publish, Does.Contain("QueueApprovedReviewNotesFollowUpOnCompletionTransition(previousPlan, plan)"));
+            Assert.That(recoveryPublish, Does.Contain("QueueApprovedReviewNotesFollowUpOnCompletionTransition(expected, persistedPlan)"));
+            Assert.That(finalApprovalCompletion, Does.Not.Contain("QueueApprovedReviewNotesFollowUp(completedPlan)"));
+        });
+    }
+
     private static string Method(string source, string startMarker, string endMarker)
     {
         var start = source.IndexOf(startMarker, StringComparison.Ordinal);
