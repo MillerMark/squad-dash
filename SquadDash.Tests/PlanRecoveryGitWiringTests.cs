@@ -122,8 +122,6 @@ internal sealed class PlanRecoveryGitWiringTests
         var headReads = Regex.Matches(method, @"await\s+PlanRecoveryGit\.TryReadHeadAsync\s*\(");
         Assert.That(headReads, Has.Count.EqualTo(2), "Read HEAD before review and again before accepting it.");
         var validation = method.IndexOf("await ValidateHumanReviewStepAcceptanceAsync(", StringComparison.Ordinal);
-        var checkpointHead = method.IndexOf(
-            "PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(", StringComparison.Ordinal);
         var checkpointCommits = method.IndexOf(
             "PlanHumanReviewCheckpointCommitPolicy.ResolveDurableCommits(", StringComparison.Ordinal);
         var checkpointAncestry = method.IndexOf(
@@ -137,8 +135,9 @@ internal sealed class PlanRecoveryGitWiringTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(checkpointHead, Is.GreaterThan(headReads[0].Index));
-            Assert.That(checkpointCommits, Is.GreaterThan(checkpointHead));
+            Assert.That(method, Does.Not.Contain("PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead("),
+                "Human-review approval must allow host-owned commits after the reviewed checkpoint when the represented evidence remains reachable.");
+            Assert.That(checkpointCommits, Is.GreaterThan(headReads[0].Index));
             Assert.That(checkpointAncestry, Is.GreaterThan(checkpointCommits));
             Assert.That(validation, Is.GreaterThan(checkpointAncestry));
             Assert.That(validation, Is.GreaterThan(headReads[0].Index));

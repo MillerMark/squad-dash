@@ -19668,14 +19668,13 @@ public partial class MainWindow : Window
                 RejectReview("Current Git evidence is unavailable. No task or checkpoint state changed; retry after Git is available.");
                 return;
             }
-            if (!PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(
-                    plan, representedGateIds, currentHead))
-            {
-                RejectReview("The branch contains work beyond the represented checkpoint evidence. No state changed; reopen the review.");
-                return;
-            }
             var checkpointCommits = PlanHumanReviewCheckpointCommitPolicy.ResolveDurableCommits(
                 plan, representedGateIds);
+            if (checkpointCommits.Count == 0)
+            {
+                RejectReview("The represented checkpoint has no durable Git evidence. No state changed; reopen the review.");
+                return;
+            }
             foreach (var checkpointCommit in checkpointCommits)
             {
                 if (await PlanRecoveryGit.IsAncestorAsync(
