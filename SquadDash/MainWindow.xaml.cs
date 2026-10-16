@@ -19673,6 +19673,23 @@ public partial class MainWindow : Window
             }
             var workspace = _currentWorkspace?.FolderPath;
             var store = _planStore;
+            if (!plan.IsPaused)
+            {
+                try
+                {
+                    if (!await EnsurePlanContinuationBranchReadyAsync(plan))
+                    {
+                        RejectReview("Branch choice was canceled. No task or checkpoint state changed.");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    RejectReview("SquadDash could not prepare the plan branch before continuing: " +
+                                 ex.Message + " No task or checkpoint state changed.");
+                    return;
+                }
+            }
             using var validationBudget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             currentHead = await PlanRecoveryGit.TryReadHeadAsync(workspace, validationBudget.Token);
             if (currentHead is null)
@@ -19818,7 +19835,15 @@ public partial class MainWindow : Window
                     SquadDashTrace.Write(
                         "Approval",
                         $"Approval acquired; attempting automatic plan resume plan={clickToken.PlanId}.");
-                    if (!await StartDecomposeLoopAsync(clickToken.PlanId))
+                    var continuationPlan = _planStore?.Load(resolution.UpdatedPlan.PlanId) ?? resolution.UpdatedPlan;
+                    if (!await EnsurePlanContinuationBranchReadyAsync(continuationPlan))
+                    {
+                        ScheduleDecomposeSystemEntry(
+                            $"Approval acquired for plan {clickToken.PlanId}, but continuation was canceled before selecting the plan branch. " +
+                            "Open the plan to resume.");
+                        return;
+                    }
+                    if (!await StartDurablePlanExecutionAsync(continuationPlan))
                     {
                         if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
                         {
@@ -21055,7 +21080,21 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 "Approval",
                 $"Repository is clean; retrying approved plan continuation plan={planId}.");
-            if (!await StartDecomposeLoopAsync(planId))
+            plan = _planStore?.Load(planId);
+            if (plan is null)
+            {
+                StopApprovalResumeRetry();
+                return;
+            }
+            if (!await EnsurePlanContinuationBranchReadyAsync(plan))
+            {
+                StopApprovalResumeRetry();
+                ScheduleDecomposeSystemEntry(
+                    $"Approval was acquired for plan {planId}, but continuation was canceled before selecting the plan branch. " +
+                    "Open the plan to resume.");
+                return;
+            }
+            if (!await StartDurablePlanExecutionAsync(plan))
             {
                 if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
                     return;
@@ -25064,6 +25103,21 @@ public partial class MainWindow : Window
                current.ApprovalGates.Any(gate =>
                    string.Equals(gate.GateId, reviewAttention.Gate.GateId, StringComparison.Ordinal) &&
                    gate.Status == PlanGateStatus.Approved);
+    }
+
+    private async Task<bool> EnsurePlanContinuationBranchReadyAsync(Plan plan)
+    {
+        if (_currentWorkspace is null)
+            throw new InvalidOperationException("No workspace is active.");
+
+        var activeBranch = ReadGitBranch(_currentWorkspace.FolderPath);
+        if (string.Equals(activeBranch, plan.Branch, StringComparison.Ordinal))
+            return true;
+        if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+            throw new InvalidOperationException(
+                "Wait for the current prompt or plan turn to finish before choosing how this plan should resume.");
+
+        return await EnsureResumeBranchChoiceAsync(plan);
     }
 
     private async Task<bool> ValidateHumanReviewStepAcceptanceAsync(

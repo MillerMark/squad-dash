@@ -132,11 +132,15 @@ internal sealed class PlanRecoveryGitWiringTests
         var durableReload = method.IndexOf("store.Load(plan.PlanId)", headReads[1].Index, StringComparison.Ordinal);
         var durableComparison = method.IndexOf("JsonSerializer.Serialize(latest)", StringComparison.Ordinal);
         var approval = method.IndexOf("_planApprovalRuntime.ApproveAsync(", StringComparison.Ordinal);
+        var branchChoice = method.IndexOf("await EnsurePlanContinuationBranchReadyAsync(plan)", StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {
             Assert.That(method, Does.Not.Contain("PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead("),
                 "Human-review approval must allow host-owned commits after the reviewed checkpoint when the represented evidence remains reachable.");
+            Assert.That(branchChoice, Is.GreaterThanOrEqualTo(0));
+            Assert.That(branchChoice, Is.LessThan(headReads[0].Index),
+                "Human-review Complete & Continue must offer branch alignment before Git evidence validation can reject a resumed plan.");
             Assert.That(checkpointCommits, Is.GreaterThan(headReads[0].Index));
             Assert.That(checkpointAncestry, Is.GreaterThan(checkpointCommits));
             Assert.That(validation, Is.GreaterThan(checkpointAncestry));
@@ -153,6 +157,32 @@ internal sealed class PlanRecoveryGitWiringTests
             Assert.That(method, Does.Contain("CancellationTokenSource"));
             Assert.That(method, Does.Not.Contain("RunGitAsync("));
             Assert.That(method, Does.Not.Contain("rev-parse"));
+        });
+    }
+
+    [Test]
+    public void ApprovalContinuation_UsesBranchChoiceBeforeImmediateAndDelayedStart()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var approval = ReadMember(source, "HandleApprovalClickAsync");
+        var retry = ReadMember(source, "ApprovalResumeRetryTimer_Tick");
+        var immediateChoice = approval.IndexOf(
+            "await EnsurePlanContinuationBranchReadyAsync(continuationPlan)", StringComparison.Ordinal);
+        var immediateStart = approval.IndexOf(
+            "StartDurablePlanExecutionAsync(continuationPlan)", StringComparison.Ordinal);
+        var delayedChoice = retry.IndexOf(
+            "await EnsurePlanContinuationBranchReadyAsync(plan)", StringComparison.Ordinal);
+        var delayedStart = retry.IndexOf(
+            "StartDurablePlanExecutionAsync(plan)", StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(immediateChoice, Is.GreaterThanOrEqualTo(0));
+            Assert.That(immediateChoice, Is.LessThan(immediateStart));
+            Assert.That(delayedChoice, Is.GreaterThanOrEqualTo(0));
+            Assert.That(delayedChoice, Is.LessThan(delayedStart));
+            Assert.That(approval, Does.Not.Contain("StartDecomposeLoopAsync(clickToken.PlanId)"));
+            Assert.That(retry, Does.Not.Contain("StartDecomposeLoopAsync(planId)"));
         });
     }
 
