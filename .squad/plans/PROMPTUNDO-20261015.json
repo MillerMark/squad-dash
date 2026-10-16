@@ -1,6 +1,6 @@
 {
   "planId": "PROMPTUNDO-20261015",
-  "revision": "fba710722ab5756d",
+  "revision": "dd645ca94da0655f",
   "source": "tasks_json",
   "lifecycleStatus": "awaiting-approval",
   "title": "Custom Undo/Redo Across Embedded Code Regions",
@@ -639,6 +639,18 @@
           "reason": "Commit produced within this step\u0027s host-recorded baseline range."
         }
       ],
+      "reviewActivity": [
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed live prompt undo/redo failing to restore the pre-edit selection (commit 5e893c11 on feature/prompt-undo-across-regions). Root cause: snapshots were captured only post-edit (PromptTextBox_TextChanged / OnEmbeddedRegionContentEdited), so Undo landed on an entry predating the replaced selection, and for the first edit after a simulation load it restored the baseline captured with caretIndex:0 \u2014 sending the caret to offset 0 (the user\u0027s \u0027jumps to the front of the prompt\u0027 on selection-replace). Lyra Morn added guarded pre-edit selection capture (host RichTextBox SelectionChanged \u002B a new IRegionCodeEditor TextChanging pre-edit notification forwarded from AvalonEditRegionEditor/EmbeddedCodeRegionBlock) that refreshes the current PromptUndoHistory entry\u0027s caret/anchor in place via a new PromptUndoManager.RefreshSelection \u2014 without adding history or truncating redo \u2014 so Undo restores the exact forward/backward/collapsed/in-region selection with direction; also removed the host-selection collapse (CaretPosition set after Selection.Select) in RestoreResolvedSelection. Added 20 history-level regression tests (EmbeddedCodeRegionPreEditUndoTests.cs) and strengthened EmbeddedCodeRegionFlatOffsetUndoTests to assert actual restored host selections; filtered suite 271 passed / 0 failed, build green (benign NU1701 only). Assessed item 6: partial mouse selection straddling the host\u2194region boundary is inherent to the two-control composition (each region is an atomic BlockUIContainer; Shift\u002BArrow is not a workaround) and remains unsupported \u2014 recommend deferring the undo-straddle-selection-direction GATE-001 check via a bounded plan revision. Plan remains paused at GATE-001 for the user to re-verify checks 1\u20135 in Developer \u2192 Simulation \u2192 \u0027Prompt Undo Review\u0027.",
+          "recordedAt": "2026-10-15T22:52:43.6167231+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed the in-region undo off-by-one (GATE check undo-restores-in-region-selection): selecting a whole word inside a region (e.g. \u0027add\u0027), replacing it, then Ctrl\u002BZ restored only \u0027ad\u0027. Root cause: EmbeddedCodeRegionBlock.GetContentSelectionLocal() assumed the physical caret is the selection\u0027s moving endpoint, but AvalonEdit whole-word selection can leave the caret inside the highlighted span, so capture recorded a one-char-short selection even though SelectionLength was correct; neither notification timing nor content-base math was at fault. Lyra Morn changed capture to read AvalonEdit\u0027s directed Selection.StartPosition/EndPosition (via GetSelectionOffsets) and preserve native direction on restore, and added 8 history-level regression cases (forward/backward, interior/endpoint caret, native PerformTextInput \u002B redirected input, live pre-edit capture, full-word Undo, Redo) in EmbeddedCodeRegionPreEditUndoTests that reproduced \u0027add\u0027-\u003E\u0027ad\u0027 before the fix. Committed 334c8bac on feature/prompt-undo-across-regions; filtered suite 279 passed / 0 failed (baseline 271), build green (benign NU1701 only). Item 5 (undo-straddle-selection-direction): deeper feasibility pass confirms partial host\u003C-\u003Eregion straddle selection cannot be created via the current two-control composition (host RichTextBox treats each region as an atomic BlockUIContainer; nested AvalonEdit owns its own mouse capture). The snapshot capture/resolution layer already supports arbitrary straddle endpoints and Step 5 round-trip tests cover resolution, but RestoreResolvedSelection projects straddles onto atomic host boundaries and no UI mechanism can produce a partial-region endpoint without a shared cross-control selection model (Shift\u002BClick/Shift\u002BArrow bridge) \u2014 a substantial, medium-to-high-risk effort. No gesture hack was added. Recommend deferring the undo-straddle-selection-direction GATE check via a bounded plan revision and scheduling shared-selection work as separate follow-up. Plan remains paused at GATE-001 for the user to re-verify the in-region check (and items 1-3/redo) in Developer -\u003E Simulation -\u003E \u0027Prompt Undo Review\u0027.",
+          "recordedAt": "2026-10-16T00:55:44.9191192+00:00"
+        }
+      ],
       "executionMode": "implementation",
       "verificationLevel": "enhanced",
       "completionSummaryItems": [
@@ -770,6 +782,13 @@
         }
       ],
       "displayStepLabel": "6",
+      "reviewActivity": [
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed live prompt undo/redo failing to restore the pre-edit selection (commit 5e893c11 on feature/prompt-undo-across-regions). Root cause: snapshots were captured only post-edit (PromptTextBox_TextChanged / OnEmbeddedRegionContentEdited), so Undo landed on an entry predating the replaced selection, and for the first edit after a simulation load it restored the baseline captured with caretIndex:0 \u2014 sending the caret to offset 0 (the user\u0027s \u0027jumps to the front of the prompt\u0027 on selection-replace). Lyra Morn added guarded pre-edit selection capture (host RichTextBox SelectionChanged \u002B a new IRegionCodeEditor TextChanging pre-edit notification forwarded from AvalonEditRegionEditor/EmbeddedCodeRegionBlock) that refreshes the current PromptUndoHistory entry\u0027s caret/anchor in place via a new PromptUndoManager.RefreshSelection \u2014 without adding history or truncating redo \u2014 so Undo restores the exact forward/backward/collapsed/in-region selection with direction; also removed the host-selection collapse (CaretPosition set after Selection.Select) in RestoreResolvedSelection. Added 20 history-level regression tests (EmbeddedCodeRegionPreEditUndoTests.cs) and strengthened EmbeddedCodeRegionFlatOffsetUndoTests to assert actual restored host selections; filtered suite 271 passed / 0 failed, build green (benign NU1701 only). Assessed item 6: partial mouse selection straddling the host\u2194region boundary is inherent to the two-control composition (each region is an atomic BlockUIContainer; Shift\u002BArrow is not a workaround) and remains unsupported \u2014 recommend deferring the undo-straddle-selection-direction GATE-001 check via a bounded plan revision. Plan remains paused at GATE-001 for the user to re-verify checks 1\u20135 in Developer \u2192 Simulation \u2192 \u0027Prompt Undo Review\u0027.",
+          "recordedAt": "2026-10-15T22:52:43.6167231+00:00"
+        }
+      ],
       "executionMode": "implementation"
     },
     {
@@ -814,7 +833,7 @@
   "approvalGates": [
     {
       "gateId": "PROMPTUNDO-20261015-GATE-001",
-      "message": "Confirm live prompt undo/redo restores every selection scenario, including a selection that straddles the host\u2194region boundary, using the Prompt Undo Review simulation.",
+      "message": "Confirm live prompt undo/redo restores host and in-region selections and caret positions through the single authority, using the Prompt Undo Review simulation.",
       "afterTaskIds": [
         "PROMPTUNDO-20261015-005",
         "PROMPTUNDO-20261015-006"
@@ -823,9 +842,9 @@
         "PROMPTUNDO-20261015-007"
       ],
       "status": "awaiting-approval",
-      "requestedAt": "2026-10-15T17:11:32.5245167+00:00",
-      "planRevision": "fba710722ab5756d",
-      "notifiedAt": "2026-10-15T17:11:32.5245167+00:00",
+      "requestedAt": "2026-10-16T02:07:59.2157526+00:00",
+      "planRevision": "dd645ca94da0655f",
+      "notifiedAt": "2026-10-16T02:07:59.2157526+00:00",
       "presentationAnchor": "stage:4",
       "proofRequirements": [
         {
@@ -923,50 +942,11 @@
           "fixtureTaskId": "PROMPTUNDO-20261015-006",
           "fixtureOutputId": "undo-review-simulation",
           "title": "Single authority handles in-region undo"
-        },
-        {
-          "requirementId": "undo-straddle-selection-direction",
-          "proofType": "live-ui-observation",
-          "description": "Reviewer confirms a selection that starts outside a region and ends inside it re-highlights with the same span and direction after undo/redo.",
-          "question": "After undo then redo, does a selection that starts in host text and ends inside a region re-highlight the same straddling span with the same direction?",
-          "accessMode": "fixture",
-          "verificationRecipe": {
-            "setup": "Using the already-open Prompt Undo Review simulation.",
-            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
-            "observe": "Make a selection that starts in host text and ends inside the region (dragging across the boundary), replace it, press Ctrl\u002BZ then Ctrl\u002BY; confirm the same straddling span re-highlights with the caret on the same end (direction preserved).",
-            "cleanup": "Close the simulation prompt without sending."
-          },
-          "fixtureTaskId": "PROMPTUNDO-20261015-006",
-          "fixtureOutputId": "undo-review-simulation",
-          "title": "Undo restores straddling selection direction"
         }
       ],
       "afterTaskIdsSpecified": true,
       "beforeTaskIdsSpecified": true,
-      "question": "Do prompt undo and redo restore every selection scenario \u2014 host, in-region, and boundary-straddling \u2014 with the correct span, direction, and single-authority routing?",
-      "humanReviewSelections": [
-        {
-          "itemId": "redo-reapplies-selection",
-          "isChecked": true,
-          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
-          "updatedAt": "2026-10-15T17:40:21.6531066+00:00",
-          "reviewTarget": "v1:D27DAF702B481447BDCEFFB78B7F4550F21BEBDD773D552E89F6F49C13FA87E4"
-        },
-        {
-          "itemId": "single-authority-in-region-undo",
-          "isChecked": false,
-          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
-          "updatedAt": "2026-10-15T17:41:47.918959+00:00",
-          "reviewTarget": "v1:D27DAF702B481447BDCEFFB78B7F4550F21BEBDD773D552E89F6F49C13FA87E4"
-        },
-        {
-          "itemId": "undo-restores-forward-host-selection",
-          "isChecked": false,
-          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
-          "updatedAt": "2026-10-15T19:22:02.6167744+00:00",
-          "reviewTarget": "v1:D27DAF702B481447BDCEFFB78B7F4550F21BEBDD773D552E89F6F49C13FA87E4"
-        }
-      ]
+      "question": "Do prompt undo and redo restore host and in-region selection scenarios with the correct span, direction, and single-authority routing?"
     }
   ],
   "progress": {
@@ -978,8 +958,10 @@
     "acceptedAt": "2026-10-15T13:04:29.2649855+00:00",
     "startedAt": "2026-10-15T14:14:47.8421722+00:00",
     "interruptedAt": "2026-10-15T15:10:15.3728556+00:00",
-    "lastRunAt": "2026-10-15T19:22:02.6167744+00:00"
+    "lastRunAt": "2026-10-16T02:07:59.2157526+00:00"
   },
+  "hostRevision": "dd645ca94da0655f",
   "validations": [],
-  "revisionNumber": 1
+  "revisionNumber": 2,
+  "revisedAt": "2026-10-16T01:17:54.8064141+00:00"
 }
