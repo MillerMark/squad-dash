@@ -514,8 +514,8 @@ internal static class PlanRecoveryActionPresentationBuilder
                 PlanRecoveryPrimaryActionKind.AcceptUnattributedStep,
                 plan.IsPaused ? $"{stepLabel} Is Complete" : $"{stepLabel} Is Complete & Continue",
                 plan.IsPaused
-                    ? $"After reviewing the repository changes, explicitly mark {stepLabel} complete while keeping the plan paused. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result. Refresh the card before accepting."
-                    : $"After reviewing the repository changes, explicitly mark {stepLabel} complete and continue. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result. Refresh the card before accepting.",
+                    ? $"After reviewing the repository changes, explicitly mark {stepLabel} complete while keeping the plan paused. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result."
+                    : $"After reviewing the repository changes, explicitly mark {stepLabel} complete and continue. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result.",
                 "accept-step-complete");
         }
 

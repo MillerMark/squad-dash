@@ -424,6 +424,7 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(action.Kind, Is.EqualTo(PlanRecoveryPrimaryActionKind.AcceptUnattributedStep));
             Assert.That(action.Kind, Is.Not.EqualTo(PlanRecoveryPrimaryActionKind.AcceptStep));
             Assert.That(action.Hint, Does.Contain("Newer commits are on this branch"));
+            Assert.That(action.Hint, Does.Not.Contain("Refresh the card before accepting"));
         });
     }
 
