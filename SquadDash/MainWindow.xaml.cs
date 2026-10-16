@@ -1909,7 +1909,8 @@ public partial class MainWindow : Window
             consumeInterruptedPromptFreshnessInstructionAsync: ConsumeInterruptedPromptFreshnessInstructionAsync,
             prepareBridgeForTurn: RefreshBridgeModelSettingsBeforeDispatch,
             onInterruptedPromptRecoverySaved: HandleInterruptedPromptRecoverySaved,
-            onInterruptedPromptRecoveryCleared: ReleaseInterruptedPromptRecoveryHold);
+            onInterruptedPromptRecoveryCleared: ReleaseInterruptedPromptRecoveryHold,
+            getVisibleCoordinatorResponseLength: () => GetSanitizedTurnResponseText(CoordinatorThread.CurrentTurn).Trim().Length);
         _pec.TryHandlePlanRuntimeFailure = error =>
             TryHandleActivePlanValidationProviderFailure(error, confirmedProviderEvent: false);
 

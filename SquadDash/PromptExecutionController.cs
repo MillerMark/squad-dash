@@ -220,6 +220,7 @@ internal sealed class PromptExecutionController {
 
     // ── Injected — Misc MainWindow helpers ────────────────────────────────
     private readonly Func<bool>                       _getModelObservedThisSession;
+    private readonly Func<int>                        _getVisibleCoordinatorResponseLength;
 
     // ── IWorkspacePaths ───────────────────────────────────────────────────
     private readonly IWorkspacePaths _workspacePaths;
@@ -275,7 +276,10 @@ internal sealed class PromptExecutionController {
     private readonly SemaphoreSlim _coordinatorTurnGate = new(1, 1);
 
     // ── Silent-completion watchdog ────────────────────────────────────────
-    private record SilentCompletionCandidate(SilentCompletionFollowUpReport Report, int ResponseCharsAtArrival);
+    private record SilentCompletionCandidate(
+        SilentCompletionFollowUpReport Report,
+        int RawResponseCharsAtArrival,
+        int VisibleResponseCharsAtArrival);
     private readonly List<SilentCompletionCandidate> _silentCompletionCandidates = new();
 
     // ── Per-item sim state (set by /test-queue; consumed as items execute) ─
@@ -431,7 +435,8 @@ internal sealed class PromptExecutionController {
         Func<Task<string?>>? consumeInterruptedPromptFreshnessInstructionAsync = null,
         Func<bool>? prepareBridgeForTurn = null,
         Action<InterruptedPromptRecoveryState>? onInterruptedPromptRecoverySaved = null,
-        Action<string>? onInterruptedPromptRecoveryCleared = null) {
+        Action<string>? onInterruptedPromptRecoveryCleared = null,
+        Func<int>? getVisibleCoordinatorResponseLength = null) {
 
         _runPromptAsync                        = runPromptAsync;
         _runNamedAgentDelegationAsync          = runNamedAgentDelegationAsync;
@@ -484,6 +489,7 @@ internal sealed class PromptExecutionController {
         _waitForBridgeUiEventsAppliedAsync     = waitForBridgeUiEventsAppliedAsync;
         _consumeInterruptedPromptFreshnessInstructionAsync = consumeInterruptedPromptFreshnessInstructionAsync;
         _getModelObservedThisSession           = getModelObservedThisSession;
+        _getVisibleCoordinatorResponseLength   = getVisibleCoordinatorResponseLength ?? (() => 0);
         _workspacePaths                        = workspacePaths;
         _instructionProvider                   = instructionProvider ?? new DefaultPromptInstructionProvider();
         _getSubmittedAttachments               = getSubmittedAttachments ?? (() => Array.Empty<FollowUpAttachment>());
@@ -847,6 +853,7 @@ internal sealed class PromptExecutionController {
         var reportText = !string.IsNullOrWhiteSpace(thread.LastCoordinatorAnnouncedResponse)
             ? thread.LastCoordinatorAnnouncedResponse
             : thread.LatestResponse;
+        var visibleResponseCharsAtArrival = GetVisibleCoordinatorResponseLengthForSilentCompletion();
 
         _silentCompletionCandidates.Add(new SilentCompletionCandidate(
             new SilentCompletionFollowUpReport(
@@ -855,10 +862,11 @@ internal sealed class PromptExecutionController {
                 thread.CompletedAt,
                 thread.Prompt,
                 reportText),
-            _responseCharacterCount));
+            _responseCharacterCount,
+            visibleResponseCharsAtArrival));
         SquadDashTrace.Write(
             "PromptHealth",
-            $"SilentCompletionWatchdog: registered candidate agent={agentDisplayName} thread={thread.ThreadId} responseCharsAtArrival={_responseCharacterCount}");
+            $"SilentCompletionWatchdog: registered candidate agent={agentDisplayName} thread={thread.ThreadId} responseCharsAtArrival={_responseCharacterCount} visibleResponseCharsAtArrival={visibleResponseCharsAtArrival}");
     }
 
     /// <summary>
@@ -868,15 +876,16 @@ internal sealed class PromptExecutionController {
     /// Must be called before <c>_responseCharacterCount</c> is reset.
     /// </summary>
     private void MaybeInjectSilentCompletionFollowUp() {
+        var visibleResponseChars = GetVisibleCoordinatorResponseLengthForSilentCompletion();
         var silentReports = _silentCompletionCandidates
-            .Where(c => _responseCharacterCount == c.ResponseCharsAtArrival)
+            .Where(c => visibleResponseChars == c.VisibleResponseCharsAtArrival)
             .Select(c => c.Report)
             .ToList();
 
         if (silentReports.Count == 0) {
             SquadDashTrace.Write(
                 "PromptHealth",
-                "SilentCompletionWatchdog: all candidates produced response text — no injection needed.");
+                $"SilentCompletionWatchdog: all candidates produced visible response text - no injection needed. visibleResponseChars={visibleResponseChars}");
             return;
         }
 
@@ -888,6 +897,21 @@ internal sealed class PromptExecutionController {
 
         _enqueuePrompt(injection, true /* isSystemInjected */);
     }
+
+    private int GetVisibleCoordinatorResponseLengthForSilentCompletion() {
+        try {
+            return Math.Max(0, _getVisibleCoordinatorResponseLength());
+        }
+        catch (Exception ex) {
+            SquadDashTrace.Write(
+                "PromptHealth",
+                $"SilentCompletionWatchdog: visible response length check failed: {ex.Message}");
+            return _responseCharacterCount;
+        }
+    }
+
+    internal void StopPromptHealthMonitoringForTests(string outcome) =>
+        StopPromptHealthMonitoring(outcome);
 
 
     private static string FormatElapsedMilliseconds(DateTimeOffset startedAt, DateTimeOffset? milestoneAt) =>
