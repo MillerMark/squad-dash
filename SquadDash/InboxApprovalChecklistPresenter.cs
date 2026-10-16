@@ -194,12 +194,16 @@ internal static class InboxApprovalChecklistPresenter
 
         void RefreshChoiceVisuals()
         {
-            yesChoice.CheckBox.IsChecked = response.IsApproved == true;
-            noChoice.CheckBox.IsChecked = response.IsApproved == false;
+            var showPreviousYes = response.IsApproved is null && item.WasPreviouslyAnsweredYes;
+            var showPreviousNo = response.IsApproved is null && item.WasPreviouslyAnsweredNo;
+            yesChoice.CheckBox.IsChecked = response.IsApproved == true || showPreviousYes;
+            noChoice.CheckBox.IsChecked = response.IsApproved == false || showPreviousNo;
             yesChoice.Icon.Visibility = response.IsApproved == true ? Visibility.Visible : Visibility.Hidden;
             noChoice.Icon.Visibility = response.IsApproved == false ? Visibility.Visible : Visibility.Hidden;
-            yesChoice.Border.Opacity = response.IsApproved is null or true ? 1 : 0.55;
-            noChoice.Border.Opacity = response.IsApproved is null or false ? 1 : 0.55;
+            yesChoice.PreviousAnswerMarker.Visibility = showPreviousYes ? Visibility.Visible : Visibility.Hidden;
+            noChoice.PreviousAnswerMarker.Visibility = showPreviousNo ? Visibility.Visible : Visibility.Hidden;
+            yesChoice.Border.Opacity = response.IsApproved == false || showPreviousNo ? 0.55 : 1;
+            noChoice.Border.Opacity = response.IsApproved == true || showPreviousYes ? 0.55 : 1;
             UpdateSemanticText();
         }
 
@@ -288,7 +292,7 @@ internal static class InboxApprovalChecklistPresenter
     internal static string BuildResponseKey(PlanHumanReviewChecklistItem item) =>
         item.GateId + "\0" + item.ItemId;
 
-    private static (CheckBox CheckBox, Border Border, Viewbox Icon) BuildChoice(
+    private static (CheckBox CheckBox, Border Border, Viewbox Icon, TextBlock PreviousAnswerMarker) BuildChoice(
         string label,
         double fontSize,
         Viewbox icon,
@@ -297,6 +301,24 @@ internal static class InboxApprovalChecklistPresenter
         var boxSize = Math.Round(fontSize * 1.2);
         icon.Visibility = Visibility.Hidden;
         icon.Margin = TranscriptApprovalCardBuilder.GetReviewChoiceIconMargin(label, boxSize);
+        var previousAnswerMarker = new TextBlock
+        {
+            Text = "?",
+            Visibility = Visibility.Hidden,
+            FontSize = boxSize * 0.82,
+            FontWeight = FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center,
+            IsHitTestVisible = false,
+        };
+        previousAnswerMarker.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            label == "Yes" ? "PlanApprovalResolved" : "TaskFailedFill");
+
+        var iconSlot = new Grid();
+        iconSlot.Children.Add(icon);
+        iconSlot.Children.Add(previousAnswerMarker);
 
         var iconHost = new Border
         {
@@ -307,7 +329,7 @@ internal static class InboxApprovalChecklistPresenter
             Background = Brushes.Transparent,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 5, 0),
-            Child = icon,
+            Child = iconSlot,
         };
         iconHost.SetResourceReference(Border.BorderBrushProperty, "CheckBoxBorder");
 
@@ -339,7 +361,7 @@ internal static class InboxApprovalChecklistPresenter
                 : "Mark this item unapproved."),
         };
         AutomationProperties.SetName(checkBox, label);
-        return (checkBox, iconHost, icon);
+        return (checkBox, iconHost, icon, previousAnswerMarker);
     }
 
     private static ControlTemplate BuildContentOnlyTemplate()

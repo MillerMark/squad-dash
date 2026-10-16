@@ -11784,19 +11784,131 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         SyncPlansPanel();
 
-        if (updated.LifecycleStatus == PlanLifecycleStatus.Interrupted && !updated.IsPaused)
+        await ContinueAfterApprovedPlanRevisionAsync(current, updated);
+    }
+
+    private async Task ContinueAfterApprovedPlanRevisionAsync(Plan previous, Plan updated)
+    {
+        if (updated.IsPaused || PlanLifecycleStatus.IsTerminal(updated.LifecycleStatus))
+            return;
+
+        var active = _planStore?.Load(updated.PlanId) ?? updated;
+        if (PlanExecutionBoundaryPolicy.IsReadyToComplete(active))
+        {
+            var completed = PlanStoreUpdater.ApplyCompleted(active with { InterruptionData = null });
+            if (!TryPublishPlanProgress(completed, out var completionError))
+            {
+                AppendLine($"⚠ Plan revision was approved but completion could not be saved: {completionError}");
+                return;
+            }
+
+            RefreshPlanProjectionBestEffort(completed, "approved plan revision completion");
+            LoadTasksPanel();
+            SyncPlansPanel();
+            PublishPlanCompletionSummary(completed);
+            ScheduleDecomposeSystemEntry(
+                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(
+                    completed, "Revised plan completed"));
+            return;
+        }
+
+        if (active.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
+        {
+            if (HasReadyPendingApprovalGate(active))
+            {
+                active = await ActivateRevisionApprovalBoundaryAsync(previous, active);
+                if (active.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
+                {
+                    ResolveRecoveryTranscript(
+                        "↩ Revision approved. The approval checkpoint was refreshed.");
+                    return;
+                }
+                if (active.IsPaused || PlanLifecycleStatus.IsTerminal(active.LifecycleStatus))
+                    return;
+            }
+            else if (active.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
+            {
+                await RestoreRevisionAwaitingApprovalGateUIAsync(active);
+                ResolveRecoveryTranscript(
+                    "↩ Revision approved. The approval checkpoint was restored.");
+                return;
+            }
+        }
+
+        if (active.LifecycleStatus is
+            PlanLifecycleStatus.Interrupted or
+            PlanLifecycleStatus.AwaitingApproval or
+            PlanLifecycleStatus.Executing)
         {
             try
             {
-                await StartOrResumeDurablePlanAsync(updated);
+                await StartOrResumeDurablePlanAsync(active);
                 ResolveRecoveryTranscript(
-                    "↩ Recovery resumed. The remaining plan was revised and execution continued.");
+                    "↩ Revision approved. The remaining plan was revised and execution continued.");
             }
             catch (PlanPreflightBlockedException blocked)
             {
-                ScheduleApprovalResumeRetry(updated.PlanId, blocked);
+                ScheduleApprovalResumeRetry(active.PlanId, blocked);
             }
         }
+    }
+
+    private async Task<Plan> ActivateRevisionApprovalBoundaryAsync(Plan previous, Plan active)
+    {
+        var recovered = PlanStoreUpdater.ApplyApprovalBoundaryRecovery(active);
+        if (!TryPublishPlanProgress(recovered, out var publishError))
+        {
+            AppendLine($"⚠ Plan revision was approved but its approval checkpoint could not be reopened: {publishError}");
+            return active;
+        }
+
+        RefreshPlanProjectionBestEffort(recovered, "approved plan revision approval boundary");
+        var mustStop = PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(recovered);
+        await ProcessPlanApprovalsAfterStepAsync(
+            recovered.PlanId,
+            recovered.Revision,
+            ResolvePlanRevisionBoundaryTaskId(recovered, previous),
+            mustStop
+                ? DecomposeGroupExecutionState.AwaitingApproval
+                : DecomposeGroupExecutionState.Eligible,
+            recovered);
+        LoadTasksPanel();
+        SyncPlansPanel();
+        return _planStore?.Load(recovered.PlanId) ?? recovered;
+    }
+
+    private async Task RestoreRevisionAwaitingApprovalGateUIAsync(Plan active)
+    {
+        if (_planApprovalRuntime is not null)
+            await _planApprovalRuntime.RestoreAsync([active]);
+        RestoreAwaitingApprovalGateUI(active.PlanId);
+    }
+
+    private static string ResolvePlanRevisionBoundaryTaskId(Plan updated, Plan previous)
+    {
+        var candidateGate = updated.ApprovalGates.FirstOrDefault(gate =>
+                                gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval) ??
+                            previous.ApprovalGates.FirstOrDefault(gate =>
+                                gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval);
+        if (candidateGate is not null)
+        {
+            foreach (var taskId in candidateGate.AfterTaskIds.Reverse())
+            {
+                var task = updated.Tasks.FirstOrDefault(candidate =>
+                    string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+                if (task?.Status is PlanTaskStatus.Complete or
+                    PlanTaskStatus.Superseded or
+                    PlanTaskStatus.HumanReviewRequired)
+                    return taskId;
+            }
+        }
+
+        return previous.Progress.ExecutingTaskId ??
+               updated.Progress.ExecutingTaskId ??
+               updated.Tasks.LastOrDefault(task =>
+                   task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)?.TaskId ??
+               updated.Tasks.FirstOrDefault()?.TaskId ??
+               updated.PlanId;
     }
 
     private void AppendPlanRevisionApprovalCard(

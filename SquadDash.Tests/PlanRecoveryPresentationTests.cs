@@ -811,6 +811,37 @@ internal sealed class PlanRecoveryPresentationTests
             Assert.That(item.IsChecked, Is.False);
             Assert.That(item.WasPreviouslyChecked, Is.True);
             Assert.That(item.PreviouslyCheckedCommit, Is.EqualTo("oldcommit456"));
+            Assert.That(item.PreviousAnswer, Is.EqualTo(PlanHumanReviewAnswer.Yes));
+        });
+    }
+
+    [Test]
+    public void HumanChecklist_NewCandidateShowsPriorExplicitNoForReconfirmation()
+    {
+        var task = new PlanTask(
+            "PLAN-007", "Review", "Review", [], "high", PlanTaskStatus.HumanReviewRequired,
+            Handoff: new PlanTaskHandoff("newcommit123", "Updated", [], null, DateTimeOffset.UtcNow));
+        var gate = new PlanApprovalGate(
+            "GATE-007", "Observe", [task.TaskId], [], PlanGateStatus.AwaitingApproval,
+            ProofRequirements:
+            [new PlanTaskProofRequirement("visual", "live-ui-observation", "Observe", "Does it work?")],
+            HumanReviewSelections:
+            [new PlanHumanReviewSelection(
+                "visual",
+                false,
+                "oldcommit456",
+                DateTimeOffset.UtcNow.AddMinutes(-5),
+                Answer: PlanHumanReviewAnswer.No)]);
+        var plan = TestPlan(null) with { Tasks = [task], ApprovalGates = [gate] };
+
+        var item = PlanHumanReviewChecklist.Build(plan, [gate]).Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(item.IsChecked, Is.False);
+            Assert.That(item.WasPreviouslyChecked, Is.False);
+            Assert.That(item.WasPreviouslyAnsweredNo, Is.True);
+            Assert.That(item.PreviousAnswer, Is.EqualTo(PlanHumanReviewAnswer.No));
         });
     }
 

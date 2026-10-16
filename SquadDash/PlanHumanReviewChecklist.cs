@@ -16,13 +16,21 @@ internal sealed record PlanHumanReviewChecklistItem(
     string? Title = null,
     string? ReviewTarget = null,
     string? Answer = null,
-    string? Note = null)
+    string? Note = null,
+    string? PreviousAnswer = null)
 {
     internal bool IsExplicitNo =>
         string.Equals(Answer, PlanHumanReviewAnswer.No, StringComparison.Ordinal);
 
     internal bool IsUnanswered =>
         !IsChecked && !IsExplicitNo;
+
+    internal bool WasPreviouslyAnsweredYes =>
+        string.Equals(PreviousAnswer, PlanHumanReviewAnswer.Yes, StringComparison.Ordinal) ||
+        (PreviousAnswer is null && WasPreviouslyChecked);
+
+    internal bool WasPreviouslyAnsweredNo =>
+        string.Equals(PreviousAnswer, PlanHumanReviewAnswer.No, StringComparison.Ordinal);
 }
 
 internal sealed record PlanHumanReviewItemResponse(bool? IsApproved, string? Note)
@@ -152,7 +160,8 @@ internal static class PlanHumanReviewChecklist
             ResolveDisplayTitle(title, requirementId),
             reviewTarget,
             ResolveAnswer(current),
-            PlanHumanReviewItemResponse.NormalizeNote(current?.Note)));
+            PlanHumanReviewItemResponse.NormalizeNote(current?.Note),
+            ResolveAnswer(previous)));
     }
 
     private static string? ResolveAnswer(PlanHumanReviewSelection? selection)

@@ -71,8 +71,10 @@ internal sealed class InboxApprovalChecklistPresenterTests
 
         var yesContent = (StackPanel)boxes[0].Content;
         var yesBorder = yesContent.Children.OfType<Border>().Single();
+        var yesIcon = FindChoiceIcon(boxes[0]);
         var noContent = (StackPanel)boxes[1].Content;
         var noBorder = noContent.Children.OfType<Border>().Single();
+        var noIcon = FindChoiceIcon(boxes[1]);
         var list = document.Blocks.OfType<List>()
             .Single(candidate => candidate.MarkerStyle == TextMarkerStyle.None);
         var orderedLists = document.Blocks.OfType<List>()
@@ -86,10 +88,10 @@ internal sealed class InboxApprovalChecklistPresenterTests
             Assert.That(yesBorder.Height, Is.EqualTo(Math.Round(expectedFontSize * 1.2)));
             Assert.That(yesBorder.BorderThickness, Is.EqualTo(new Thickness(1.5)));
             Assert.That(yesBorder.CornerRadius, Is.EqualTo(new CornerRadius(2)));
-            Assert.That(((Viewbox)yesBorder.Child).Visibility, Is.EqualTo(Visibility.Visible));
-            Assert.That(((Viewbox)noBorder.Child).Margin,
+            Assert.That(yesIcon.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(noIcon.Margin,
                 Is.EqualTo(TranscriptApprovalCardBuilder.GetReviewChoiceIconMargin("No", noBorder.Width)));
-            Assert.That(((Viewbox)noBorder.Child).Margin.Left, Is.LessThan(2));
+            Assert.That(noIcon.Margin.Left, Is.LessThan(2));
             Assert.That(root.Margin.Top,
                 Is.EqualTo(2 + (expectedFontSize * InboxApprovalChecklistPresenter.ChecklistTopSpacingScale)));
             Assert.That(list.MarkerStyle, Is.EqualTo(TextMarkerStyle.None));
@@ -137,11 +139,15 @@ internal sealed class InboxApprovalChecklistPresenterTests
 
         InboxApprovalChecklistPresenter.Attach(document, [item], (_, _) => { }, fontSize: 14);
         var boxes = FindCheckBoxes(FindChecklistRoot(document.Blocks)!).ToArray();
+        var yesMarker = FindChoiceMarker(boxes[0]);
+        var yesIcon = FindChoiceIcon(boxes[0]);
 
         Assert.Multiple(() =>
         {
-            Assert.That(boxes[0].IsChecked, Is.False);
+            Assert.That(boxes[0].IsChecked, Is.True);
             Assert.That(boxes[1].IsChecked, Is.False);
+            Assert.That(yesMarker.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(yesIcon.Visibility, Is.EqualTo(Visibility.Hidden));
         });
 
         boxes[0].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -150,6 +156,43 @@ internal sealed class InboxApprovalChecklistPresenterTests
         {
             Assert.That(boxes[0].IsChecked, Is.True);
             Assert.That(boxes[1].IsChecked, Is.False);
+            Assert.That(yesMarker.Visibility, Is.EqualTo(Visibility.Hidden));
+            Assert.That(yesIcon.Visibility, Is.EqualTo(Visibility.Visible));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Attach_PreviouslyRejectedItem_ShowsQuestionMarkInNoChoiceUntilReconfirmed()
+    {
+        const string question = "Does the result still fail?";
+        var document = MarkdownFlowDocumentBuilder.BuildInbox($"- ? {question}", 14);
+        var item = new PlanHumanReviewChecklistItem(
+            "gate-1", "corrected-result", "corrected-result", question,
+            "abcdef123456", false, false, "abcdef123456",
+            ReviewTarget: "target-2",
+            PreviousAnswer: PlanHumanReviewAnswer.No);
+
+        InboxApprovalChecklistPresenter.Attach(document, [item], (_, _) => { }, fontSize: 14);
+        var boxes = FindCheckBoxes(FindChecklistRoot(document.Blocks)!).ToArray();
+        var noMarker = FindChoiceMarker(boxes[1]);
+        var noIcon = FindChoiceIcon(boxes[1]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(boxes[0].IsChecked, Is.False);
+            Assert.That(boxes[1].IsChecked, Is.True);
+            Assert.That(noMarker.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(noIcon.Visibility, Is.EqualTo(Visibility.Hidden));
+        });
+
+        boxes[1].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(boxes[0].IsChecked, Is.False);
+            Assert.That(boxes[1].IsChecked, Is.True);
+            Assert.That(noMarker.Visibility, Is.EqualTo(Visibility.Hidden));
+            Assert.That(noIcon.Visibility, Is.EqualTo(Visibility.Visible));
         });
     }
 
@@ -260,5 +303,21 @@ internal sealed class InboxApprovalChecklistPresenterTests
         foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
         foreach (var nested in FindCheckBoxes(child))
             yield return nested;
+    }
+
+    private static Viewbox FindChoiceIcon(CheckBox choice)
+    {
+        var content = (StackPanel)choice.Content;
+        var border = content.Children.OfType<Border>().Single();
+        var slot = (Grid)border.Child;
+        return slot.Children.OfType<Viewbox>().Single();
+    }
+
+    private static TextBlock FindChoiceMarker(CheckBox choice)
+    {
+        var content = (StackPanel)choice.Content;
+        var border = content.Children.OfType<Border>().Single();
+        var slot = (Grid)border.Child;
+        return slot.Children.OfType<TextBlock>().Single();
     }
 }
