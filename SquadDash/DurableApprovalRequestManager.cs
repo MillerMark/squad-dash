@@ -247,6 +247,26 @@ internal sealed class DurableApprovalRequestManager
         }
     }
 
+    internal async Task SuppressActionsAsync(
+        string planId,
+        CancellationToken cancellationToken = default)
+    {
+        var sem = GetLock(planId);
+        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var existing = _inbox.GetById(BuildMessageId(planId));
+            if (existing is null || existing.Actions.Count == 0)
+                return;
+
+            _inbox.Save(existing with { Actions = [] });
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
     /// <summary>
     /// Resolves a checkpoint: moves the gate ID from active to resolved history.
     /// If no active gates remain, marks the message read, removes actions, and archives it.
@@ -855,7 +875,11 @@ internal sealed class DurableApprovalRequestManager
     {
         var guide = ResolveOperatorGuide(plan, state.ActiveGateIds, existingAttachments);
         if (string.IsNullOrWhiteSpace(guide))
-            return BuildActions(plan, state);
+            return BuildActions(
+                plan,
+                state,
+                approvalSetupValid: true,
+                suppressIncompleteChecklistActions: true);
 
         var gates = state.ActiveGateIds
             .Select(gateId => plan.ApprovalGates.FirstOrDefault(gate =>
@@ -868,7 +892,7 @@ internal sealed class DurableApprovalRequestManager
         var setupValid = !composed.Contains(
             ManualTestKitChecklistComposer.SetupErrorMarker,
             StringComparison.Ordinal);
-        return BuildActions(plan, state, setupValid);
+        return BuildActions(plan, state, setupValid, suppressIncompleteChecklistActions: true);
     }
 
     internal static string BuildBody(
@@ -1074,12 +1098,13 @@ internal sealed class DurableApprovalRequestManager
     internal static IReadOnlyList<InboxAction> BuildActions(
         Plan plan,
         DurableApprovalState state)
-        => BuildActions(plan, state, approvalSetupValid: true);
+        => BuildActions(plan, state, approvalSetupValid: true, suppressIncompleteChecklistActions: false);
 
     private static IReadOnlyList<InboxAction> BuildActions(
         Plan plan,
         DurableApprovalState state,
-        bool approvalSetupValid)
+        bool approvalSetupValid,
+        bool suppressIncompleteChecklistActions = false)
     {
         if (state.ActiveGateIds.Count == 0)
             return [];
@@ -1098,7 +1123,13 @@ internal sealed class DurableApprovalRequestManager
             .Cast<PlanApprovalGate>()
             .ToArray();
         var checklist = PlanHumanReviewChecklist.Build(plan, activeGates);
-        if (approvalSetupValid && checklist.Count > 0 && checklist.Any(item => !item.IsChecked))
+        var hasIncompleteChecklist = checklist.Count > 0 && checklist.Any(item => !item.IsChecked);
+        var suppressIncompleteAction =
+            suppressIncompleteChecklistActions &&
+            checklist.Any(RequiresInlineReconfirmation);
+        if (approvalSetupValid &&
+            hasIncompleteChecklist &&
+            !suppressIncompleteAction)
         {
             actions.Add(new InboxAction
             {
@@ -1123,6 +1154,10 @@ internal sealed class DurableApprovalRequestManager
 
         return actions;
     }
+
+    private static bool RequiresInlineReconfirmation(PlanHumanReviewChecklistItem item) =>
+        item.IsUnanswered &&
+        (item.WasPreviouslyAnsweredYes || item.WasPreviouslyAnsweredNo);
 
     /// <summary>Reads the durable approval state embedded in an Inbox message.</summary>
     internal static DurableApprovalState? ReadState(InboxMessage message) => DeserializeState(message);

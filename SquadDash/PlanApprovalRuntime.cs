@@ -178,6 +178,11 @@ internal sealed class PlanApprovalRuntime
                     .ConfigureAwait(false);
             }
         }
+        else if (ShouldSuppressRuntimeMessageActions(updated))
+        {
+            await _requests.SuppressActionsAsync(updated.PlanId, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return new ApprovalRuntimeAdvanceResult(
             updated,
@@ -265,6 +270,11 @@ internal sealed class PlanApprovalRuntime
                     state.Version,
                     state.ActiveGateIds,
                     cancellationToken).ConfigureAwait(false);
+                if (ShouldSuppressRuntimeMessageActions(plan))
+                {
+                    await _requests.SuppressActionsAsync(plan.PlanId, cancellationToken)
+                        .ConfigureAwait(false);
+                }
             }
         }
     }
@@ -486,6 +496,20 @@ internal sealed class PlanApprovalRuntime
             : "The live approval action changed before persistence: " +
               $"attempted revision={attempted.PlanRevision}, version={attempted.RequestVersion}, gates=[{string.Join(",", attempted.GateIds)}]; " +
               $"current revision={current.PlanRevision}, version={current.RequestVersion}, gates=[{string.Join(",", current.GateIds)}].";
+    }
+
+    private static bool ShouldSuppressRuntimeMessageActions(Plan plan)
+    {
+        if (plan.LifecycleStatus != PlanLifecycleStatus.Executing ||
+            ApprovalGateReadinessEvaluator.SelectNextUngatedTask(plan) is null)
+            return false;
+
+        var activeGates = plan.ApprovalGates
+            .Where(gate => gate.Status == PlanGateStatus.AwaitingApproval)
+            .ToArray();
+        return activeGates.Length > 0 &&
+               PlanHumanReviewChecklist.Build(plan, activeGates)
+                   .Any(item => !item.IsChecked);
     }
 
     private static ApprovalReviewSnapshot CombineSnapshots(IReadOnlyList<ApprovalReviewSnapshot> snapshots)
