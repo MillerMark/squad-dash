@@ -239,6 +239,31 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
     }
 
     [Test]
+    public void PlanViewerPauseResume_RestoresAwaitingApprovalSurface()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var resumeCallback = Method(
+            main,
+            "Action<Plan>? onResumePlan =",
+            "Action<Plan>? onPausePlan =");
+        var pauseCallback = Method(
+            main,
+            "Action<Plan>? onPausePlan =",
+            "Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resumeCallback, Does.Contain("TrySetPlanPauseState(current, pause: false, out var resumed")
+                .And.Contain("RemovePlanPauseRequestedEntries(resumed.PlanId)")
+                .And.Contain("resumed.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval")
+                .And.Contain("gate.Status == PlanGateStatus.AwaitingApproval")
+                .And.Contain("RestoreAwaitingApprovalGateUI(resumed.PlanId)"));
+            Assert.That(pauseCallback, Does.Contain("TrySetPlanPauseState(current, pause: true")
+                .And.Contain("RemoveApprovalCardsForPausedPlan(current.PlanId)"));
+        });
+    }
+
+    [Test]
     public void RecoveryDeveloperPreview_BypassesOnlyTheDurableInterruptionRequirement()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

@@ -14996,6 +14996,14 @@ public partial class MainWindow : Window
                       return;
                   }
                   ClearPlanActionIssue(current.PlanId);
+                  _pausePlanAfterCurrentStepRequested = false;
+                  RemovePlanPauseRequestedEntries(resumed.PlanId);
+                  if (resumed.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval &&
+                      resumed.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
+                  {
+                      RestoreAwaitingApprovalGateUI(resumed.PlanId);
+                      return;
+                  }
                   var executingWithoutRunner = resumed.LifecycleStatus == PlanLifecycleStatus.Executing &&
                                                (!IsLoopRunning || !string.Equals(
                                                    _activeDecomposeGroupId,
@@ -15034,6 +15042,7 @@ public partial class MainWindow : Window
                       return;
                   }
                   ClearPlanActionIssue(current.PlanId);
+                  RemoveApprovalCardsForPausedPlan(current.PlanId);
               }
             : null;
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
