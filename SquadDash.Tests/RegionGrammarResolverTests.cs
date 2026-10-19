@@ -163,6 +163,62 @@ public sealed class RegionGrammarAutoDetectTests
     private const string PhpSample =
         "<?php\n$name = 'world';\necho \"Hello $name\";\n?>";
 
+    private const string PhpSnippetSample =
+        "public function greet($name) {\n" +
+        "    echo \"Hello $name\";\n" +
+        "}";
+
+    private const string PythonSample =
+        "def greet(name):\n" +
+        "    print(f\"hi {name}\")\n\n" +
+        "if __name__ == \"__main__\":\n" +
+        "    greet(\"Ada\")";
+
+    private const string JsonSample =
+        "{\n" +
+        "  \"name\": \"SquadDash\",\n" +
+        "  \"features\": [\"regions\", \"syntax\"],\n" +
+        "  \"enabled\": true\n" +
+        "}";
+
+    private const string TsqlSample =
+        "DECLARE @teamId int = 42;\n" +
+        "SELECT Name, Status\n" +
+        "FROM dbo.Squads\n" +
+        "WHERE TeamId = @teamId;";
+
+    private const string VbSample =
+        "Public Class Greeter\n" +
+        "    Public Function SayHello(name As String) As String\n" +
+        "        Return \"Hello \" & name\n" +
+        "    End Function\n" +
+        "End Class";
+
+    private const string PatchSample =
+        "diff --git a/file.cs b/file.cs\n" +
+        "--- a/file.cs\n" +
+        "+++ b/file.cs\n" +
+        "@@ -1,2 +1,2 @@\n" +
+        "-old\n" +
+        "+new";
+
+    private const string TexSample =
+        "\\documentclass{article}\n" +
+        "\\usepackage{amsmath}\n" +
+        "\\begin{document}\n" +
+        "\\section{Intro}\n" +
+        "Hello\n" +
+        "\\end{document}";
+
+    private const string AspXhtmlSample =
+        "<%@ Page Language=\"C#\" %>\n" +
+        "<asp:Label runat=\"server\" Text=\"Hello\" />";
+
+    private const string XmlFragmentSample =
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n" +
+        "  <PropertyGroup><TargetFramework>net10.0-windows</TargetFramework></PropertyGroup>\n" +
+        "</Project>";
+
     [TestCase(CSharpSample, "C#")]
     [TestCase(JavaSample, "Java")]
     [TestCase(CppSample, "C++")]
@@ -172,6 +228,15 @@ public sealed class RegionGrammarAutoDetectTests
     [TestCase(HtmlSample, "HTML")]
     [TestCase(XmlSample, "XML")]
     [TestCase(PhpSample, "PHP")]
+    [TestCase(PhpSnippetSample, "PHP")]
+    [TestCase(PythonSample, "Python")]
+    [TestCase(JsonSample, "Json")]
+    [TestCase(TsqlSample, "TSQL")]
+    [TestCase(VbSample, "VB")]
+    [TestCase(PatchSample, "Patch")]
+    [TestCase(TexSample, "TeX")]
+    [TestCase(AspXhtmlSample, "ASP/XHTML")]
+    [TestCase(XmlFragmentSample, "XML")]
     [Apartment(ApartmentState.STA)]
     public void DetectBuiltIn_ClassifiesInstalledBuiltIns(string content, string expected)
     {
@@ -190,6 +255,8 @@ public sealed class RegionGrammarAutoDetectTests
         {
             CSharpSample, JavaSample, CppSample, PowerShellSample,
             JavaScriptSample, CssSample, HtmlSample, XmlSample, PhpSample,
+            PhpSnippetSample, PythonSample, JsonSample, TsqlSample, VbSample,
+            PatchSample, TexSample, AspXhtmlSample, XmlFragmentSample,
         })
         {
             var detected = RegionGrammarResolver.DetectBuiltIn(content);
@@ -204,6 +271,14 @@ public sealed class RegionGrammarAutoDetectTests
     [TestCase("- a markdown list item\n- another item\n# A heading")]
     [Apartment(ApartmentState.STA)]
     public void DetectBuiltIn_ReturnsNullForEmptyOrProse(string content)
+    {
+        Assert.That(RegionGrammarResolver.DetectBuiltIn(content), Is.Null);
+    }
+
+    [TestCase("{ this is not json }")]
+    [TestCase("SELECT this option from the menu before continuing.")]
+    [Apartment(ApartmentState.STA)]
+    public void DetectBuiltIn_ReturnsNullForLookalikeText(string content)
     {
         Assert.That(RegionGrammarResolver.DetectBuiltIn(content), Is.Null);
     }
@@ -242,9 +317,22 @@ public sealed class RegionGrammarAutoDetectTests
         "    public string Greet() => \"Hi \" + Name;\n" +
         "}";
 
+    private const string DeclarationPropertiesOnlySample =
+        "public string Name { get; init; }\n" +
+        "public int Count { get; set; }\n" +
+        "public bool IsEnabled { get; private set; }";
+
+    private const string DeclarationMethodOnlySample =
+        "public async Task<Result> ExecuteAsync(CancellationToken cancellationToken)\n" +
+        "{\n" +
+        "    return await runner.RunAsync(cancellationToken);\n" +
+        "}";
+
     [TestCase(ReviewerInterfaceSample)]
     [TestCase(ReviewerEmptyClassSample)]
     [TestCase(DeclarationPropertyClassSample)]
+    [TestCase(DeclarationPropertiesOnlySample)]
+    [TestCase(DeclarationMethodOnlySample)]
     [Apartment(ApartmentState.STA)]
     public void DetectBuiltIn_ClassifiesDeclarationStyleCSharp(string content)
     {
@@ -259,6 +347,14 @@ public sealed class RegionGrammarAutoDetectTests
     public void DetectBuiltIn_BroadenedCSharpDoesNotFalsePositiveOtherLanguages(string content, string expected)
     {
         Assert.That(RegionGrammarResolver.DetectBuiltIn(content), Is.EqualTo(expected));
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void DetectBuiltIn_ScoredMarkersStillRejectCloseOverlap()
+    {
+        var ambiguous = "def greet(name):\n    console.log(name)";
+        Assert.That(RegionGrammarResolver.DetectBuiltIn(ambiguous), Is.Null);
     }
 
     [Test]

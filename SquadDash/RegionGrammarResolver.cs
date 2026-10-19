@@ -1,5 +1,9 @@
 using System;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml;
 using ICSharpCode.AvalonEdit.Highlighting;
 
 namespace SquadDash;
@@ -41,15 +45,13 @@ namespace SquadDash;
 /// <para>
 /// <b>Classifier precedence and limits (see <see cref="DetectBuiltIn"/>):</b> detection is
 /// deterministic and bounded. Only the first <see cref="MaxScanLength"/> characters are examined,
-/// using non-backtracking regexes. Tier-1 document signatures (<c>&lt;?php</c>, <c>&lt;?xml</c>,
-/// <c>&lt;!DOCTYPE html&gt;</c>/<c>&lt;html&gt;</c>) are unmistakable and win immediately in that
-/// order. Otherwise a tier&#8209;2 marker scan runs across C#, Java, C++, PowerShell, JavaScript
-/// and CSS; a grammar is returned only when <i>exactly one</i> of those languages matches.
-/// Zero matches, more than one match (ambiguous/overlapping fragments), prose, or empty input all
-/// return <see langword="null"/>. Every candidate is additionally verified to be installed via
-/// <see cref="HighlightingManager"/>, so this type can never name a grammar that is not actually
-/// loaded. Only well-separated, commonly-used languages are classified on purpose: the goal is a
-/// small, high-precision classifier, not broad coverage.
+/// using parser-backed checks for JSON/XML and non-backtracking regexes for language signals.
+/// Unmistakable document signatures win immediately. Otherwise a weighted marker scan runs across
+/// common AvalonEdit built-ins; a grammar is returned only when its score clears the confidence
+/// threshold and no other language also clears that bar. Zero matches, weak matches, close overlaps,
+/// prose, or empty input all return <see langword="null"/>. Every candidate is additionally
+/// verified to be installed via <see cref="HighlightingManager"/>, so this type can never name a
+/// grammar that is not actually loaded.
 /// </para>
 /// </remarks>
 public static class RegionGrammarResolver
@@ -57,69 +59,138 @@ public static class RegionGrammarResolver
     /// <summary>Upper bound on the number of leading characters the classifier inspects.</summary>
     public const int MaxScanLength = 8192;
 
+    private const int MinimumScore = 4;
     private const RegexOptions SharedOptions =
         RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture | RegexOptions.NonBacktracking;
 
+    private static readonly JsonDocumentOptions JsonOptions = new()
+    {
+        AllowTrailingCommas = true,
+        CommentHandling = JsonCommentHandling.Skip,
+    };
+
+    private static readonly XmlReaderSettings XmlReaderSettings = new()
+    {
+        DtdProcessing = DtdProcessing.Prohibit,
+        XmlResolver = null,
+        ConformanceLevel = ConformanceLevel.Fragment,
+    };
+
     // Document signatures take precedence over markers in embedded scripts.
     private static readonly Regex PhpSignature = Make(@"<\?(php|=)", ignoreCase: true);
-    private static readonly Regex XmlSignature = Make(@"^\s*<\?xml\b", ignoreCase: true);
-    private static readonly Regex HtmlSignature = Make(
-        @"<!DOCTYPE\s+html|<html[\s>]|</(html|head|body|div|span|table|ul|ol|li|p|a|h[1-6])>",
+    private static readonly Regex PatchSignature = Make(
+        @"(?:^|\n)\s*(diff --git\b|Index:\s+\S+|---\s+[ab]/[^\r\n]+|@@\s+-\d+(,\d+)?\s+\+\d+(,\d+)?\s+@@)");
+    private static readonly Regex AspXhtmlSignature = Make(
+        @"<%@\s*(Page|Control|Master|Register|Import)\b|<asp:[A-Za-z]",
         ignoreCase: true);
-
-    // Require a single matching language when no document signature is present.
-    private static readonly LanguageMarkers[] Tier2 =
+    private static readonly Regex HtmlSignature = Make(
+        @"<!DOCTYPE\s+html|<(html|head|body|div|span|table|ul|ol|li|p|a|h[1-6]|section|article|main|script|style|button|form|input)\b|</(html|head|body|div|span|table|ul|ol|li|p|a|h[1-6]|section|article|main|script|style|button|form)>",
+        ignoreCase: true);
+    private static readonly Regex XmlDeclarationSignature = Make(@"^\s*<\?xml\b", ignoreCase: true);
+    // Score language markers after unmistakable document signatures.
+    private static readonly LanguageMarkers[] ScoredLanguages =
     {
         new("C#", new[]
         {
-            Make(@"\busing\s+System\b"),
-            Make(@"\bnamespace\s+[A-Za-z_][\w.]*\s*;"),
-            Make(@"\bConsole\.(Write|WriteLine)\b"),
-            Make(@"\bpublic\s+static\s+void\s+Main\s*\(\s*string\[\]"),
-            // Declaration-style C# signals that do NOT also fire the Java / C++ / JavaScript /
-            // PowerShell / CSS markers, so realistic hand-written C# still classifies as a single
-            // winner. Case-sensitive (C# keywords are case-sensitive) and backtracking-free.
-            Make(@"\bnamespace\s+[A-Za-z_][\w.]*\s*\{"),
-            Make(@"\busing\s+[A-Za-z_][\w.]*\s*;"),
-            Make(@"\{\s*get\s*;"),
-            Make(@"\bevent\s+[A-Za-z_][\w.]*\??\s+[A-Za-z_]\w*\s*;"),
-            Make(@"\bEventHandler\?"),
-            Make(@"\b(public|internal|protected|private)\s+(sealed\s+|abstract\s+|static\s+|partial\s+)*class\s+[A-Za-z_]\w*\s*\{\s*\}"),
-            Make(@"\b(public|private|protected|internal)\s+(sealed\s+|abstract\s+|static\s+|partial\s+|readonly\s+|ref\s+)*(record|struct)\b"),
+            WeightedMarker(@"\busing\s+System\b", 4),
+            WeightedMarker(@"\bnamespace\s+[A-Za-z_][\w.]*\s*[;{]", 4),
+            WeightedMarker(@"\bpublic\s+static\s+void\s+Main\s*\(\s*string\[\]", 4),
+            WeightedMarker(@"\busing\s+[A-Za-z_][\w.]*\s*;", 3),
+            WeightedMarker(@"\{\s*(get|set|init)\s*;", 4),
+            WeightedMarker(@"\bevent\s+[A-Za-z_][\w.]*\??\s+[A-Za-z_]\w*\s*;", 4),
+            WeightedMarker(@"\bEventHandler\?", 4),
+            WeightedMarker(@"\b(public|internal|protected|private)\s+(sealed\s+|abstract\s+|static\s+|partial\s+)*class\s+[A-Za-z_]\w*\s*\{\s*\}", 4),
+            WeightedMarker(@"\b(public|internal|protected|private)\s+(sealed\s+|abstract\s+|static\s+|partial\s+)*class\s+[A-Za-z_]\w*", 2),
+            WeightedMarker(@"\b(public|private|protected|internal)\s+(sealed\s+|abstract\s+|static\s+|partial\s+|readonly\s+|ref\s+)*(record|struct|interface)\b", 4),
+            WeightedMarker(@"\b(public|private|protected|internal)\s+(async\s+|static\s+|virtual\s+|override\s+|sealed\s+|abstract\s+|partial\s+|readonly\s+|unsafe\s+)*[A-Za-z_][\w<>,\[\]?]*\s+[A-Z]\w*\s*\([^;{}]*\)\s*(=>|\{)", 3),
+            WeightedMarker(@"\basync\s+Task(<|\b)", 4),
+            WeightedMarker(@"\bCancellationToken\b", 3),
+            WeightedMarker(@"\bI(ReadOnly)?(List|Dictionary|Collection|Enumerable)<", 3),
+            WeightedMarker(@"\bConsole\.(Write|WriteLine)\b", 4),
         }),
         new("Java", new[]
         {
-            Make(@"\bimport\s+java\."),
-            Make(@"\bSystem\.out\.print"),
-            Make(@"\bpublic\s+static\s+void\s+main\s*\(\s*String"),
-            Make(@"\bpackage\s+[a-z][\w.]*\s*;"),
+            WeightedMarker(@"\bimport\s+java\.", 4),
+            WeightedMarker(@"\bSystem\.out\.print", 4),
+            WeightedMarker(@"\bpublic\s+static\s+void\s+main\s*\(\s*String", 4),
+            WeightedMarker(@"\bpackage\s+[a-z][\w.]*\s*;", 3),
+            WeightedMarker(@"\b@Override\b", 3),
         }),
         new("C++", new[]
         {
-            Make(@"#\s*include\s*<"),
-            Make(@"\bstd::"),
-            Make(@"\bcout\s*<<"),
+            WeightedMarker(@"#\s*include\s*<", 4),
+            WeightedMarker(@"\bstd::", 4),
+            WeightedMarker(@"\bcout\s*<<", 4),
+            WeightedMarker(@"\btemplate\s*<", 4),
+            WeightedMarker(@"\b(int|void|auto)\s+main\s*\(", 2),
         }),
         new("PowerShell", new[]
         {
-            Make(@"\b(Write|Get|Set|New|Remove|Invoke|Start|Stop|Import|Export)-[A-Z][A-Za-z]+"),
-            Make(@"\[CmdletBinding"),
-            Make(@"\$PSScriptRoot\b"),
-            Make(@"\bparam\s*\(\s*\$"),
+            WeightedMarker(@"\b(Write|Get|Set|New|Remove|Invoke|Start|Stop|Import|Export)-[A-Z][A-Za-z]+", 4),
+            WeightedMarker(@"\[CmdletBinding", 4),
+            WeightedMarker(@"\$PSScriptRoot\b", 4),
+            WeightedMarker(@"\bparam\s*\(\s*\$", 4),
+            WeightedMarker(@"\$_\.", 3),
         }),
         new("JavaScript", new[]
         {
-            Make(@"\bconsole\.log\s*\("),
-            Make(@"\bmodule\.exports\b"),
-            Make(@"\brequire\s*\(\s*['""]"),
-            Make(@"\bdocument\.(getElementById|querySelector)"),
-            Make(@"\bexport\s+default\b"),
+            WeightedMarker(@"\bconsole\.log\s*\(", 4),
+            WeightedMarker(@"\bmodule\.exports\b", 4),
+            WeightedMarker(@"\brequire\s*\(\s*['""]", 4),
+            WeightedMarker(@"\bdocument\.(getElementById|querySelector)", 4),
+            WeightedMarker(@"\bexport\s+default\b", 4),
+            WeightedMarker(@"\bimport\s+[A-Za-z_$][\w$]*(\s*,\s*\{[^}]*\}|\s+from)?\s+from\s+['""]", 4),
+            WeightedMarker(@"\bconst\s+[A-Za-z_$][\w$]*\s*=\s*(async\s*)?\([^)]*\)\s*=>", 4),
+            WeightedMarker(@"\bfunction\s+[A-Za-z_$][\w$]*\s*\(", 3),
         }),
         new("CSS", new[]
         {
-            Make(@"@media\b", ignoreCase: true),
-            Make(@"@import\b", ignoreCase: true),
-            Make(@"[.#]?[-\w]+\s*\{[^{}]*:[^{}]+;[^{}]*\}"),
+            WeightedMarker(@"@media\b", 4, ignoreCase: true),
+            WeightedMarker(@"@import\b", 4, ignoreCase: true),
+            WeightedMarker(@"[.#]?[-\w]+\s*\{[^{}]*:[^{}]+;[^{}]*\}", 4),
+            WeightedMarker(@"--[-\w]+\s*:", 2),
+        }),
+        new("Python", new[]
+        {
+            WeightedMarker(@"(?:^|\n)\s*(async\s+)?def\s+[A-Za-z_]\w*\s*\([^)]*\)\s*:", 4),
+            WeightedMarker(@"(?:^|\n)\s*class\s+[A-Za-z_]\w*(\([^)]*\))?\s*:", 4),
+            WeightedMarker(@"if\s+__name__\s*==\s*['""]__main__['""]\s*:", 4),
+            WeightedMarker(@"(?:^|\n)\s*from\s+[A-Za-z_][\w.]*\s+import\s+", 3),
+            WeightedMarker(@"(?:^|\n)\s*import\s+[A-Za-z_][\w.]*", 2),
+            WeightedMarker(@"\bself\.", 2),
+        }),
+        new("TSQL", new[]
+        {
+            WeightedMarker(@"\bSELECT\s+[\s\S]{1,240}\s+FROM\s+[\[\]\w.]+(\s+(WHERE|JOIN|ORDER|GROUP)\b|;)", 4, ignoreCase: true),
+            WeightedMarker(@"\bDECLARE\s+@\w+", 4, ignoreCase: true),
+            WeightedMarker(@"\bCREATE\s+(PROCEDURE|PROC|FUNCTION|VIEW|TABLE|TRIGGER)\b", 4, ignoreCase: true),
+            WeightedMarker(@"\bINSERT\s+INTO\b", 4, ignoreCase: true),
+            WeightedMarker(@"\bUPDATE\s+[\[\]\w.]+\s+SET\b", 4, ignoreCase: true),
+            WeightedMarker(@"(?:^|\n)\s*GO\s*(\r?\n|$)", 3, ignoreCase: true),
+            WeightedMarker(@"\bJOIN\s+[\[\]\w.]+\s+ON\b", 2, ignoreCase: true),
+        }),
+        new("VB", new[]
+        {
+            WeightedMarker(@"(?:^|\n)\s*Imports\s+[A-Za-z_][\w.]*", 4, ignoreCase: true),
+            WeightedMarker(@"(?:^|\n)\s*(Public\s+|Private\s+|Friend\s+|Protected\s+)?Class\s+[A-Za-z_]\w*[\s\S]{0,500}(?:^|\n)\s*End\s+Class\b", 4, ignoreCase: true),
+            WeightedMarker(@"(?:^|\n)\s*(Public\s+|Private\s+|Friend\s+|Protected\s+)?(Sub|Function)\s+[A-Za-z_]\w*\s*\([^)]*\)[\s\S]{0,500}(?:^|\n)\s*End\s+(Sub|Function)\b", 4, ignoreCase: true),
+            WeightedMarker(@"(?:^|\n)\s*Dim\s+[A-Za-z_]\w*\s+As\s+[A-Za-z_]\w*", 3, ignoreCase: true),
+            WeightedMarker(@"(?:^|\n)\s*End\s+(Class|Module|Sub|Function|If)\b", 2, ignoreCase: true),
+        }),
+        new("TeX", new[]
+        {
+            WeightedMarker(@"\\documentclass(\[[^\]]*\])?\{[^}]+\}", 4),
+            WeightedMarker(@"\\begin\{document\}", 4),
+            WeightedMarker(@"\\usepackage(\[[^\]]*\])?\{[^}]+\}", 3),
+            WeightedMarker(@"\\(chapter|section|subsection|begin|end)\{[^}]+\}", 2),
+        }),
+        new("PHP", new[]
+        {
+            WeightedMarker(@"\b(public|private|protected)\s+function\s+[A-Za-z_]\w*\s*\(", 3, ignoreCase: true),
+            WeightedMarker(@"\bfunction\s+[A-Za-z_]\w*\s*\([^)]*\$[A-Za-z_]\w*", 4, ignoreCase: true),
+            WeightedMarker(@"\$this->[A-Za-z_]\w*", 4),
+            WeightedMarker(@"(?:^|\n)\s*(echo|print)\s+['""]", 2, ignoreCase: true),
+            WeightedMarker(@"\bnamespace\s+[A-Za-z_\\][\w\\]*\s*;", 3, ignoreCase: true),
         }),
     };
 
@@ -180,26 +251,33 @@ public static class RegionGrammarResolver
         if (string.IsNullOrWhiteSpace(sample))
             return null;
 
-        // Tier-1: unmistakable document signatures, in precedence order.
+        // Unmistakable document signatures, in precedence order.
+        if (IsJsonDocument(sample))
+            return Installed("Json");
+        if (IsMatch(PatchSignature, sample))
+            return Installed("Patch");
         if (IsMatch(PhpSignature, sample))
             return Installed("PHP");
-        if (IsMatch(XmlSignature, sample))
-            return Installed("XML");
+        if (IsMatch(AspXhtmlSignature, sample))
+            return Installed("ASP/XHTML");
         if (IsMatch(HtmlSignature, sample))
             return Installed("HTML");
+        if (IsMatch(XmlDeclarationSignature, sample) || IsXmlDocument(sample))
+            return Installed("XML");
+        // Scored markers: require a clear winner to stay conservative on ambiguity.
+        var candidates = ScoredLanguages
+            .Select(language => new Candidate(language.Name, language.Score(sample), Installed(language.Name)))
+            .Where(candidate => candidate.Score >= MinimumScore && candidate.InstalledName is not null)
+            .OrderByDescending(candidate => candidate.Score)
+            .ThenBy(candidate => candidate.Name, StringComparer.Ordinal)
+            .ToArray();
 
-        // Tier-2: require exactly one matching language to stay conservative on ambiguity.
-        string? winner = null;
-        foreach (var language in Tier2)
-        {
-            if (!language.Matches(sample))
-                continue;
-            if (winner is not null)
-                return null; // ambiguous overlap => no highlighting
-            winner = language.Name;
-        }
+        if (candidates.Length == 0)
+            return null;
+        if (candidates.Length > 1)
+            return null;
 
-        return winner is null ? null : Installed(winner);
+        return candidates[0].InstalledName;
     }
 
     /// <summary>Returns <paramref name="name"/> only when that grammar is actually installed.</summary>
@@ -211,9 +289,61 @@ public static class RegionGrammarResolver
     private static Regex Make(string pattern, bool ignoreCase = false) =>
         new(pattern, SharedOptions | (ignoreCase ? RegexOptions.IgnoreCase : RegexOptions.None));
 
+    private static WeightedLanguageMarker WeightedMarker(string pattern, int weight, bool ignoreCase = false) =>
+        new(Make(pattern, ignoreCase), weight);
+
+    private static bool IsJsonDocument(string sample)
+    {
+        var trimmed = sample.Trim();
+        if (trimmed.Length < 2 ||
+            !((trimmed[0] == '{' && trimmed[^1] == '}') ||
+              (trimmed[0] == '[' && trimmed[^1] == ']')))
+            return false;
+
+        try
+        {
+            using var _ = JsonDocument.Parse(trimmed, JsonOptions);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsXmlDocument(string sample)
+    {
+        var trimmed = sample.Trim();
+        if (trimmed.Length < 3 || trimmed[0] != '<' || trimmed[^1] != '>')
+            return false;
+        if (trimmed.StartsWith("<!", StringComparison.Ordinal) ||
+            trimmed.StartsWith("<?", StringComparison.Ordinal))
+            return false;
+
+        try
+        {
+            using var reader = XmlReader.Create(new StringReader(trimmed), XmlReaderSettings);
+            var elementCount = 0;
+            while (reader.Read())
+            {
+                if (reader.NodeType == XmlNodeType.Element)
+                    elementCount++;
+            }
+            return elementCount > 0;
+        }
+        catch (XmlException)
+        {
+            return false;
+        }
+    }
+
+    private readonly record struct WeightedLanguageMarker(Regex Regex, int Weight);
+
+    private readonly record struct Candidate(string Name, int Score, string? InstalledName);
+
     private sealed class LanguageMarkers
     {
-        public LanguageMarkers(string name, Regex[] markers)
+        public LanguageMarkers(string name, WeightedLanguageMarker[] markers)
         {
             Name = name;
             _markers = markers;
@@ -221,16 +351,17 @@ public static class RegionGrammarResolver
 
         public string Name { get; }
 
-        private readonly Regex[] _markers;
+        private readonly WeightedLanguageMarker[] _markers;
 
-        public bool Matches(string sample)
+        public int Score(string sample)
         {
+            var score = 0;
             foreach (var marker in _markers)
             {
-                if (IsMatch(marker, sample))
-                    return true;
+                if (IsMatch(marker.Regex, sample))
+                    score += marker.Weight;
             }
-            return false;
+            return score;
         }
     }
 }
