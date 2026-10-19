@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SyntaxDefinition name="Error message"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Method" />
+  <Color name="Time" />
+  <Color name="MonthDay" />
+  <Color name="FileName" />
+  <Color name="LineNumber" />
+  <Color name="Message" />
+
+  <RuleSet>
+    <Span multiline="false">
+      <Begin>^[ \t]+at[ \t]+(?:[\p{L}_&lt;&gt;$][\p{L}\p{N}_&lt;&gt;`$+|,\[\]-]*\.)+\.?(?=[\p{L}_&lt;&gt;$][\p{L}\p{N}_&lt;&gt;`$+|,\[\]-]*\([^\r\n()]*\)(?:[ \t]+in[ \t]+[^ \t\r\n][^\r\n]*:line[ \t]+[0-9]+)?[ \t]*$)</Begin>
+      <RuleSet>
+        <Rule color="Method">[\p{L}_&lt;&gt;$][\p{L}\p{N}_&lt;&gt;`$+|,\[\]-]*</Rule>
+        <Span multiline="false">
+          <Begin>\(</Begin>
+          <End>\)</End>
+        </Span>
+        <Span multiline="false">
+          <Begin>[ \t]+in[ \t]+(?:[^\r\n]*[\\/])?</Begin>
+          <RuleSet>
+            <Rule color="FileName">[^\\/\r\n:]+</Rule>
+            <Span multiline="false">
+              <Begin>:line[ \t]+</Begin>
+              <RuleSet>
+                <Rule color="LineNumber">[0-9]+</Rule>
+              </RuleSet>
+            </Span>
+          </RuleSet>
+        </Span>
+      </RuleSet>
+    </Span>
+
+    <Span multiline="false">
+      <Begin>^[ \t]*(?:(?:Operation|Occurred):[ \t]+)?[0-9]{4}-(?=[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})?(?:[ \t]|$))</Begin>
+      <End>(?&lt;=[0-9]{2}:[0-9]{2}:[0-9]{2})</End>
+      <RuleSet>
+        <Rule color="MonthDay">[0-9]{2}-[0-9]{2}</Rule>
+        <Span multiline="false">
+          <Begin>T</Begin>
+          <End>(?&lt;=[0-9]{2}:[0-9]{2}:[0-9]{2})</End>
+          <RuleSet>
+            <Rule color="Time">[0-9]{2}:[0-9]{2}:[0-9]{2}</Rule>
+          </RuleSet>
+        </Span>
+      </RuleSet>
+    </Span>
+
+    <Span multiline="false">
+      <Begin>^[ \t]*(?:---&gt;[ \t]+)?(?:[\p{L}_][\p{L}\p{N}_`]*[.+])*(?:[\p{L}_][\p{L}\p{N}_`]*Exception|Exception):[ \t]*</Begin>
+      <RuleSet>
+        <Rule color="Message">[^\r\n]+</Rule>
+      </RuleSet>
+    </Span>
+  </RuleSet>
+</SyntaxDefinition>

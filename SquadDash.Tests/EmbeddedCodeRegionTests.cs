@@ -244,7 +244,7 @@ internal sealed class EmbeddedCodeRegionTests
             Is.EqualTo(new[] { RegionLanguageMode.AutoDetect, RegionLanguageMode.PlainText }));
         var grammars = ICSharpCode.AvalonEdit.Highlighting.HighlightingManager.Instance.HighlightingDefinitions
             .Select(grammar => grammar.Name == "MarkDown" ? "Markdown" : grammar.Name)
-            .Concat(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown" })
+            .Concat(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message" })
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
         Assert.That(grammars, Is.Not.Empty);
         Assert.That(options.Skip(2).Select(option => option.GrammarName), Is.EqualTo(grammars));

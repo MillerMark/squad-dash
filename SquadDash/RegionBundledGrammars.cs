@@ -20,6 +20,11 @@ internal static class RegionBundledGrammars
         Register(engine, "Rust", "Rust", "rust", "rs");
         Register(engine, "Bash", "Bash", "bash", "sh", "shell");
         Register(engine, "Markdown", "Markdown", "markdown", "md");
+        var errorMessage = new Lazy<IHighlightingDefinition>(() => Load("ErrorMessage"));
+        engine.Register(new RegionLanguageOption("error", "Error message", "Error message"),
+            () => errorMessage.Value,
+            isDark => RegionHighlightingPalettes.CreateErrorMessageColors(isDark)
+                .ToDictionary(pair => pair.Key["Error message/".Length..], pair => pair.Value, StringComparer.Ordinal));
     }
 
     private static void Register(

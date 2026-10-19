@@ -67,7 +67,7 @@ public sealed class RegionHighlightingTests
         var grammarOptions = options.Where(o => o.GrammarName is not null).ToList();
 
         installed.Remove("MarkDown");
-        installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown" });
+        installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message" });
         Assert.That(grammarOptions, Has.Count.EqualTo(installed.Count),
             "one option per built-in or bundled grammar, with no duplicate JSON entry");
         Assert.That(grammarOptions.Select(o => o.GrammarName!).ToHashSet(StringComparer.Ordinal),
@@ -104,6 +104,7 @@ public sealed class RegionHighlightingTests
     [TestCase("Rust", "Rust", "rust")]
     [TestCase("Bash", "Bash", "bash")]
     [TestCase("Markdown", "Markdown", "markdown")]
+    [TestCase("ErrorMessage", "Error message", "error")]
     public void BundledGrammar_LoadsEmbeddedResource_AndExposesPickerOption(
         string resource, string name, string token)
     {
@@ -114,7 +115,7 @@ public sealed class RegionHighlightingTests
         var definition = HighlightingLoader.Load(reader, null);
         Assert.That(definition.Name, Is.EqualTo(name));
         Assert.That(RegionLanguagePicker.Options.Single(o => o.FenceToken == token),
-            Is.EqualTo(new RegionLanguageOption(token, resource, name)));
+            Is.EqualTo(new RegionLanguageOption(token, resource == "ErrorMessage" ? name : resource, name)));
     }
 
     [TestCase("json", "Json")]
@@ -140,6 +141,8 @@ public sealed class RegionHighlightingTests
     [TestCase("markdown", "Markdown")]
     [TestCase("MARKDOWN", "Markdown")]
     [TestCase("md", "Markdown")]
+    [TestCase("error", "Error message")]
+    [TestCase("ERROR", "Error message")]
     public void BundledGrammar_ExplicitTokensResolveToOwnDefinition(string token, string name)
     {
         var engine = new RegionHighlightingEngine();
@@ -158,6 +161,7 @@ public sealed class RegionHighlightingTests
     [TestCase(RegionGrammarAutoDetectTests.RustSample, "Rust")]
     [TestCase(RegionGrammarAutoDetectTests.BashSample, "Bash")]
     [TestCase(RegionGrammarAutoDetectTests.MarkdownSample, "Markdown")]
+    [TestCase(RegionGrammarAutoDetectTests.ReviewerErrorMessageSample, "Error message")]
     public void AutoDetect_ResolvesAndAppliesExpectedGrammarInBothThemes(string content, string expected)
     {
         var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();
@@ -327,6 +331,7 @@ public sealed class RegionHighlightingTests
     [TestCase("rust", RegionGrammarAutoDetectTests.RustSample, "Rust")]
     [TestCase("bash", RegionGrammarAutoDetectTests.BashSample, "Bash")]
     [TestCase("markdown", RegionGrammarAutoDetectTests.MarkdownSample, "Markdown")]
+    [TestCase("error", RegionGrammarAutoDetectTests.ReviewerErrorMessageSample, "Error message")]
     public void BundledGrammar_EditorThemeRepushPreservesExplicitSelectionAndLocalColors(
         string token, string content, string name)
     {
@@ -536,7 +541,8 @@ public sealed class RegionHighlightingTests
         Assert.Multiple(() =>
         {
             foreach (var isDark in new[] { false, true })
-            foreach (var (role, ink) in RegionHighlightingPalettes.CreateColors(isDark))
+            foreach (var (role, ink) in RegionHighlightingPalettes.CreateColors(isDark)
+                .Concat(RegionHighlightingPalettes.CreateErrorMessageColors(isDark)))
             {
                 var surface = Luminance(isDark ? darkSurface : lightSurface);
                 var foreground = Luminance(ColorOf(ink)!.Value);
@@ -544,6 +550,184 @@ public sealed class RegionHighlightingTests
                 Assert.That(contrast, Is.GreaterThanOrEqualTo(4.5), $"{role}, dark={isDark}");
             }
         });
+    }
+
+    [Test]
+    public void ErrorMessage_PickerSelectionPersistsErrorFenceToken()
+    {
+        const string content = "System.InvalidOperationException: incomplete dump";
+        var region = EmbeddedCodeRegionBlock.Build(content, "error");
+        Assert.That(region.ToFencedText(), Is.EqualTo("```error\n" + content + "\n```"));
+        Assert.That(RegionLanguagePicker.Options.Single(option => option.FenceToken == "error"),
+            Is.EqualTo(new RegionLanguageOption("error", "Error message", "Error message")));
+    }
+
+    [TestCase("Method", "#8AB4F8", "#174EA6")]
+    [TestCase("Time", "#E4CD8B", "#795B00")]
+    [TestCase("MonthDay", "#71C9B8", "#00695C")]
+    [TestCase("FileName", "#C7ACF0", "#6841A5")]
+    [TestCase("LineNumber", "#78966D", "#527647")]
+    public void ErrorMessage_PaletteUsesSpecifiedScopedColors(string role, string dark, string light)
+    {
+        var engine = new RegionHighlightingEngine();
+        foreach (var isDark in new[] { false, true })
+        {
+            var colors = RegionHighlightingPalettes.CreateErrorMessageColors(isDark);
+            Assert.That(colors.Keys, Has.All.StartsWith("Error message/"));
+            var expected = (Color)ColorConverter.ConvertFromString(isDark ? dark : light);
+            Assert.That(ColorOf(colors["Error message/" + role]), Is.EqualTo(expected));
+            Assert.That(ColorOf(engine.CreatePaletteColors(isDark)["Error message/" + role]), Is.EqualTo(expected));
+        }
+    }
+
+    [TestCase("   at System.Console.WriteLine(String value)", "WriteLine")]
+    [TestCase("   at Example.Worker.<>c__DisplayClass12_0.<Run>b__0()", "<Run>b__0")]
+    [TestCase("   at Example.Worker.<<Run>g__Step|4>d.MoveNext()", "MoveNext")]
+    [TestCase("   at Example.Worker.Run[T](T value)", "Run[T]")]
+    [TestCase("   at Example.Worker..ctor()", "ctor")]
+    [TestCase("   at Example.Worker.Run(String text = \"Other.Call()\")", null)]
+    public void ErrorMessage_MethodColorsOnlyTerminalIdentifier(string content, string? method)
+    {
+        AssertErrorSections(content, method is null ? Array.Empty<(string, string)>() : new[] { (method, "Method") });
+    }
+
+    [TestCase(@"C:\My Source\SquadDash\MainWindow.xaml.cs", "MainWindow.xaml.cs")]
+    [TestCase("/src/My Project/Worker.cs", "Worker.cs")]
+    [TestCase("Worker.cs", "Worker.cs")]
+    [TestCase(@"\\server\share\My Source\Worker File.cs", "Worker File.cs")]
+    public void ErrorMessage_SourceColorsOnlyFileNameAndLineDigits(string path, string fileName)
+    {
+        AssertErrorSections("   at Example.Worker.Run(String value) in " + path + ":line 214",
+            ("Run", "Method"), (fileName, "FileName"), ("214", "LineNumber"));
+    }
+
+    [TestCase("Occurred: 2026-10-19T15:16:39.096-04:00")]
+    [TestCase("Operation: 2026-10-19T15:16:39Z")]
+    [TestCase("2026-10-19T15:16:39+04:30")]
+    [TestCase("2026-10-19T15:16:39")]
+    public void ErrorMessage_TimestampLeavesYearFractionAndOffsetNeutral(string content)
+    {
+        AssertErrorSections(content, ("10-19", "MonthDay"), ("15:16:39", "Time"));
+    }
+
+    [TestCase("System.InvalidOperationException: Failed to decompose plan JSON.")]
+    [TestCase(" ---> System.InvalidOperationException: Failed to decompose plan JSON.")]
+    [TestCase("Exception: Failed to decompose plan JSON.")]
+    public void ErrorMessage_ExceptionColorsOnlyExplanation(string content)
+    {
+        AssertErrorSections(content, ("Failed to decompose plan JSON.", "Message"));
+    }
+
+    [TestCase("Run() 2026-10-19T15:16:39 214 Worker.cs")]
+    [TestCase("Occurred: 2026-10-19")]
+    [TestCase("Occurred: 2026-10-19T15:16:39garbage")]
+    [TestCase("   at Example.Worker.Run() in C:\\Worker.cs:line nope")]
+    [TestCase("   at Example.Worker.Run(\nString value)")]
+    [TestCase("System.InvalidOperationException:\nnext line remains neutral")]
+    public void ErrorMessage_ContextDoesNotLeakToUnrelatedText(string content)
+    {
+        AssertErrorSections(content);
+    }
+
+    [TestCase("\n")]
+    [TestCase("\r\n")]
+    public void ErrorMessage_RepresentativeDecomposeDumpHasExactColoredBoundaries(string newline)
+    {
+        AssertErrorSections(RegionGrammarAutoDetectTests.ReviewerErrorMessageSample.Replace("\r\n", "\n").Replace("\n", newline),
+            ("10-19", "MonthDay"), ("15:16:39", "Time"),
+            ("Failed to decompose plan JSON.", "Message"), ("ExecuteAsync", "Method"),
+            ("MoveNext", "Method"), ("MoveNext", "Method"), ("DecomposeRunner.cs", "FileName"),
+            ("214", "LineNumber"));
+    }
+
+    [Test]
+    [NonParallelizable]
+    public void ErrorMessage_ThemeSourceRepushUsesActiveImportantTextWithoutLeaking()
+    {
+        var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var keys = new[] { "CodeSurface", "CodeText", "ImportantText" };
+        var before = keys.ToDictionary(key => key, key => app.Resources.Contains(key) ? app.Resources[key] : null);
+        var engine = new RegionHighlightingEngine();
+        var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();
+        var managerBefore = manager.SelectMany(Snapshot).ToArray();
+        using var editor = new AvalonEditRegionEditor(RegionGrammarAutoDetectTests.ReviewerErrorMessageSample, engine);
+        using var sibling = new AvalonEditRegionEditor(RegionGrammarAutoDetectTests.ReviewerErrorMessageSample, engine);
+        var source = new ThemeResourcePaletteSource(engine);
+        try
+        {
+            app.Resources["CodeSurface"] = new SolidColorBrush(Color.FromRgb(0xFB, 0xFA, 0xF7));
+            app.Resources["CodeText"] = Brushes.Black;
+            app.Resources["ImportantText"] = new SolidColorBrush(Color.FromRgb(0x53, 0x37, 0x1E));
+            var light = source.CreatePalette();
+            editor.ApplyPalette(light);
+            sibling.ApplyPalette(light);
+            editor.SetLanguage("error");
+            sibling.SetLanguage("error");
+            var control = (TextEditor)editor.Control;
+            var definition = control.SyntaxHighlighting;
+            var siblingBefore = Snapshot(((TextEditor)sibling.Control).SyntaxHighlighting);
+            foreach (var isDark in new[] { true, false })
+            {
+                var surface = isDark ? Color.FromRgb(0x14, 0x11, 0x0D) : Color.FromRgb(0xFB, 0xFA, 0xF7);
+                var message = isDark ? Color.FromRgb(0xE5, 0xD5, 0xC0) : Color.FromRgb(0x53, 0x37, 0x1E);
+                app.Resources["CodeSurface"] = new SolidColorBrush(surface);
+                app.Resources["ImportantText"] = new SolidColorBrush(message);
+                var palette = source.CreatePalette();
+                editor.ApplyPalette(palette);
+                Assert.That(control.SyntaxHighlighting, Is.SameAs(definition));
+                Assert.That(ColorOf(definition.GetNamedColor("Message")), Is.EqualTo(message));
+                Assert.That(HighlightAll(control.Document, definition).Any(section => ColorOf(section.Color) == message), Is.True);
+                Assert.That(Snapshot(((TextEditor)sibling.Control).SyntaxHighlighting), Is.EqualTo(siblingBefore));
+                Assert.That(ColorOf(palette.HighlightColors["$Method"]),
+                    Is.EqualTo(ColorOf(RegionHighlightingPalettes.CreateColors(isDark)["$Method"])));
+                var contrast = (Math.Max(Luminance(surface), Luminance(message)) + 0.05) /
+                    (Math.Min(Luminance(surface), Luminance(message)) + 0.05);
+                Assert.That(contrast, Is.GreaterThanOrEqualTo(4.5));
+            }
+            app.Resources["ImportantText"] = Brushes.Magenta;
+            editor.ApplyPalette(source.CreatePalette());
+            Assert.That(ColorOf(definition.GetNamedColor("Message")), Is.EqualTo(Colors.Magenta),
+                "the active resource, not a hard-coded light/dark approximation, must drive the message");
+            Assert.That(HighlightingManager.Instance.HighlightingDefinitions, Is.EqualTo(manager));
+            Assert.That(manager.SelectMany(Snapshot), Is.EqualTo(managerBefore));
+        }
+        finally
+        {
+            foreach (var key in keys)
+            {
+                if (before[key] is { } value)
+                    app.Resources[key] = value;
+                else
+                    app.Resources.Remove(key);
+            }
+        }
+    }
+
+    private static void AssertErrorSections(string content, params (string Text, string Role)[] expected)
+    {
+        var engine = new RegionHighlightingEngine();
+        foreach (var isDark in new[] { false, true })
+        {
+            var palette = PaletteFrom(engine, isDark);
+            var colors = new Dictionary<string, HighlightingColor>(palette.HighlightColors)
+            {
+                ["Error message/Message"] = new() { Foreground = new FixedBrush(isDark ? Colors.White : Colors.Black) },
+            };
+            var definition = engine.CreateDefinition("Error message", palette with { HighlightColors = colors });
+            var sections = HighlightAll(new TextDocument(content), definition);
+            Assert.That(sections, Has.Count.EqualTo(expected.Length), $"Unexpected colored ranges: {content}");
+            var searchStart = 0;
+            for (var i = 0; i < expected.Length; i++)
+            {
+                var (text, role) = expected[i];
+                var offset = content.IndexOf(text, searchStart, StringComparison.Ordinal);
+                Assert.That(offset, Is.GreaterThanOrEqualTo(0), text);
+                Assert.That((sections[i].Offset, sections[i].Length, ColorOf(sections[i].Color)),
+                    Is.EqualTo((offset, text.Length, ColorOf(definition.GetNamedColor(role)))),
+                    $"{role}: only '{text}' should be colored, dark={isDark}");
+                searchStart = offset + text.Length;
+            }
+        }
     }
 
     [Test]

@@ -59,6 +59,8 @@ public static class RegionGrammarResolver
     /// <summary>Upper bound on the number of leading characters the classifier inspects.</summary>
     public const int MaxScanLength = 8192;
 
+    internal const string ErrorMessageGrammarName = "Error message";
+
     private const int MinimumScore = 4;
     private const RegexOptions SharedOptions =
         RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture | RegexOptions.NonBacktracking;
@@ -95,6 +97,8 @@ public static class RegionGrammarResolver
     private static readonly Regex YamlBlockRoot = Make(@"(?:^|\n)[A-Za-z_][\w.-]*:[ \t]*(#[^\r\n]*)?\r?\n");
     private static readonly Regex RustStandardLibraryImport = Make(
         @"(?:^|\n)[ \t]*(pub[ \t]+)?use[ \t]+std::");
+    private static readonly Regex DotNetStackFrameLine = Make(
+        @"(?m:^[ \t]+at[ \t]+(?:[\p{L}_<>$][\p{L}\p{N}_<>`$+|,\[\]-]*\.)+\.?[\p{L}_<>$][\p{L}\p{N}_<>`$+|,\[\]-]*\([^\r\n()]*\)(?:[ \t]+in[ \t]+[^ \t\r\n][^\r\n]*:line[ \t]+[0-9]+)?[ \t]*\r?$)");
     // Score language markers after unmistakable document signatures.
     private static readonly LanguageMarkers[] ScoredLanguages =
     {
@@ -335,16 +339,24 @@ public static class RegionGrammarResolver
             return Available("XML");
         if (IsMatch(BashSignature, sample))
             return Available("Bash");
-        var sqlGrammar = IsMatch(TsqlSpecificMarker, sample) || !isGrammarAvailable("SQL") ? "TSQL" : "SQL";
+        var hasDotNetStackFrame = IsMatch(DotNetStackFrameLine, sample);
+        // Frame callables and arguments are data, not independent source-language signals.
+        var scoringSample = hasDotNetStackFrame
+            ? DotNetStackFrameLine.Replace(sample, "\n")
+            : sample;
+        var errorCandidate = hasDotNetStackFrame
+            ? Available(ErrorMessageGrammarName)
+            : null;
+        var sqlGrammar = IsMatch(TsqlSpecificMarker, scoringSample) || !isGrammarAvailable("SQL") ? "TSQL" : "SQL";
         // Rust imports share std:: with C++; remove only that import prefix from C++ scoring.
         // Independent C++ markers elsewhere must still make a mixed sample ambiguous.
-        var cppSample = RustStandardLibraryImport.Replace(sample, "\n");
+        var cppSample = RustStandardLibraryImport.Replace(scoringSample, "\n");
         var scores = ScoredLanguages
             .Where(language => language.Name != "YAML" ||
-                (!sample.Contains('{') && !sample.Contains('}') && IsMatch(YamlBlockRoot, sample)))
+                (!scoringSample.Contains('{') && !scoringSample.Contains('}') && IsMatch(YamlBlockRoot, scoringSample)))
             .Select(language => new Candidate(
                 language.Name == "SQL" ? sqlGrammar : language.Name,
-                language.Score(language.Name == "C++" ? cppSample : sample)))
+                language.Score(language.Name == "C++" ? cppSample : scoringSample)))
             .ToArray();
         // Typed declarations can also match CSS blocks and ordinary JavaScript expressions.
         // Collapse those shared signals before enforcing ambiguity across unrelated languages.
@@ -353,6 +365,7 @@ public static class RegionGrammarResolver
         var candidates = scores
             .Where(candidate => !hasTypeScript || candidate.Name is not ("CSS" or "JavaScript"))
             .Where(candidate => candidate.Score >= MinimumScore && isGrammarAvailable(candidate.Name))
+            .Concat(errorCandidate is null ? Array.Empty<Candidate>() : new[] { new Candidate(errorCandidate, MinimumScore) })
             .OrderByDescending(candidate => candidate.Score)
             .ThenBy(candidate => candidate.Name, StringComparer.Ordinal)
             .ToArray();

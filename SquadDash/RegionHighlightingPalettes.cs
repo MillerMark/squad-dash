@@ -30,6 +30,16 @@ public static class RegionHighlightingPalettes
         };
     }
 
+    public static IReadOnlyDictionary<string, HighlightingColor> CreateErrorMessageColors(bool isDark) =>
+        new Dictionary<string, HighlightingColor>(StringComparer.Ordinal)
+        {
+            ["Error message/Method"] = Color(isDark ? 0x8AB4F8u : 0x174EA6u),
+            ["Error message/Time"] = Color(isDark ? 0xE4CD8Bu : 0x795B00u),
+            ["Error message/MonthDay"] = Color(isDark ? 0x71C9B8u : 0x00695Cu),
+            ["Error message/FileName"] = Color(isDark ? 0xC7ACF0u : 0x6841A5u),
+            ["Error message/LineNumber"] = Color(isDark ? 0x78966Du : 0x527647u),
+        };
+
     private static HighlightingColor Color(uint rgb) => new()
     {
         Foreground = new RegionHighlightingBrush(System.Windows.Media.Color.FromRgb(

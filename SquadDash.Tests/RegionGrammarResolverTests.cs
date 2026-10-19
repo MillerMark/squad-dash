@@ -16,6 +16,8 @@ namespace SquadDash.Tests;
 [TestFixture]
 public sealed class RegionGrammarAutoDetectTests
 {
+    private const string ErrorMessageGrammar = "Error message";
+
     [TestCase("", true)]
     [TestCase("text", false)]
     [TestCase("TEXT", false)]
@@ -177,6 +179,16 @@ public sealed class RegionGrammarAutoDetectTests
         GROUP BY name
         HAVING COUNT(*) > 5
         ORDER BY total DESC;
+        """;
+
+    // Representative sample: no exact Decompose-plan reviewer dump was found in local .squad artifacts.
+    internal const string ReviewerErrorMessageSample = """
+        Operation: Decompose-plan
+        Occurred: 2026-10-19T15:16:39.096-04:00
+        System.InvalidOperationException: Failed to decompose plan JSON.
+           at SquadDash.Plan.DecomposeRunner.ExecuteAsync(System.Threading.CancellationToken cancellationToken)
+           at SquadDash.Plan.DecomposeRunner.<>c__DisplayClass12_0.<<ExecuteAsync>g__RunStep|4>d.MoveNext()
+           at SquadDash.Plan.DecomposeRunner+<<ExecuteAsync>$>d__11.MoveNext() in D:\Drive\Source\SquadDash-public\SquadDash\Plan\DecomposeRunner.cs:line 214
         """;
 
     internal const string GoSample = """
@@ -598,6 +610,162 @@ public sealed class RegionGrammarAutoDetectTests
     {
         var visible = "console.log('x');" + new string(' ', RegionGrammarResolver.MaxScanLength + 100);
         Assert.That(RegionGrammarResolver.DetectBuiltIn(visible), Is.EqualTo("JavaScript"));
+    }
+
+    [Test]
+    public void Detect_ErrorMessageCandidate_RequiresValidDotNetFrameAndAvailability()
+    {
+        Assert.That(
+            RegionGrammarResolver.Detect(ReviewerErrorMessageSample, name => name == ErrorMessageGrammar),
+            Is.EqualTo(ErrorMessageGrammar));
+        Assert.That(
+            RegionGrammarResolver.Detect(ReviewerErrorMessageSample, _ => false),
+            Is.Null);
+    }
+
+    [TestCase("   at System.Console.WriteLine(String value)")]
+    [TestCase("\tat Example.Worker.Run(CancellationToken token)\r\n   at Example.Worker.Done()")]
+    [TestCase("   at Example.Worker.<>c__DisplayClass12_0.<Run>b__0()")]
+    [TestCase("   at Example.Worker.<<Run>g__Step|4>d.MoveNext()")]
+    [TestCase("   at Example.Worker+<Run>d__4.MoveNext()")]
+    [TestCase("   at Example.Worker.Run[T](T value)")]
+    [TestCase("   at Example.Worker..ctor()")]
+    [TestCase("   at Example.Worker.Run() in C:\\My Source\\MainWindow.xaml.cs:line 42")]
+    [TestCase("   at Example.Worker.Run() in /src/My Project/Worker.cs:line 42")]
+    public void Detect_ErrorMessageCandidate_RecognizesFrameOnlyDumps(string content)
+    {
+        Assert.That(RegionGrammarResolver.Detect(content, _ => true), Is.EqualTo(ErrorMessageGrammar));
+        Assert.That(RegionGrammarResolver.Detect(content, name => name != ErrorMessageGrammar), Is.Null);
+    }
+
+    [TestCase("at Example.Worker.Run()")]
+    [TestCase("Look at Example.Worker.Run()")]
+    [TestCase("   at Run()")]
+    [TestCase("   at Example.Worker.Run")]
+    [TestCase("   at Example.Worker.Run();")]
+    [TestCase("   at Example.Worker.Run() is helpful")]
+    [TestCase("   at Example.Worker.Run() in C:\\Worker.cs:line nope")]
+    [TestCase("   at Example.Worker.Run() in C:\\Worker.cs:line 42x")]
+    [TestCase("   at Example.Worker.Run(\n)")]
+    [TestCase("   at\nExample.Worker.Run()")]
+    [TestCase("   at Example.Worker.Run() in\nC:\\Worker.cs:line 42")]
+    public void Detect_ErrorMessageCandidate_RejectsMalformedFrames(string content)
+    {
+        Assert.That(RegionGrammarResolver.Detect(content, name => name == ErrorMessageGrammar), Is.Null);
+    }
+
+    [TestCase("using System;")]
+    [TestCase("Console.WriteLine(1);")]
+    [TestCase("console.log('hello');")]
+    [TestCase("type Name = string;")]
+    [TestCase("server:\n  host: localhost")]
+    public void Detect_ErrorMessageCandidate_RejectsIndependentLanguageMarkers(string code)
+    {
+        Assert.That(RegionGrammarResolver.Detect("   at System.Console.WriteLine(String value)\n" + code,
+            _ => true), Is.Null);
+    }
+
+    [Test]
+    public void Detect_ErrorMessageCandidate_RequiresCompleteFrameWithinScanWindow()
+    {
+        const string frame = "   at Example.Worker.Run()";
+        var prefix = new string('x', RegionGrammarResolver.MaxScanLength - frame.Length - 1) + "\n";
+        Assert.That(RegionGrammarResolver.Detect(prefix + frame, _ => true), Is.EqualTo(ErrorMessageGrammar));
+        Assert.That(RegionGrammarResolver.Detect("x" + prefix + frame, _ => true), Is.Null);
+    }
+
+    [TestCase("error", "Error message")]
+    [TestCase("ERROR", "Error message")]
+    [TestCase("text", null)]
+    [TestCase("csharp", "C#")]
+    [TestCase("unknown", null)]
+    [Apartment(ApartmentState.STA)]
+    public void Resolve_ErrorMessageCandidate_PreservesEnginePins(string token, string? expected)
+    {
+        var engine = new RegionHighlightingEngine();
+        Assert.That(engine.Resolve(token, ReviewerErrorMessageSample), Is.EqualTo(expected));
+        Assert.That(engine.Resolve("error", "Incomplete dump"), Is.EqualTo(ErrorMessageGrammar));
+    }
+
+    [TestCase("System.InvalidOperationException: failed.")]
+    [TestCase("Operation: Decompose-plan\nOccurred: 2026-10-19T15:16:39.096-04:00\nException: InvalidOperationException")]
+    [TestCase("Operation: Decompose-plan\nOccurred: 2026-10-19T15:16:39.096-04:00")]
+    public void Detect_ErrorMessageCandidate_DoesNotTriggerFromSecondaryFieldsOrExceptionAlone(string content)
+    {
+        Assert.That(
+            RegionGrammarResolver.Detect(content, name => name == ErrorMessageGrammar),
+            Is.Null);
+    }
+
+    [Test]
+    public void Detect_ErrorMessageCandidate_SuppressesFrameLineMarkerScoring()
+    {
+        var frameOnly = """
+            System.InvalidOperationException: failed
+               at SquadDash.Plan.DecomposeRunner.ExecuteAsync(System.Threading.CancellationToken cancellationToken)
+               at SquadDash.Plan.DecomposeRunner.Log(System.String message)
+            """;
+
+        Assert.That(
+            RegionGrammarResolver.Detect(frameOnly, name => name == "C#"),
+            Is.Null,
+            "C# marker words inside stack-frame lines must not score as standalone code");
+        Assert.That(
+            RegionGrammarResolver.Detect(frameOnly, name => name == ErrorMessageGrammar),
+            Is.EqualTo(ErrorMessageGrammar));
+    }
+
+    [Test]
+    public void Detect_ErrorMessageCandidate_StaysAmbiguousWithSeparateMixedCode()
+    {
+        var mixed = ReviewerErrorMessageSample + "\nusing System;\nnamespace Demo;\npublic class P { }";
+        Assert.That(
+            RegionGrammarResolver.Detect(
+                mixed,
+                name => name is "C#" or ErrorMessageGrammar),
+            Is.Null);
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void DetectBuiltIn_ErrorMessageCandidate_UsesCallerRegistryOnly()
+    {
+        Assert.That(RegionGrammarResolver.DetectBuiltIn(ReviewerErrorMessageSample), Is.Null);
+    }
+
+    [Test]
+    public void Detect_ErrorMessageCandidate_YieldsToTier1Signatures()
+    {
+        var withPhpSignature = "<?php\n" + ReviewerErrorMessageSample;
+        Assert.That(
+            RegionGrammarResolver.Detect(
+                withPhpSignature,
+                name => name is "PHP" or ErrorMessageGrammar),
+            Is.EqualTo("PHP"));
+    }
+
+    [Test]
+    public void Detect_ErrorMessageCandidate_RespectsScanWindow()
+    {
+        var beyond = new string(' ', RegionGrammarResolver.MaxScanLength + 10) + ReviewerErrorMessageSample;
+        var inside = ReviewerErrorMessageSample + new string(' ', RegionGrammarResolver.MaxScanLength + 10);
+
+        Assert.That(
+            RegionGrammarResolver.Detect(beyond, name => name == ErrorMessageGrammar),
+            Is.Null);
+        Assert.That(
+            RegionGrammarResolver.Detect(inside, name => name == ErrorMessageGrammar),
+            Is.EqualTo(ErrorMessageGrammar));
+    }
+
+    [Test]
+    public void Resolve_ErrorMessageContent_StillHonorsPlainTextAndExplicitPins()
+    {
+        Func<string, string?> alias = token => token == "csharp" ? "C#" : null;
+        Func<string, string?> detector = _ => ErrorMessageGrammar;
+
+        Assert.That(RegionGrammarResolver.Resolve("text", ReviewerErrorMessageSample, alias, detector), Is.Null);
+        Assert.That(RegionGrammarResolver.Resolve("csharp", ReviewerErrorMessageSample, alias, detector), Is.EqualTo("C#"));
     }
 
     private static string? ThrowingDetector(string content) =>

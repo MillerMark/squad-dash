@@ -54,7 +54,14 @@ public sealed class ThemeResourcePaletteSource : IRegionEditorPaletteSource
         var surface = (app?.TryFindResource("CodeSurface") as Brush) ?? Brushes.Transparent;
         var text = (app?.TryFindResource("CodeText") as Brush) ?? SystemColors.ControlTextBrush;
         var isDark = surface is SolidColorBrush brush && RegionHighlightingPalettes.IsDark(brush.Color);
-        return new RegionEditorPalette(surface, text, _highlighting.CreatePaletteColors(isDark));
+        var colors = new Dictionary<string, HighlightingColor>(_highlighting.CreatePaletteColors(isDark))
+        {
+            ["Error message/Message"] = new()
+            {
+                Foreground = new RegionHighlightingBrush((app?.TryFindResource("ImportantText") as Brush) ?? text),
+            },
+        };
+        return new RegionEditorPalette(surface, text, colors);
     }
 }
 
