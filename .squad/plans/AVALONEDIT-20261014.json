@@ -1,6 +1,6 @@
 {
   "planId": "AVALONEDIT-20261014",
-  "revision": "24893cd57beac24a",
+  "revision": "2fc843326d241ca2",
   "source": "tasks_json",
   "lifecycleStatus": "awaiting-approval",
   "title": "AvalonEdit Region Editor \u0026 Language Picker",
@@ -59,7 +59,10 @@
         "AVALONEDIT-20261014-001"
       ],
       "priority": "critical",
-      "status": "human-review-required",
+      "status": "complete",
+      "commit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+      "completedAt": "2026-10-16T13:48:59.1352859+00:00",
+      "completionSummary": "Migrated the embedded code-region editor from a plain TextBox to AvalonEdit\u0027s TextEditor behind the IRegionCodeEditor seam, re-plumbing selection, fenced copy/cut, arrow boundary-exit, content sync, focus, theme colors, and landing the fence serialization convention.",
       "agentAssignments": [
         {
           "agentHandle": "lyra-morn",
@@ -191,6 +194,13 @@
         }
       ],
       "displayStepLabel": "2",
+      "commits": [
+        {
+          "commit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "relation": "task",
+          "reason": "Host-validated implementation handoff reviewed at the human checkpoint."
+        }
+      ],
       "reviewActivity": [
         {
           "kind": "manual-correction",
@@ -240,6 +250,16 @@
       ],
       "executionMode": "implementation",
       "verificationLevel": "enhanced",
+      "completionSummaryItems": [
+        "Added ICSharpCode.AvalonEdit PackageReference to SquadDash.csproj (first use in the solution) and to the source-linking SquadDash.Tests.csproj; the configured feed only offers 4.3.0-alpha-00000000 (a genuine net45 AvalonEdit assembly consumed via AssetTargetFallback, benign NU1701 warning).",
+        "Introduced the IRegionCodeEditor seam plus concrete AvalonEditRegionEditor wrapping AvalonEdit\u0027s TextEditor, replacing the plain Consolas TextBox content box, with a RegionEditorPalette record and pluggable IRegionEditorPaletteSource/ThemeResourcePaletteSource reading post-swap CodeSurface/CodeText.",
+        "Re-mapped native caret placement, word selection, click-drag, and double-click-drag word-wise extension onto AvalonEdit while preserving the commit 811809a0 bubbling handledEventsToo host-selection collapse and the unchanged ShouldClaimRegionMouseGesture claim predicate in both EmbeddedCodeRegionBlock and MainWindow.PromptTextBox_PreviewMouseLeftButtonDown.",
+        "Re-plumbed fenced Ctrl\u002BC/Ctrl\u002BX onto the editor (fenced-text copy, Document.Remove for cut), EmbeddedCaretNavMath-driven Up/Down boundary-exit navigation, TextChanged to Content sync, and focus routing onto AvalonEdit\u0027s TextArea.",
+        "Added EmbeddedCodeRegionBlock.ApplyEditorTheme and a MainWindow.ApplyTheme per-region fan-out using the active palette source and RichTextBoxExtensions.EnumerateEmbeddedRegions, imperatively pushing editor surface/text colors rather than SetResourceReference.",
+        "Landed the fence serialization convention with round-trip tests for explicit-language (\u0060\u0060\u0060\u002Btoken), auto-detect (bare \u0060\u0060\u0060), and plain-text (reserved token text) modes, and migrated existing region tests to the AvalonEdit editor.",
+        "Confirmed the solution builds green with the AvalonEdit reference resolved and verified the 8 full-suite failures are pre-existing flaky session-store fixture tests by reproducing them on the stashed baseline."
+      ],
+      "completionKind": "changed",
       "contractExamples": [
         {
           "exampleId": "explicit-language-fence",
@@ -272,7 +292,10 @@
         "AVALONEDIT-20261014-002"
       ],
       "priority": "high",
-      "status": "pending",
+      "status": "complete",
+      "commit": "b86e14f45227fe6f83c8c6ff9de92b1ab9926827",
+      "completedAt": "2026-10-16T15:42:55.5259256+00:00",
+      "completionSummary": "Fixed the Stage 2 picker defect so clicking a language option now dismisses the popup and updates the region\u0027s mode/label and fence write-through.",
       "agentAssignments": [
         {
           "agentHandle": "lyra-morn",
@@ -281,6 +304,24 @@
         }
       ],
       "agentRoutingMode": "assigned",
+      "attemptHistory": [
+        {
+          "status": "complete",
+          "commit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+          "completedAt": "2026-10-16T14:49:51.4431635+00:00",
+          "summary": "Turned the region language label into a clickable Popup picker (Auto detect, Plain text, then supported grammars) that writes the selected mode through to the fence tag and persists across serialization round-trips.",
+          "disposition": "changes-requested",
+          "note": "Defect reported at the Stage 2 human-review gate for the clickable language picker (task -003, commit a0aac71c): clicking an option in the language popup does NOT close the popup and does NOT change the region\u0027s language/label/mode. The popup only opens; clicks inside it are inert. Reproduce: open a prompt with an embedded code region, click the language label button to open the picker, then click any option (e.g. \u0027Plain text\u0027 or a grammar) \u2014 observe the popup stays open and the label is unchanged.\n\nRoot-cause direction (verify, don\u0027t assume): the picker Popup is hosted inside the RichTextBox document \u2014 it is added to the region header StackPanel via \u0060stack.Children.Add(languagePopup)\u0060 in EmbeddedCodeRegionBlock.cs (~line 450), built in BuildLanguagePopup() (EmbeddedCodeRegionBlock.cs ~lines 493-576). Each option Button.Click handler (lines 531-537) already sets \u0060Language = option.FenceToken\u0060, \u0060popup.IsOpen = false\u0060, \u0060_languageButton.Focus()\u0060, so the handler logic is correct but is never invoked. Both symptoms (option Click never fires AND StaysOpen=false never dismisses on outside click) indicate the host RichTextBox is capturing the mouse so pointer events never reach the Popup\u0027s separate visual root \u2014 a known WPF issue for Popups parented inside a RichTextBox/FlowDocument. The _languageButton.Click toggle works because that button is in the main window visual tree.\n\nRequired fix (independently executable): make clicking any picker option (a) dismiss the popup and (b) update the region\u0027s Language, _languageLabel text, and PickerMode (raising PickerModeChanged), matching the already-correct option Click body. Likely approaches to evaluate: release/avoid the RichTextBox mouse capture while the popup is open (e.g. call Mouse.Capture(null) or capture to the popup on Opened), and/or re-parent the Popup out of the RichTextBox-hosted StackPanel so it is not inside the document\u0027s input-captured surface, and/or handle the option selection on a pointer event that is not swallowed by the host. Preserve: popup still opens below the label (Placement=Bottom, PlacementTarget=_languageButton), StaysOpen=false outside-click dismissal must now actually work, Esc-to-close and Enter/Space-to-select keyboard paths (border.PreviewKeyDown ~lines 556-574) must keep working, selected-item bold/focus on Opened (~lines 540-555) must keep working, and the 811809a0 native-selection behavior and ShouldClaimRegionMouseGesture claim predicate must remain intact. Do not regress the AvalonEdit editor selection/copy/arrow-nav behavior.\n\nProof: add or extend headless coverage where testable (option-selection write-through to Language/PickerMode/label already has LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode in EmbeddedCodeRegionTests.cs \u2014 extend it or add a sibling that also asserts popup dismissal state if reachable headlessly). Rebuild SquadDash.csproj green and re-run the filtered EmbeddedCodeRegion/EmbeddedCaretNav suite. Because popup dismissal and label update are human-observable, this returns to the Stage 2 human gate: the reviewer must confirm that clicking a picker item closes the popup and the region label updates to the chosen mode.",
+          "completedWork": [
+            "Made the embedded code region\u0027s language label a clickable trigger that opens a WPF Popup placed directly below it (EmbeddedCodeRegionBlock.cs click toggle at line 415 and bottom placement at 517), with themed styling and mouse/keyboard guards (App.xaml:101; MainWindow.xaml.cs:28288,29206).",
+            "Populated the picker in the required order \u2014 Auto detect, Plain text, then every supported grammar \u2014 sourced from the language registry rather than a hardcoded list (RegionLanguagePicker.cs:42).",
+            "Wired selection to update the region mode, the visible label, and write through to the fence tag using the Step 2 serialization convention (explicit-language token, bare fence for Auto detect, reserved token for Plain text) via the shared token setter/serialization in EmbeddedCodeRegionBlock.cs (39,533,619).",
+            "Exposed the selected mode for Step 4\u0027s highlighting/auto-detect logic through PickerMode and the PickerModeChanged event (EmbeddedCodeRegionBlock.cs:58).",
+            "Added focused headless tests proving every option writes the correct fence tag and round-trips through production serialization/rehydration (EmbeddedCodeRegionTests.cs:313), linking the new picker source into the test project (SquadDash.Tests.csproj:202).",
+            "Committed six task-owned files as a0aac71c on feature/avalonedit-region-editor; tasks.md and .squad/plans/*.json were left untouched and unstaged."
+          ]
+        }
+      ],
       "outputs": [
         {
           "outputId": "language-picker-mode",
@@ -290,8 +331,148 @@
       "inputs": [
         "fence-serialization-convention"
       ],
+      "handoff": {
+        "commit": "b86e14f45227fe6f83c8c6ff9de92b1ab9926827",
+        "summary": "Fixed the Stage 2 picker defect so clicking a language option now dismisses the popup and updates the region\u0027s mode/label and fence write-through.",
+        "changedFiles": [
+          "SquadDash.Tests/EmbeddedCodeRegionTests.cs",
+          "SquadDash/EmbeddedCodeRegionBlock.cs"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "dotnet build SquadDash\\SquadDash.csproj -p:EnableRunSlotDeployment=false ; dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav\u0022",
+          "summary": "Build succeeded (0 errors, 3 benign NU1701 AvalonEdit warnings); filtered EmbeddedCodeRegion/EmbeddedCaretNav suite passed with new popup-dismissal coverage.",
+          "tests": {
+            "total": 327,
+            "passed": 327,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        "submittedAt": "2026-10-16T15:38:11.4481158+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Diagnosed and fixed the reviewer-reported defect where clicking a picker option left the popup open and did not change the region language. Root cause confirmed: the popup was parented inside the RichTextBox document, so its pointer input was swallowed by the region\u0027s PreviewMouseLeftButtonDown handler and the option Button.Click never fired and StaysOpen=false never dismissed. Lyra isolated the popup\u0027s input so option clicks reach their handlers.",
+          "Clicking any option now dismisses the popup and writes through to the region Language, visible _languageLabel text, and PickerMode (raising PickerModeChanged), serializing via the task-002 fence convention (explicit language token, bare fence for Auto detect, reserved \u0027text\u0027 token for Plain text).",
+          "Preserved popup placement directly below the label (Placement=Bottom, PlacementTarget=_languageButton), outside-click dismissal (now working), Esc-to-close and Enter/Space-to-select keyboard paths, selected-item bold/focus on Opened, and the ordered option list (Auto detect, Plain text, then grammars). The 811809a0 native host-selection behavior, ShouldClaimRegionMouseGesture predicate, and AvalonEdit selection/copy/arrow-navigation were not regressed.",
+          "Extended headless coverage in SquadDash.Tests to assert popup dismissal state alongside the existing option-click write-through and fence round-trip coverage.",
+          "Independently verified the worker-reported commit: git rev-parse resolves b86e14f4 to b86e14f45227fe6f83c8c6ff9de92b1ab9926827 and it is the current HEAD of feature/avalonedit-region-editor. Live popup-dismissal and visible label update remain gated at the Stage 2 human approval checkpoint."
+        ],
+        "baselineCommit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "HEAD (git rev-parse --short = a0aac71c) equals the candidate commit. The static language TextBlock is replaced by a real themed Button (_languageButton) that toggles a WPF Popup with Placement=Bottom, PlacementTarget=_languageButton, StaysOpen=false, added to the visual stack and wired via a Click handler \u2014 not a disconnected helper. Popup options come from RegionLanguagePicker.Options, which prepends \u0027Auto detect\u0027 then \u0027Plain text\u0027 and then every HighlightingManager.Instance.HighlightingDefinitions grammar ordered by name (real registry, no hardcoded divergent list). Selecting an item sets Language, which updates _languageLabel text, raises PickerModeChanged, fires AnyRegionContentEditing/Edited (shared undo), and writes through ToFencedText -\u003E EmbeddedFenceDetector.BuildFencedText using the Step 2 convention (bare fence for AutoDetect empty token, \u0027text\u0027 token for PlainText, explicit token otherwise). PickerMode property \u002B PickerModeChanged event exist and are selection-driven for the downstream task-004 consumer, which is correctly NOT claimed as wired. Tests drive the production serialization seam (rtb.SetPlainText/GetPlainText \u002B EmbeddedCodeRegionManager.TryConvertNextFence) across all three kinds via TestCaseSource and assert correct fence tags and full round-trip persistence. Build 0 errors (benign NU1701 x3); filtered suite 325/325 passed, 0 failed. Only the 6 claimed files changed; no tasks.md or .squad/plans/*.json committed.",
+          "claimFindings": [
+            {
+              "claim": "Language label is now a clickable trigger opening a Popup positioned directly below with a click handler",
+              "disposition": "supported",
+              "evidence": "EmbeddedCodeRegionBlock.cs: _languageButton (Button) with labelContent \u002B arrow Path, Click toggles languagePopup.IsOpen; BuildLanguagePopup() returns Popup{PlacementTarget=_languageButton, Placement=PlacementMode.Bottom, StaysOpen=false}; popup added to stack.Children. Test LanguagePicker_TargetsHeaderBottom_AndDoesNotClaimNativeButtonGesture asserts PlacementTarget/Placement/StaysOpen."
+            },
+            {
+              "claim": "Popup lists \u0027Auto detect\u0027, \u0027Plain text\u0027, then every supported grammar from the real registry, in order",
+              "disposition": "supported",
+              "evidence": "RegionLanguagePicker.BuildOptions seeds [\u0027Auto detect\u0027,\u0027Plain text\u0027] then foreach HighlightingManager.Instance.HighlightingDefinitions OrderBy(Name). Test LanguagePicker_ListsSpecialModesThenEveryInstalledGrammar_InOrder compares option GrammarNames to the sorted live registry names and asserts the popup buttons mirror Options."
+            },
+            {
+              "claim": "Selecting an item updates mode \u002B visible label \u002B writes through fence tag per Step 2 convention",
+              "disposition": "supported",
+              "evidence": "Option button Click sets Language=option.FenceToken; Language setter updates _languageLabel.Text via GetLabel and serialization is Language-driven through ToFencedText-\u003EBuildFencedText. Test LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode asserts serialized fence equals bare/\u0060\u0060\u0060 for empty token, \u0027text\u0027 token, and explicit tokens."
+            },
+            {
+              "claim": "Selected mode persists across serialization round-trip and exposes PickerMode/PickerModeChanged for task 004",
+              "disposition": "supported",
+              "evidence": "PickerMode =\u003E RegionLanguagePicker.GetMode(Language); event PickerModeChanged raised in Language setter. Round-trip test rehydrates via SetPlainText\u002BTryConvertNextFence and asserts restoredRegion.PickerMode/Language/Content match. Doc comment frames PickerMode as input for the later stage; task 004 is NOT claimed wired."
+            },
+            {
+              "claim": "Headless tests prove write-through and round-trip at the production serialization seam",
+              "disposition": "supported",
+              "evidence": "Tests use RichTextBox SetPlainText/GetPlainText and EmbeddedCodeRegionManager.TryConvertNextFence (production path), not a mock. TestCaseSource iterates all RegionLanguagePicker.Options x content-with/without backticks, asserting fence output and lossless restore; EmbeddedCodeRegionTests.cs ~line 313 region covered."
+            },
+            {
+              "claim": "Only the 6 claimed files changed; no tasks.md or .squad/plans/*.json committed",
+              "disposition": "supported",
+              "evidence": "git show --stat a0aac71c lists exactly EmbeddedCodeRegionTests.cs, SquadDash.Tests.csproj, App.xaml, EmbeddedCodeRegionBlock.cs, MainWindow.xaml.cs, RegionLanguagePicker.cs."
+            },
+            {
+              "claim": "0-error build (benign NU1701 only) and filtered suite 325/325",
+              "disposition": "supported",
+              "evidence": "dotnet build: 0 Error(s), 3 NU1701 Warning(s). dotnet test filtered: Failed: 0, Passed: 325, Total: 325."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "Tests exercise the real production serialization/rehydration seam (RichTextBox plain-text round-trip \u002B EmbeddedCodeRegionManager.TryConvertNextFence) rather than a parallel implementation. Coverage spans all picker options and the three kinds (auto/plain/explicit) via TestCaseSource, asserts fence tags, label text, PickerMode, PickerModeChanged firing exactly once, shared-undo before/after snapshots, keyboard selection/dismissal guards, and lossless handling of unregistered legacy tags. Filtered run: 325 passed / 0 failed in ~4s.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+          "completedAt": "2026-10-16T14:49:51.2437568+00:00"
+        },
+        {
+          "verdict": "accepted",
+          "summary": "Independent STANDARD verification confirmed. HEAD=b86e14f4 on feature/avalonedit-region-editor matches the candidate commit; host-recorded 2-file / \u002B96/-10 diff matches \u0060git show\u0060. The fix genuinely isolates popup input: previously the Popup was added to the document StackPanel (stack.Children[2]), so its input route traversed the region/RichTextBox preview handlers; the commit removes that \u0060stack.Children.Add(languagePopup)\u0060 line and leaves the Popup unparented (promoted to the \u0060_languagePopup\u0060 field \u002B \u0060LanguagePickerPopup\u0060 accessor), so WPF renders it in its own top-level visual root and option/outside-click input no longer crosses the region\u0027s PreviewMouseLeftButtonDown. Region ownership is preserved by updating FindContainingRegion to hop through \u0060popup.PlacementTarget\u0060 (=_languageButton, inside the region) now that the logical-parent walk is unavailable. Option Button.Click sets Language=option.FenceToken, closes popup (StaysOpen=false), and focuses the button; the real Language setter updates _languageLabel via RegionLanguagePicker.GetLabel, raises PickerModeChanged, and ToFencedText routes through EmbeddedFenceDetector.BuildFencedText honoring the task-002 convention (bare fence for Auto/empty token, reserved \u0027text\u0027 for Plain text, grammar token otherwise). Placement=Bottom/PlacementTarget=_languageButton, option order (Auto, Plain text, then OrderBy grammars), Esc/Enter/Space paths, and Opened bold/focus are all intact. Build 0 errors (NU1701 only); 327/327 tests pass.",
+          "claimFindings": [
+            {
+              "claim": "Popup input was swallowed because it was parented inside the document StackPanel; fix isolates it by keeping it unparented out of the document tree",
+              "disposition": "supported",
+              "evidence": "Diff removes \u0060stack.Children.Add(languagePopup)\u0060 (replaced with a comment) and promotes it to \u0060_languagePopup\u0060; test LanguagePicker_PopupMouseDown_DoesNotReachDocumentPreviewHandlers asserts host/region PreviewMouseDown counts stay 0 and args.Handled==False; ReferencesPopupPlacement test asserts LogicalTreeHelper.GetParent(popup) and VisualTreeHelper.GetParent(popup) are both Null."
+            },
+            {
+              "claim": "Wired into the real production region block, not a test-only helper",
+              "disposition": "supported",
+              "evidence": "Change is in SquadDash/EmbeddedCodeRegionBlock.cs BuildLanguagePopup/constructor; tests reach it via EmbeddedCodeRegionBlock.Build and EmbeddedCodeRegionManager.TryConvertNextFence \u002B RichTextBoxExtensions.EnumerateEmbeddedRegions (real surface)."
+            },
+            {
+              "claim": "Option click dismisses popup and writes through to Language/_languageLabel/PickerMode raising PickerModeChanged with task-002 fence serialization persisting across round-trip",
+              "disposition": "supported",
+              "evidence": "BuildLanguagePopup Button.Click sets Language=option.FenceToken then popup.IsOpen=false; Language setter (lines 39-55) updates _languageLabel.Text via GetLabel, raises PickerModeChanged; ToFencedText-\u003EBuildFencedText emits bare fence for empty token, \u0027text\u0027 token for Plain, grammar token otherwise; test LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode asserts changes==1, Language==token, PickerMode==mode, label text, exact serialized fence, and re-parse round-trip over all Options."
+            },
+            {
+              "claim": "Region ownership preserved after unparenting (ShouldClaimRegionMouseGesture / FindContainingRegion)",
+              "disposition": "supported",
+              "evidence": "FindContainingRegion now hops \u0060element is Popup popup ? popup.PlacementTarget : ...\u0060; PlacementTarget=_languageButton which is inside the region; KeyboardGuardFindsRegionAcrossPopupLogicalOwnership test asserts FindContainingRegion(option)==region and returns Null for a detached Button."
+            },
+            {
+              "claim": "Preserved placement/order/keyboard/selected-item behavior; no regression to 811809a0, ShouldClaimRegionMouseGesture, AvalonEdit nav",
+              "disposition": "supported",
+              "evidence": "BuildLanguagePopup retains Placement=Bottom, PlacementTarget=_languageButton, StaysOpen=false, Options order (Auto, Plain text, then OrderBy grammars), border.PreviewKeyDown Esc/Enter/Space, Opened bold\u002Bfocus; full filtered suite (EmbeddedCodeRegion|EmbeddedCaretNav) = 327/327 pass, 0 failed."
+            },
+            {
+              "claim": "327/327 tests pass, 0-error build (NU1701 only)",
+              "disposition": "supported",
+              "evidence": "dotnet build: Build succeeded, 0 Error(s), 3 NU1701 warnings. dotnet test filter: Failed: 0, Passed: 327, Total: 327."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "Tests exercise the real production surface, not a reimplementation. New/updated tests: (1) LanguagePicker_OptionMouseDown_IsNotClaimedByRegionChrome asserts the region chrome does not mark the option\u0027s native gesture Handled; (2) LanguagePicker_PopupMouseDown_DoesNotReachDocumentPreviewHandlers builds a real RichTextBox region, opens the popup, raises PreviewMouseDown on it, and asserts host/region handlers never fire and that the Unloaded event closes the detached popup; (3) placement test adds Logical/VisualTreeHelper GetParent==Null assertions proving the popup is unparented; (4) keyboard and round-trip tests now open the popup and assert it closes after selection (dismissal-state) plus write-through of Language/PickerMode/label and exact fence serialization with re-parse round-trip over every RegionLanguagePicker.Options entry. Assertions meaningfully prove the deterministic portion of the fix. The human-observable live popup dismissal/visible-label repaint legitimately remains at the Stage 2 human gate; the automated evidence fully backs the deterministic write-through and dismissal-state logic.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "b86e14f45227fe6f83c8c6ff9de92b1ab9926827",
+          "completedAt": "2026-10-16T15:42:55.2915435+00:00"
+        }
+      ],
       "displayStepLabel": "3",
-      "executionMode": "implementation"
+      "commits": [
+        {
+          "commit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+          "relation": "task",
+          "reason": "Commit produced within this step\u0027s host-recorded baseline range."
+        },
+        {
+          "commit": "b86e14f45227fe6f83c8c6ff9de92b1ab9926827",
+          "relation": "task",
+          "reason": "Commit produced within this step\u0027s host-recorded baseline range."
+        }
+      ],
+      "executionMode": "implementation",
+      "completionSummaryItems": [
+        "Diagnosed and fixed the reviewer-reported defect where clicking a picker option left the popup open and did not change the region language. Root cause confirmed: the popup was parented inside the RichTextBox document, so its pointer input was swallowed by the region\u0027s PreviewMouseLeftButtonDown handler and the option Button.Click never fired and StaysOpen=false never dismissed. Lyra isolated the popup\u0027s input so option clicks reach their handlers.",
+        "Clicking any option now dismisses the popup and writes through to the region Language, visible _languageLabel text, and PickerMode (raising PickerModeChanged), serializing via the task-002 fence convention (explicit language token, bare fence for Auto detect, reserved \u0027text\u0027 token for Plain text).",
+        "Preserved popup placement directly below the label (Placement=Bottom, PlacementTarget=_languageButton), outside-click dismissal (now working), Esc-to-close and Enter/Space-to-select keyboard paths, selected-item bold/focus on Opened, and the ordered option list (Auto detect, Plain text, then grammars). The 811809a0 native host-selection behavior, ShouldClaimRegionMouseGesture predicate, and AvalonEdit selection/copy/arrow-navigation were not regressed.",
+        "Extended headless coverage in SquadDash.Tests to assert popup dismissal state alongside the existing option-click write-through and fence round-trip coverage.",
+        "Independently verified the worker-reported commit: git rev-parse resolves b86e14f4 to b86e14f45227fe6f83c8c6ff9de92b1ab9926827 and it is the current HEAD of feature/avalonedit-region-editor. Live popup-dismissal and visible label update remain gated at the Stage 2 human approval checkpoint."
+      ],
+      "completionKind": "changed"
     },
     {
       "taskId": "AVALONEDIT-20261014-007",
@@ -301,7 +482,9 @@
         "AVALONEDIT-20261014-002"
       ],
       "priority": "high",
-      "status": "pending",
+      "status": "complete",
+      "completedAt": "2026-10-16T15:05:05.0819257+00:00",
+      "completionSummary": "All four Stage 1 regression areas (fence serialization round-trip, mouse-gesture claim predicate, TextChanged-to-Content sync, Up/Down boundary-exit logic) are already covered by existing passing tests driving the real production surfaces, so no new tests were needed.",
       "agentAssignments": [
         {
           "agentHandle": "vesper-knox",
@@ -328,8 +511,162 @@
           "description": "Run the new SquadDash.Tests cases covering fence serialization round-trip, the gesture claim predicate, content sync, and arrow boundary-exit logic, and report pass counts."
         }
       ],
+      "proofEvidence": [
+        {
+          "requirementId": "stage1-logic-tests",
+          "proofType": "automated-test",
+          "summary": "dotnet test SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav\u0022: Passed 325, Failed 0, Skipped 0, Total 325. Coverage per area \u2014 fence round-trip: Serialization_ExplicitLanguageFence_EmitsAndReparsesLanguageToken / _AutoDetect_EmitsBareFenceWithNoToken / _PlainText_EmitsReservedTextToken (plus LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode); gesture claim: ShouldClaimRegionMouseGesture_* (content/chrome/toggle/outside) \u002B ContentBoxMouseLeftButtonDown_DoesNotCollapseExistingSelection; content sync: EditingContentDirectly_UpdatesContentProperty_AndRoundTripsThroughGetPlainText; Up/Down boundary-exit: Up_OnFirstLine_AlwaysExitsBackward_RegardlessOfColumn / Up_NotOnFirstLine_PassesThrough / Down_OnLastLine_AlwaysExitsForward_RegardlessOfColumn / Down_NotOnLastLine_PassesThrough. Build succeeded, 0 errors (benign NU1701 only).",
+          "artifacts": []
+        }
+      ],
+      "handoff": {
+        "summary": "All four Stage 1 regression areas (fence serialization round-trip, mouse-gesture claim predicate, TextChanged-to-Content sync, Up/Down boundary-exit logic) are already covered by existing passing tests driving the real production surfaces, so no new tests were needed.",
+        "changedFiles": [],
+        "verification": {
+          "status": "passed",
+          "command": "dotnet build SquadDash\\SquadDash.csproj -p:EnableRunSlotDeployment=false ; dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav\u0022",
+          "summary": "Build succeeded (0 errors, benign NU1701 warnings); filtered EmbeddedCodeRegion/EmbeddedCaretNav suite passed 325/325, covering all four Stage 1 regression areas at the production seams.",
+          "tests": {
+            "total": 325,
+            "passed": 325,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        "submittedAt": "2026-10-16T15:01:41.9495566+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Verified the fence serialization convention round-trip for all three modes is covered: Serialization_ExplicitLanguageFence_EmitsAndReparsesLanguageToken, Serialization_AutoDetect_EmitsBareFenceWithNoToken, Serialization_PlainText_EmitsReservedTextToken, and LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode drive EmbeddedFenceDetector.BuildFencedText/FindFirstFence and region Language/ToFencedText serialization.",
+          "Verified the mouse-gesture claim predicate is covered: ShouldClaimRegionMouseGesture_ContentTextBoxClick_IsNotClaimed, _RegionChromeClick_IsClaimed, _ToggleClick_IsNotClaimed, _OutsideAnyRegion_IsNotClaimed, plus ContentBoxMouseLeftButtonDown_DoesNotCollapseExistingSelection, drive the real ShouldClaimRegionMouseGesture predicate against the hosted AvalonEdit surface.",
+          "Verified the TextChanged-to-Content synchronization is covered: EditingContentDirectly_UpdatesContentProperty_AndRoundTripsThroughGetPlainText drives the hosted AvalonEdit TextEditor.Text to AvalonEditRegionEditor.TextChanged to region Content path.",
+          "Verified the Up/Down arrow boundary-exit decision logic is covered: Up_OnFirstLine_AlwaysExitsBackward_RegardlessOfColumn, Up_NotOnFirstLine_PassesThrough, Down_OnLastLine_AlwaysExitsForward_RegardlessOfColumn, Down_NotOnLastLine_PassesThrough drive the real EmbeddedCaretNavMath.Decide logic.",
+          "Confirmed HEAD remains a0aac71c with no task-owned files modified (only host-owned .squad/plans/*.json show as pre-existing modifications, left untouched); filtered EmbeddedCodeRegion/EmbeddedCaretNav suite passed 325/325 and build succeeded with 0 errors."
+        ],
+        "baselineCommit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+        "completionKind": "verified-no-op",
+        "evaluatedCommit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+        "noOpEvidence": [
+          {
+            "requirement": "Fence serialization convention round-trip for explicit language token, bare fence for Auto detect, and reserved text token for Plain text",
+            "observation": "Existing passing tests assert each of the three modes serializes and re-parses correctly through the production serialization path (EmbeddedFenceDetector.BuildFencedText and region ToFencedText), including via the picker write-through.",
+            "locations": [
+              "SquadDash.Tests/EmbeddedCodeRegionTests.cs:Serialization_ExplicitLanguageFence_EmitsAndReparsesLanguageToken",
+              "SquadDash.Tests/EmbeddedCodeRegionTests.cs:Serialization_AutoDetect_EmitsBareFenceWithNoToken",
+              "SquadDash.Tests/EmbeddedCodeRegionTests.cs:Serialization_PlainText_EmitsReservedTextToken",
+              "SquadDash/EmbeddedFenceDetector.cs"
+            ]
+          },
+          {
+            "requirement": "Pure mouse-gesture claim predicate (ShouldClaimRegionMouseGesture) re-expressed against the AvalonEdit host",
+            "observation": "Existing passing tests exercise the real ShouldClaimRegionMouseGesture predicate for content-click, chrome-click, toggle-click, and outside-region cases, plus the bubbling handler\u0027s non-collapse of an existing selection against the hosted AvalonEdit surface.",
+            "locations": [
+              "SquadDash.Tests/EmbeddedCodeRegionTests.cs:ShouldClaimRegionMouseGesture_ContentTextBoxClick_IsNotClaimed",
+              "SquadDash.Tests/EmbeddedCodeRegionTests.cs:ShouldClaimRegionMouseGesture_RegionChromeClick_IsClaimed",
+              "SquadDash/EmbeddedCodeRegionBlock.cs"
+            ]
+          },
+          {
+            "requirement": "TextChanged-to-Content synchronization",
+            "observation": "An existing passing test edits the hosted AvalonEdit editor text and asserts the region Content property updates and round-trips through GetPlainText, exercising the AvalonEditRegionEditor.TextChanged to Content path.",
+            "locations": [
+              "SquadDash.Tests/EmbeddedCodeRegionTests.cs:EditingContentDirectly_UpdatesContentProperty_AndRoundTripsThroughGetPlainText",
+              "SquadDash/AvalonEditRegionEditor.cs"
+            ]
+          },
+          {
+            "requirement": "Up/Down arrow boundary-exit decision logic",
+            "observation": "Existing passing tests assert EmbeddedCaretNavMath.Decide exits backward on the first line and forward on the last line regardless of column, and passes through on interior lines, covering selections and single-line/trailing-newline edge cases.",
+            "locations": [
+              "SquadDash.Tests/EmbeddedCaretNavMathTests.cs:Up_OnFirstLine_AlwaysExitsBackward_RegardlessOfColumn",
+              "SquadDash.Tests/EmbeddedCaretNavMathTests.cs:Down_OnLastLine_AlwaysExitsForward_RegardlessOfColumn",
+              "SquadDash/EmbeddedCaretNavMath.cs"
+            ]
+          }
+        ]
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "Independently confirmed the verified-no-op. HEAD is still a0aac71c with only host-owned .squad/plans/*.json modified (no task-owned diff). All four Step 4 coverage areas are genuinely covered at the real production seam by existing passing tests, and the filtered suite is 325/325 (0 failed) on a 0-error build.",
+          "claimFindings": [
+            {
+              "claim": "Area 1 \u2014 Fence serialization round-trip for all three modes (explicit token, bare for Auto, reserved \u0027text\u0027 for Plain)",
+              "disposition": "supported",
+              "evidence": "EmbeddedCodeRegionTests.cs:82/96/110 call the real EmbeddedFenceDetector.BuildFencedText and FindFirstFence, asserting exact output \u0027\u0060\u0060\u0060csharp\\n...\u0027, bare \u0027\u0060\u0060\u0060\\n...\u0027, and \u0027\u0060\u0060\u0060text\\n...\u0027 plus round-tripped Language token. LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode (:313) drives real RegionLanguagePicker.Options \u2192 EmbeddedCodeRegionManager.TryConvertNextFence \u2192 region.Language/PickerMode and rtb.GetPlainText, asserting full serialize\u2192reparse round-trip per mode."
+            },
+            {
+              "claim": "Area 2 \u2014 ShouldClaimRegionMouseGesture predicate re-expressed against the AvalonEdit host",
+              "disposition": "supported",
+              "evidence": "Tests at :1973/1984/1995/2005 invoke the real EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture (defined EmbeddedCodeRegionBlock.cs:123, used in production at MainWindow.xaml.cs:28286 \u2014 not a copy). ContentBoxMouseLeftButtonDown_DoesNotCollapseExistingSelection (:2014) drives the live AvalonEdit.TextEditor (GetContentEditor pulls region.Child StackPanel\u2192Border\u2192TextEditor) and the real bubbling MouseLeftButtonDown handler, asserting selection is preserved."
+            },
+            {
+              "claim": "Area 3 \u2014 TextChanged-to-Content synchronization via hosted AvalonEdit",
+              "disposition": "supported",
+              "evidence": "EditingContentDirectly_UpdatesContentProperty_AndRoundTripsThroughGetPlainText (:636) sets Text on the live ICSharpCode.AvalonEdit.TextEditor (GetContentEditor, :2637) which fires the real production handler EmbeddedCodeRegionBlock.cs:247-249 (Content = _editor.Text), then asserts region.Content and rtb.GetPlainText round-trip. Not a stub."
+            },
+            {
+              "claim": "Area 4 \u2014 Up/Down arrow boundary-exit decision logic",
+              "disposition": "supported",
+              "evidence": "EmbeddedCaretNavMathTests.cs:71/80/88/97 call the real EmbeddedCaretNavMath.Decide directly, asserting first-line Up always ExitBackward regardless of column, non-first-line PassThrough, last-line Down always ExitForward regardless of column, non-last-line PassThrough."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "Filtered suite \u0027FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav\u0027 ran 325 tests: Passed 325, Failed 0, Skipped 0. Build of SquadDash.csproj succeeded with 0 errors and only benign NU1701 (AvalonEdit target-framework) warnings. All named tests exist and exercise real production methods, not mock reimplementations.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+          "completedAt": "2026-10-16T15:05:05.0160204+00:00"
+        }
+      ],
       "displayStepLabel": "4",
-      "executionMode": "implementation"
+      "commits": [],
+      "executionMode": "implementation",
+      "completionSummaryItems": [
+        "Verified the fence serialization convention round-trip for all three modes is covered: Serialization_ExplicitLanguageFence_EmitsAndReparsesLanguageToken, Serialization_AutoDetect_EmitsBareFenceWithNoToken, Serialization_PlainText_EmitsReservedTextToken, and LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode drive EmbeddedFenceDetector.BuildFencedText/FindFirstFence and region Language/ToFencedText serialization.",
+        "Verified the mouse-gesture claim predicate is covered: ShouldClaimRegionMouseGesture_ContentTextBoxClick_IsNotClaimed, _RegionChromeClick_IsClaimed, _ToggleClick_IsNotClaimed, _OutsideAnyRegion_IsNotClaimed, plus ContentBoxMouseLeftButtonDown_DoesNotCollapseExistingSelection, drive the real ShouldClaimRegionMouseGesture predicate against the hosted AvalonEdit surface.",
+        "Verified the TextChanged-to-Content synchronization is covered: EditingContentDirectly_UpdatesContentProperty_AndRoundTripsThroughGetPlainText drives the hosted AvalonEdit TextEditor.Text to AvalonEditRegionEditor.TextChanged to region Content path.",
+        "Verified the Up/Down arrow boundary-exit decision logic is covered: Up_OnFirstLine_AlwaysExitsBackward_RegardlessOfColumn, Up_NotOnFirstLine_PassesThrough, Down_OnLastLine_AlwaysExitsForward_RegardlessOfColumn, Down_NotOnLastLine_PassesThrough drive the real EmbeddedCaretNavMath.Decide logic.",
+        "Confirmed HEAD remains a0aac71c with no task-owned files modified (only host-owned .squad/plans/*.json show as pre-existing modifications, left untouched); filtered EmbeddedCodeRegion/EmbeddedCaretNav suite passed 325/325 and build succeeded with 0 errors."
+      ],
+      "completionKind": "verified-no-op",
+      "evaluatedCommit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+      "noOpEvidence": [
+        {
+          "requirement": "Fence serialization convention round-trip for explicit language token, bare fence for Auto detect, and reserved text token for Plain text",
+          "observation": "Existing passing tests assert each of the three modes serializes and re-parses correctly through the production serialization path (EmbeddedFenceDetector.BuildFencedText and region ToFencedText), including via the picker write-through.",
+          "locations": [
+            "SquadDash.Tests/EmbeddedCodeRegionTests.cs:Serialization_ExplicitLanguageFence_EmitsAndReparsesLanguageToken",
+            "SquadDash.Tests/EmbeddedCodeRegionTests.cs:Serialization_AutoDetect_EmitsBareFenceWithNoToken",
+            "SquadDash.Tests/EmbeddedCodeRegionTests.cs:Serialization_PlainText_EmitsReservedTextToken",
+            "SquadDash/EmbeddedFenceDetector.cs"
+          ]
+        },
+        {
+          "requirement": "Pure mouse-gesture claim predicate (ShouldClaimRegionMouseGesture) re-expressed against the AvalonEdit host",
+          "observation": "Existing passing tests exercise the real ShouldClaimRegionMouseGesture predicate for content-click, chrome-click, toggle-click, and outside-region cases, plus the bubbling handler\u0027s non-collapse of an existing selection against the hosted AvalonEdit surface.",
+          "locations": [
+            "SquadDash.Tests/EmbeddedCodeRegionTests.cs:ShouldClaimRegionMouseGesture_ContentTextBoxClick_IsNotClaimed",
+            "SquadDash.Tests/EmbeddedCodeRegionTests.cs:ShouldClaimRegionMouseGesture_RegionChromeClick_IsClaimed",
+            "SquadDash/EmbeddedCodeRegionBlock.cs"
+          ]
+        },
+        {
+          "requirement": "TextChanged-to-Content synchronization",
+          "observation": "An existing passing test edits the hosted AvalonEdit editor text and asserts the region Content property updates and round-trips through GetPlainText, exercising the AvalonEditRegionEditor.TextChanged to Content path.",
+          "locations": [
+            "SquadDash.Tests/EmbeddedCodeRegionTests.cs:EditingContentDirectly_UpdatesContentProperty_AndRoundTripsThroughGetPlainText",
+            "SquadDash/AvalonEditRegionEditor.cs"
+          ]
+        },
+        {
+          "requirement": "Up/Down arrow boundary-exit decision logic",
+          "observation": "Existing passing tests assert EmbeddedCaretNavMath.Decide exits backward on the first line and forward on the last line regardless of column, and passes through on interior lines, covering selections and single-line/trailing-newline edge cases.",
+          "locations": [
+            "SquadDash.Tests/EmbeddedCaretNavMathTests.cs:Up_OnFirstLine_AlwaysExitsBackward_RegardlessOfColumn",
+            "SquadDash.Tests/EmbeddedCaretNavMathTests.cs:Down_OnLastLine_AlwaysExitsForward_RegardlessOfColumn",
+            "SquadDash/EmbeddedCaretNavMath.cs"
+          ]
+        }
+      ]
     },
     {
       "taskId": "AVALONEDIT-20261014-004",
@@ -339,7 +676,10 @@
         "AVALONEDIT-20261014-003"
       ],
       "priority": "high",
-      "status": "pending",
+      "status": "complete",
+      "commit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+      "completedAt": "2026-10-16T16:35:22.7910993+00:00",
+      "completionSummary": "Added a pluggable themed highlighting engine for AvalonEdit\u0027s built-in grammars, a per-editor light/dark palette theme hook wired from MainWindow.ApplyTheme, and a fence-tag-first auto-detect heuristic with pinning.",
       "agentAssignments": [
         {
           "agentHandle": "lyra-morn",
@@ -366,16 +706,222 @@
         "avalonedit-region-host",
         "language-picker-mode"
       ],
+      "handoff": {
+        "commit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+        "summary": "Added a pluggable themed highlighting engine for AvalonEdit\u0027s built-in grammars, a per-editor light/dark palette theme hook wired from MainWindow.ApplyTheme, and a fence-tag-first auto-detect heuristic with pinning.",
+        "changedFiles": [
+          "SquadDash.Tests/RegionGrammarResolverTests.cs",
+          "SquadDash.Tests/RegionHighlightingTests.cs",
+          "SquadDash.Tests/SquadDash.Tests.csproj",
+          "SquadDash/AvalonEditRegionEditor.cs",
+          "SquadDash/EmbeddedCodeRegionBlock.cs",
+          "SquadDash/IRegionCodeEditor.cs",
+          "SquadDash/MainWindow.xaml.cs",
+          "SquadDash/RegionGrammarResolver.cs",
+          "SquadDash/RegionHighlightingEngine.cs",
+          "SquadDash/RegionHighlightingPalettes.cs",
+          "SquadDash/RegionLanguagePicker.cs"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "dotnet build SquadDash\\SquadDash.csproj -p:EnableRunSlotDeployment=false ; dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav|FullyQualifiedName~Highlight|FullyQualifiedName~AutoDetect|FullyQualifiedName~Palette\u0022",
+          "summary": "Build succeeded (0 errors, benign NU1701 AvalonEdit warnings); focused highlighting/grammar/palette/region/caret suite passed with new engine coverage, and the existing 327 region/navigation tests remained green.",
+          "tests": {
+            "total": 386,
+            "passed": 386,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        "submittedAt": "2026-10-16T16:30:35.2932051+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Built a pluggable region highlighting engine (SquadDash/RegionHighlightingEngine.cs, RegionGrammarResolver.cs, RegionHighlightingPalettes.cs) that applies AvalonEdit\u0027s standard built-in grammars (all 16 installed definitions) with editor-local highlighting definitions so each open region renders syntax colors without mutating the shared HighlightingManager registry. Grammar/palette registration is extensible so Step 5 downstream tasks 005/006 can register custom grammars and palettes through the same engine without reworking it.",
+          "Implemented distinct light and dark HighlightingColor palettes and a per-editor theme hook: MainWindow.ApplyTheme raises NotifyThemeChanged, which fans out to each open region\u0027s ApplyEditorTheme \u2192 ApplyPalette, reading post-swap CodeSurface/CodeText plus the new highlight palette and imperatively re-pushing/redrawing syntax colors on every theme switch (AvalonEdit colors are not DynamicResource-driven).",
+          "Implemented auto-detect: the fence tag resolves the grammar first; when the fence tag is empty (Auto-detect mode) a bounded content heuristic runs after a 250 ms debounce on text changes so highlighting updates live while typing. Plain text and any explicit language token pin the mode so the heuristic does not run on further changes.",
+          "Added focused headless NUnit coverage (SquadDash.Tests/RegionGrammarResolverTests.cs, RegionHighlightingTests.cs) proving fence-tag-first resolution, empty-token heuristic fallback, pinning behavior, and distinct light-vs-dark palette value selection against the real resolver/engine. Preserved Stage 1 selection/copy/navigation/sync behavior and the Step 3 picker; the existing 327 EmbeddedCodeRegion/EmbeddedCaretNav tests still pass.",
+          "Independently verified the worker-reported commit: git rev-parse resolves 9602a2e1 to 9602a2e1f8baf3cba8254e1795e0bb67ed73b69e and it is the current HEAD of feature/avalonedit-region-editor (diff adds the three engine files, integration edits to AvalonEditRegionEditor.cs/IRegionCodeEditor.cs/EmbeddedCodeRegionBlock.cs/RegionLanguagePicker.cs/MainWindow.xaml.cs, and the new test files). Live rendered-color correctness and the live-typing highlight update remain gated at the Stage 3 human approval checkpoint; no human observation is claimed."
+        ],
+        "baselineCommit": "b86e14f45227fe6f83c8c6ff9de92b1ab9926827",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "Independently verified at HEAD 9602a2e1 on feature/avalonedit-region-editor (diff matches the 11 host-recorded files, \u002B1460/-49). All four claims are supported against the REAL production path, not test-local reimplementations. (A) RegionHighlightingEngine.CreateDefinition builds an editor-local RegionHighlightingDefinition that clones the full rule/color graph cycle-safely and never mutates HighlightingManager; AvalonEditRegionEditor.RefreshHighlighting consumes it; Register/CreatePaletteColors are extensible for 005/006. (B) The theme hook is genuinely wired: MainWindow.ApplyTheme -\u003E region.NotifyThemeChanged(palette) -\u003E ApplyEditorTheme -\u003E editor.ApplyPalette -\u003E definition.ApplyPalette, re-pushing imperative light/dark HighlightingColor values read from post-swap CodeSurface/CodeText (not DynamicResource). (C) Resolve is fence-token-first; only the empty token runs a 250 ms DispatcherTimer-debounced heuristic that lives in the real TextChanged path. (D) Pinning (plain text / explicit) disarms the debounce, proven by negative tests that would fail if pinning were removed. Build: 0 errors, benign NU1701 only. Tests: 386 passed / 0 failed, matching the claimed 386/386.",
+          "claimFindings": [
+            {
+              "claim": "Pluggable engine applies built-in grammars via editor-local definitions without mutating the shared HighlightingManager; registration extensible for 005/006.",
+              "disposition": "supported",
+              "evidence": "RegionHighlightingEngine.CreateDefinition -\u003E new RegionHighlightingDefinition clones MainRuleSet/named rulesets/colors (cycle-guarded via _ruleSets dict); production RefreshHighlighting assigns _editor.SyntaxHighlighting from it. Register() validates/adds grammars\u002Baliases\u002Bpalettes; CreatePaletteColors merges per-grammar palettes. Tests TwoThemedDefinitions_...NeverMutateManagerDefinition (manager snapshot unchanged) and RegisterCustomGrammar_... (custom grammar\u002Balias\u002Bthemed color, Default engine unchanged) confirm both."
+            },
+            {
+              "claim": "Distinct light/dark palettes \u002B per-editor theme hook: ApplyTheme raises NotifyThemeChanged -\u003E ApplyEditorTheme -\u003E ApplyPalette, reading post-swap CodeSurface/CodeText and re-pushing syntax colors.",
+              "disposition": "supported",
+              "evidence": "MainWindow.xaml.cs ~56824: regionPalette = _regionEditorPaletteSource.CreatePalette() (reads CodeSurface/CodeText after dictionary swap); foreach region.NotifyThemeChanged(regionPalette) -\u003E ApplyEditorTheme -\u003E _editor.ApplyPalette sets Background/Foreground and calls RegionHighlightingDefinition.ApplyPalette which re-applies imperative HighlightingColor (RegionHighlightingBrush, not DynamicResource). Palettes_LightAndDarkColors_AreDistinctForEveryRole and Block_NotifyThemeChanged_RecolorsDefinition_WhileContentCaretSelectionStayStable confirm distinct values \u002B live recolor with stable text/caret/selection."
+            },
+            {
+              "claim": "Auto-detect: fence tag resolves first; empty token runs 250 ms debounced heuristic; Plain text/explicit pin the mode.",
+              "disposition": "supported",
+              "evidence": "RegionGrammarResolver.Resolve switches on GetMode: AutoDetect-\u003EDetectBuiltIn, PlainText-\u003Enull, else resolveFenceToken(token). AvalonEditRegionEditor constructs a 250 ms DispatcherTimer; TextChanged handler stops then starts it only when _editor.IsLoaded \u0026\u0026 ShouldAutoDetect(_fenceToken); Tick re-runs RefreshHighlighting. Test AutoDetectDebounce_ReclassifiesAndClearsHighlightingAfterTypingPauses drives the real timer via DispatcherFrame (JavaScript then null)."
+            },
+            {
+              "claim": "Pinning: once Plain text/explicit set, heuristic does not run on further text changes; negative coverage.",
+              "disposition": "supported",
+              "evidence": "SetLanguage stops the timer; TextChanged re-arms only when ShouldAutoDetect (empty token). Negative tests AutoDetectDebounce_DoesNotArm_WhenLanguageIsPinned and resolver Resolve_UnsupportedPinnedToken_ReturnsNull_WithoutHeuristic / Resolve_PlainText_...aliasCalls Is.Zero would fail if pinning were removed."
+            },
+            {
+              "claim": "Focused NUnit coverage drives the real resolver/engine/palette; Stage 1 \u002B Step 3 picker preserved; existing 327 tests still pass; totals 386/386.",
+              "disposition": "supported",
+              "evidence": "RegionGrammarResolverTests and RegionHighlightingTests assert against real RegionHighlightingEngine/RegionGrammarResolver/RegionHighlightingPalettes/AvalonEditRegionEditor/EmbeddedCodeRegionBlock (no reimplementation). Observed: build 0 errors (benign NU1701 only); filtered test run Passed 386, Failed 0, Total 386 \u2014 matches claim."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "Enhanced review confirms tests exercise the REAL production types, not test-local copies. Wiring-critical behavior is deterministically covered: theme-hook invocation (Block_NotifyThemeChanged_... asserts in-place recolor via the production NotifyThemeChanged), the real 250 ms debounce (AutoDetectDebounce_Reclassifies... uses an actual DispatcherTimer \u002B DispatcherFrame, not a test clock), pinning negatives (DoesNotArm_WhenLanguageIsPinned, aliasCalls Is.Zero for plain text), no-mutation of the shared manager (manager snapshot equality), and distinct light/dark color values. Live rendered-color visual correctness is appropriately left to the Stage 3 human gate and is not a defect. Build 0 errors (NU1701 benign); 386 passed / 0 failed, matching the claimed 386/386.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+          "completedAt": "2026-10-16T16:35:22.5999365+00:00"
+        }
+      ],
       "displayStepLabel": "5",
+      "commits": [
+        {
+          "commit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+          "relation": "task",
+          "reason": "Commit produced within this step\u0027s host-recorded baseline range."
+        }
+      ],
       "executionMode": "implementation",
-      "verificationLevel": "enhanced"
+      "verificationLevel": "enhanced",
+      "completionSummaryItems": [
+        "Built a pluggable region highlighting engine (SquadDash/RegionHighlightingEngine.cs, RegionGrammarResolver.cs, RegionHighlightingPalettes.cs) that applies AvalonEdit\u0027s standard built-in grammars (all 16 installed definitions) with editor-local highlighting definitions so each open region renders syntax colors without mutating the shared HighlightingManager registry. Grammar/palette registration is extensible so Step 5 downstream tasks 005/006 can register custom grammars and palettes through the same engine without reworking it.",
+        "Implemented distinct light and dark HighlightingColor palettes and a per-editor theme hook: MainWindow.ApplyTheme raises NotifyThemeChanged, which fans out to each open region\u0027s ApplyEditorTheme \u2192 ApplyPalette, reading post-swap CodeSurface/CodeText plus the new highlight palette and imperatively re-pushing/redrawing syntax colors on every theme switch (AvalonEdit colors are not DynamicResource-driven).",
+        "Implemented auto-detect: the fence tag resolves the grammar first; when the fence tag is empty (Auto-detect mode) a bounded content heuristic runs after a 250 ms debounce on text changes so highlighting updates live while typing. Plain text and any explicit language token pin the mode so the heuristic does not run on further changes.",
+        "Added focused headless NUnit coverage (SquadDash.Tests/RegionGrammarResolverTests.cs, RegionHighlightingTests.cs) proving fence-tag-first resolution, empty-token heuristic fallback, pinning behavior, and distinct light-vs-dark palette value selection against the real resolver/engine. Preserved Stage 1 selection/copy/navigation/sync behavior and the Step 3 picker; the existing 327 EmbeddedCodeRegion/EmbeddedCaretNav tests still pass.",
+        "Independently verified the worker-reported commit: git rev-parse resolves 9602a2e1 to 9602a2e1f8baf3cba8254e1795e0bb67ed73b69e and it is the current HEAD of feature/avalonedit-region-editor (diff adds the three engine files, integration edits to AvalonEditRegionEditor.cs/IRegionCodeEditor.cs/EmbeddedCodeRegionBlock.cs/RegionLanguagePicker.cs/MainWindow.xaml.cs, and the new test files). Live rendered-color correctness and the live-typing highlight update remain gated at the Stage 3 human approval checkpoint; no human observation is claimed."
+      ],
+      "completionKind": "changed"
+    },
+    {
+      "taskId": "AVALONEDIT-20261014-AMD-001",
+      "title": "Broaden auto-detect heuristic to recognize common declaration-style C#",
+      "description": "This is additional work requested at a human approval boundary. Preserve the accepted results of the tasks below; inspect the current repository because the user may already have implemented part of this amendment during the approval pause. Complete only the remaining bounded work, integrate it with the accumulated result, and return normal task handoff evidence. Requested amendment: Fix the Stage 3 defect where live auto-detect highlighting never applies to recognizable code. Root cause: SquadDash/RegionGrammarResolver.cs DetectBuiltIn (lines ~164-193) recognizes C# only via four narrow Tier-2 markers (RegionGrammarResolver.cs:73-79): \u0027\\busing\\s\u002BSystem\\b\u0027, \u0027\\bnamespace\\s\u002B...;\u0027 (semicolon form only), \u0027\\bConsole\\.(Write|WriteLine)\\b\u0027, and \u0027\\bpublic\\s\u002Bstatic\\s\u002Bvoid\\s\u002BMain\\s*\\(\\s*string\\[\\]\u0027. Ordinary declaration-style C# \u2014 e.g. the reviewer\u0027s samples \u0027public interface ICalloutWindow { event EventHandler? RefreshTargetRect; bool ShowDiagnostics { get; set; } void UpdateTargetRect(Rect rect); double LastDragAngle { get; } }\u0027 and \u0027public class MainWindow { }\u0027 \u2014 matches none of these, so DetectBuiltIn returns null, Resolve returns no grammar, and the region never leaves plain text in Auto detect. The debounce/timer/RefreshHighlighting wiring (AvalonEditRegionEditor.cs:49-106) is functioning; only the classifier is too narrow. WORK (production owner: lyra-morn; test owner: vesper-knox): (1) In RegionGrammarResolver, broaden the C# Tier-2 markers so realistic declaration-style C# is classified as \u0027C#\u0027 while keeping the existing conservative single-winner ambiguity rule (two or more Tier-2 language matches must still return null). Add C#-distinctive signals that do NOT also fire the Java/C\u002B\u002B/JavaScript markers, for example: brace-form \u0027namespace [A-Za-z_][\\w.]*\\s*\\{\u0027; a C# using directive \u0027using [A-Za-z_][\\w.]*\\s*;\u0027 that is not \u0027import\u0027/\u0027package\u0027; auto-property accessor lists \u0027\\{\\s*get\\b\u0027 / \u0027set;\u0027; \u0027event\\s\u002B\\w\u0027; nullable reference/value type usage like \u0027EventHandler?\u0027 or a \u0027\\w\u002B\\?\\s\u002B\\w\u002B\u0027 field/return type; and access-modified type declarations \u0027(public|private|protected|internal)\\s\u002B(sealed\\s\u002B|abstract\\s\u002B|static\\s\u002B|partial\\s\u002B)*(class|interface|struct|record|enum)\\b\u0027. Because Java also uses \u0027public class\u0027, ensure C#-only signals (nullable \u0027?\u0027, \u0027{ get; set; }\u0027, \u0027event\u0027, \u0027namespace {\u0027, \u0027using X;\u0027 without \u0027java.\u0027) are what tip the single-winner selection to C#, and verify a plain \u0027public class Foo {}\u0027 with no other signals still resolves deterministically (either to C# via an added marker or to null) without throwing or double-counting. Keep MaxScanLength, NonBacktracking RegexOptions, and the Tier-1 PHP/XML/HTML document-signature precedence unchanged. (2) Do not weaken PlainText pinning: Resolve must still return null for the \u0027text\u0027 token and SetLanguage must still stop the auto-detect timer. (3) Regression tests in SquadDash.Tests (RegionGrammarResolverTests.cs): assert DetectBuiltIn returns \u0027C#\u0027 for BOTH reviewer samples verbatim; assert at least one additional realistic C# snippet (class with { get; set; } properties and a method) resolves to \u0027C#\u0027; assert a deliberately ambiguous/prose sample still returns null; and assert Java (\u0027import java.util.List; public class X { public static void main(String[] a){} }\u0027), JavaScript (\u0027console.log(1)\u0027), and C\u002B\u002B (\u0027#include \u003Cvector\u003E\u0027) still resolve to their own grammars (no C# false-positive). Extend or add an AvalonEditRegionEditor-level test confirming that, in Auto detect mode, applying one of the reviewer samples as text causes RefreshHighlighting to set a non-null SyntaxHighlighting named \u0027C#\u0027 (fence token empty). (4) Build green with ONLY env DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set (do not also set MSBuildExtensionsPath) and run \u0027dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~RegionGrammar|FullyQualifiedName~Highlight|FullyQualifiedName~AutoDetect|FullyQualifiedName~EmbeddedCodeRegion\u0022\u0027; report exact pass counts. Commit test \u002B production changes to the already-prepared branch feature/avalonedit-region-editor (do not create or switch branches). After the amendment lands, the Stage 3 gate must be re-tested by the human: paste each reviewer sample into an Auto detect region and confirm live C# highlighting appears, then select Plain text and confirm highlighting stops changing while typing.",
+      "dependsOn": [
+        "AVALONEDIT-20261014-004"
+      ],
+      "priority": "high",
+      "status": "complete",
+      "commit": "6f9364a2f737589714441e76710f0e0be6c7b8b8",
+      "completedAt": "2026-10-19T02:34:10.2906183+00:00",
+      "completionSummary": "Step 5a broadened the auto-detect heuristic so declaration-style C# (the reviewer\u0027s interface/class samples) classifies as C# and now highlights live in Auto detect mode, with regression tests and no false positives for Java/JS/C\u002B\u002B.",
+      "agentRoutingMode": "generic",
+      "genericAgentReason": "This user-authored boundary amendment may span accepted task contracts and has no preapproved roster assignment.",
+      "provenanceChain": {
+        "entries": [
+          {
+            "taskId": "AVALONEDIT-20261014-AMD-001",
+            "sourceLabel": "Host-recorded commit",
+            "sourceKind": "HostRecorded",
+            "recoveryKind": "envelope-repair",
+            "recordedAt": "2026-10-19T02:28:21.6867925+00:00"
+          }
+        ]
+      },
+      "handoff": {
+        "commit": "6f9364a2f737589714441e76710f0e0be6c7b8b8",
+        "summary": "Step 5a broadened the auto-detect heuristic so declaration-style C# (the reviewer\u0027s interface/class samples) classifies as C# and now highlights live in Auto detect mode, with regression tests and no false positives for Java/JS/C\u002B\u002B.",
+        "changedFiles": [
+          "SquadDash.Tests/RegionGrammarResolverTests.cs",
+          "SquadDash.Tests/RegionHighlightingTests.cs",
+          "SquadDash/RegionGrammarResolver.cs"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "dotnet build SquadDash\\SquadDash.csproj -p:EnableRunSlotDeployment=false ; dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~RegionGrammar|FullyQualifiedName~Highlight|FullyQualifiedName~AutoDetect|FullyQualifiedName~EmbeddedCodeRegion\u0022",
+          "summary": "Coordinator verified 6f9364a2 is a real commit and current HEAD of feature/avalonedit-region-editor (3 files; production change limited to RegionGrammarResolver.cs \u002B10). Build green; filtered suite 326 passed / 0 failed / 0 skipped.",
+          "tests": {
+            "total": 326,
+            "passed": 326,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        "submittedAt": "2026-10-19T02:29:09.1190725+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Broadened the C# Tier-2 markers in SquadDash/RegionGrammarResolver.cs (\u002B10 lines) with seven C#-distinctive, case-sensitive, backtracking-free signals: brace-form namespace; non-import/package using directive; auto-property accessor \u0027{ get;\u0027; event declaration; nullable \u0027EventHandler?\u0027; empty-body access-modified class; and record/struct declarations. The conservative single-winner ambiguity rule is preserved (each LanguageMarkers entry still counts once via first-match short-circuit), so the broadened C# markers do not create self-ambiguity or steal the Java \u0027public class\u0027 sample.",
+          "Preserved all unchanged invariants: the 250 ms debounce/timer/RefreshHighlighting wiring in AvalonEditRegionEditor.cs, MaxScanLength, NonBacktracking RegexOptions, Tier-1 PHP/XML/HTML document-signature precedence, PlainText pinning (Resolve returns null for the \u0027text\u0027 token), and SetLanguage stopping the auto-detect timer. AvalonEditRegionEditor.cs was not touched.",
+          "Added regression tests in SquadDash.Tests/RegionGrammarResolverTests.cs: DetectBuiltIn_ClassifiesDeclarationStyleCSharp (both reviewer samples verbatim, LF-normalized, plus a { get; set; } class with a method \u2192 \u0027C#\u0027); DetectBuiltIn_BroadenedCSharpDoesNotFalsePositiveOtherLanguages (Java\u2192Java, JS\u2192JavaScript, C\u002B\u002B\u2192C\u002B\u002B); DetectBuiltIn_DeclarationStyleCSharp_StaysNullForProse (ambiguous/prose \u2192 null).",
+          "Added SquadDash.Tests/RegionHighlightingTests.cs AutoDetect_DeclarationStyleCSharpSample_AppliesCsharpHighlighting proving that, in Auto detect mode (empty fence token), applying either reviewer sample as editor text drives RefreshHighlighting to a non-null SyntaxHighlighting named \u0027C#\u0027.",
+          "Built SquadDash.csproj green (0 errors, benign NU1701 AvalonEdit warnings) and reran the filtered suite: 326 passed / 0 failed / 0 skipped. Committed test \u002B production changes to the already-active branch feature/avalonedit-region-editor as 6f9364a2 (coordinator-verified HEAD); no .squad plan/tasks files staged. Rebuilt the app so it reloads for the Stage 3 live re-test."
+        ],
+        "baselineCommit": "0911f621fbfcc8cf265bcff6dbd714e7ef58ef7a",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "Independently verified Step 5a on the active feature/avalonedit-region-editor branch (HEAD = 6f9364a2, confirmed real and current). The diff is exactly the host-recorded 3 files/\u002B78: RegionGrammarResolver.cs (\u002B10), RegionGrammarResolverTests.cs (\u002B53), RegionHighlightingTests.cs (\u002B15). Production change is confined to the C# Tier-2 marker block; AvalonEditRegionEditor.cs and other engine files are untouched. MaxScanLength (8192), SharedOptions (CultureInvariant|ExplicitCapture|NonBacktracking), and the Tier-1 PHP/XML/HTML precedence are unchanged. The seven new C# markers (brace namespace, non-System using;, {get;, event decl, EventHandler?, empty-body access-modified class, record/struct) are case-sensitive (no IgnoreCase) and contain no backreferences/lookarounds (NonBacktracking-safe; static ctor would throw otherwise, and the suite runs green). I traced the single-winner loop: each LanguageMarkers entry short-circuits on first match and counts once, so \u003E=2 language matches still returns null. Manually confirmed both reviewer samples fire only C# markers (no Java/C\u002B\u002B/JS/PowerShell/CSS overlap; CSS rule needs a \u0027:\u0027 inside braces which {get;set;} lacks), while the Java/JS/C\u002B\u002B samples resolve to their own grammars (Java\u0027s lowercase main/String[] never trips the case-sensitive C# Main pattern; non-empty class body dodges the empty-body marker) and the prose sample stays null. Resolve still returns null for the \u0027text\u0027 token and SetLanguage still stops the timer \u2014 both intact. The editor-level test drives the genuine chain (SetLanguage-\u003ERefreshHighlighting-\u003ERegionHighlightingEngine.Resolve-\u003ERegionGrammarResolver-\u003EDetectBuiltIn; HighlightingName reads _editor.SyntaxHighlighting?.Name), not a reimplementation. Built SquadDash.csproj green (NU1701 benign) and ran the filtered suite myself: 326 passed / 0 failed / 0 skipped, matching the claim. Live rendered-color/live-typing correctness remains a human Stage 3 gate and was not in automated scope; no such claim was simulated.",
+          "claimFindings": [
+            {
+              "claim": "RegionGrammarResolver.cs \u002B10 adds seven C#-distinctive, case-sensitive, backtracking-free markers; single-winner rule preserved",
+              "disposition": "supported",
+              "evidence": "Diff lines 82-88 add exactly the described markers via Make(...) with default ignoreCase=false; no lookarounds/backreferences. Tier-2 foreach (lines 193-200) counts each language once and returns null on a second match. Static Tier2 init \u002B green suite prove NonBacktracking compatibility."
+            },
+            {
+              "claim": "Added C# signals do not also fire Java/C\u002B\u002B/JS/PowerShell/CSS markers; reviewer samples resolve to single winner C#",
+              "disposition": "supported",
+              "evidence": "Manual cross-check of both reviewer samples against every other language\u0027s marker set found no overlap (CSS rule requires \u0027:\u0027 within braces, absent in {get;set;}). Tests DetectBuiltIn_ClassifiesDeclarationStyleCSharp and DetectBuiltIn_BroadenedCSharpDoesNotFalsePositiveOtherLanguages pass."
+            },
+            {
+              "claim": "Invariants preserved: AvalonEditRegionEditor.cs untouched; MaxScanLength, NonBacktracking, Tier-1 precedence unchanged; PlainText pinning \u002B SetLanguage timer-stop intact",
+              "disposition": "supported",
+              "evidence": "git show stat lists only the 3 files; RegionGrammarResolver.cs diff touches only the C# marker block. Line 58 MaxScanLength=8192, line 61 NonBacktracking, lines 184-189 Tier-1 order all unchanged. Resolve PlainText=\u003Enull (line 163); SetLanguage stops _autoDetectTimer (line 94)."
+            },
+            {
+              "claim": "New tests exist and drive real production code with meaningful assertions",
+              "disposition": "supported",
+              "evidence": "RegionGrammarResolverTests.cs adds the three named tests (reviewer samples\u002Bproperty class=\u003EC#, Java/JS/C\u002B\u002B=\u003Eown grammars, prose=\u003Enull) calling real DetectBuiltIn. RegionHighlightingTests.cs adds AutoDetect_DeclarationStyleCSharpSample_AppliesCsharpHighlighting using real AvalonEditRegionEditor\u002BRegionHighlightingEngine, asserting HighlightingName==\u0027C#\u0027."
+            },
+            {
+              "claim": "Build green; filtered suite 326 passed / 0 failed / 0 skipped",
+              "disposition": "supported",
+              "evidence": "dotnet build SquadDash.csproj: Build succeeded, 0 errors (NU1701 benign). dotnet test with the specified filter: \u0027Failed: 0, Passed: 326, Skipped: 0, Total: 326\u0027."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "Tests are production-driving and adequate. Classifier tests exercise the real RegionGrammarResolver.DetectBuiltIn with both reviewer samples verbatim, a realistic property\u002Bmethod class, prose, and Java/JS/C\u002B\u002B negatives. The editor test exercises the genuine Auto-detect wiring end-to-end (SetLanguage -\u003E RefreshHighlighting -\u003E RegionGrammarResolver -\u003E SyntaxHighlighting.Name) rather than a stub. Reproduced counts: 326 passed / 0 failed / 0 skipped. No gaming observed. Note (non-blocking, efficiency): the empty-body-class marker and the record/struct marker are not individually exercised by a dedicated reviewer sample, but both reviewer samples and the property-class sample are covered, so the task-owned behavior is proven; this is a safe, minor coverage observation only.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "6f9364a2f737589714441e76710f0e0be6c7b8b8",
+          "completedAt": "2026-10-19T02:34:09.7506647+00:00"
+        }
+      ],
+      "amendmentGateId": "AVALONEDIT-20261014-GATE-003",
+      "displayStepLabel": "5a",
+      "commits": [
+        {
+          "commit": "6f9364a2f737589714441e76710f0e0be6c7b8b8",
+          "relation": "task",
+          "reason": "Commit produced within this step\u0027s host-recorded baseline range."
+        }
+      ],
+      "completionSummaryItems": [
+        "Broadened the C# Tier-2 markers in SquadDash/RegionGrammarResolver.cs (\u002B10 lines) with seven C#-distinctive, case-sensitive, backtracking-free signals: brace-form namespace; non-import/package using directive; auto-property accessor \u0027{ get;\u0027; event declaration; nullable \u0027EventHandler?\u0027; empty-body access-modified class; and record/struct declarations. The conservative single-winner ambiguity rule is preserved (each LanguageMarkers entry still counts once via first-match short-circuit), so the broadened C# markers do not create self-ambiguity or steal the Java \u0027public class\u0027 sample.",
+        "Preserved all unchanged invariants: the 250 ms debounce/timer/RefreshHighlighting wiring in AvalonEditRegionEditor.cs, MaxScanLength, NonBacktracking RegexOptions, Tier-1 PHP/XML/HTML document-signature precedence, PlainText pinning (Resolve returns null for the \u0027text\u0027 token), and SetLanguage stopping the auto-detect timer. AvalonEditRegionEditor.cs was not touched.",
+        "Added regression tests in SquadDash.Tests/RegionGrammarResolverTests.cs: DetectBuiltIn_ClassifiesDeclarationStyleCSharp (both reviewer samples verbatim, LF-normalized, plus a { get; set; } class with a method \u2192 \u0027C#\u0027); DetectBuiltIn_BroadenedCSharpDoesNotFalsePositiveOtherLanguages (Java\u2192Java, JS\u2192JavaScript, C\u002B\u002B\u2192C\u002B\u002B); DetectBuiltIn_DeclarationStyleCSharp_StaysNullForProse (ambiguous/prose \u2192 null).",
+        "Added SquadDash.Tests/RegionHighlightingTests.cs AutoDetect_DeclarationStyleCSharpSample_AppliesCsharpHighlighting proving that, in Auto detect mode (empty fence token), applying either reviewer sample as editor text drives RefreshHighlighting to a non-null SyntaxHighlighting named \u0027C#\u0027.",
+        "Built SquadDash.csproj green (0 errors, benign NU1701 AvalonEdit warnings) and reran the filtered suite: 326 passed / 0 failed / 0 skipped. Committed test \u002B production changes to the already-active branch feature/avalonedit-region-editor as 6f9364a2 (coordinator-verified HEAD); no .squad plan/tasks files staged. Rebuilt the app so it reloads for the Stage 3 live re-test."
+      ],
+      "completionKind": "changed"
     },
     {
       "taskId": "AVALONEDIT-20261014-005",
       "title": "Bundle custom grammars: JSON, TypeScript, YAML, SQL",
       "description": "Stage 4. Add and bundle custom AvalonEdit .xshd highlighting grammars for JSON, TypeScript, YAML, and SQL, registered with the picker list, the highlighting engine, and the light/dark palette hook from task 004.\n\n## Observable outcome\n\nEach of JSON, TypeScript, YAML, and SQL appears in the language picker and, when selected or auto-detected, renders its own syntax highlighting with correct light and dark colors in a region. The grammars load from embedded resources without runtime exceptions.\n\n## Consumers\n\nThe production region editor and picker consume the four new grammars through the existing engine and hook. The following human validation gate uses copy-ready sample snippets to confirm per-language color correctness and allows iterative palette tuning.",
       "dependsOn": [
-        "AVALONEDIT-20261014-004"
+        "AVALONEDIT-20261014-AMD-001"
       ],
       "priority": "mid",
       "status": "pending",
@@ -408,7 +954,10 @@
         "AVALONEDIT-20261014-004"
       ],
       "priority": "mid",
-      "status": "pending",
+      "status": "complete",
+      "commit": "c282ecd8057a52cf2a8a8c6c0a290cf77bc7b534",
+      "completedAt": "2026-10-16T16:50:40.0776444+00:00",
+      "completionSummary": "Step 7 regression coverage: adopted the already-complete picker write-through/round-trip tests and added test-only cases closing auto-detect fence-first precedence over conflicting content and plain-text/explicit pinning gaps.",
       "agentAssignments": [
         {
           "agentHandle": "vesper-knox",
@@ -435,8 +984,110 @@
           "description": "Run the new SquadDash.Tests cases covering picker write-through persistence and auto-detect resolution and pinning, and report pass counts."
         }
       ],
+      "proofEvidence": [
+        {
+          "requirementId": "picker-autodetect-tests",
+          "proofType": "automated-test",
+          "summary": "Affected suite ran via dotnet test --filter (EmbeddedCodeRegion|RegionGrammar|Highlight|Palette|AutoDetect|Picker): 316 passed, 0 failed, 0 skipped; full suite 8,200 passed / 4 failed (only the 4 pre-existing DPI progress-bar/spinner rendering failures; baseline 8,197/4; no new failures). Requirement 1 (picker write-through per mode \u002B round-trip persistence): LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode, 36 passed across all 18 options x 2 content variants. Requirement 2 (fence-tag-first): new Resolve_PinnedFenceToken_OverridesConflictingBuiltInHeuristic, 2 passed (explicit C# and Plain text override JavaScript-looking content). Requirement 3 (heuristic only on empty token): Resolve_EmptyToken_InvokesInjectedDetector_ExactlyOnce_AndNotAlias (1 passed) plus Resolve_ExplicitToken_UsesAliasMap_AndNeverRunsHeuristic and Resolve_PlainTextToken_ReturnsNull_WithoutAliasOrHeuristic (4 passed) proving nonempty tokens never invoke detection. Requirement 4 (pinning): extended AutoDetectDebounce_DoesNotArm_WhenLanguageIsPinned, 2 passed for explicit and Plain text after insertion and replacement with negative timer/highlighting assertions. Net increase 3 tests.",
+          "artifacts": []
+        }
+      ],
+      "provenanceChain": {
+        "entries": [
+          {
+            "taskId": "AVALONEDIT-20261014-008",
+            "sourceLabel": "Automated test evidence",
+            "sourceKind": "Automated",
+            "recoveryKind": "envelope-repair",
+            "recordedAt": "2026-10-16T16:45:54.2160131+00:00"
+          }
+        ]
+      },
+      "handoff": {
+        "commit": "c282ecd8057a52cf2a8a8c6c0a290cf77bc7b534",
+        "summary": "Step 7 regression coverage: adopted the already-complete picker write-through/round-trip tests and added test-only cases closing auto-detect fence-first precedence over conflicting content and plain-text/explicit pinning gaps.",
+        "changedFiles": [
+          "SquadDash.Tests/RegionGrammarResolverTests.cs",
+          "SquadDash.Tests/RegionHighlightingTests.cs"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "git rev-parse --verify c282ecd8^{commit}; git rev-parse --short HEAD; dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~RegionGrammar|FullyQualifiedName~Highlight|FullyQualifiedName~Palette|FullyQualifiedName~AutoDetect|FullyQualifiedName~Picker\u0022",
+          "summary": "Coordinator verified c282ecd8 (c282ecd8057a52cf2a8a8c6c0a290cf77bc7b534) is a real commit and current HEAD of feature/avalonedit-region-editor (test-only, 2 files). SquadDash.csproj rebuilt green. Affected test suite 316 passed / 0 failed; no new failures versus baseline."
+        },
+        "submittedAt": "2026-10-16T16:46:27.8386102+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Adopted existing complete picker write-through coverage: EmbeddedCodeRegionTests.cs LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode (all 18 options x 2 content variants) asserting fence tag per mode, Language, label, PickerMode, and serialization round-trip persistence.",
+          "Added RegionGrammarResolverTests.cs Resolve_PinnedFenceToken_OverridesConflictingBuiltInHeuristic proving fence-tag-first resolution wins over conflicting built-in content for explicit C# and Plain text tokens.",
+          "Strengthened RegionHighlightingTests.cs AutoDetectDebounce_DoesNotArm_WhenLanguageIsPinned to cover explicit and Plain text pinning after both insertion and replacement, with negative timer/highlighting-change assertions that fail if pinning is removed.",
+          "Committed test-only changes (2 files: RegionGrammarResolverTests.cs \u002B13, RegionHighlightingTests.cs \u002B32/-6) to the already-active canonical branch; no production code modified.",
+          "Rebuilt SquadDash.csproj green (0 errors, benign NU1701 AvalonEdit warnings) so the app reloads."
+        ],
+        "baselineCommit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "Step 7 (Regression coverage for picker and auto-detect logic) is substantiated. Commit c282ecd8 is HEAD of feature/avalonedit-region-editor and is test-only: exactly SquadDash.Tests/RegionGrammarResolverTests.cs (\u002B13) and SquadDash.Tests/RegionHighlightingTests.cs (\u002B32/-6), 2 files, \u002B39/-6, no production file touched. All four task-owned requirements are proven against the real production path (RegionGrammarResolver.Resolve, RegionHighlightingEngine, RegionLanguagePicker/EmbeddedCodeRegionManager, AvalonEditRegionEditor debounce/pinning), not test-local reimplementations, and none pass vacuously. Affected filtered suite rebuilt and ran green: 316 passed / 0 failed / 0 skipped.",
+          "claimFindings": [
+            {
+              "claim": "R1: adopted EmbeddedCodeRegionTests LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode covers all picker options x2 content variants incl. serialization round-trip; no new picker test added",
+              "disposition": "supported",
+              "evidence": "PickerRoundTripCases() iterates RegionLanguagePicker.Options x {code, backtick-bearing content}; test clicks the real option button, asserts region.Language==token and PickerMode==mode (Auto detect-\u003Ebare fence, \u0027text\u0027, explicit token), asserts exact serialized fence string, then re-parses serialized text and re-asserts PickerMode/Language/Content/label \u2014 a genuine round-trip. The two changed files do not add a picker test, consistent with \u0027adopted\u0027."
+            },
+            {
+              "claim": "R2: added Resolve_PinnedFenceToken_OverridesConflictingBuiltInHeuristic proves fence-first precedence (C# and \u0027text\u0027 override JS-looking content)",
+              "disposition": "supported",
+              "evidence": "New test in diff uses real RegionHighlightingEngine: Resolve(\u0022\u0022, JavaScriptSample)==\u0027JavaScript\u0027 (heuristic fires on empty token) while Resolve(\u0022csharp\u0022,...)==\u0027C#\u0027 and Resolve(\u0022text\u0022,...)==null on identical content. RegionGrammarResolver.Resolve switches on GetMode(token) before ever consulting content, so precedence override is real."
+            },
+            {
+              "claim": "R3: adopted empty/explicit/plaintext resolver tests prove heuristic runs only for empty token",
+              "disposition": "supported",
+              "evidence": "Resolve_EmptyToken_InvokesInjectedDetector_ExactlyOnce_AndNotAlias (detector called once, alias throws if invoked); Resolve_ExplicitToken_UsesAliasMap_AndNeverRunsHeuristic (ThrowingDetector, alias called once); Resolve_PlainTextToken_ReturnsNull_WithoutAliasOrHeuristic (null, aliasCalls==0). All drive production RegionGrammarResolver.Resolve."
+            },
+            {
+              "claim": "R4: strengthened AutoDetectDebounce_DoesNotArm_WhenLanguageIsPinned covers explicit\u002BPlain text after insert and replace with negative assertions that fail if pinning removed",
+              "disposition": "supported",
+              "evidence": "Parameterized [csharp/C#] and [text/null]. On a loaded editor it pins via SetLanguage, edits via InsertText and Text=, and AssertPinned asserts RegionGrammarResolver.DetectBuiltIn(editor.Text) is non-null AND != expected (content WOULD classify differently if unpinned), IsAutoDetectPending False, HighlightingName unchanged, and zero HighlightingChanged events. Production text-changed handler only re-arms the timer when ShouldAutoDetect(_fenceToken) (empty token); for pinned tokens it stays stopped \u2014 so removing the pin gate would flip IsAutoDetectPending to True and fail the test. Genuine negative assertion."
+            },
+            {
+              "claim": "Counts: affected filtered suite 316 passed/0 failed/0 skipped; net \u002B3 tests; test-only; rebuilt green",
+              "disposition": "supported",
+              "evidence": "Independently ran dotnet test with the specified filter: \u0027Passed! - Failed: 0, Passed: 316, Skipped: 0, Total: 316\u0027. Build succeeded (only benign NU1701 AvalonEdit warnings). Diff confirms test-only and net-additive."
+            },
+            {
+              "claim": "Full suite 8,200 passed / 4 pre-existing DPI failures (baseline 8,197/4)",
+              "disposition": "supported",
+              "evidence": "Not re-run at standard level (protocol scopes execution to the affected filtered suite, which passed). Consistent with a purely test-only, net-additive diff that touches no production code and no DPI/rendering code; the 4 failures are outside this task\u0027s scope. No contradicting evidence found."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "All four task requirements are covered by tests that exercise the real production code paths with meaningful, non-vacuous assertions. Fence-first precedence (R2) is proven by identical content yielding different results per token through the production engine; detector-only-on-empty-token (R3) is enforced by throwing/counting injected delegates; pinning (R4) is proven with a counterfactual DetectBuiltIn assertion plus timer/highlighting/change-count checks that would fail if the pin gate were removed; picker fence-write \u002B round-trip (R1) is proven across all options and two content shapes. Affected suite 316/0/0. No vacuous passes or test-local reimplementations observed.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "c282ecd8057a52cf2a8a8c6c0a290cf77bc7b534",
+          "completedAt": "2026-10-16T16:50:39.6496134+00:00"
+        }
+      ],
       "displayStepLabel": "7",
-      "executionMode": "implementation"
+      "commits": [
+        {
+          "commit": "c282ecd8057a52cf2a8a8c6c0a290cf77bc7b534",
+          "relation": "task",
+          "reason": "Commit produced within this step\u0027s host-recorded baseline range."
+        }
+      ],
+      "executionMode": "implementation",
+      "completionSummaryItems": [
+        "Adopted existing complete picker write-through coverage: EmbeddedCodeRegionTests.cs LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode (all 18 options x 2 content variants) asserting fence tag per mode, Language, label, PickerMode, and serialization round-trip persistence.",
+        "Added RegionGrammarResolverTests.cs Resolve_PinnedFenceToken_OverridesConflictingBuiltInHeuristic proving fence-tag-first resolution wins over conflicting built-in content for explicit C# and Plain text tokens.",
+        "Strengthened RegionHighlightingTests.cs AutoDetectDebounce_DoesNotArm_WhenLanguageIsPinned to cover explicit and Plain text pinning after both insertion and replacement, with negative timer/highlighting-change assertions that fail if pinning is removed.",
+        "Committed test-only changes (2 files: RegionGrammarResolverTests.cs \u002B13, RegionHighlightingTests.cs \u002B32/-6) to the already-active canonical branch; no production code modified.",
+        "Rebuilt SquadDash.csproj green (0 errors, benign NU1701 AvalonEdit warnings) so the app reloads."
+      ],
+      "completionKind": "changed"
     },
     {
       "taskId": "AVALONEDIT-20261014-006",
@@ -479,11 +1130,13 @@
       "beforeTaskIds": [
         "AVALONEDIT-20261014-003"
       ],
-      "status": "awaiting-approval",
+      "status": "approved",
       "requestedAt": "2026-10-14T22:12:01.4825279+00:00",
-      "planRevision": "24893cd57beac24a",
+      "resolvedAt": "2026-10-16T13:48:59.1448194+00:00",
+      "planRevision": "2fc843326d241ca2",
       "notifiedAt": "2026-10-14T22:12:01.4825279+00:00",
       "presentationAnchor": "task-before:AVALONEDIT-20261014-003",
+      "resolvedBy": "MillerMark",
       "proofRequirements": [
         {
           "requirementId": "single-click-caret",
@@ -584,6 +1237,64 @@
           "title": "Paste re-inserts fenced block"
         }
       ],
+      "proofEvidence": [
+        {
+          "requirementId": "single-click-caret",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms a single click inside the region places the caret at the clicked position. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/AVALONEDIT-20261014/AVALONEDIT-20261014-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "double-click-word-select",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms double-clicking a word selects exactly that word. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/AVALONEDIT-20261014/AVALONEDIT-20261014-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "click-drag-select",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms pressing and dragging selects a contiguous range of text. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/AVALONEDIT-20261014/AVALONEDIT-20261014-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "double-click-drag-extend",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms double-click then drag extends the selection word by word. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/AVALONEDIT-20261014/AVALONEDIT-20261014-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "arrow-boundary-exit",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms Up at the first line and Down at the last line move the caret out of the region into the surrounding prompt. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/AVALONEDIT-20261014/AVALONEDIT-20261014-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "fenced-copy-cut",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms Ctrl\u002BC and Ctrl\u002BX place the region content as a fenced block on the clipboard. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/AVALONEDIT-20261014/AVALONEDIT-20261014-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "paste-fenced-back",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms pasting a previously copied fenced block back into the prompt reconstitutes a region. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/AVALONEDIT-20261014/AVALONEDIT-20261014-GATE-001"
+          ]
+        }
+      ],
       "afterTaskIdsSpecified": true,
       "beforeTaskIdsSpecified": true,
       "question": "Does the migrated AvalonEdit region editor behave correctly for caret, selection, copy/paste, and arrow boundary navigation?",
@@ -636,6 +1347,65 @@
           "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
           "updatedAt": "2026-10-14T23:12:52.6898131+00:00",
           "reviewTarget": "v1:E52111C64C9E7802FCDA01BDC98D21D909813DDC15969506C6DB189FD2A4EC25"
+        },
+        {
+          "itemId": "single-click-caret",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-16T12:40:01.1621655+00:00",
+          "reviewTarget": "v1:BBDCB2C5FED91EE3735B3432C65B27A07B53B4E9C665272C11641020FE1D8193",
+          "answer": "yes"
+        },
+        {
+          "itemId": "double-click-word-select",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-16T12:40:48.9210844+00:00",
+          "reviewTarget": "v1:BBDCB2C5FED91EE3735B3432C65B27A07B53B4E9C665272C11641020FE1D8193",
+          "answer": "yes",
+          "note": "Have noticed that when I have a region selected inside of the region editor. Sorry if I\u0027m I meant to say if I have a selection inside of the region editor it\u0027s hard to read. The contrast is low because the selection rectangles opacity I believe is maybe too strong and maybe we need to drop that down."
+        },
+        {
+          "itemId": "click-drag-select",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-16T12:41:12.2498717+00:00",
+          "reviewTarget": "v1:BBDCB2C5FED91EE3735B3432C65B27A07B53B4E9C665272C11641020FE1D8193",
+          "answer": "yes"
+        },
+        {
+          "itemId": "double-click-drag-extend",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-16T12:41:41.0723069+00:00",
+          "reviewTarget": "v1:BBDCB2C5FED91EE3735B3432C65B27A07B53B4E9C665272C11641020FE1D8193",
+          "answer": "yes"
+        },
+        {
+          "itemId": "arrow-boundary-exit",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-16T12:42:00.8795086+00:00",
+          "reviewTarget": "v1:BBDCB2C5FED91EE3735B3432C65B27A07B53B4E9C665272C11641020FE1D8193",
+          "answer": "yes"
+        },
+        {
+          "itemId": "fenced-copy-cut",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-16T12:48:06.2845649+00:00",
+          "reviewTarget": "v1:BBDCB2C5FED91EE3735B3432C65B27A07B53B4E9C665272C11641020FE1D8193",
+          "answer": "yes",
+          "note": "Yes, they do. But what I\u0027d like is if the caret is at the beginning of the line and I had backspace that we, and there\u0027s any text left inside the region. So if I\u0027m in a region, the carets at the top line first, position or the zero position, and I hit backspace at that point, if there\u0027s any text left in the inline region, I want all of that to be, taken in input right where the caret is, but not inside an inline region. So I destroy the, the inline region container and just put the text there. The host editor. That\u0027s something we\u0027re gonna need to change."
+        },
+        {
+          "itemId": "paste-fenced-back",
+          "isChecked": true,
+          "candidateCommit": "d8ca608344b389981502c3055b2c0e4479aa4fc5",
+          "updatedAt": "2026-10-16T12:48:25.0969327+00:00",
+          "reviewTarget": "v1:BBDCB2C5FED91EE3735B3432C65B27A07B53B4E9C665272C11641020FE1D8193",
+          "answer": "yes",
+          "note": "I also noticed a SquadDash behavior not related to Avalon edit, but related to SquadDash itself and its ability to edit these notes inside of a A. An inbox message is, it seems it does not support cut or copy of these notes. So for example, the previous note, I realized I wanted to move it to a different field. So I tried to select all and I hit copy. And then I tried to paste it and instead of pasting what I had thought I had copied, it pasted something that was older that I had copied to the clipboard. So it looks like it\u0027s not able to copy when I hit the copy key. And the caret is inside these notes for the yes or no approval items. So we need to follow up on this. And just to be clear, when I hit the cut key, nothing happens, No text is deleted. So it seems both copy and cut are somehow intercepted in the inbox message. Note that we only have this problem inside the inbox messages in the card, in the transcript, copy and paste and cut all work in the notes as expected."
         }
       ]
     },
@@ -648,9 +1418,16 @@
       "beforeTaskIds": [
         "AVALONEDIT-20261014-004"
       ],
-      "status": "pending",
-      "planRevision": "24893cd57beac24a",
+      "status": "approved",
+      "requestedAt": "2026-10-16T15:42:56.1501336+00:00",
+      "resolvedAt": "2026-10-16T15:50:42.7728781+00:00",
+      "planRevision": "2fc843326d241ca2",
+      "notifiedAt": "2026-10-16T15:42:56.1501336+00:00",
       "presentationAnchor": "task-after:AVALONEDIT-20261014-003",
+      "reworkCount": 1,
+      "lastReworkRequestedAt": "2026-10-16T15:21:59.9324994+00:00",
+      "lastReworkInstructions": "Defect reported at the Stage 2 human-review gate for the clickable language picker (task -003, commit a0aac71c): clicking an option in the language popup does NOT close the popup and does NOT change the region\u0027s language/label/mode. The popup only opens; clicks inside it are inert. Reproduce: open a prompt with an embedded code region, click the language label button to open the picker, then click any option (e.g. \u0027Plain text\u0027 or a grammar) \u2014 observe the popup stays open and the label is unchanged.\n\nRoot-cause direction (verify, don\u0027t assume): the picker Popup is hosted inside the RichTextBox document \u2014 it is added to the region header StackPanel via \u0060stack.Children.Add(languagePopup)\u0060 in EmbeddedCodeRegionBlock.cs (~line 450), built in BuildLanguagePopup() (EmbeddedCodeRegionBlock.cs ~lines 493-576). Each option Button.Click handler (lines 531-537) already sets \u0060Language = option.FenceToken\u0060, \u0060popup.IsOpen = false\u0060, \u0060_languageButton.Focus()\u0060, so the handler logic is correct but is never invoked. Both symptoms (option Click never fires AND StaysOpen=false never dismisses on outside click) indicate the host RichTextBox is capturing the mouse so pointer events never reach the Popup\u0027s separate visual root \u2014 a known WPF issue for Popups parented inside a RichTextBox/FlowDocument. The _languageButton.Click toggle works because that button is in the main window visual tree.\n\nRequired fix (independently executable): make clicking any picker option (a) dismiss the popup and (b) update the region\u0027s Language, _languageLabel text, and PickerMode (raising PickerModeChanged), matching the already-correct option Click body. Likely approaches to evaluate: release/avoid the RichTextBox mouse capture while the popup is open (e.g. call Mouse.Capture(null) or capture to the popup on Opened), and/or re-parent the Popup out of the RichTextBox-hosted StackPanel so it is not inside the document\u0027s input-captured surface, and/or handle the option selection on a pointer event that is not swallowed by the host. Preserve: popup still opens below the label (Placement=Bottom, PlacementTarget=_languageButton), StaysOpen=false outside-click dismissal must now actually work, Esc-to-close and Enter/Space-to-select keyboard paths (border.PreviewKeyDown ~lines 556-574) must keep working, selected-item bold/focus on Opened (~lines 540-555) must keep working, and the 811809a0 native-selection behavior and ShouldClaimRegionMouseGesture claim predicate must remain intact. Do not regress the AvalonEdit editor selection/copy/arrow-nav behavior.\n\nProof: add or extend headless coverage where testable (option-selection write-through to Language/PickerMode/label already has LanguagePicker_OptionClick_WritesFenceAndRoundTripsMode in EmbeddedCodeRegionTests.cs \u2014 extend it or add a sibling that also asserts popup dismissal state if reachable headlessly). Rebuild SquadDash.csproj green and re-run the filtered EmbeddedCodeRegion/EmbeddedCaretNav suite. Because popup dismissal and label update are human-observable, this returns to the Stage 2 human gate: the reviewer must confirm that clicking a picker item closes the popup and the region label updates to the chosen mode.",
+      "resolvedBy": "MillerMark",
       "proofRequirements": [
         {
           "requirementId": "popup-below-label",
@@ -681,22 +1458,81 @@
           "title": "Selection updates the label"
         }
       ],
+      "proofEvidence": [
+        {
+          "requirementId": "popup-below-label",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms clicking the language label opens a Popup positioned directly below it listing Auto detect, Plain text, then the grammars. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/AVALONEDIT-20261014/AVALONEDIT-20261014-GATE-002"
+          ]
+        },
+        {
+          "requirementId": "selection-updates-label",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms choosing an item in the Popup updates the visible region label to the chosen mode. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/AVALONEDIT-20261014/AVALONEDIT-20261014-GATE-002"
+          ]
+        }
+      ],
       "afterTaskIdsSpecified": true,
       "beforeTaskIdsSpecified": true,
-      "question": "Does the language picker open directly below the label and update the selected mode?"
+      "question": "Does the language picker open directly below the label and update the selected mode?",
+      "humanReviewSelections": [
+        {
+          "itemId": "popup-below-label",
+          "isChecked": true,
+          "candidateCommit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+          "updatedAt": "2026-10-16T15:18:55.8552165+00:00",
+          "reviewTarget": "v1:6D1949FDF83EC868B7A0633DAB0B6126E9C1124673750AE95295F4FA1F7E33C7",
+          "answer": "yes"
+        },
+        {
+          "itemId": "selection-updates-label",
+          "isChecked": false,
+          "candidateCommit": "a0aac71c1413f73ac8c39a27d4f28bb1c5da2faa",
+          "updatedAt": "2026-10-16T15:19:44.3118246+00:00",
+          "reviewTarget": "v1:6D1949FDF83EC868B7A0633DAB0B6126E9C1124673750AE95295F4FA1F7E33C7",
+          "answer": "no",
+          "note": "selecting a picker item fails to drop the menu. the language picker stays up even though I am clicking it"
+        },
+        {
+          "itemId": "popup-below-label",
+          "isChecked": true,
+          "candidateCommit": "b86e14f45227fe6f83c8c6ff9de92b1ab9926827",
+          "updatedAt": "2026-10-16T15:47:54.5121099+00:00",
+          "reviewTarget": "v1:5615533AD714B87A069272565E20BCC8936FC355C31A0923C477AE68893CD11F",
+          "answer": "yes"
+        },
+        {
+          "itemId": "selection-updates-label",
+          "isChecked": true,
+          "candidateCommit": "b86e14f45227fe6f83c8c6ff9de92b1ab9926827",
+          "updatedAt": "2026-10-16T15:50:39.0009629+00:00",
+          "reviewTarget": "v1:5615533AD714B87A069272565E20BCC8936FC355C31A0923C477AE68893CD11F",
+          "answer": "yes"
+        }
+      ]
     },
     {
       "gateId": "AVALONEDIT-20261014-GATE-003",
       "message": "Stage 3 review: confirm built-in-grammar highlighting, light/dark correctness, live auto-detect, and pinned Plain text",
       "afterTaskIds": [
-        "AVALONEDIT-20261014-004"
+        "AVALONEDIT-20261014-004",
+        "AVALONEDIT-20261014-AMD-001"
       ],
       "beforeTaskIds": [
         "AVALONEDIT-20261014-005"
       ],
-      "status": "pending",
-      "planRevision": "24893cd57beac24a",
-      "presentationAnchor": "task-before:AVALONEDIT-20261014-005",
+      "status": "awaiting-approval",
+      "requestedAt": "2026-10-19T02:34:11.0878989+00:00",
+      "planRevision": "2fc843326d241ca2",
+      "notifiedAt": "2026-10-19T02:34:11.0878989+00:00",
+      "presentationAnchor": "task-after:AVALONEDIT-20261014-AMD-001",
+      "reworkCount": 1,
+      "lastReworkRequestedAt": "2026-10-19T00:51:50.6497553+00:00",
+      "lastReworkInstructions": "Fix the Stage 3 defect where live auto-detect highlighting never applies to recognizable code. Root cause: SquadDash/RegionGrammarResolver.cs DetectBuiltIn (lines ~164-193) recognizes C# only via four narrow Tier-2 markers (RegionGrammarResolver.cs:73-79): \u0027\\busing\\s\u002BSystem\\b\u0027, \u0027\\bnamespace\\s\u002B...;\u0027 (semicolon form only), \u0027\\bConsole\\.(Write|WriteLine)\\b\u0027, and \u0027\\bpublic\\s\u002Bstatic\\s\u002Bvoid\\s\u002BMain\\s*\\(\\s*string\\[\\]\u0027. Ordinary declaration-style C# \u2014 e.g. the reviewer\u0027s samples \u0027public interface ICalloutWindow { event EventHandler? RefreshTargetRect; bool ShowDiagnostics { get; set; } void UpdateTargetRect(Rect rect); double LastDragAngle { get; } }\u0027 and \u0027public class MainWindow { }\u0027 \u2014 matches none of these, so DetectBuiltIn returns null, Resolve returns no grammar, and the region never leaves plain text in Auto detect. The debounce/timer/RefreshHighlighting wiring (AvalonEditRegionEditor.cs:49-106) is functioning; only the classifier is too narrow. WORK (production owner: lyra-morn; test owner: vesper-knox): (1) In RegionGrammarResolver, broaden the C# Tier-2 markers so realistic declaration-style C# is classified as \u0027C#\u0027 while keeping the existing conservative single-winner ambiguity rule (two or more Tier-2 language matches must still return null). Add C#-distinctive signals that do NOT also fire the Java/C\u002B\u002B/JavaScript markers, for example: brace-form \u0027namespace [A-Za-z_][\\w.]*\\s*\\{\u0027; a C# using directive \u0027using [A-Za-z_][\\w.]*\\s*;\u0027 that is not \u0027import\u0027/\u0027package\u0027; auto-property accessor lists \u0027\\{\\s*get\\b\u0027 / \u0027set;\u0027; \u0027event\\s\u002B\\w\u0027; nullable reference/value type usage like \u0027EventHandler?\u0027 or a \u0027\\w\u002B\\?\\s\u002B\\w\u002B\u0027 field/return type; and access-modified type declarations \u0027(public|private|protected|internal)\\s\u002B(sealed\\s\u002B|abstract\\s\u002B|static\\s\u002B|partial\\s\u002B)*(class|interface|struct|record|enum)\\b\u0027. Because Java also uses \u0027public class\u0027, ensure C#-only signals (nullable \u0027?\u0027, \u0027{ get; set; }\u0027, \u0027event\u0027, \u0027namespace {\u0027, \u0027using X;\u0027 without \u0027java.\u0027) are what tip the single-winner selection to C#, and verify a plain \u0027public class Foo {}\u0027 with no other signals still resolves deterministically (either to C# via an added marker or to null) without throwing or double-counting. Keep MaxScanLength, NonBacktracking RegexOptions, and the Tier-1 PHP/XML/HTML document-signature precedence unchanged. (2) Do not weaken PlainText pinning: Resolve must still return null for the \u0027text\u0027 token and SetLanguage must still stop the auto-detect timer. (3) Regression tests in SquadDash.Tests (RegionGrammarResolverTests.cs): assert DetectBuiltIn returns \u0027C#\u0027 for BOTH reviewer samples verbatim; assert at least one additional realistic C# snippet (class with { get; set; } properties and a method) resolves to \u0027C#\u0027; assert a deliberately ambiguous/prose sample still returns null; and assert Java (\u0027import java.util.List; public class X { public static void main(String[] a){} }\u0027), JavaScript (\u0027console.log(1)\u0027), and C\u002B\u002B (\u0027#include \u003Cvector\u003E\u0027) still resolve to their own grammars (no C# false-positive). Extend or add an AvalonEditRegionEditor-level test confirming that, in Auto detect mode, applying one of the reviewer samples as text causes RefreshHighlighting to set a non-null SyntaxHighlighting named \u0027C#\u0027 (fence token empty). (4) Build green with ONLY env DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set (do not also set MSBuildExtensionsPath) and run \u0027dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~RegionGrammar|FullyQualifiedName~Highlight|FullyQualifiedName~AutoDetect|FullyQualifiedName~EmbeddedCodeRegion\u0022\u0027; report exact pass counts. Commit test \u002B production changes to the already-prepared branch feature/avalonedit-region-editor (do not create or switch branches). After the amendment lands, the Stage 3 gate must be re-tested by the human: paste each reviewer sample into an Auto detect region and confirm live C# highlighting appears, then select Plain text and confirm highlighting stops changing while typing.",
       "proofRequirements": [
         {
           "requirementId": "live-autodetect-highlight",
@@ -771,7 +1607,51 @@
       ],
       "afterTaskIdsSpecified": true,
       "beforeTaskIdsSpecified": true,
-      "question": "Does built-in-grammar highlighting render correctly in both themes, update live in auto-detect, and stop when Plain text is pinned?"
+      "question": "Does built-in-grammar highlighting render correctly in both themes, update live in auto-detect, and stop when Plain text is pinned?",
+      "humanReviewSelections": [
+        {
+          "itemId": "live-autodetect-highlight",
+          "isChecked": false,
+          "candidateCommit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+          "updatedAt": "2026-10-19T00:46:28.9197482+00:00",
+          "reviewTarget": "v1:5C7CA18A8552BD9E283A2F3CCD1428A8ACCC54E7813320B18C8B1D6CB1D21979",
+          "answer": "no",
+          "note": "I pasted the following code but do not see it change from plain text. It was in auto detect mode and I did not see any highlighting although I recognize this is C# or maybe TypeScript.\r\u0060\u0060\u0060\rpublic interface ICalloutWindow {\r\n    event EventHandler? RefreshTargetRect;\r\n    event EventHandler? AngleChanged;\r\n    bool ShowDiagnostics { get; set; }\r\n    void UpdateTargetRect(Rect rect);\r\n    void TargetMoved();\r\n    void ForceRefresh();\r\n    double LastDragAngle { get; }\r\n}\r\u0060\u0060\u0060\r\ri also tried:\r\r\u0060\u0060\u0060\r\u0060\u0060\u0060\npublic class MainWindow {\n}\n\u0060\u0060\u0060"
+        },
+        {
+          "itemId": "light-theme-colors",
+          "isChecked": true,
+          "candidateCommit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+          "updatedAt": "2026-10-19T00:47:23.7162953+00:00",
+          "reviewTarget": "v1:5C7CA18A8552BD9E283A2F3CCD1428A8ACCC54E7813320B18C8B1D6CB1D21979",
+          "answer": "yes"
+        },
+        {
+          "itemId": "dark-theme-colors",
+          "isChecked": true,
+          "candidateCommit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+          "updatedAt": "2026-10-19T00:47:32.5741051+00:00",
+          "reviewTarget": "v1:5C7CA18A8552BD9E283A2F3CCD1428A8ACCC54E7813320B18C8B1D6CB1D21979",
+          "answer": "yes"
+        },
+        {
+          "itemId": "theme-switch-reapplies",
+          "isChecked": true,
+          "candidateCommit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+          "updatedAt": "2026-10-19T00:47:40.0976007+00:00",
+          "reviewTarget": "v1:5C7CA18A8552BD9E283A2F3CCD1428A8ACCC54E7813320B18C8B1D6CB1D21979",
+          "answer": "yes"
+        },
+        {
+          "itemId": "plain-text-pins-off",
+          "isChecked": false,
+          "candidateCommit": "9602a2e1f8baf3cba8254e1795e0bb67ed73b69e",
+          "updatedAt": "2026-10-19T00:49:08.6097823+00:00",
+          "reviewTarget": "v1:5C7CA18A8552BD9E283A2F3CCD1428A8ACCC54E7813320B18C8B1D6CB1D21979",
+          "answer": "no",
+          "note": "I cannot test this because, highlighting never changes while I type. So we need to fix that first and then I can do this test."
+        }
+      ]
     },
     {
       "gateId": "AVALONEDIT-20261014-GATE-004",
@@ -783,7 +1663,7 @@
         "AVALONEDIT-20261014-006"
       ],
       "status": "pending",
-      "planRevision": "24893cd57beac24a",
+      "planRevision": "2fc843326d241ca2",
       "presentationAnchor": "task-after:AVALONEDIT-20261014-005",
       "proofRequirements": [
         {
@@ -855,7 +1735,7 @@
       ],
       "beforeTaskIds": [],
       "status": "pending",
-      "planRevision": "24893cd57beac24a",
+      "planRevision": "2fc843326d241ca2",
       "presentationAnchor": "task-after:AVALONEDIT-20261014-006",
       "proofRequirements": [
         {
@@ -921,17 +1801,17 @@
     }
   ],
   "progress": {
-    "completedCount": 1,
-    "totalCount": 8
+    "completedCount": 7,
+    "totalCount": 9
   },
   "timestamps": {
     "createdAt": "2026-10-14T21:33:35.2850529+00:00",
     "acceptedAt": "2026-10-14T21:33:35.2850529+00:00",
     "startedAt": "2026-10-14T21:33:35.9201922+00:00",
-    "lastRunAt": "2026-10-14T23:12:52.6898131+00:00"
+    "interruptedAt": "2026-10-19T02:18:53.1607111+00:00",
+    "lastRunAt": "2026-10-19T02:34:11.5025335+00:00"
   },
-  "hostRevision": "24893cd57beac24a",
+  "hostRevision": "2fc843326d241ca2",
   "validations": [],
-  "revisionNumber": 1,
-  "isPaused": true
+  "revisionNumber": 1
 }
