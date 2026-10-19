@@ -9,7 +9,7 @@ using ICSharpCode.AvalonEdit.Highlighting;
 namespace SquadDash;
 
 /// <summary>
-/// Pure, UI-free policy engine that decides which installed AvalonEdit built-in grammar
+/// Pure, UI-free policy engine that decides which available grammar
 /// (if any) a code region should use for syntax highlighting.
 /// </summary>
 /// <remarks>
@@ -43,15 +43,15 @@ namespace SquadDash;
 ///   </item>
 /// </list>
 /// <para>
-/// <b>Classifier precedence and limits (see <see cref="DetectBuiltIn"/>):</b> detection is
+/// <b>Classifier precedence and limits (see <see cref="Detect"/>):</b> detection is
 /// deterministic and bounded. Only the first <see cref="MaxScanLength"/> characters are examined,
 /// using parser-backed checks for JSON/XML and non-backtracking regexes for language signals.
 /// Unmistakable document signatures win immediately. Otherwise a weighted marker scan runs across
-/// common AvalonEdit built-ins; a grammar is returned only when its score clears the confidence
+/// built-in and bundled languages; a grammar is returned only when its score clears the confidence
 /// threshold and no other language also clears that bar. Zero matches, weak matches, close overlaps,
 /// prose, or empty input all return <see langword="null"/>. Every candidate is additionally
-/// verified to be installed via <see cref="HighlightingManager"/>, so this type can never name a
-/// grammar that is not actually loaded.
+/// verified against the caller's available grammar set. TypeScript-specific signals disambiguate
+/// its shared JavaScript/CSS markers; unrelated languages still require a single clear winner.
 /// </para>
 /// </remarks>
 public static class RegionGrammarResolver
@@ -87,6 +87,10 @@ public static class RegionGrammarResolver
         @"<!DOCTYPE\s+html|<(html|head|body|div|span|table|ul|ol|li|p|a|h[1-6]|section|article|main|script|style|button|form|input)\b|</(html|head|body|div|span|table|ul|ol|li|p|a|h[1-6]|section|article|main|script|style|button|form)>",
         ignoreCase: true);
     private static readonly Regex XmlDeclarationSignature = Make(@"^\s*<\?xml\b", ignoreCase: true);
+    private static readonly Regex TsqlSpecificMarker = Make(
+        @"\bDECLARE\s+@\w+|\bCREATE\s+(PROCEDURE|PROC)\b|(?:^|\n)[ \t]*GO[ \t]*(\r?\n|$)|\[[A-Za-z_][\w ]*\]",
+        ignoreCase: true);
+    private static readonly Regex YamlBlockRoot = Make(@"(?:^|\n)[A-Za-z_][\w.-]*:[ \t]*(#[^\r\n]*)?\r?\n");
     // Score language markers after unmistakable document signatures.
     private static readonly LanguageMarkers[] ScoredLanguages =
     {
@@ -132,6 +136,16 @@ public static class RegionGrammarResolver
             WeightedMarker(@"\bparam\s*\(\s*\$", 4),
             WeightedMarker(@"\$_\.", 3),
         }),
+        new("TypeScript", new[]
+        {
+            WeightedMarker(@"(?:^|\n)[ \t]*(export\s+)?(declare\s+)?interface\s+[A-Za-z_$][\w$]*\s*\{", 3),
+            WeightedMarker(@"\)\s*:\s*[A-Za-z_$][\w$<>, \t\[\]|]*\s*=>", 4),
+            WeightedMarker(@"(?:^|\n)[ \t]*(export\s+)?type\s+[A-Za-z_$][\w$]*\s*=", 4),
+            WeightedMarker(@"(?:^|\n)[ \t]*(export\s+)?(const\s+)?enum\s+[A-Za-z_$][\w$]*\s*\{", 3),
+            WeightedMarker(@":\s*(string|number|boolean)\b", 2),
+            WeightedMarker(@"[(,]\s*[A-Za-z_$][\w$]*\??\s*:\s*(string|number|boolean)\b", 4),
+            WeightedMarker(@"\b(const|let)\s+[A-Za-z_$][\w$]*\s*:\s*[A-Za-z_$][\w$]*", 4),
+        }),
         new("JavaScript", new[]
         {
             WeightedMarker(@"\bconsole\.log\s*\(", 4),
@@ -159,14 +173,20 @@ public static class RegionGrammarResolver
             WeightedMarker(@"(?:^|\n)\s*import\s+[A-Za-z_][\w.]*", 2),
             WeightedMarker(@"\bself\.", 2),
         }),
-        new("TSQL", new[]
+        new("YAML", new[]
+        {
+            new WeightedLanguageMarker(YamlBlockRoot, 2),
+            WeightedMarker(@"(?:^|\n)[ ]+[A-Za-z_][\w.-]*:[ \t]+[^ \t\r\n][^\r\n]*", 2),
+            WeightedMarker(@"(?:^|\n)[ ]+-[ \t]+[^ \t\r\n][^\r\n]*", 2),
+        }),
+        new("SQL", new[]
         {
             WeightedMarker(@"\bSELECT\s+[\s\S]{1,240}\s+FROM\s+[\[\]\w.]+(\s+(WHERE|JOIN|ORDER|GROUP)\b|;)", 4, ignoreCase: true),
             WeightedMarker(@"\bDECLARE\s+@\w+", 4, ignoreCase: true),
             WeightedMarker(@"\bCREATE\s+(PROCEDURE|PROC|FUNCTION|VIEW|TABLE|TRIGGER)\b", 4, ignoreCase: true),
             WeightedMarker(@"\bINSERT\s+INTO\b", 4, ignoreCase: true),
             WeightedMarker(@"\bUPDATE\s+[\[\]\w.]+\s+SET\b", 4, ignoreCase: true),
-            WeightedMarker(@"(?:^|\n)\s*GO\s*(\r?\n|$)", 3, ignoreCase: true),
+            WeightedMarker(@"(?:^|\n)[ \t]*GO[ \t]*(\r?\n|$)", 4, ignoreCase: true),
             WeightedMarker(@"\bJOIN\s+[\[\]\w.]+\s+ON\b", 2, ignoreCase: true),
         }),
         new("VB", new[]
@@ -242,8 +262,19 @@ public static class RegionGrammarResolver
     /// ambiguous, prose, or does not clearly match one of the supported languages. See the type
     /// remarks for precedence and bounded-work guarantees.
     /// </summary>
-    public static string? DetectBuiltIn(string content)
+    public static string? DetectBuiltIn(string content) =>
+        Detect(content, name => HighlightingManager.Instance.GetDefinition(name) is not null);
+
+    /// <summary>
+    /// Classifies content using the caller's grammar registry, without loading definitions or
+    /// touching UI state. Standard SQL prefers SQL, with TSQL retained for dialect-specific syntax
+    /// or callers that only have the built-in TSQL definition.
+    /// </summary>
+    public static string? Detect(string content, Func<string, bool> isGrammarAvailable)
     {
+        ArgumentNullException.ThrowIfNull(isGrammarAvailable);
+        string? Available(string name) => isGrammarAvailable(name) ? name : null;
+
         content ??= string.Empty;
         var sample = content.Length > MaxScanLength
             ? content.Substring(0, MaxScanLength)
@@ -253,21 +284,31 @@ public static class RegionGrammarResolver
 
         // Unmistakable document signatures, in precedence order.
         if (IsJsonDocument(sample))
-            return Installed("Json");
+            return Available("Json");
         if (IsMatch(PatchSignature, sample))
-            return Installed("Patch");
+            return Available("Patch");
         if (IsMatch(PhpSignature, sample))
-            return Installed("PHP");
+            return Available("PHP");
         if (IsMatch(AspXhtmlSignature, sample))
-            return Installed("ASP/XHTML");
+            return Available("ASP/XHTML");
         if (IsMatch(HtmlSignature, sample))
-            return Installed("HTML");
+            return Available("HTML");
         if (IsMatch(XmlDeclarationSignature, sample) || IsXmlDocument(sample))
-            return Installed("XML");
+            return Available("XML");
+        var sqlGrammar = IsMatch(TsqlSpecificMarker, sample) || !isGrammarAvailable("SQL") ? "TSQL" : "SQL";
+        var scores = ScoredLanguages
+            .Where(language => language.Name != "YAML" ||
+                (!sample.Contains('{') && !sample.Contains('}') && IsMatch(YamlBlockRoot, sample)))
+            .Select(language => new Candidate(
+                language.Name == "SQL" ? sqlGrammar : language.Name, language.Score(sample)))
+            .ToArray();
+        // Typed declarations can also match CSS blocks and ordinary JavaScript expressions.
+        // Collapse those shared signals before enforcing ambiguity across unrelated languages.
+        var hasTypeScript = scores.Any(candidate => candidate.Name == "TypeScript" && candidate.Score >= MinimumScore);
         // Scored markers: require a clear winner to stay conservative on ambiguity.
-        var candidates = ScoredLanguages
-            .Select(language => new Candidate(language.Name, language.Score(sample), Installed(language.Name)))
-            .Where(candidate => candidate.Score >= MinimumScore && candidate.InstalledName is not null)
+        var candidates = scores
+            .Where(candidate => !hasTypeScript || candidate.Name is not ("CSS" or "JavaScript"))
+            .Where(candidate => candidate.Score >= MinimumScore && isGrammarAvailable(candidate.Name))
             .OrderByDescending(candidate => candidate.Score)
             .ThenBy(candidate => candidate.Name, StringComparer.Ordinal)
             .ToArray();
@@ -277,12 +318,8 @@ public static class RegionGrammarResolver
         if (candidates.Length > 1)
             return null;
 
-        return candidates[0].InstalledName;
+        return candidates[0].Name;
     }
-
-    /// <summary>Returns <paramref name="name"/> only when that grammar is actually installed.</summary>
-    private static string? Installed(string name) =>
-        HighlightingManager.Instance.GetDefinition(name) is not null ? name : null;
 
     private static bool IsMatch(Regex regex, string input) => regex.IsMatch(input);
 
@@ -339,7 +376,7 @@ public static class RegionGrammarResolver
 
     private readonly record struct WeightedLanguageMarker(Regex Regex, int Weight);
 
-    private readonly record struct Candidate(string Name, int Score, string? InstalledName);
+    private readonly record struct Candidate(string Name, int Score);
 
     private sealed class LanguageMarkers
     {

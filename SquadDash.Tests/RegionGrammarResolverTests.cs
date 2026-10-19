@@ -148,8 +148,36 @@ public sealed class RegionGrammarAutoDetectTests
     private const string PowerShellSample =
         "param($Name)\nWrite-Host \"hi $Name\"\nGet-ChildItem -Path . | ForEach-Object { $_.Name }";
 
-    private const string JavaScriptSample =
+    internal const string JavaScriptSample =
         "const greet = (name) => {\n  console.log('hi ' + name);\n};\nmodule.exports = greet;";
+
+    internal const string ReviewerTypeScriptSample = """
+        interface User {
+          name: string;
+          age: number;
+        }
+
+        const greet = (user: User): string => `Hello, ${user.name}!`;
+        """;
+
+    internal const string ReviewerYamlSample = """
+        server:
+          host: localhost
+          port: 8080
+          enabled: true
+          tags:
+            - development
+            - testing
+        """;
+
+    internal const string ReviewerSqlSample = """
+        SELECT name, COUNT(*) AS total
+        FROM Orders
+        WHERE status = 'completed'
+        GROUP BY name
+        HAVING COUNT(*) > 5
+        ORDER BY total DESC;
+        """;
 
     private const string CssSample =
         "body {\n  color: #fff;\n  margin: 0;\n}\n@media (max-width: 600px) { .a { display: none; } }";
@@ -174,7 +202,7 @@ public sealed class RegionGrammarAutoDetectTests
         "if __name__ == \"__main__\":\n" +
         "    greet(\"Ada\")";
 
-    private const string JsonSample =
+    internal const string JsonSample =
         "{\n" +
         "  \"name\": \"SquadDash\",\n" +
         "  \"features\": [\"regions\", \"syntax\"],\n" +
@@ -195,10 +223,10 @@ public sealed class RegionGrammarAutoDetectTests
         Assert.That(definition.GetNamedColor("Attribute"), Is.Not.Null,
             "JSON property coloring comes from the bundled grammar");
         Assert.That(engine.Resolve("", TsqlSample), Is.EqualTo("TSQL"),
-            "adding explicit SQL must not steal existing TSQL auto-detection");
+            "T-SQL-specific constructs must retain TSQL auto-detection");
     }
 
-    private const string TsqlSample =
+    internal const string TsqlSample =
         "DECLARE @teamId int = 42;\n" +
         "SELECT Name, Status\n" +
         "FROM dbo.Squads\n" +
@@ -235,6 +263,72 @@ public sealed class RegionGrammarAutoDetectTests
         "<Project Sdk=\"Microsoft.NET.Sdk\">\n" +
         "  <PropertyGroup><TargetFramework>net10.0-windows</TargetFramework></PropertyGroup>\n" +
         "</Project>";
+
+    [TestCase(ReviewerTypeScriptSample, "TypeScript")]
+    [TestCase(ReviewerYamlSample, "YAML")]
+    [TestCase(ReviewerSqlSample, "SQL")]
+    [TestCase(JavaScriptSample, "JavaScript")]
+    [TestCase(TsqlSample, "TSQL")]
+    [TestCase("SELECT name FROM Orders;\nGO", "TSQL")]
+    [TestCase("CREATE PROC GetOrders AS SELECT name FROM Orders;", "TSQL")]
+    [TestCase("SELECT [name] FROM [Orders];", "TSQL")]
+    [TestCase("CREATE TABLE Orders (id INTEGER);", "SQL")]
+    [TestCase("INSERT INTO Orders VALUES (1);", "SQL")]
+    [TestCase("type Name = string;\nconsole.log('hi');", "TypeScript")]
+    [TestCase("const greet = (name: string): string => name;", "TypeScript")]
+    [TestCase("const greet = (name: string) => console.log(name);", "TypeScript")]
+    [TestCase("function greet(name: string) { console.log(name); }", "TypeScript")]
+    [TestCase("const count: number = 42;\nconsole.log(count);", "TypeScript")]
+    [TestCase("server:\n  host: localhost", "YAML")]
+    [TestCase("tags:\n  - development\n  - testing", "YAML")]
+    [TestCase(CssSample, "CSS")]
+    [Apartment(ApartmentState.STA)]
+    public void Resolve_AutoDetect_UsesEngineRegisteredGrammars(string content, string expected)
+    {
+        var engine = new RegionHighlightingEngine();
+        var normalized = content.Replace("\r\n", "\n");
+        Assert.That(engine.Resolve("", normalized), Is.EqualTo(expected));
+        Assert.That(engine.Resolve("text", normalized), Is.Null);
+    }
+
+    [TestCase(ReviewerTypeScriptSample, "TypeScript")]
+    [TestCase(ReviewerYamlSample, "YAML")]
+    [TestCase(ReviewerSqlSample, "SQL")]
+    [TestCase(JsonSample, "Json")]
+    public void Detect_UsesOnlyCallerProvidedGrammarAvailability(string content, string expected)
+    {
+        var normalized = content.Replace("\r\n", "\n");
+        Assert.That(RegionGrammarResolver.Detect(normalized, name => name == expected), Is.EqualTo(expected));
+        Assert.That(RegionGrammarResolver.Detect(normalized, _ => false), Is.Null);
+    }
+
+    [TestCase(ReviewerTypeScriptSample)]
+    [TestCase(ReviewerYamlSample)]
+    [TestCase(ReviewerSqlSample)]
+    [Apartment(ApartmentState.STA)]
+    public void Resolve_BundledDetection_PreservesScanLimitAndSignaturePrecedence(string content)
+    {
+        var engine = new RegionHighlightingEngine();
+        var normalized = content.Replace("\r\n", "\n");
+        Assert.That(engine.Resolve("", new string(' ', RegionGrammarResolver.MaxScanLength) + normalized), Is.Null);
+        Assert.That(engine.Resolve("", "<?php\n" + normalized), Is.EqualTo("PHP"));
+    }
+
+    [TestCase("Notes:\n- a markdown list item\n- another item")]
+    [TestCase("The server: is available.\n  Please try again.")]
+    [TestCase("server:\n  some ordinary prose")]
+    [TestCase("server: { host: localhost }")]
+    [TestCase("TYPE Name = STRING;")]
+    [TestCase(ReviewerTypeScriptSample + "\nstd::cout << x;")]
+    [TestCase(ReviewerTypeScriptSample + "\nusing System;")]
+    [TestCase(ReviewerYamlSample + "\nconsole.log('x');")]
+    [TestCase(ReviewerSqlSample + "\nconsole.log('x');")]
+    [Apartment(ApartmentState.STA)]
+    public void Resolve_BundledDetection_RejectsWeakOrAmbiguousMarkers(string content)
+    {
+        var engine = new RegionHighlightingEngine();
+        Assert.That(engine.Resolve("", content.Replace("\r\n", "\n")), Is.Null);
+    }
 
     [TestCase(CSharpSample, "C#")]
     [TestCase(JavaSample, "Java")]

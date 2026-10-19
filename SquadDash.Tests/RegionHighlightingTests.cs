@@ -129,6 +129,38 @@ public sealed class RegionHighlightingTests
         Assert.That(engine.CreateDefinition(resolved!, PaletteFrom(engine, false)).Name, Is.EqualTo(name));
     }
 
+    [TestCase(RegionGrammarAutoDetectTests.ReviewerTypeScriptSample, "TypeScript")]
+    [TestCase(RegionGrammarAutoDetectTests.ReviewerYamlSample, "YAML")]
+    [TestCase(RegionGrammarAutoDetectTests.ReviewerSqlSample, "SQL")]
+    [TestCase(RegionGrammarAutoDetectTests.JsonSample, "Json")]
+    [TestCase(RegionGrammarAutoDetectTests.JavaScriptSample, "JavaScript")]
+    [TestCase(RegionGrammarAutoDetectTests.TsqlSample + "\nGO", "TSQL")]
+    public void AutoDetect_ResolvesAndAppliesExpectedGrammarInBothThemes(string content, string expected)
+    {
+        var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();
+        var before = manager.SelectMany(Snapshot).ToArray();
+        var engine = new RegionHighlightingEngine();
+        var normalized = content.Replace("\r\n", "\n");
+        Assert.That(engine.Resolve("", normalized), Is.EqualTo(expected));
+
+        using var editor = new AvalonEditRegionEditor(normalized, engine);
+        var control = (TextEditor)editor.Control;
+        foreach (var isDark in new[] { false, true })
+        {
+            editor.ApplyPalette(PaletteFrom(engine, isDark));
+            editor.SetLanguage("");
+            Assert.That(control.SyntaxHighlighting, Is.Not.Null);
+            Assert.That(control.SyntaxHighlighting.Name, Is.EqualTo(expected));
+            Assert.That(HighlightAll(control.Document, control.SyntaxHighlighting), Is.Not.Empty);
+
+            editor.SetLanguage("text");
+            Assert.That(control.SyntaxHighlighting, Is.Null);
+        }
+
+        Assert.That(HighlightingManager.Instance.HighlightingDefinitions, Is.EqualTo(manager));
+        Assert.That(manager.SelectMany(Snapshot), Is.EqualTo(before));
+    }
+
     [TestCase("Json")]
     [TestCase("TypeScript")]
     [TestCase("YAML")]

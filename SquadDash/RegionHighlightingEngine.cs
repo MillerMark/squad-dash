@@ -91,7 +91,8 @@ public sealed class RegionHighlightingEngine
     public string? ResolveFenceToken(string token) => _tokens.GetValueOrDefault(token);
 
     public string? Resolve(string token, string content) =>
-        RegionGrammarResolver.Resolve(token, content, ResolveFenceToken);
+        RegionGrammarResolver.Resolve(token, content, ResolveFenceToken,
+            sample => RegionGrammarResolver.Detect(sample, _grammars.ContainsKey));
 
     public IReadOnlyDictionary<string, HighlightingColor> CreatePaletteColors(bool isDark)
     {
