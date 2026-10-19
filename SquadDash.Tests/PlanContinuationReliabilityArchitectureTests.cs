@@ -383,6 +383,37 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
     }
 
     [Test]
+    public void VerificationHumanReview_RestoresApprovalCardInsteadOfRecoveryCard()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var finalize = Method(
+            main,
+            "private async Task FinalizeTaskVerificationTurnAsync(",
+            "private async Task AcceptVerifiedTaskAsync(");
+        var humanReviewStart = finalize.IndexOf(
+            "if (combinableHumanReview is not null)",
+            StringComparison.Ordinal);
+        var humanReviewEnd = finalize.IndexOf(
+            "var discrepancies = verification.MissingOrOverstatedWork.Count == 0",
+            humanReviewStart,
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(humanReviewStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(humanReviewEnd, Is.GreaterThan(humanReviewStart));
+        });
+
+        var humanReview = finalize[humanReviewStart..humanReviewEnd];
+        Assert.Multiple(() =>
+        {
+            Assert.That(humanReview, Does.Contain("PlanStoreUpdater.ApplyGateReady("));
+            Assert.That(humanReview, Does.Contain("await RestoreAwaitingApprovalGateUIAsync(groupId);"));
+            Assert.That(humanReview, Does.Not.Contain("AppendDecomposeRecoveryActions("));
+        });
+    }
+
+    [Test]
     public void RecoveryTranscript_UsesPlanAndStepLabelsInsteadOfInternalIds()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

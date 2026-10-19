@@ -17245,7 +17245,12 @@ public partial class MainWindow : Window
             ScheduleDecomposeSystemEntry(
                 $"Review required · \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". " +
                 "Implementation and automated verification passed; complete the human observation checklist to continue.");
-            AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(reviewedPlan), taskId);
+            // This is a normal approval boundary, not an interrupted-plan recovery state.
+            // RestoreAsync creates the current click token and reopens the durable Inbox
+            // checkpoint before the transcript card is rendered. Routing this through the
+            // recovery-card presenter leaves no actionable surface because recovery controls
+            // correctly suppress AwaitingApproval plans that are not interrupted.
+            await RestoreAwaitingApprovalGateUIAsync(groupId);
             return;
         }
 
