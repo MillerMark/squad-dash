@@ -47,6 +47,8 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     public static event Action? RevisionCompleted;
 
     private void RefreshTheme() {
+        foreach (var document in _allTrackedDocuments)
+            document.AvalonEditor?.RefreshTheme();
         foreach (var document in _documents)
             RenderPreview(document, preserveScroll: true);
     }
@@ -113,7 +115,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     private int _editorFindCurrentIndex = -1;
 
     private MarkdownDocumentWindow(string title, IReadOnlyList<MarkdownDocumentSpec> documents,
-        NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null)
+        NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null, bool useAvalonEdit = false)
         : base(captionHeight: 36, resizeMode: ResizeMode.CanResize) {
         if (documents.Count == 0)
             throw new ArgumentException("At least one markdown document is required.", nameof(documents));
@@ -124,7 +126,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
 
         _baseTitle = title;
         _documents = documents
-            .Select(spec => MarkdownDocumentTabState.Load(spec.TabTitle, spec.FilePath))
+            .Select(spec => MarkdownDocumentTabState.Load(spec.TabTitle, spec.FilePath, useAvalonEdit))
             .ToList();
         _editorUpdateTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
         {
@@ -453,10 +455,16 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
 
         _sourceEditorHost = new Grid();
         foreach (var document in _documents) {
+            if (document.AvalonEditor is { } editor) {
+                editor.Tag = document;
+                editor.TextChanged += (_, text) => UpdateDocumentFromEditor(document, text);
+                _sourceEditorHost.Children.Add(document.EditorControl);
+                continue;
+            }
             document.EditorTextBox.Tag = document;
             document.EditorTextBox.ContextMenu = BuildSourceEditorContextMenu(document.EditorTextBox);
             document.EditorTextBox.TextChanged += EditorTextBox_TextChanged;
-            _sourceEditorHost.Children.Add(document.EditorTextBox);
+            _sourceEditorHost.Children.Add(document.EditorControl);
         }
 
         _sourceBorder = new Border {
@@ -474,6 +482,8 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         };
 
         foreach (var document in _documents) {
+            if (document.AvalonEditor is not null)
+                continue;
             document.EditorTextBox.SelectionChanged += EditorTextBox_SelectionChanged;
             document.EditorTextBox.PreviewKeyDown   += EditorTextBox_PreviewKeyDown;
             document.EditorTextBox.PreviewTextInput += EditorTextBox_PreviewTextInput;
@@ -500,6 +510,10 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             SetupFileWatcher(document);
 
         Closed += (_, _) => DisposeAllFileWatchers();
+        Closed += (_, _) => {
+            foreach (var document in _allTrackedDocuments)
+                document.AvalonEditor?.Dispose();
+        };
         Closed += (_, _) => {
             _ = StopEditorVoiceAsync();
             _ = StopTitleVoiceAsync();
@@ -544,8 +558,8 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     public static void Show(Window? owner, string title, IReadOnlyList<MarkdownDocumentSpec> documents, bool showSource = false,
         MarkdownDocumentCaptureContext? captureContext = null, bool autoSave = false,
         NoteEditContext? noteContext = null, LoopEditContext? loopEditContext = null,
-        bool isReadOnly = false) {
-        var window = new MarkdownDocumentWindow(title, documents, noteContext, loopEditContext);
+        bool isReadOnly = false, bool useAvalonEdit = false) {
+        var window = new MarkdownDocumentWindow(title, documents, noteContext, loopEditContext, useAvalonEdit);
         window._captureContext = captureContext;
         window._autoSave       = autoSave;
         if (owner is not null)
@@ -627,9 +641,15 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         if (_isSwitchingDocument || sender is not RichTextBox { Tag: MarkdownDocumentTabState document } editorTextBox)
             return;
 
+        UpdateDocumentFromEditor(document, editorTextBox.GetPlainText());
+    }
+
+    private void UpdateDocumentFromEditor(MarkdownDocumentTabState document, string text) {
+        if (_isSwitchingDocument)
+            return;
+
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        document.WorkingText = editorTextBox.GetPlainText();
-        document.IsDirty = !string.Equals(document.WorkingText, document.SavedText, StringComparison.Ordinal);
+        document.UpdateWorkingText(text);
         QueueEditorUpdate(document);
         UpdateChrome();
         sw.Stop();
@@ -1194,6 +1214,15 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     // ── Editor PTT (double-tap Ctrl voice) ────────────────────────────────
 
     private void MarkdownDocumentWindow_PreviewKeyDown(object sender, KeyEventArgs e) {
+        if (_showSource && _activeDocument?.AvalonEditor is not null) {
+            if (e.Key == Key.S && Keyboard.Modifiers == ModifierKeys.Control) {
+                SaveDocument(_activeDocument);
+                e.Handled = true;
+            }
+            // AvalonEdit owns its search and editing keys; do not route them to the legacy editor.
+            return;
+        }
+
         // ── Ctrl+F: show/focus find bar (source only) ─────────────────────────
         if (_showSource && e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0) {
             ShowEditorFindBar();
@@ -1550,7 +1579,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     private void ActivateDocument(MarkdownDocumentTabState document, bool preserveCurrentState) {
         ClearSourceHoverHighlight();
         _activeDocument = document;
-        if (_mdToolbar is not null) _mdToolbar.TargetRichTextBox = _activeDocument?.EditorTextBox;
+        UpdateSourceToolbar(document);
 
         _isSwitchingDocument = true;
         try {
@@ -1577,6 +1606,13 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         _tabControl.Visibility = _documents.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void UpdateSourceToolbar(MarkdownDocumentTabState document) {
+        if (_mdToolbar is null)
+            return;
+        _mdToolbar.TargetRichTextBox = document.AvalonEditor is null ? document.EditorTextBox : null;
+        _mdToolbar.Visibility = document.AvalonEditor is null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private void UpdateSourcePaneVisibility() {
         var sourceVisible = _showSource;
         _contentGrid.ColumnDefinitions[1].Width = sourceVisible ? new GridLength(6) : new GridLength(0);
@@ -1591,24 +1627,25 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             return;
 
         foreach (UIElement child in _sourceEditorHost.Children) {
-            if (child is RichTextBox { Tag: MarkdownDocumentTabState doc } tb)
-                tb.Visibility = ReferenceEquals(doc, _activeDocument) ? Visibility.Visible : Visibility.Collapsed;
+            if (child is FrameworkElement { Tag: MarkdownDocumentTabState doc } editor)
+                editor.Visibility = ReferenceEquals(doc, _activeDocument) ? Visibility.Visible : Visibility.Collapsed;
         }
 
         Dispatcher.BeginInvoke(new Action(() => {
             if (!_showSource || _activeDocument is null)
                 return;
 
-            _activeDocument.EditorTextBox.Focus();
-            Keyboard.Focus(_activeDocument.EditorTextBox);
+            if (_activeDocument.AvalonEditor is { } editor)
+                editor.FocusEditor();
+            else {
+                _activeDocument.EditorTextBox.Focus();
+                Keyboard.Focus(_activeDocument.EditorTextBox);
+            }
         }), System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
 
     private void SaveDocument(MarkdownDocumentTabState document) {
-        document.WorkingText = document.EditorTextBox.GetPlainText();
-        File.WriteAllText(document.FilePath, document.FrontMatter + document.WorkingText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        document.SavedText = document.WorkingText;
-        document.IsDirty = false;
+        document.SaveEditorChanges();
         RenderPreview(document, preserveScroll: true);
         UpdateChrome($"Saved {document.FileName} at {DateTime.Now:t}");
     }
@@ -1836,7 +1873,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     /// image tag for <paramref name="imagePath"/> in the document.
     /// </summary>
     private static void RemoveScreenshotPlaceholder(MarkdownDocumentTabState doc, string imagePath) {
-        var text         = doc.EditorTextBox.GetPlainText().Replace("\r\n", "\n");
+        var text         = doc.GetEditorText().Replace("\r\n", "\n");
         var lines        = text.Split('\n').ToList();
         var fwdSlashPath = imagePath.Replace('\\', '/');
 
@@ -1852,7 +1889,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             }
         }
 
-        doc.EditorTextBox.SetPlainText(string.Join("\n", lines));
+        doc.SetEditorText(string.Join("\n", lines));
     }
 
     /// <summary>
@@ -1860,7 +1897,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     /// for <paramref name="imagePath"/> (used when replacing an existing image).
     /// </summary>
     private static void RemoveScreenshotPlaceholderAfterImage(MarkdownDocumentTabState doc, string imagePath) {
-        var text         = doc.EditorTextBox.GetPlainText().Replace("\r\n", "\n");
+        var text         = doc.GetEditorText().Replace("\r\n", "\n");
         var lines        = text.Split('\n').ToList();
         var fwdSlashPath = imagePath.Replace('\\', '/');
 
@@ -1878,7 +1915,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             }
         }
 
-        doc.EditorTextBox.SetPlainText(string.Join("\n", lines));
+        doc.SetEditorText(string.Join("\n", lines));
     }
 
     /// <summary>
@@ -2070,6 +2107,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     private void ApplyNavDocument(MarkdownDocumentTabState document) {
         ClearSourceHoverHighlight();
         _activeDocument = document;
+        UpdateSourceToolbar(document);
         _isSwitchingDocument = true;
         try {
             _singlePreviewHost.Content = document.PreviewHost;
@@ -2122,6 +2160,11 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     private void ScrollToSourceLine(string lineHint) {
         if (_activeDocument is null || string.IsNullOrEmpty(lineHint)) return;
         if (!int.TryParse(lineHint, out var lineNum) || lineNum < 1) return;
+        if (_activeDocument.AvalonEditor is { } editor) {
+            if (_showSource && lineNum <= editor.Editor.Document.LineCount)
+                editor.Editor.ScrollToLine(lineNum);
+            return;
+        }
         var textBox = _activeDocument.EditorTextBox;
         if (textBox.Visibility != Visibility.Visible) return;
 
@@ -2266,6 +2309,8 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             return;
         }
         var strippedNew = MarkdownDocumentTabState.StripFrontMatter(newText, out var newFrontMatter);
+        if (doc.AvalonEditor is not null)
+            strippedNew = strippedNew.ReplaceLineEndings("\n");
         bool bodyChanged        = !string.Equals(strippedNew,     doc.SavedText,   StringComparison.Ordinal);
         bool frontMatterChanged = !string.Equals(newFrontMatter,  doc.FrontMatter, StringComparison.Ordinal);
         // When "Include front matter" is checked, FrontMatter is merged into WorkingText
@@ -2282,13 +2327,13 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
             doc.FrontMatter = string.Empty;  // keep in merged state
             doc.SavedText   = strippedNew;
             doc.WorkingText = newFullText;
-            doc.EditorTextBox.SetPlainText(newFullText);
+            doc.SetEditorText(newFullText);
         } else {
             doc.FrontMatter = newFrontMatter;
             doc.SavedText   = strippedNew;
             if (bodyChanged) {
                 doc.WorkingText = strippedNew;
-                doc.EditorTextBox.SetPlainText(strippedNew);
+                doc.SetEditorText(strippedNew);
             }
             // Front-matter-only change with the editor showing body only: FrontMatter is
             // now up to date in memory; the next Ctrl+S will write it correctly.

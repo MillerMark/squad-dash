@@ -494,6 +494,7 @@
     <Compile Include="..\SquadDash\CodeHealthStubStateStore.cs" Link="Source\CodeHealthStubStateStore.cs" />
     <Compile Include="..\SquadDash\CodeHealthTaskEditorWindow.cs" Link="Source\CodeHealthTaskEditorWindow.cs" />
     <Compile Include="..\SquadDash\MarkdownEditorPanel.cs" Link="Source\MarkdownEditorPanel.cs" />
+    <Compile Include="..\SquadDash\AvalonEditMarkdownEditor.cs" Link="Source\AvalonEditMarkdownEditor.cs" />
     <Page Include="..\SquadDash\MarkdownEditorToolbar.xaml" Link="Source\MarkdownEditorToolbar.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>

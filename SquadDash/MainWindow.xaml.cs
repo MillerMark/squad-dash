@@ -32970,7 +32970,7 @@ public partial class MainWindow : Window
             if (documents.Count == 0)
                 return;
 
-            OpenMarkdownFiles(documents, "Agent Charter & History");
+            OpenMarkdownFiles(documents, "Agent Charter & History", showSource: true, useAvalonEdit: true);
         }
         catch (Exception ex)
         {
@@ -58191,7 +58191,8 @@ public partial class MainWindow : Window
         OpenMarkdownFiles([new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], title, showSource);
     }
 
-    private void OpenMarkdownFiles(IReadOnlyList<MarkdownDocumentSpec> files, string title, bool showSource = false)
+    private void OpenMarkdownFiles(IReadOnlyList<MarkdownDocumentSpec> files, string title, bool showSource = false,
+        bool useAvalonEdit = false)
     {
         if (files.Count == 0)
             return;
@@ -58203,7 +58204,8 @@ public partial class MainWindow : Window
                 title,
                 files,
                 showSource,
-                BuildMarkdownCaptureContext());
+                BuildMarkdownCaptureContext(),
+                useAvalonEdit: useAvalonEdit);
         }
         catch (Exception ex)
         {
