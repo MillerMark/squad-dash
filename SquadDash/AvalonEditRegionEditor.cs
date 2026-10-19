@@ -64,6 +64,7 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
         _autoDetectTimer.Tick += AutoDetectTimer_Tick;
         _editor.Unloaded += Editor_Unloaded;
         _editor.Loaded += Editor_Loaded;
+        _editor.PreviewMouseWheel += Editor_PreviewMouseWheel;
         ApplyPalette(_palette);
 
         // Single-authority undo/redo (PROMPTUNDO-20261015, §5): suppress THIS region's own
@@ -97,6 +98,7 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
         _autoDetectTimer.Tick -= AutoDetectTimer_Tick;
         _editor.Unloaded -= Editor_Unloaded;
         _editor.Loaded -= Editor_Loaded;
+        _editor.PreviewMouseWheel -= Editor_PreviewMouseWheel;
         _editor.Document.UpdateStarted -= Document_UpdateStarted;
         _editor.TextChanged -= Editor_TextChanged;
         _editor.Document.UpdateFinished -= Document_UpdateFinished;
@@ -360,6 +362,40 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
     }
 
     private void Editor_Unloaded(object sender, RoutedEventArgs e) => _autoDetectTimer.Stop();
+
+    internal static bool ShouldBubbleMouseWheel(
+        int delta, double verticalOffset, double extentHeight, double viewportHeight)
+    {
+        const double edgeTolerance = 0.5;
+        if (delta == 0)
+            return false;
+        if (extentHeight <= viewportHeight)
+            return true;
+
+        return delta < 0
+            ? verticalOffset >= extentHeight - viewportHeight - edgeTolerance
+            : verticalOffset <= edgeTolerance;
+    }
+
+    private void Editor_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!ShouldBubbleMouseWheel(
+                e.Delta, _editor.VerticalOffset, _editor.ExtentHeight, _editor.ViewportHeight))
+            return;
+
+        // Start outside AvalonEdit's visual subtree so its ScrollViewer cannot swallow the wheel.
+        var parent = VisualTreeHelper.GetParent(_editor);
+        while (parent is not null && parent is not UIElement)
+            parent = VisualTreeHelper.GetParent(parent);
+
+        e.Handled = true;
+        var args = new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+        {
+            RoutedEvent = UIElement.MouseWheelEvent,
+            Source = sender,
+        };
+        (parent as UIElement)?.RaiseEvent(args);
+    }
 
     private void Editor_Loaded(object sender, RoutedEventArgs e)
     {
