@@ -16,6 +16,10 @@ internal static class RegionBundledGrammars
         Register(engine, "TypeScript", "TypeScript", "typescript", "ts");
         Register(engine, "YAML", "YAML", "yaml", "yml");
         Register(engine, "SQL", "SQL", "sql");
+        Register(engine, "Go", "Go", "go", "golang");
+        Register(engine, "Rust", "Rust", "rust", "rs");
+        Register(engine, "Bash", "Bash", "bash", "sh", "shell");
+        Register(engine, "Markdown", "Markdown", "markdown", "md");
     }
 
     private static void Register(

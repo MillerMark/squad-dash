@@ -179,6 +179,46 @@ public sealed class RegionGrammarAutoDetectTests
         ORDER BY total DESC;
         """;
 
+    internal const string GoSample = """
+        package main
+
+        import "fmt"
+
+        func main() {
+            message := "Hello"
+            fmt.Println(message)
+        }
+        """;
+
+    internal const string RustSample = """
+        use std::collections::HashMap;
+
+        pub fn count() -> usize {
+            let mut values = HashMap::new();
+            values.insert("team", 42);
+            println!("{:?}", values);
+            values.len()
+        }
+        """;
+
+    internal const string BashSample = """
+        #!/usr/bin/env bash
+        name="SquadDash"
+        if [ -n "$name" ]; then
+            echo "Hello ${name}"
+        fi
+        """;
+
+    internal const string MarkdownSample = """
+        # Region editor
+
+        - **Highlighting** supports [languages](https://example.org/languages).
+
+        ```text
+        A code sample
+        ```
+        """;
+
     private const string CssSample =
         "body {\n  color: #fff;\n  margin: 0;\n}\n@media (max-width: 600px) { .a { display: none; } }";
 
@@ -282,6 +322,36 @@ public sealed class RegionGrammarAutoDetectTests
     [TestCase("server:\n  host: localhost", "YAML")]
     [TestCase("tags:\n  - development\n  - testing", "YAML")]
     [TestCase(CssSample, "CSS")]
+    [TestCase(GoSample, "Go")]
+    [TestCase(RustSample, "Rust")]
+    [TestCase(BashSample, "Bash")]
+    [TestCase(MarkdownSample, "Markdown")]
+    [TestCase("func greet(name string) string { return name }", "Go")]
+    [TestCase("package main\nimport (\n\"fmt\"\n)", "Go")]
+    [TestCase("value := 42\nfmt.Println(value)", "Go")]
+    [TestCase("fn main() { println!(\"hello\"); }", "Rust")]
+    [TestCase("let mut values = vec![1, 2];", "Rust")]
+    [TestCase("use std::io;", "Rust")]
+    [TestCase("if [ -n \"$name\" ]; then\n  echo \"$name\"\nfi", "Bash")]
+    [TestCase("function greet() {\n  echo \"Hello $USER\"\n}", "Bash")]
+    [TestCase("for file in *.txt; do\n  echo \"$file\"\ndone", "Bash")]
+    [TestCase("#!/bin/bash\necho hello", "Bash")]
+    [TestCase("#!/usr/bin/env -S bash -eu\necho hello", "Bash")]
+    [TestCase("# Heading\n- item\nSee [guide](./guide.md).", "Markdown")]
+    [TestCase("# Heading\n~~~text\ncode\n~~~", "Markdown")]
+    [TestCase(CSharpSample, "C#")]
+    [TestCase(JavaSample, "Java")]
+    [TestCase(CppSample, "C++")]
+    [TestCase(PowerShellSample, "PowerShell")]
+    [TestCase(PhpSample, "PHP")]
+    [TestCase(PhpSnippetSample, "PHP")]
+    [TestCase(HtmlSample, "HTML")]
+    [TestCase(XmlSample, "XML")]
+    [TestCase(JsonSample, "Json")]
+    [TestCase(PythonSample, "Python")]
+    [TestCase("package demo;\nimport java.util.List;\nclass Demo { }", "Java")]
+    [TestCase("using System;\n// # heading\n// echo \"$USER\"", "C#")]
+    [TestCase("const go = () => console.log('hello');", "JavaScript")]
     [Apartment(ApartmentState.STA)]
     public void Resolve_AutoDetect_UsesEngineRegisteredGrammars(string content, string expected)
     {
@@ -295,6 +365,10 @@ public sealed class RegionGrammarAutoDetectTests
     [TestCase(ReviewerYamlSample, "YAML")]
     [TestCase(ReviewerSqlSample, "SQL")]
     [TestCase(JsonSample, "Json")]
+    [TestCase(GoSample, "Go")]
+    [TestCase(RustSample, "Rust")]
+    [TestCase(BashSample, "Bash")]
+    [TestCase(MarkdownSample, "Markdown")]
     public void Detect_UsesOnlyCallerProvidedGrammarAvailability(string content, string expected)
     {
         var normalized = content.Replace("\r\n", "\n");
@@ -305,6 +379,10 @@ public sealed class RegionGrammarAutoDetectTests
     [TestCase(ReviewerTypeScriptSample)]
     [TestCase(ReviewerYamlSample)]
     [TestCase(ReviewerSqlSample)]
+    [TestCase(GoSample)]
+    [TestCase(RustSample)]
+    [TestCase(BashSample)]
+    [TestCase(MarkdownSample)]
     [Apartment(ApartmentState.STA)]
     public void Resolve_BundledDetection_PreservesScanLimitAndSignaturePrecedence(string content)
     {
@@ -323,11 +401,40 @@ public sealed class RegionGrammarAutoDetectTests
     [TestCase(ReviewerTypeScriptSample + "\nusing System;")]
     [TestCase(ReviewerYamlSample + "\nconsole.log('x');")]
     [TestCase(ReviewerSqlSample + "\nconsole.log('x');")]
+    [TestCase(GoSample + "\nusing System;")]
+    [TestCase(RustSample + "\nconsole.log('x');")]
+    [TestCase(RustSample + "\nstd::cout << value;")]
+    [TestCase(RustSample + "\n#include <vector>")]
+    [TestCase("if [ -n \"$name\" ]; then\nfi\nusing System;")]
+    [TestCase(MarkdownSample + "\nusing System;")]
+    [TestCase("The package includes a go function and a rust finish.")]
+    [TestCase("# Heading only")]
+    [TestCase("- item\n- item\n- **another item**")]
+    [TestCase("This is **bold** prose with a [link](https://example.org).")]
+    [TestCase("# Heading\n- item")]
+    [TestCase("echo hello")]
+    [TestCase("$USER ${HOME}")]
+    [TestCase("package main")]
+    [TestCase("PACKAGE main\nFUNC main() {}")]
+    [TestCase("PUB FN main() {}\nLET MUT value = 1;")]
+    [TestCase("#!/bin/bashful\necho hello")]
+    [TestCase("#!/usr/bin/env python\nprint('hello')")]
     [Apartment(ApartmentState.STA)]
     public void Resolve_BundledDetection_RejectsWeakOrAmbiguousMarkers(string content)
     {
         var engine = new RegionHighlightingEngine();
         Assert.That(engine.Resolve("", content.Replace("\r\n", "\n")), Is.Null);
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void Resolve_BashShebang_PrecedesEmbeddedLanguageMarkers()
+    {
+        var engine = new RegionHighlightingEngine();
+        Assert.That(engine.Resolve("", "#!/bin/bash\n# using System;\necho \"$USER\""), Is.EqualTo("Bash"));
+        Assert.That(RegionGrammarResolver.Detect("#!/bin/bash\nusing System;", name => name == "C#"), Is.Null);
+        Assert.That(engine.Resolve("", "echo hello\n#!/bin/bash"), Is.Null,
+            "a shebang is only a document signature at the start");
     }
 
     [TestCase(CSharpSample, "C#")]

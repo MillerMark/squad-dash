@@ -734,7 +734,7 @@
 
   <!-- Embedded resources shared from the main project (single source of truth — no copy) -->
   <ItemGroup>
-    <EmbeddedResource Include="..\SquadDash\Grammars\JSON.xshd;..\SquadDash\Grammars\TypeScript.xshd;..\SquadDash\Grammars\YAML.xshd;..\SquadDash\Grammars\SQL.xshd"
+    <EmbeddedResource Include="..\SquadDash\Grammars\JSON.xshd;..\SquadDash\Grammars\TypeScript.xshd;..\SquadDash\Grammars\YAML.xshd;..\SquadDash\Grammars\SQL.xshd;..\SquadDash\Grammars\Go.xshd;..\SquadDash\Grammars\Rust.xshd;..\SquadDash\Grammars\Bash.xshd;..\SquadDash\Grammars\Markdown.xshd"
                       Link="Grammars\%(Filename)%(Extension)"
                       LogicalName="SquadDash.Grammars.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\SquadDash\Assets\squaddash.md" Link="Assets\squaddash.md" />

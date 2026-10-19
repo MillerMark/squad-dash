@@ -66,7 +66,8 @@ public sealed class RegionHighlightingTests
             .ToHashSet(StringComparer.Ordinal);
         var grammarOptions = options.Where(o => o.GrammarName is not null).ToList();
 
-        installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL" });
+        installed.Remove("MarkDown");
+        installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown" });
         Assert.That(grammarOptions, Has.Count.EqualTo(installed.Count),
             "one option per built-in or bundled grammar, with no duplicate JSON entry");
         Assert.That(grammarOptions.Select(o => o.GrammarName!).ToHashSet(StringComparer.Ordinal),
@@ -85,12 +86,13 @@ public sealed class RegionHighlightingTests
         foreach (var definition in HighlightingManager.Instance.HighlightingDefinitions)
         {
             var token = SanitizeToken(definition.Name);
+            var expectedName = definition.Name == "MarkDown" ? "Markdown" : definition.Name;
 
-            Assert.That(engine.ResolveFenceToken(token), Is.EqualTo(definition.Name),
+            Assert.That(engine.ResolveFenceToken(token), Is.EqualTo(expectedName),
                 $"installed grammar '{definition.Name}' must resolve from its serialized token '{token}'");
 
             var cloned = engine.CreateDefinition(definition.Name, palette);
-            Assert.That(cloned.Name, Is.EqualTo(definition.Name));
+            Assert.That(cloned.Name, Is.EqualTo(expectedName));
         }
     }
 
@@ -98,6 +100,10 @@ public sealed class RegionHighlightingTests
     [TestCase("TypeScript", "TypeScript", "typescript")]
     [TestCase("YAML", "YAML", "yaml")]
     [TestCase("SQL", "SQL", "sql")]
+    [TestCase("Go", "Go", "go")]
+    [TestCase("Rust", "Rust", "rust")]
+    [TestCase("Bash", "Bash", "bash")]
+    [TestCase("Markdown", "Markdown", "markdown")]
     public void BundledGrammar_LoadsEmbeddedResource_AndExposesPickerOption(
         string resource, string name, string token)
     {
@@ -121,6 +127,19 @@ public sealed class RegionHighlightingTests
     [TestCase("YML", "YAML")]
     [TestCase("sql", "SQL")]
     [TestCase("SQL", "SQL")]
+    [TestCase("go", "Go")]
+    [TestCase("GO", "Go")]
+    [TestCase("golang", "Go")]
+    [TestCase("rust", "Rust")]
+    [TestCase("RUST", "Rust")]
+    [TestCase("rs", "Rust")]
+    [TestCase("bash", "Bash")]
+    [TestCase("BASH", "Bash")]
+    [TestCase("sh", "Bash")]
+    [TestCase("shell", "Bash")]
+    [TestCase("markdown", "Markdown")]
+    [TestCase("MARKDOWN", "Markdown")]
+    [TestCase("md", "Markdown")]
     public void BundledGrammar_ExplicitTokensResolveToOwnDefinition(string token, string name)
     {
         var engine = new RegionHighlightingEngine();
@@ -135,6 +154,10 @@ public sealed class RegionHighlightingTests
     [TestCase(RegionGrammarAutoDetectTests.JsonSample, "Json")]
     [TestCase(RegionGrammarAutoDetectTests.JavaScriptSample, "JavaScript")]
     [TestCase(RegionGrammarAutoDetectTests.TsqlSample + "\nGO", "TSQL")]
+    [TestCase(RegionGrammarAutoDetectTests.GoSample, "Go")]
+    [TestCase(RegionGrammarAutoDetectTests.RustSample, "Rust")]
+    [TestCase(RegionGrammarAutoDetectTests.BashSample, "Bash")]
+    [TestCase(RegionGrammarAutoDetectTests.MarkdownSample, "Markdown")]
     public void AutoDetect_ResolvesAndAppliesExpectedGrammarInBothThemes(string content, string expected)
     {
         var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();
@@ -165,6 +188,10 @@ public sealed class RegionHighlightingTests
     [TestCase("TypeScript")]
     [TestCase("YAML")]
     [TestCase("SQL")]
+    [TestCase("Go")]
+    [TestCase("Rust")]
+    [TestCase("Bash")]
+    [TestCase("Markdown")]
     public void BundledGrammar_PaletteRepushRecolorsEveryRole_WithoutLeaking(string name)
     {
         var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();
@@ -227,6 +254,59 @@ public sealed class RegionHighlightingTests
     [TestCase("SQL", "SELECT 1.25;", "1.25", "Number")]
     [TestCase("SQL", "-- hello\nSELECT 1;", "-- hello", "Comment")]
     [TestCase("SQL", "SELECT CAST(1 AS VARCHAR(10));", "VARCHAR", "Type")]
+    [TestCase("Go", "package main", "package", "Keyword")]
+    [TestCase("Go", "var count int = 42", "int", "Type")]
+    [TestCase("Go", "count := 42", "42", "Number")]
+    [TestCase("Go", "count := 42", ":=", "Punctuation")]
+    [TestCase("Go", "var ready = true", "true", "Keyword")]
+    [TestCase("Go", "fmt.Println(count)", "Println", "Method")]
+    [TestCase("Go", "var text = \"escaped\\\"tail\"", "tail", "String")]
+    [TestCase("Go", "var text = `raw\n// content`", "// content", "String")]
+    [TestCase("Go", "var letter = 'a'", "'a'", "String")]
+    [TestCase("Go", "// \"quote\" /* comment\nfunc main() {}", "\"quote\" /* comment", "Comment")]
+    [TestCase("Go", "/* comment */\nfunc main() {}", "func", "Keyword")]
+    [TestCase("Rust", "pub fn count() -> usize { 42 }", "fn", "Keyword")]
+    [TestCase("Rust", "let count: usize = 42;", "usize", "Type")]
+    [TestCase("Rust", "let count = 42u64;", "42u64", "Number")]
+    [TestCase("Rust", "println!(\"hello\");", "println!", "Method")]
+    [TestCase("Rust", "let s = \"escaped\\\"tail\";", "tail", "String")]
+    [TestCase("Rust", "let s = r#\"raw \"quote\"\n// text\"#;", "// text", "String")]
+    [TestCase("Rust", "let s = br##\"raw \"# quote\"##;", "quote", "String")]
+    [TestCase("Rust", "let c = 'a';", "'a'", "String")]
+    [TestCase("Rust", "let c = '\"'; let value = 42;", "'\"'", "String")]
+    [TestCase("Rust", "let c = b'\"'; let value = 42;", "let", "Keyword")]
+    [TestCase("Rust", "let c = '\"'; let value = 42;", "42", "Number")]
+    [TestCase("Rust", "let c = '\\u{1F600}';", "'\\u{1F600}'", "String")]
+    [TestCase("Rust", "fn borrow<'a>(s: &'a str) -> &'a str { s }", "str", "Type")]
+    [TestCase("Rust", "/* outer /* nested */ still outer */\nlet x = 1;", "still outer", "Comment")]
+    [TestCase("Rust", "// \"quoted\" /* comment\nlet x = 1;", "let", "Keyword")]
+    [TestCase("Bash", "if [ -n \"$USER\" ]; then\nfi", "then", "Keyword")]
+    [TestCase("Bash", "echo \"$USER\"", "echo", "Method")]
+    [TestCase("Bash", "echo \"$USER\"", "$USER", "Method")]
+    [TestCase("Bash", "echo \"${HOME}\"", "${HOME}", "Method")]
+    [TestCase("Bash", "echo '$USER'", "$USER", "String")]
+    [TestCase("Bash", "echo \"escaped\\\"tail\"", "tail", "String")]
+    [TestCase("Bash", "exit 42", "42", "Number")]
+    [TestCase("Bash", "true && echo yes", "&&", "Punctuation")]
+    [TestCase("Bash", "# \"quoted\" comment\necho hello", "\"quoted\" comment", "Comment")]
+    [TestCase("Bash", "echo ok;# \"quoted\" comment", "# \"quoted\" comment", "Comment")]
+    [TestCase("Bash", "echo \"# literal\"", "# literal", "String")]
+    [TestCase("Bash", "echo ${#name}", "${#name}", "Method")]
+    [TestCase("Markdown", "# Heading", "# Heading", "Keyword")]
+    [TestCase("Markdown", "Use **bold** text.", "**bold**", "Keyword")]
+    [TestCase("Markdown", "[guide](https://example.org)", "[guide](https://example.org)", "Attribute")]
+    [TestCase("Markdown", "- item", "- ", "Punctuation")]
+    [TestCase("Markdown", "Use `code` here.", "`code`", "Tag")]
+    [TestCase("Markdown", "Use `<!-- code -->` here.", "<!-- code -->", "Tag")]
+    [TestCase("Markdown", "Use ``a ` b`` here.", "a ` b", "Tag")]
+    [TestCase("Markdown", "```text\n# code\n```\n# Heading", "# code", "String")]
+    [TestCase("Markdown", "~~~text\ncode\n~~~\n# Heading", "# Heading", "Keyword")]
+    [TestCase("Markdown", "````text\n```\n# code\n````\n# Heading", "# code", "String")]
+    [TestCase("Markdown", "````text\n```\n# code\n````\n# Heading", "# Heading", "Keyword")]
+    [TestCase("Markdown", "~~~text\ncode\n~~~~\n# Heading", "# Heading", "Keyword")]
+    [TestCase("Markdown", "~~~~text\n~~~\n# code\n~~~~\n# Heading", "# code", "String")]
+    [TestCase("Markdown", "~~~~text\n~~~\n# code\n~~~~\n# Heading", "# Heading", "Keyword")]
+    [TestCase("Markdown", "<!-- **comment** -->", "**comment**", "Comment")]
     public void BundledGrammar_HighlightsLanguageTokensInBothThemes(
         string name, string content, string token, string role)
     {
@@ -240,6 +320,52 @@ public sealed class RegionHighlightingTests
                 section.Offset + section.Length >= start + token.Length &&
                 ColorOf(section.Color) == ColorOf(definition.GetNamedColor(role))),
                 Is.True, $"{name}: '{token}' must use {role}, dark={isDark}");
+        }
+    }
+
+    [TestCase("go", RegionGrammarAutoDetectTests.GoSample, "Go")]
+    [TestCase("rust", RegionGrammarAutoDetectTests.RustSample, "Rust")]
+    [TestCase("bash", RegionGrammarAutoDetectTests.BashSample, "Bash")]
+    [TestCase("markdown", RegionGrammarAutoDetectTests.MarkdownSample, "Markdown")]
+    public void BundledGrammar_EditorThemeRepushPreservesExplicitSelectionAndLocalColors(
+        string token, string content, string name)
+    {
+        var engine = new RegionHighlightingEngine();
+        var normalized = content.Replace("\r\n", "\n");
+        using var editor = new AvalonEditRegionEditor(normalized, engine);
+        using var sibling = new AvalonEditRegionEditor(normalized, engine);
+        editor.ApplyPalette(PaletteFrom(engine, false));
+        sibling.ApplyPalette(PaletteFrom(engine, false));
+        editor.SetLanguage(token);
+        sibling.SetLanguage(token);
+        var control = (TextEditor)editor.Control;
+        var definition = control.SyntaxHighlighting;
+        var before = Snapshot(definition);
+        Assert.That(definition.Name, Is.EqualTo(name));
+        foreach (var isDark in new[] { true, false })
+        {
+            editor.ApplyPalette(PaletteFrom(engine, isDark));
+            Assert.That(control.SyntaxHighlighting, Is.SameAs(definition));
+            Assert.That(Snapshot(definition), Is.EqualTo(Snapshot(engine.CreateDefinition(name, PaletteFrom(engine, isDark)))));
+            Assert.That(HighlightAll(control.Document, definition), Is.Not.Empty);
+            Assert.That(Snapshot(((TextEditor)sibling.Control).SyntaxHighlighting), Is.EqualTo(before));
+            Assert.That(editor.Text, Is.EqualTo(normalized));
+        }
+    }
+
+    [TestCase("echo foo#bar")]
+    [TestCase("echo foo}#bar")]
+    [TestCase("echo ${#name}")]
+    [TestCase("echo '# literal'")]
+    [TestCase("echo \"# literal\"")]
+    public void BundledBash_DoesNotTreatWordOrQuotedHashesAsComments(string content)
+    {
+        var engine = new RegionHighlightingEngine();
+        foreach (var isDark in new[] { false, true })
+        {
+            var definition = engine.CreateDefinition("Bash", PaletteFrom(engine, isDark));
+            Assert.That(HighlightAll(new TextDocument(content), definition)
+                .Any(section => ColorOf(section.Color) == ColorOf(definition.GetNamedColor("Comment"))), Is.False);
         }
     }
 

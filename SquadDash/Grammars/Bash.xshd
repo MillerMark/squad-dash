@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SyntaxDefinition name="Bash"
+                  extensions=".sh;.bash"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Keyword" foreground="#174EA6" />
+  <Color name="Comment" foreground="#426536" />
+  <Color name="String" foreground="#8F3520" />
+  <Color name="Number" foreground="#6841A5" />
+  <Color name="Method" foreground="#795B00" />
+  <Color name="Punctuation" foreground="#493827" />
+
+  <RuleSet name="DoubleQuoted">
+    <Span color="Punctuation" begin="\\" end="." />
+    <Rule color="Method">\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])</Rule>
+    <Rule color="Method">\$\{[^}\r\n]+\}</Rule>
+  </RuleSet>
+
+  <RuleSet>
+    <Span color="Comment" begin="(?&lt;![^\s;|&amp;()])\#" />
+
+    <Span color="String" begin="'" end="'" multiline="true" />
+    <Span color="String" begin="&quot;" end="&quot;" multiline="true" ruleSet="DoubleQuoted" />
+
+    <Rule color="Method">\$(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])</Rule>
+    <Rule color="Method">\$\{[^}\r\n]+\}</Rule>
+    <Rule color="Number">\b\d+\b</Rule>
+    <Rule color="Punctuation">&amp;&amp;|\|\||\|&amp;|&gt;&gt;|&lt;&lt;|;;|[(){}\[\];|&amp;&lt;&gt;=:+\-*/%!,]</Rule>
+
+    <Keywords color="Keyword">
+      <Word>if</Word><Word>then</Word><Word>elif</Word><Word>else</Word><Word>fi</Word>
+      <Word>for</Word><Word>in</Word><Word>do</Word><Word>done</Word><Word>while</Word>
+      <Word>until</Word><Word>case</Word><Word>esac</Word><Word>select</Word><Word>function</Word>
+      <Word>time</Word><Word>coproc</Word><Word>break</Word><Word>continue</Word><Word>return</Word>
+    </Keywords>
+
+    <Keywords color="Method">
+      <Word>alias</Word><Word>bg</Word><Word>bind</Word><Word>builtin</Word><Word>cd</Word>
+      <Word>command</Word><Word>declare</Word><Word>echo</Word><Word>eval</Word><Word>exec</Word>
+      <Word>exit</Word><Word>export</Word><Word>fg</Word><Word>getopts</Word><Word>hash</Word>
+      <Word>help</Word><Word>jobs</Word><Word>kill</Word><Word>local</Word><Word>printf</Word>
+      <Word>pwd</Word><Word>read</Word><Word>readonly</Word><Word>set</Word><Word>shift</Word>
+      <Word>source</Word><Word>test</Word><Word>trap</Word><Word>type</Word><Word>typeset</Word>
+      <Word>ulimit</Word><Word>umask</Word><Word>unalias</Word><Word>unset</Word><Word>wait</Word>
+    </Keywords>
+  </RuleSet>
+</SyntaxDefinition>

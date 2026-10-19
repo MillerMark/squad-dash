@@ -54,7 +54,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Grammars\JSON.xshd;Grammars\TypeScript.xshd;Grammars\YAML.xshd;Grammars\SQL.xshd"
+    <EmbeddedResource Include="Grammars\JSON.xshd;Grammars\TypeScript.xshd;Grammars\YAML.xshd;Grammars\SQL.xshd;Grammars\Go.xshd;Grammars\Rust.xshd;Grammars\Bash.xshd;Grammars\Markdown.xshd"
                       LogicalName="SquadDash.Grammars.%(Filename)%(Extension)" />
   </ItemGroup>
 

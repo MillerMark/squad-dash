@@ -87,10 +87,14 @@ public static class RegionGrammarResolver
         @"<!DOCTYPE\s+html|<(html|head|body|div|span|table|ul|ol|li|p|a|h[1-6]|section|article|main|script|style|button|form|input)\b|</(html|head|body|div|span|table|ul|ol|li|p|a|h[1-6]|section|article|main|script|style|button|form)>",
         ignoreCase: true);
     private static readonly Regex XmlDeclarationSignature = Make(@"^\s*<\?xml\b", ignoreCase: true);
+    private static readonly Regex BashSignature = Make(
+        @"^#![ \t]*/(bin/bash|usr/bin/bash|usr/bin/env[ \t]+(-S[ \t]+)?bash)([ \t]|\r?\n|$)");
     private static readonly Regex TsqlSpecificMarker = Make(
         @"\bDECLARE\s+@\w+|\bCREATE\s+(PROCEDURE|PROC)\b|(?:^|\n)[ \t]*GO[ \t]*(\r?\n|$)|\[[A-Za-z_][\w ]*\]",
         ignoreCase: true);
     private static readonly Regex YamlBlockRoot = Make(@"(?:^|\n)[A-Za-z_][\w.-]*:[ \t]*(#[^\r\n]*)?\r?\n");
+    private static readonly Regex RustStandardLibraryImport = Make(
+        @"(?:^|\n)[ \t]*(pub[ \t]+)?use[ \t]+std::");
     // Score language markers after unmistakable document signatures.
     private static readonly LanguageMarkers[] ScoredLanguages =
     {
@@ -188,6 +192,40 @@ public static class RegionGrammarResolver
             WeightedMarker(@"\bUPDATE\s+[\[\]\w.]+\s+SET\b", 4, ignoreCase: true),
             WeightedMarker(@"(?:^|\n)[ \t]*GO[ \t]*(\r?\n|$)", 4, ignoreCase: true),
             WeightedMarker(@"\bJOIN\s+[\[\]\w.]+\s+ON\b", 2, ignoreCase: true),
+        }),
+        new("Go", new[]
+        {
+            WeightedMarker(@"(?:^|\n)[ \t]*package[ \t]+[A-Za-z_]\w*[ \t]*(\r?\n|$)", 2),
+            WeightedMarker(@"(?:^|\n)[ \t]*func[ \t]+(\([^)\r\n]+\)[ \t]+)?[A-Za-z_]\w*[ \t]*\([^)\r\n]*\)[ \t]*(\([^)\r\n]+\)|[\w*\[\].]+)?[ \t]*\{", 4),
+            WeightedMarker(@"(?:^|\n)[ \t]*import[ \t]*\(", 2),
+            WeightedMarker(@"\b[A-Za-z_]\w*[ \t]*:=", 2),
+            WeightedMarker(@"\bfmt\.(Print|Printf|Println|Sprintf|Errorf)[ \t]*\(", 2),
+            WeightedMarker(@"(?:^|\n)[ \t]*(go|defer)[ \t]+[A-Za-z_][\w.]*[ \t]*\(", 2),
+        }),
+        new("Rust", new[]
+        {
+            WeightedMarker(@"(?:^|\n)[ \t]*(pub(\([^)\r\n]+\))?[ \t]+)?(async[ \t]+|unsafe[ \t]+)?fn[ \t]+[A-Za-z_]\w*[ \t]*(<[^>\r\n]+>)?[ \t]*\([^)\r\n]*\)[ \t]*(->[ \t]*[^{;\r\n]+)?[ \t]*\{", 4),
+            WeightedMarker(@"(?:^|\n)[ \t]*(pub[ \t]+)?use[ \t]+[A-Za-z_]\w*::", 4),
+            WeightedMarker(@"\blet[ \t]+mut[ \t]+[A-Za-z_]\w*[ \t]*[:=]", 3),
+            WeightedMarker(@"(?:^|\n)[ \t]*impl[ \t]+[A-Za-z_]\w*", 3),
+            WeightedMarker(@"\b(println|eprintln|print|format|vec|assert|assert_eq|panic)![ \t]*[(\[]", 2),
+        }),
+        new("Bash", new[]
+        {
+            WeightedMarker(@"(?:^|\n)[ \t]*(if|elif)[ \t]+\[\[?[ \t]+[^\r\n]+\]\]?[ \t]*;[ \t]*then\b", 4),
+            WeightedMarker(@"(?:^|\n)[ \t]*(fi|done|esac)[ \t]*(\r?\n|$)", 2),
+            WeightedMarker(@"(?:^|\n)[ \t]*function[ \t]+[A-Za-z_]\w*[ \t]*(\([ \t]*\))?[ \t]*\{", 2),
+            WeightedMarker(@"(?:^|\n)[ \t]*(echo|printf)[ \t]+[^\r\n]*\$(\{[A-Za-z_]\w*\}|[A-Za-z_]\w*)", 2),
+            WeightedMarker(@"(?:^|\n)[ \t]*for[ \t]+[A-Za-z_]\w*[ \t]+in[ \t]+[^\r\n]+;[ \t]*do\b", 4),
+        }),
+        // Each structural family scores once; repeated list items or emphasized prose alone cannot win.
+        new("Markdown", new[]
+        {
+            WeightedMarker(@"(?:^|\n)[ ]{0,3}#{1,6}[ \t]+\S", 2),
+            WeightedMarker(@"(?:^|\n)[ ]{0,3}(```+|~~~+)[^\r\n]*(\r?\n|$)", 2),
+            WeightedMarker(@"(?:^|\n)[ ]{0,3}([-+*]|[0-9]+\.)[ \t]+\S", 1),
+            WeightedMarker(@"\[[^\]\r\n]+\]\((https?://|[./#])[^\s)]+\)", 1),
+            WeightedMarker(@"\*\*[^*\r\n]+\*\*", 1),
         }),
         new("VB", new[]
         {
@@ -295,12 +333,18 @@ public static class RegionGrammarResolver
             return Available("HTML");
         if (IsMatch(XmlDeclarationSignature, sample) || IsXmlDocument(sample))
             return Available("XML");
+        if (IsMatch(BashSignature, sample))
+            return Available("Bash");
         var sqlGrammar = IsMatch(TsqlSpecificMarker, sample) || !isGrammarAvailable("SQL") ? "TSQL" : "SQL";
+        // Rust imports share std:: with C++; remove only that import prefix from C++ scoring.
+        // Independent C++ markers elsewhere must still make a mixed sample ambiguous.
+        var cppSample = RustStandardLibraryImport.Replace(sample, "\n");
         var scores = ScoredLanguages
             .Where(language => language.Name != "YAML" ||
                 (!sample.Contains('{') && !sample.Contains('}') && IsMatch(YamlBlockRoot, sample)))
             .Select(language => new Candidate(
-                language.Name == "SQL" ? sqlGrammar : language.Name, language.Score(sample)))
+                language.Name == "SQL" ? sqlGrammar : language.Name,
+                language.Score(language.Name == "C++" ? cppSample : sample)))
             .ToArray();
         // Typed declarations can also match CSS blocks and ordinary JavaScript expressions.
         // Collapse those shared signals before enforcing ambiguity across unrelated languages.
