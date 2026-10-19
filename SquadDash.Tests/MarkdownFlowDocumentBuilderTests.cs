@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.IO;
 using System.Text.Json;
 using SquadDash;
@@ -164,6 +165,183 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
                 Does.Contain("Consolas"));
         });
     }
+
+    [Test]
+    public void BuildInbox_HexSwatchesPreserveTextAndAppearance(
+        [Values("#F00", "#8AB4F8", "#aBc", "#a1B2c3", "#0F08", "#12345678")] string hex,
+        [Values] bool table,
+        [Values] bool inlineCode)
+    {
+        var source = inlineCode ? $"`{hex}`" : hex;
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(
+            table ? $"| Color |\n| --- |\n| {source} |" : $"Color {source}", baseFontSize: 20);
+        var inlines = table
+            ? GetSwatchTableCells(doc).Last().Inlines
+            : doc.Blocks.OfType<Paragraph>().Single().Inlines;
+        var expectedColor = hex switch {
+            "#F00" => Color.FromRgb(255, 0, 0),
+            "#8AB4F8" => Color.FromRgb(0x8A, 0xB4, 0xF8),
+            "#aBc" => Color.FromRgb(0xAA, 0xBB, 0xCC),
+            "#a1B2c3" => Color.FromRgb(0xA1, 0xB2, 0xC3),
+            "#0F08" => Color.FromArgb(0x88, 0, 255, 0),
+            "#12345678" => Color.FromArgb(0x78, 0x12, 0x34, 0x56),
+            _ => throw new InvalidOperationException(),
+        };
+        var swatch = inlines.OfType<InlineUIContainer>().Single();
+        Assert.That(swatch.Child, Is.TypeOf<Border>());
+        var border = (Border)swatch.Child;
+        var run = (Run)swatch.NextInline;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(((SolidColorBrush)border.Background).Color, Is.EqualTo(expectedColor));
+            Assert.That(((SolidColorBrush)border.BorderBrush).Color, Is.EqualTo(Colors.Gray));
+            Assert.That(border.BorderThickness, Is.EqualTo(new Thickness(1)));
+            Assert.That(border.CornerRadius, Is.EqualTo(new CornerRadius(2)));
+            Assert.That(border.Margin, Is.EqualTo(new Thickness(0, 0, 3, 0)));
+            Assert.That(border.Width, Is.EqualTo(18).Within(0.001));
+            Assert.That(border.Height, Is.EqualTo(18).Within(0.001));
+            Assert.That(border.IsHitTestVisible, Is.False);
+            Assert.That(border.Focusable, Is.False);
+            Assert.That(swatch.BaselineAlignment, Is.EqualTo(BaselineAlignment.Center));
+            Assert.That(run.Text, Is.EqualTo(hex));
+            Assert.That(run.FontFamily.Source.Contains("Consolas"), Is.EqualTo(inlineCode));
+            Assert.That(MarkdownVisibleContent.GetText(doc),
+                Is.EqualTo(table ? $"Color{Environment.NewLine}{hex}" : $"Color {hex}"));
+            Assert.That(MarkdownVisibleContent.FindAll(doc, hex).Count(), Is.EqualTo(1));
+        });
+    }
+
+    [TestCase("#ZZZ")]
+    [TestCase("#12")]
+    [TestCase("#12345")]
+    [TestCase("#1234567")]
+    [TestCase("#123456789")]
+    [TestCase("#123456g")]
+    [TestCase("name#F00")]
+    [TestCase("#F00_name")]
+    [TestCase("#F00z")]
+    [TestCase("##F00")]
+    [TestCase("#F00\u0301")]
+    public void BuildInbox_InvalidOrEmbeddedHexHasNoSwatch(string text)
+    {
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(
+            $"Value {text} and `{text}`.\n\n| Color |\n| --- |\n| {text} `{text}` |");
+        var paragraph = doc.Blocks.OfType<Paragraph>().First();
+        Assert.Multiple(() =>
+        {
+            Assert.That(paragraph.Inlines.OfType<InlineUIContainer>(), Is.Empty);
+            Assert.That(GetSwatchTableCells(doc).SelectMany(cell => cell.Inlines.OfType<InlineUIContainer>()),
+                Is.Empty);
+            Assert.That(MarkdownVisibleContent.GetText(doc),
+                Does.StartWith($"Value {text} and {text}."));
+            Assert.That(MarkdownVisibleContent.GetText(doc), Does.EndWith($"{text} {text}"));
+        });
+    }
+
+    [Test]
+    public void BuildInbox_MultipleSwatchesKeepFormattingAndSelectionText()
+    {
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox("Palette **#8AB4F8** and *#E4CD8B*, `#71C9B8 #F00`.");
+        var paragraph = doc.Blocks.OfType<Paragraph>().Single();
+        var runs = paragraph.Inlines.OfType<Run>().ToArray();
+        var text = "Palette #8AB4F8 and #E4CD8B, #71C9B8 #F00.";
+        var selection = new TextRange(paragraph.ContentStart, paragraph.ContentEnd);
+        Assert.Multiple(() =>
+        {
+            Assert.That(paragraph.Inlines.OfType<InlineUIContainer>().Count(), Is.EqualTo(4));
+            Assert.That(runs.Single(run => run.Text == "#8AB4F8").FontWeight, Is.EqualTo(FontWeights.Bold));
+            Assert.That(runs.Single(run => run.Text == "#E4CD8B").FontStyle, Is.EqualTo(FontStyles.Italic));
+            Assert.That(runs.Single(run => run.Text == "#71C9B8").FontFamily.Source, Does.Contain("Consolas"));
+            Assert.That(MarkdownVisibleContent.GetSelectionText(doc, selection), Is.EqualTo(text));
+            Assert.That(MarkdownVisibleContent.GetText(doc), Is.EqualTo(text));
+        });
+        var swatch = (Border)paragraph.Inlines.OfType<InlineUIContainer>().First().Child;
+        paragraph.FontSize = 30;
+        Assert.That(swatch.Width, Is.EqualTo(27).Within(0.001));
+        Assert.That(swatch.Height, Is.EqualTo(27).Within(0.001));
+    }
+
+    [Test]
+    public void BuildInbox_LeadingHexIsNotHeadingAndSoftWrappedHexKeepsHash()
+    {
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox("#F00\n#8AB4F8\n\n## Palette #C7ACF0");
+        var paragraphs = doc.Blocks.OfType<Paragraph>().ToArray();
+        Assert.Multiple(() =>
+        {
+            Assert.That(paragraphs, Has.Length.EqualTo(3));
+            Assert.That(MarkdownFlowDocumentBuilder.TryGetHeadingLevel(paragraphs[0], out _), Is.False);
+            Assert.That(paragraphs[0].Inlines.OfType<InlineUIContainer>().Count(), Is.EqualTo(2));
+            Assert.That(MarkdownVisibleContent.Project(doc).First().Text, Is.EqualTo("#F00 #8AB4F8"));
+            Assert.That(MarkdownFlowDocumentBuilder.TryGetHeadingLevel(paragraphs[2], out var level), Is.True);
+            Assert.That(level, Is.EqualTo(2));
+            Assert.That(paragraphs[2].Inlines.OfType<InlineUIContainer>().Count(), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void BuildInbox_TableHeaderAndBodySwatchesDoNotChangeCopiedText()
+    {
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox("| #F00 |\n| --- |\n| `#78966D` |");
+        var selection = new TextRange(doc.ContentStart, doc.ContentEnd);
+        var text = $"#F00{Environment.NewLine}#78966D";
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetSwatchTableCells(doc).All(cell => cell.Inlines.OfType<InlineUIContainer>().Count() == 1),
+                Is.True);
+            Assert.That(MarkdownVisibleContent.GetSelectionText(doc, selection), Is.EqualTo(text));
+            Assert.That(MarkdownVisibleContent.GetText(doc), Is.EqualTo(text));
+        });
+    }
+
+    [Test]
+    public void BuildInbox_LinkLabelSwatchPreservesNavigation()
+    {
+        string? target = null;
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox("[#F00](https://example.com/#F00)",
+            onLinkClicked: value => target = value);
+        var link = doc.Blocks.OfType<Paragraph>().Single().Inlines.OfType<Hyperlink>().Single();
+        Assert.That(link.Inlines.OfType<InlineUIContainer>().Count(), Is.EqualTo(1));
+        Assert.That(MarkdownVisibleContent.GetText(doc), Is.EqualTo("#F00"));
+        link.RaiseEvent(new RoutedEventArgs(Hyperlink.ClickEvent));
+        Assert.That(target, Is.EqualTo("https://example.com/#F00"));
+    }
+
+    [Test]
+    public void BuildInbox_DetailBodyAndListsUseSharedSwatchRenderer()
+    {
+        var doc = MarkdownFlowDocumentBuilder.BuildInbox(
+            "- #F00\n\n1. `#8AB4F8`\n\n> #71C9B8\n\n:::detail Palette\nColor #C7ACF0\n:::");
+        try
+        {
+            var detail = MarkdownVisibleContent.Details(doc).Single();
+            Assert.That(MarkdownVisibleContent.Blocks(doc.Blocks).OfType<Paragraph>()
+                .SelectMany(paragraph => paragraph.Inlines.OfType<InlineUIContainer>()).Count(), Is.EqualTo(3));
+            Assert.That(detail.Viewer.Document.Blocks.OfType<Paragraph>().Single()
+                .Inlines.OfType<InlineUIContainer>().Count(), Is.EqualTo(1));
+        }
+        finally
+        {
+            MarkdownVisibleContent.Detach(doc);
+        }
+    }
+
+    [Test]
+    public void OtherMarkdownSurfaces_DoNotGainInboxSwatches()
+    {
+        const string source = "Color #F00 and `#8AB4F8`.\n\n| Color |\n| --- |\n| #F00 |";
+        foreach (var doc in new[] { Build(source), MarkdownFlowDocumentBuilder.BuildPlanDescription(source) })
+        {
+            Assert.That(doc.Blocks.OfType<Paragraph>()
+                .SelectMany(paragraph => paragraph.Inlines.OfType<InlineUIContainer>()), Is.Empty);
+            Assert.That(GetSwatchTableCells(doc)
+                .SelectMany(cell => cell.Inlines.OfType<InlineUIContainer>()), Is.Empty);
+        }
+    }
+
+    private static TextBlock[] GetSwatchTableCells(FlowDocument doc) =>
+        ((Grid)((Border)doc.Blocks.OfType<BlockUIContainer>().Single().Child).Child)
+            .Children.OfType<Border>().Select(cell => (TextBlock)cell.Child).ToArray();
 
     [Test]
     public void BuildInbox_FencedCopyReadyTextUsesTranscriptCodeSurface()

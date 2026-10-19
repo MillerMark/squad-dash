@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -41,6 +42,8 @@ internal static class MarkdownFlowDocumentBuilder {
     private static readonly Brush DefaultQuoteBorderBrush   = new SolidColorBrush(Color.FromRgb(0xD5, 0xCA, 0xBA));
     private static readonly Brush DefaultTableBorderBrush   = new SolidColorBrush(Color.FromArgb(0x38, 0x40, 0x40, 0x40));
     private static readonly Brush DefaultTableHeaderBrush   = new SolidColorBrush(Color.FromArgb(0x18, 0x40, 0x40, 0x40));
+    private static readonly Brush DefaultColorSwatchBorderBrush = Brushes.Gray;
+    private static readonly FractionConverter ColorSwatchSizeConverter = new();
 
     private static Brush Res(string key, Brush fallback) =>
         Application.Current?.Resources[key] as Brush ?? fallback;
@@ -51,7 +54,8 @@ internal static class MarkdownFlowDocumentBuilder {
 
     /// <summary>
     /// Builds Inbox Markdown and automatically gives camelCase/PascalCase identifiers the same
-    /// treatment as explicit backtick code spans. Other Markdown consumers retain their existing
+    /// treatment as explicit backtick code spans, with inline previews for hex colors.
+    /// Other Markdown consumers retain their existing
     /// rendering through <see cref="Build"/>.
     /// </summary>
     public static FlowDocument BuildInbox(
@@ -60,7 +64,7 @@ internal static class MarkdownFlowDocumentBuilder {
         Action<string>? onLinkClicked = null,
         MarkdownDetailStateContext? detailState = null) =>
         BuildWithMapCore(markdown, out _, baseFontSize, styleCodeIdentifiers: true,
-            copyableCodeBlocks: true, onLinkClicked, detailState);
+            copyableCodeBlocks: true, onLinkClicked, detailState, renderColorSwatches: true);
 
     /// <summary>
     /// Builds the Markdown subset supported inside a plan task description. The caller may move
@@ -122,7 +126,8 @@ internal static class MarkdownFlowDocumentBuilder {
         bool styleCodeIdentifiers,
         bool copyableCodeBlocks,
         Action<string>? onLinkClicked,
-        MarkdownDetailStateContext? detailState = null) {
+        MarkdownDetailStateContext? detailState = null,
+        bool renderColorSwatches = false) {
         blockLineRanges = new List<(int, int)>();
 
         if (baseFontSize <= 0)
@@ -169,7 +174,7 @@ internal static class MarkdownFlowDocumentBuilder {
                         lines.Skip(startIndex).Take(index - startIndex + 1)))));
                 } else {
                     var body = BuildWithMapCore(region.Body, out _, baseFontSize, styleCodeIdentifiers,
-                        copyableCodeBlocks, onLinkClicked);
+                        copyableCodeBlocks, onLinkClicked, renderColorSwatches: renderColorSwatches);
                     var detail = new MarkdownDetailView(document, body, region.Label,
                         keys?[sectionIndex++], detailState);
                     document.Blocks.Add(new BlockUIContainer(detail.Expander) {
@@ -204,19 +209,20 @@ internal static class MarkdownFlowDocumentBuilder {
             }
 
             if (TryReadTable(lines, ref index, out var tableRows)) {
-                document.Blocks.Add(BuildTable(tableRows, tableRule, tableHeader, baseFontSize, styleCodeIdentifiers, onLinkClicked));
+                document.Blocks.Add(BuildTable(tableRows, tableRule, tableHeader, baseFontSize, styleCodeIdentifiers, onLinkClicked, renderColorSwatches));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
 
-            if (trimmed.StartsWith("#", StringComparison.Ordinal)) {
-                document.Blocks.Add(BuildHeading(trimmed, baseFontSize, styleCodeIdentifiers, onLinkClicked));
+            if (trimmed.StartsWith("#", StringComparison.Ordinal) &&
+                (!renderColorSwatches || IsHeadingLine(trimmed))) {
+                document.Blocks.Add(BuildHeading(trimmed, baseFontSize, styleCodeIdentifiers, onLinkClicked, renderColorSwatches));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
 
             if (trimmed.StartsWith("> ", StringComparison.Ordinal)) {
-                document.Blocks.Add(BuildQuote(trimmed[2..].Trim(), quoteFill, foreground, styleCodeIdentifiers, onLinkClicked));
+                document.Blocks.Add(BuildQuote(trimmed[2..].Trim(), quoteFill, foreground, styleCodeIdentifiers, onLinkClicked, renderColorSwatches));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
@@ -245,7 +251,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 }
                 listItems.Add(currentItem.ToString());
 
-                document.Blocks.Add(BuildList(listItems, styleCodeIdentifiers, onLinkClicked));
+                document.Blocks.Add(BuildList(listItems, styleCodeIdentifiers, onLinkClicked, renderColorSwatches));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
@@ -295,7 +301,8 @@ internal static class MarkdownFlowDocumentBuilder {
                     startIndexValue,
                     baseFontSize,
                     styleCodeIdentifiers,
-                    onLinkClicked));
+                    onLinkClicked,
+                    renderColorSwatches));
                 blockLineRanges.Add((startIndex, index));
                 continue;
             }
@@ -316,11 +323,11 @@ internal static class MarkdownFlowDocumentBuilder {
             while (index + 1 < lines.Length) {
                 var nextTrimmed = lines[index + 1].Trim();
                 if (string.IsNullOrWhiteSpace(nextTrimmed)) break;
-                if (IsSpecialLine(nextTrimmed)) break;
+                if (IsSpecialLine(nextTrimmed, renderColorSwatches)) break;
                 paraLines.Append(' ').Append(nextTrimmed);
                 index++;
             }
-            document.Blocks.Add(BuildParagraph(paraLines.ToString(), styleCodeIdentifiers, onLinkClicked));
+            document.Blocks.Add(BuildParagraph(paraLines.ToString(), styleCodeIdentifiers, onLinkClicked, renderColorSwatches));
             blockLineRanges.Add((startIndex, index));
         }
 
@@ -330,8 +337,8 @@ internal static class MarkdownFlowDocumentBuilder {
 
     /// <summary>Returns true for lines that start a new markdown block and must not be
     /// absorbed into the preceding paragraph during soft-wrap joining.</summary>
-    private static bool IsSpecialLine(string trimmed) =>
-        trimmed.StartsWith('#')        ||
+    private static bool IsSpecialLine(string trimmed, bool renderColorSwatches) =>
+        (trimmed.StartsWith('#') && (!renderColorSwatches || IsHeadingLine(trimmed))) ||
         trimmed.StartsWith("- ",  StringComparison.Ordinal) ||
         trimmed.StartsWith("* ",  StringComparison.Ordinal) ||
         trimmed.StartsWith("> ",  StringComparison.Ordinal) ||
@@ -339,6 +346,12 @@ internal static class MarkdownFlowDocumentBuilder {
         MarkdownDetailParser.IsMarker(trimmed) ||
         IsHorizontalRule(trimmed)      ||
         IsOrderedListItem(trimmed);
+
+    private static bool IsHeadingLine(string text) {
+        var level = text.TakeWhile(character => character == '#').Count();
+        return level is >= 1 and <= 6 &&
+               (level == text.Length || char.IsWhiteSpace(text[level]));
+    }
 
     private static bool IsOrderedListItem(string trimmed) {
         var dotIdx = trimmed.IndexOf(". ", StringComparison.Ordinal);
@@ -356,7 +369,8 @@ internal static class MarkdownFlowDocumentBuilder {
         string line,
         double baseFontSize,
         bool styleCodeIdentifiers,
-        Action<string>? onLinkClicked) {
+        Action<string>? onLinkClicked,
+        bool renderColorSwatches) {
         var level = line.TakeWhile(character => character == '#').Count();
         var text = line[level..].Trim();
         var size = level switch {
@@ -374,7 +388,7 @@ internal static class MarkdownFlowDocumentBuilder {
         {
             paragraph.FontSize = size;
             paragraph.FontWeight = FontWeights.SemiBold;
-            AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers: true, onLinkClicked);
+            AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers: true, onLinkClicked, renderColorSwatches);
         }
         else
         {
@@ -390,11 +404,12 @@ internal static class MarkdownFlowDocumentBuilder {
     private static Paragraph BuildParagraph(
         string text,
         bool styleCodeIdentifiers,
-        Action<string>? onLinkClicked) {
+        Action<string>? onLinkClicked,
+        bool renderColorSwatches) {
         var paragraph = new Paragraph {
             Margin = new Thickness(0, 0, 0, 10)
         };
-        AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers, onLinkClicked);
+        AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers, onLinkClicked, renderColorSwatches);
         return paragraph;
     }
 
@@ -403,7 +418,8 @@ internal static class MarkdownFlowDocumentBuilder {
         Brush quoteFill,
         Brush foreground,
         bool styleCodeIdentifiers,
-        Action<string>? onLinkClicked) {
+        Action<string>? onLinkClicked,
+        bool renderColorSwatches) {
         // Use a flow Paragraph (not BlockUIContainer) so the text is included in
         // FlowDocumentScrollViewer selection/copy operations.
         var paragraph = new Paragraph {
@@ -412,14 +428,15 @@ internal static class MarkdownFlowDocumentBuilder {
             Margin     = new Thickness(0, 2, 0, 10),
             Foreground = foreground,
         };
-        AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers, onLinkClicked);
+        AddInlineText(paragraph.Inlines, text, styleCodeIdentifiers, onLinkClicked, renderColorSwatches);
         return paragraph;
     }
 
     private static List BuildList(
         IEnumerable<string> items,
         bool styleCodeIdentifiers,
-        Action<string>? onLinkClicked) {
+        Action<string>? onLinkClicked,
+        bool renderColorSwatches) {
         var list = new List {
             Margin = new Thickness(16, 0, 0, 10),
             MarkerStyle = TextMarkerStyle.Disc
@@ -430,7 +447,7 @@ internal static class MarkdownFlowDocumentBuilder {
                 Margin = new Thickness(0, 0, 0, 4),
                 Tag = new ListItemMetadata(item),
             };
-            AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked);
+            AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked, renderColorSwatches);
             var listItem = new ListItem(paragraph);
             MarkdownVisibleContent.SetSemanticText(listItem, "\u2022");
             list.ListItems.Add(listItem);
@@ -462,7 +479,8 @@ internal static class MarkdownFlowDocumentBuilder {
         int startIndex,
         double baseFontSize,
         bool styleCodeIdentifiers,
-        Action<string>? onLinkClicked) {
+        Action<string>? onLinkClicked,
+        bool renderColorSwatches) {
         var list = new List {
             MarkerStyle = TextMarkerStyle.Decimal,
             StartIndex  = startIndex,
@@ -478,7 +496,7 @@ internal static class MarkdownFlowDocumentBuilder {
                     1),
                 Tag = new ListItemMetadata(item),
             };
-            AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked);
+            AddInlineText(paragraph.Inlines, item, styleCodeIdentifiers, onLinkClicked, renderColorSwatches);
             var listItem = new ListItem(paragraph);
             MarkdownVisibleContent.SetSemanticText(listItem,
                 ((long)startIndex + list.ListItems.Count).ToString(System.Globalization.CultureInfo.InvariantCulture) + ".");
@@ -513,7 +531,8 @@ internal static class MarkdownFlowDocumentBuilder {
         Brush tableHeader,
         double baseFontSize,
         bool styleCodeIdentifiers,
-        Action<string>? onLinkClicked) {
+        Action<string>? onLinkClicked,
+        bool renderColorSwatches) {
         var columnCount = rows.Max(row => row.Length);
 
         var foreground = Res("LabelText", DefaultForegroundBrush);
@@ -542,7 +561,7 @@ internal static class MarkdownFlowDocumentBuilder {
                     FontSize          = fontSize,
                 };
                 if (styleCodeIdentifiers)
-                    AddInlineText(tb.Inlines, text, styleCodeIdentifiers: true, onLinkClicked);
+                    AddInlineText(tb.Inlines, text, styleCodeIdentifiers: true, onLinkClicked, renderColorSwatches);
                 else
                     tb.Text = text;
 
@@ -619,7 +638,8 @@ internal static class MarkdownFlowDocumentBuilder {
         InlineCollection inlines,
         string text,
         bool styleCodeIdentifiers,
-        Action<string>? onLinkClicked) {
+        Action<string>? onLinkClicked,
+        bool renderColorSwatches = false) {
         var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
         var segments = normalized.Split('`');
 
@@ -629,12 +649,13 @@ internal static class MarkdownFlowDocumentBuilder {
 
             if (index % 2 == 1) {
                 // Inside backtick code span — emit as-is in monospace.
-                inlines.Add(CreateInlineCodeRun(segments[index]));
+                AddColorSwatchRuns(inlines, segments[index], renderColorSwatches,
+                    value => inlines.Add(CreateInlineCodeRun(value)));
                 continue;
             }
 
             // Outside code spans, Inbox content may contain deliberate inline navigation links.
-            AddTextWithMarkdownLinks(inlines, segments[index], styleCodeIdentifiers, onLinkClicked);
+            AddTextWithMarkdownLinks(inlines, segments[index], styleCodeIdentifiers, onLinkClicked, renderColorSwatches);
         }
     }
 
@@ -647,7 +668,8 @@ internal static class MarkdownFlowDocumentBuilder {
         InlineCollection inlines,
         string text,
         bool styleCodeIdentifiers,
-        Action<string>? onLinkClicked) {
+        Action<string>? onLinkClicked,
+        bool renderColorSwatches) {
         if (string.IsNullOrEmpty(text)) return;
 
         var position = 0;
@@ -661,16 +683,18 @@ internal static class MarkdownFlowDocumentBuilder {
                 continue;
 
             if (match.Index > position)
-                AddTextWithCircleEmoji(inlines, text[position..match.Index], styleCodeIdentifiers);
+                AddTextWithCircleEmoji(inlines, text[position..match.Index], styleCodeIdentifiers, renderColorSwatches);
 
             var capturedTarget = target;
-            var hyperlink = new Hyperlink(new Run(match.Groups[1].Value.Trim())) {
+            var hyperlink = new Hyperlink {
                 Cursor = System.Windows.Input.Cursors.Hand,
                 Tag = capturedTarget,
                 ToolTip = target.StartsWith("app://open-path:", StringComparison.OrdinalIgnoreCase)
                     ? "Open file or folder"
                     : "Open link",
             };
+            AddColorSwatchRuns(hyperlink.Inlines, match.Groups[1].Value.Trim(), renderColorSwatches,
+                value => hyperlink.Inlines.Add(new Run(value)));
             hyperlink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
             hyperlink.Click += (_, _) => onLinkClicked!(capturedTarget);
             inlines.Add(hyperlink);
@@ -678,7 +702,7 @@ internal static class MarkdownFlowDocumentBuilder {
         }
 
         if (position < text.Length)
-            AddTextWithCircleEmoji(inlines, text[position..], styleCodeIdentifiers);
+            AddTextWithCircleEmoji(inlines, text[position..], styleCodeIdentifiers, renderColorSwatches);
     }
 
     // Matches **bold**, __bold__, *italic*, _italic_ — bold patterns listed first so ** beats *.
@@ -691,17 +715,19 @@ internal static class MarkdownFlowDocumentBuilder {
     private static void AddFormattedRuns(
         InlineCollection inlines,
         string text,
-        bool styleCodeIdentifiers) {
+        bool styleCodeIdentifiers,
+        bool renderColorSwatches) {
         if (string.IsNullOrEmpty(text)) return;
         int pos = 0;
         foreach (System.Text.RegularExpressions.Match m in BoldItalicRegex.Matches(text)) {
             if (m.Index > pos)
-                AddPlainRuns(inlines, text[pos..m.Index], styleCodeIdentifiers);
+                AddPlainRuns(inlines, text[pos..m.Index], styleCodeIdentifiers, renderColorSwatches);
             if (m.Groups[1].Success || m.Groups[2].Success)
                 AddPlainRuns(
                     inlines,
                     m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Value,
                     styleCodeIdentifiers,
+                    renderColorSwatches,
                     FontWeights.Bold,
                     null);
             else
@@ -709,21 +735,30 @@ internal static class MarkdownFlowDocumentBuilder {
                     inlines,
                     m.Groups[3].Success ? m.Groups[3].Value : m.Groups[4].Value,
                     styleCodeIdentifiers,
+                    renderColorSwatches,
                     null,
                     FontStyles.Italic);
             pos = m.Index + m.Length;
         }
         if (pos < text.Length)
-            AddPlainRuns(inlines, text[pos..], styleCodeIdentifiers);
+            AddPlainRuns(inlines, text[pos..], styleCodeIdentifiers, renderColorSwatches);
     }
 
     private static void AddPlainRuns(
         InlineCollection inlines,
         string text,
         bool styleCodeIdentifiers,
+        bool renderColorSwatches,
         FontWeight? fontWeight = null,
         FontStyle? fontStyle = null) {
         if (string.IsNullOrEmpty(text)) return;
+        if (renderColorSwatches) {
+            // Recognize the complete literal before identifier styling can split mixed-case hex.
+            AddColorSwatchRuns(inlines, text, true,
+                value => AddPlainRuns(inlines, value, styleCodeIdentifiers, false, fontWeight, fontStyle),
+                value => inlines.Add(CreateRun(value, fontWeight, fontStyle)));
+            return;
+        }
         if (!styleCodeIdentifiers) {
             inlines.Add(CreateRun(text, fontWeight, fontStyle));
             return;
@@ -747,6 +782,82 @@ internal static class MarkdownFlowDocumentBuilder {
         return run;
     }
 
+    private static readonly System.Text.RegularExpressions.Regex HexColorRegex = new(
+        @"(?<![\w#])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?!\w)",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+        System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static void AddColorSwatchRuns(
+        InlineCollection inlines,
+        string text,
+        bool enabled,
+        Action<string> addText,
+        Action<string>? addHexText = null) {
+        if (!enabled) {
+            addText(text);
+            return;
+        }
+
+        var position = 0;
+        foreach (System.Text.RegularExpressions.Match match in HexColorRegex.Matches(text)) {
+            if (!TryParseHexColor(match.Value, out var color))
+                continue;
+            if (match.Index > position)
+                addText(text[position..match.Index]);
+            inlines.Add(CreateColorSwatch(color));
+            (addHexText ?? addText)(match.Value);
+            position = match.Index + match.Length;
+        }
+        if (position < text.Length)
+            addText(text[position..]);
+    }
+
+    private static bool TryParseHexColor(string text, out Color color) {
+        color = default;
+        if (text.Length is not (4 or 5 or 7 or 9) || text[0] != '#' ||
+            !uint.TryParse(text.AsSpan(1), System.Globalization.NumberStyles.AllowHexSpecifier,
+                System.Globalization.CultureInfo.InvariantCulture, out var value))
+            return false;
+
+        // CSS puts alpha last; WPF's string converter instead interprets it as ARGB.
+        if (text.Length is 4 or 5) {
+            var alpha = text.Length == 5 ? (byte)((value & 0xF) * 17) : (byte)255;
+            if (text.Length == 5) value >>= 4;
+            color = Color.FromArgb(alpha, (byte)(((value >> 8) & 0xF) * 17),
+                (byte)(((value >> 4) & 0xF) * 17), (byte)((value & 0xF) * 17));
+        } else {
+            var alpha = text.Length == 9 ? (byte)(value & 0xFF) : (byte)255;
+            if (text.Length == 9) value >>= 8;
+            color = Color.FromArgb(alpha, (byte)((value >> 16) & 0xFF),
+                (byte)((value >> 8) & 0xFF), (byte)(value & 0xFF));
+        }
+        return true;
+    }
+
+    private static InlineUIContainer CreateColorSwatch(Color color) {
+        var fill = new SolidColorBrush(color);
+        fill.Freeze();
+        var border = new Border {
+            Background = fill,
+            BorderBrush = DefaultColorSwatchBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(2),
+            Margin = new Thickness(0, 0, 3, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Focusable = false,
+        };
+        MarkdownVisibleContent.SetSemanticText(border, string.Empty);
+        var container = new InlineUIContainer(border) { BaselineAlignment = BaselineAlignment.Center };
+        foreach (var dimension in new[] { FrameworkElement.WidthProperty, FrameworkElement.HeightProperty })
+            border.SetBinding(dimension, new Binding(nameof(TextElement.FontSize)) {
+                Source = container,
+                Converter = ColorSwatchSizeConverter,
+                ConverterParameter = "0.9",
+            });
+        return container;
+    }
+
     internal static Run CreateInlineCodeRun(
         string text,
         FontWeight? fontWeight = null,
@@ -761,7 +872,8 @@ internal static class MarkdownFlowDocumentBuilder {
     private static void AddTextWithCircleEmoji(
         InlineCollection inlines,
         string text,
-        bool styleCodeIdentifiers) {
+        bool styleCodeIdentifiers,
+        bool renderColorSwatches) {
         // Walk through the string, splitting out any known circle emoji.
         var remaining = text;
         while (remaining.Length > 0) {
@@ -778,13 +890,13 @@ internal static class MarkdownFlowDocumentBuilder {
 
             if (earliestIdx < 0) {
                 // No more emoji — emit the rest with bold/italic formatting.
-                AddFormattedRuns(inlines, remaining, styleCodeIdentifiers);
+                AddFormattedRuns(inlines, remaining, styleCodeIdentifiers, renderColorSwatches);
                 break;
             }
 
             // Emit text before the emoji with bold/italic formatting.
             if (earliestIdx > 0)
-                AddFormattedRuns(inlines, remaining[..earliestIdx], styleCodeIdentifiers);
+                AddFormattedRuns(inlines, remaining[..earliestIdx], styleCodeIdentifiers, renderColorSwatches);
 
             // Emit the emoji as a drawn circle.
             var color  = CircleEmojiColors[earliestEmoji];
