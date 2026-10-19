@@ -866,7 +866,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var currentContinueAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
             action.Kind == PlanRecoverySurfaceActionKind.ContinueWorking);
         var currentReviseAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
-            action.Kind == PlanRecoverySurfaceActionKind.ReviseRemainingPlan);
+            action.Kind is PlanRecoverySurfaceActionKind.RepairReviewInstructions or
+                PlanRecoverySurfaceActionKind.ReviseRemainingPlan);
         var currentEndAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
             action.Kind == PlanRecoverySurfaceActionKind.EndPlan);
         var showOrdinaryLifecycleControls = PlanRecoveryLifecycleControlPolicy.ShouldShowOrdinaryControls(
@@ -1168,9 +1169,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null && reviewAttention is not null)
         {
-            var reviewChangeActive = IsApprovalChangeActive(reviewAttention.Gate);
+            var reviewChangeActive = reviewAttention.Gates.Any(IsApprovalChangeActive);
             if (reviewChangeActive &&
-                !_dismissedApprovalChangeGateIds.Contains(reviewAttention.Gate.GateId))
+                reviewAttention.Gates.Any(gate =>
+                    !_dismissedApprovalChangeGateIds.Contains(gate.GateId)))
             {
                 var workingCard = new StackPanel();
                 var workingHeader = new Grid();
@@ -1201,7 +1203,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Grid.SetColumn(dismissWorkingCard, 1);
                 dismissWorkingCard.Click += (_, _) =>
                 {
-                    _dismissedApprovalChangeGateIds.Add(reviewAttention.Gate.GateId);
+                    foreach (var gate in reviewAttention.Gates)
+                        _dismissedApprovalChangeGateIds.Add(gate.GateId);
                     if (_plan is not null && _durablePlan is not null)
                         RebuildPreservingScroll(_plan, _durablePlan);
                 };
@@ -1307,7 +1310,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     var capturedPlan = durablePlan;
                     var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
                         capturedPlan,
-                        [reviewAttention.Gate.GateId]);
+                        reviewAttention.Gates.Select(gate => gate.GateId).ToArray());
                     completeReviewButton = TranscriptQuickReplyFactory.CreateButton(
                         primaryAction.Label,
                         quickReplyFontSize,

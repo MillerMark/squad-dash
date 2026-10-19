@@ -261,6 +261,13 @@ internal static class DecomposePlanInbox
             ? "\n\n**Automated review**\n" +
               string.Join("\n", reviewCard.AnalysisBullets.Select(bullet => "- " + bullet.Text))
             : string.Empty;
+        var operatorRecommendation = !isReadyToResume &&
+                                     !string.IsNullOrWhiteSpace(reviewCard?.Recommendation)
+            ? "\n\n**Recommended next step**\n" + reviewCard.Recommendation!.Trim() +
+              (string.IsNullOrWhiteSpace(reviewCard.AlternativeGuidance)
+                  ? string.Empty
+                  : "\n\n**Another option**\n" + reviewCard.AlternativeGuidance!.Trim())
+            : string.Empty;
         var previousReviewNotice = reviewCard?.PreviousReview is not null
             ? "\n\n**Previous review**\n" +
               CommitReferenceText.Shorten(
@@ -275,7 +282,7 @@ internal static class DecomposePlanInbox
                        ? "Human check: "
                        : "What happened: ") +
                    CommitReferenceText.Shorten(attentionCard.RecordedReason) +
-                   reviewAnalysis + previousReviewNotice + "\n";
+                   operatorRecommendation + reviewAnalysis + previousReviewNotice + "\n";
 
         if (isReadyToResume)
             body += "\nThe completed step remains accepted. Resuming starts only the next pending step.\n";

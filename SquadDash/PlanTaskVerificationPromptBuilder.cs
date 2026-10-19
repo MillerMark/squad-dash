@@ -99,7 +99,8 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine();
         builder.AppendLine("Return exactly one result. `missingOrOverstatedWork` is mandatory even when empty. " +
                            "Use `accepted` only when every material claim is supported. Use `rework-required` for a clear, bounded correction. " +
-                           "Use `human-review-required` when evidence or product intent is ambiguous.");
+                           "Use `human-review-required` when evidence or product intent is ambiguous. For that verdict, author the required " +
+                           "`humanReview` operator brief in plain language. Do not make the host infer a recommendation from keywords or findings.");
         AppendVerdictRules(builder);
         AppendSchema(builder, plan, task, candidate);
         return builder.ToString();
@@ -196,6 +197,10 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine("- `accepted`: every claim finding is `supported`, `missingOrOverstatedWork` is `[]`, and `reworkInstructions` is `[]`.");
         builder.AppendLine("- `rework-required`: a definite, task-owned, bounded defect is supported by repository evidence and `reworkInstructions` contains the concrete correction.");
         builder.AppendLine("- `human-review-required`: a discrepancy is suspected, evidence is incomplete, ownership is uncertain, or product intent is ambiguous. Preserve it as a warning for human judgment; do not reject the result or invent rework instructions.");
+        builder.AppendLine("For `human-review-required`, `humanReview` is mandatory. Explain the situation, practical impact, and one recommended next action without reviewer jargon. " +
+                           "Choose `recommendedAction` from `accept-step`, `continue-working`, `revise-plan`, or `retry-verification`. " +
+                           "The recommendation must say why that action is appropriate; `alternativeGuidance` may explain when another action is preferable. " +
+                           "Use `humanReview: null` for other verdicts.");
         builder.AppendLine("Never return `accepted` with a `missing`, `overstated`, or `unclear` finding. Never erase a discrepancy merely to keep `accepted`.");
     }
 
@@ -217,7 +222,15 @@ internal static class PlanTaskVerificationPromptBuilder
         builder.AppendLine("  \"claimFindings\": [{\"claim\":\"...\",\"disposition\":\"supported|missing|overstated|unclear\",\"evidence\":\"...\"}],");
         builder.AppendLine("  \"missingOrOverstatedWork\": [\"<discrepancy string; use [] when none>\"],");
         builder.AppendLine("  \"testAssessment\": \"...\",");
-        builder.AppendLine("  \"reworkInstructions\": [\"<correction string; use [] unless verdict is rework-required>\"]");
+        builder.AppendLine("  \"reworkInstructions\": [\"<correction string; use [] unless verdict is rework-required>\"],");
+        builder.AppendLine("  \"humanReview\": {");
+        builder.AppendLine("    \"headline\": \"<short operator-facing title>\",");
+        builder.AppendLine("    \"situation\": \"<what happened in plain language>\",");
+        builder.AppendLine("    \"impact\": \"<what is and is not blocked or at risk>\",");
+        builder.AppendLine("    \"recommendedAction\": \"accept-step|continue-working|revise-plan|retry-verification\",");
+        builder.AppendLine("    \"recommendation\": \"<recommended next action and why>\",");
+        builder.AppendLine("    \"alternativeGuidance\": \"<optional guidance for another action>\"");
+        builder.AppendLine("  }");
         builder.AppendLine("}");
     }
 }

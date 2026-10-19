@@ -223,7 +223,8 @@ internal static class PlanStoreUpdater
             result.TestAssessment,
             result.ReworkInstructions,
             result.EvaluatedCommit,
-            now);
+            now,
+            result.HumanReview);
         var targetStatus = result.Verdict switch
         {
             PlanTaskVerificationVerdict.Accepted => PlanTaskStatus.Executing,

@@ -165,6 +165,35 @@ internal sealed class ApprovalGateReadinessEvaluatorTests
         Assert.That(states, Is.Empty);
     }
 
+    [Test]
+    public void EvaluateGates_WaitsForExplicitGateDependency()
+    {
+        var plan = MakeTwoLanePlanWithGateAndUngated(
+            t1Status: PlanTaskStatus.Complete,
+            t2Status: PlanTaskStatus.Complete);
+        var first = plan.ApprovalGates[0] with { GateId = "GATE-A" };
+        var second = first with
+        {
+            GateId = "GATE-B",
+            Message = "Second review phase",
+            DependsOnGateIds = ["GATE-A"],
+        };
+        plan = plan with { ApprovalGates = [first, second] };
+
+        var initial = ApprovalGateReadinessEvaluator.EvaluateGates(plan);
+        var afterFirst = ApprovalGateReadinessEvaluator.EvaluateGates(plan with
+        {
+            ApprovalGates = [first with { Status = PlanGateStatus.Approved }, second],
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(initial.Single(state => state.GateId == "GATE-A").IsReady, Is.True);
+            Assert.That(initial.Single(state => state.GateId == "GATE-B").IsReady, Is.False);
+            Assert.That(afterFirst.Single(state => state.GateId == "GATE-B").IsReady, Is.True);
+        });
+    }
+
     // ── ComputeDownstreamFrontier ─────────────────────────────────────────────
 
     [Test]

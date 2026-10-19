@@ -258,8 +258,136 @@ internal sealed class PlanRecoveryPresentationTests
         };
 
         Assert.That(
-            PlanHumanReviewGatePolicy.FindCombinableGate(plan, reviewed.TaskId),
-            Is.SameAs(gate));
+            PlanHumanReviewGatePolicy.FindCombinableGates(plan, reviewed.TaskId),
+            Is.EqualTo(new[] { gate }));
+    }
+
+    [Test]
+    public void HumanReviewWorkflow_MultipleSiblingGatesAreOneCompleteCurrentPhase()
+    {
+        var reviewed = ReviewTask();
+        var downstream = new PlanTask(
+            "PLAN-008", "Continue", "Next", [reviewed.TaskId], "high",
+            PlanTaskStatus.Pending);
+        var observeGate = ReviewGate(
+            "GATE-OBSERVE", reviewed.TaskId, downstream.TaskId,
+            "observe-motion", "Did the servo visibly respond?");
+        var authorizeGate = ReviewGate(
+            "GATE-AUTHORIZE", reviewed.TaskId, downstream.TaskId,
+            "authorize-motion", "Are the commissioning safety conditions satisfied?");
+        var plan = TestPlan(null) with
+        {
+            Tasks = [reviewed, downstream],
+            ApprovalGates = [observeGate, authorizeGate],
+        };
+
+        var workflow = PlanHumanReviewWorkflowResolver.Resolve(plan, reviewed.TaskId);
+        var attention = PlanReviewAttentionPresentationResolver.Resolve(plan, reviewed.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(workflow, Is.Not.Null);
+            Assert.That(workflow!.CurrentGates.Select(gate => gate.GateId),
+                Is.EqualTo(new[] { observeGate.GateId, authorizeGate.GateId }));
+            Assert.That(workflow.Checklist, Has.Count.EqualTo(2));
+            Assert.That(workflow.IsFinalPhase, Is.True);
+            Assert.That(workflow.HasActionableInstructions, Is.True);
+            Assert.That(PlanHumanReviewGatePolicy.FindCombinableGates(plan, reviewed.TaskId),
+                Has.Count.EqualTo(2));
+            Assert.That(attention, Is.Not.Null);
+            Assert.That(attention!.Gates, Has.Count.EqualTo(2));
+            Assert.That(attention.Checklist, Has.Count.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public void HumanReviewWorkflow_DependsOnGateIdsCreatesOrderedPhases()
+    {
+        var reviewed = ReviewTask();
+        var downstream = new PlanTask(
+            "PLAN-008", "Continue", "Next", [reviewed.TaskId], "high",
+            PlanTaskStatus.Pending);
+        var authorizeGate = ReviewGate(
+            "GATE-AUTHORIZE", reviewed.TaskId, downstream.TaskId,
+            "authorize-motion", "Are the commissioning safety conditions satisfied?");
+        var observeGate = ReviewGate(
+            "GATE-OBSERVE", reviewed.TaskId, downstream.TaskId,
+            "observe-motion", "Did the servo visibly respond?") with
+        {
+            DependsOnGateIds = [authorizeGate.GateId],
+        };
+        var plan = TestPlan(null) with
+        {
+            Tasks = [reviewed, downstream],
+            ApprovalGates = [authorizeGate, observeGate],
+        };
+
+        var first = PlanHumanReviewWorkflowResolver.Resolve(plan, reviewed.TaskId);
+        var afterAuthorization = plan with
+        {
+            ApprovalGates =
+            [
+                authorizeGate with { Status = PlanGateStatus.Approved },
+                observeGate,
+            ],
+        };
+        var second = PlanHumanReviewWorkflowResolver.Resolve(afterAuthorization, reviewed.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first!.CurrentGates.Single().GateId, Is.EqualTo(authorizeGate.GateId));
+            Assert.That(first.PhaseNumber, Is.EqualTo(1));
+            Assert.That(first.TotalPhases, Is.EqualTo(2));
+            Assert.That(first.IsFinalPhase, Is.False);
+            Assert.That(PlanReviewAttentionPresentationResolver.Resolve(plan, reviewed.TaskId), Is.Null,
+                "The first checkpoint must not complete the reviewed task while a later phase remains.");
+            Assert.That(second!.CurrentGates.Single().GateId, Is.EqualTo(observeGate.GateId));
+            Assert.That(second.PhaseNumber, Is.EqualTo(2));
+            Assert.That(second.IsFinalPhase, Is.True);
+            Assert.That(PlanReviewAttentionPresentationResolver.Resolve(
+                afterAuthorization, reviewed.TaskId), Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public void HumanReviewWorkflow_MissingProcedureOffersRepairInsteadOfAcceptance()
+    {
+        var reviewed = ReviewTask();
+        var gate = ReviewGate(
+            "GATE-REPAIR", reviewed.TaskId, "PLAN-008",
+            "missing-procedure", "Can you confirm the result?") with
+        {
+            ProofRequirements =
+            [
+                new PlanTaskProofRequirement(
+                    "missing-procedure",
+                    "human-observation",
+                    "Confirm the result.",
+                    Question: "Can you confirm the result?",
+                    AccessMode: HumanVerificationAccessMode.Recipe),
+            ],
+        };
+        var plan = TestPlan(null) with
+        {
+            Tasks =
+            [
+                reviewed,
+                new PlanTask("PLAN-008", "Continue", "Next", [reviewed.TaskId], "high", PlanTaskStatus.Pending),
+            ],
+            ApprovalGates = [gate],
+        };
+
+        var workflow = PlanHumanReviewWorkflowResolver.Resolve(plan, reviewed.TaskId);
+        var actions = PlanRecoveryActionSetBuilder.Build(plan, reviewed.TaskId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(workflow!.HasActionableInstructions, Is.False);
+            Assert.That(actions.Actions.Select(action => action.Kind),
+                Does.Contain(PlanRecoverySurfaceActionKind.RepairReviewInstructions));
+            Assert.That(actions.Actions.Select(action => action.Kind),
+                Does.Not.Contain(PlanRecoverySurfaceActionKind.AcceptStep));
+        });
     }
 
     [Test]
@@ -286,8 +414,8 @@ internal sealed class PlanRecoveryPresentationTests
         };
 
         Assert.That(
-            PlanHumanReviewGatePolicy.FindCombinableGate(plan, reviewed.TaskId),
-            Is.Null);
+            PlanHumanReviewGatePolicy.FindCombinableGates(plan, reviewed.TaskId),
+            Is.Empty);
     }
 
     [Test]
@@ -314,8 +442,8 @@ internal sealed class PlanRecoveryPresentationTests
         };
 
         Assert.That(
-            PlanHumanReviewGatePolicy.FindCombinableGate(plan, reworking.TaskId),
-            Is.Null);
+            PlanHumanReviewGatePolicy.FindCombinableGates(plan, reworking.TaskId),
+            Is.Empty);
     }
 
     [Test]
@@ -982,7 +1110,7 @@ internal sealed class PlanRecoveryPresentationTests
     }
 
     [Test]
-    public void AttentionCard_HumanVerificationRequiresConcreteQuestionOrChecklist()
+    public void AttentionCard_HumanVerificationRequiresActionableChecklistNotQuestionAlone()
     {
         var plan = TestPlan(null) with
         {
@@ -996,13 +1124,16 @@ internal sealed class PlanRecoveryPresentationTests
 
         var rejected = PlanAttentionCardPresentationBuilder.Build(
             plan, "PLAN-001", missingQuestion, hasHumanChecklist: false);
-        var accepted = PlanAttentionCardPresentationBuilder.Build(
+        var questionOnly = PlanAttentionCardPresentationBuilder.Build(
             plan, "PLAN-001", concreteQuestion, hasHumanChecklist: false);
+        var accepted = PlanAttentionCardPresentationBuilder.Build(
+            plan, "PLAN-001", concreteQuestion, hasHumanChecklist: true);
 
         Assert.Multiple(() =>
         {
             Assert.That(rejected.Category, Is.EqualTo(PlanAttentionCategory.UnexpectedState));
             Assert.That(rejected.Title, Is.EqualTo("Unexpected State Encountered"));
+            Assert.That(questionOnly.Category, Is.EqualTo(PlanAttentionCategory.UnexpectedState));
             Assert.That(accepted.Category, Is.EqualTo(PlanAttentionCategory.HumanVerificationRequired));
             Assert.That(accepted.Title, Is.EqualTo("Human Verification Is Required"));
             Assert.That(accepted.RecordedReason, Is.EqualTo("Does the interaction remain readable?"));
@@ -1324,4 +1455,46 @@ internal sealed class PlanRecoveryPresentationTests
             "Stopped", PlanRecoveryState.PendingRecovery, 1,
             InterruptedTaskId: "PLAN-001",
             TaskCommitEvidence: evidence));
+
+    private static PlanTask ReviewTask() => new(
+        "PLAN-007",
+        "Commission hardware",
+        "Prepare the bounded commissioning action.",
+        [],
+        "high",
+        PlanTaskStatus.HumanReviewRequired,
+        Handoff: new PlanTaskHandoff(
+            "abcdef1234567",
+            "Prepared commissioning.",
+            ["commissioning.cs"],
+            new DecomposeStepVerification("passed", "dotnet test", "Tests passed."),
+            DateTimeOffset.UtcNow),
+        DisplayStepLabel: "7");
+
+    private static PlanApprovalGate ReviewGate(
+        string gateId,
+        string taskId,
+        string downstreamTaskId,
+        string requirementId,
+        string question) => new(
+        gateId,
+        question,
+        [taskId],
+        [downstreamTaskId],
+        PlanGateStatus.Pending,
+        ProofRequirements:
+        [
+            new PlanTaskProofRequirement(
+                requirementId,
+                "human-observation",
+                question,
+                Question: question,
+                AccessMode: HumanVerificationAccessMode.Recipe,
+                VerificationRecipe: new HumanVerificationRecipe(
+                    "Prepare the safe test state.",
+                    "Open the prepared fixture and perform the bounded action.",
+                    "Observe the stated result.",
+                    "Stop and restore the safe state.")),
+        ],
+        Question: question);
 }

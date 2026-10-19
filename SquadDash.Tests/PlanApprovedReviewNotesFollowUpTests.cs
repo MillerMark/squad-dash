@@ -71,6 +71,21 @@ internal sealed class PlanApprovedReviewNotesFollowUpTests
             Is.Not.EqualTo(PlanApprovedReviewNotesFollowUp.BuildCompletionKey(plan)));
     }
 
+    [Test]
+    public void BuildQueuedStatus_ExplainsPostCompletionWorkAndHoldReason()
+    {
+        var status = PlanApprovedReviewNotesFollowUp.BuildQueuedStatus(
+            3,
+            "Waiting behind the currently selected queue draft.");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(status, Does.StartWith(
+                "Post-completion review queued · Checking 3 approved notes for follow-up tasks…"));
+            Assert.That(status, Does.Contain("currently selected queue draft"));
+        });
+    }
+
     private static Plan MakeCompletedPlan()
     {
         var plan = MakeReviewPlan();

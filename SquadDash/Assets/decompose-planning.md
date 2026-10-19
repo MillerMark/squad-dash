@@ -479,6 +479,11 @@ not required. Use the exact property names below; do not substitute familiar sho
   not before every root task.
 - `approvalGates[].beforeTaskIds`: required array of task IDs whose work must wait for approval;
   use `[]` only for a final human proof checkpoint with explicit `proofRequirements`.
+- `approvalGates[].dependsOnGateIds`: optional array of earlier approval gate IDs. Use it whenever
+  two human checkpoints at the same task boundary must occur in sequence. A gate becomes eligible
+  only after every named gate is approved or skipped. Gates at the same boundary with no dependency
+  form one current review phase and may be presented together. Never encode gate ordering only in
+  `message`, `question`, or verification-recipe prose.
 - `approvalGates[].question`: required in every newly proposed explicit human approval gate (the
   host only treats it as optional while reading older stored plans). Ask the concrete approval question in plain language;
   do not merely restate the gate message or say “Confirm this works.” This question follows the same
@@ -710,7 +715,7 @@ Allowed update patch fields:
 - `updateTask`: `title`, `description`, `dependsOn`, `priority`, `parentTaskId`, `agentAssignments`,
   `parallelEligible`, `agentRoutingMode`, `genericAgentReason`, `outputs`, `inputs`,
   `proofRequirements`, `amendmentGateId`, `executionMode`, `verificationLevel`, `contractExamples`
-- `updateApprovalGate`: `message`, `afterTaskIds`, `beforeTaskIds`, `proofRequirements`, `question`
+- `updateApprovalGate`: `message`, `afterTaskIds`, `beforeTaskIds`, `dependsOnGateIds`, `proofRequirements`, `question`
 - `updateValidation`: `title`, `description`, `afterTaskIds`, `beforeTaskIds`, `assertions`,
   `outputIds`, `mode`, `commands`, `revalidateAtCompletion`
 

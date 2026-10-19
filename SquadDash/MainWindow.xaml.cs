@@ -2968,7 +2968,12 @@ public partial class MainWindow : Window
                 PlanRepairReplayPolicy.TaskResultRepairSourceTag,
                 StringComparison.Ordinal)
                     ? "Plan result repair"
-                    : null,
+                    : string.Equals(
+                        sourceTag,
+                        PlanApprovedReviewNotesFollowUp.SourceTag,
+                        StringComparison.Ordinal)
+                        ? "Post-completion review"
+                        : null,
             ReadOnlyDisplayText = string.Equals(
                 sourceTag,
                 PlanRepairReplayPolicy.TaskResultRepairSourceTag,
@@ -4165,7 +4170,13 @@ public partial class MainWindow : Window
                         StringComparison.Ordinal)
                         ? SystemTranscriptStatusPrefix +
                           "Correcting the current step result without repeating implementation work…"
-                        : null;
+                        : string.Equals(
+                            item.SourceTag,
+                            PlanApprovedReviewNotesFollowUp.SourceTag,
+                            StringComparison.Ordinal)
+                            ? SystemTranscriptStatusPrefix +
+                              "Reviewing approved notes and capturing follow-up tasks…"
+                            : null;
     }
 
     private static string DescribeQueueItemForTrace(PromptQueueItem item) =>
@@ -13345,11 +13356,27 @@ public partial class MainWindow : Window
         if (!_queuedApprovedReviewNotesFollowUps.Add(key))
             return;
 
-        EnqueuePrompt(
+        var item = EnqueuePrompt(
             prompt,
             isSystemInjected: true,
             forceAtTail: true,
-            sourceTag: PlanApprovedReviewNotesFollowUp.SourceTag);
+            sourceTag: PlanApprovedReviewNotesFollowUp.SourceTag,
+            drain: false);
+        if (item is null) return;
+
+        var waitReason = IsRightmostQueueTabActive()
+            ? "Waiting behind the currently selected queue draft. Send it or select another tab to continue."
+            : _queueManuallyPaused
+                ? "Waiting because the prompt queue is paused."
+                : _queueRecoveryHold is not null || _interruptedPromptRecoveryHold is not null
+                    ? "Waiting for the current recovery decision."
+                    : _isPromptRunning
+                        ? "It will start when the current turn finishes."
+                        : null;
+        ShowSystemTranscriptEntry(PlanApprovedReviewNotesFollowUp.BuildQueuedStatus(
+            PlanApprovedReviewNotesFollowUp.CountNotedItems(completedPlan),
+            waitReason));
+        _ = DrainQueueIfNeededAsync();
     }
 
     private void QueueApprovedReviewNotesFollowUpOnCompletionTransition(
@@ -17179,11 +17206,16 @@ public partial class MainWindow : Window
             taskId,
             verification,
             automaticReworkAvailable);
-        var combinableHumanReview = nextVerificationAction == PlanTaskVerificationNextAction.HumanReview
-            ? PlanHumanReviewGatePolicy.FindCombinableGate(reviewedPlan, taskId)
+        var humanReviewWorkflow = nextVerificationAction == PlanTaskVerificationNextAction.HumanReview
+            ? PlanHumanReviewWorkflowResolver.Resolve(reviewedPlan, taskId)
+            : null;
+        var combinableHumanReview = humanReviewWorkflow is { HasActionableInstructions: true }
+            ? humanReviewWorkflow
             : null;
         if (combinableHumanReview is not null)
-            reviewedPlan = PlanStoreUpdater.ApplyGateReady(reviewedPlan, combinableHumanReview.GateId);
+            foreach (var gate in combinableHumanReview.CurrentGates)
+                if (gate.Status == PlanGateStatus.Pending)
+                    reviewedPlan = PlanStoreUpdater.ApplyGateReady(reviewedPlan, gate.GateId);
         if (!TryPublishPlanProgress(reviewedPlan, out var progressError))
         {
             StopAndOfferDecomposeRecovery(
@@ -17259,7 +17291,9 @@ public partial class MainWindow : Window
         var discrepancies = verification.MissingOrOverstatedWork.Count == 0
             ? "- The evidence was inconclusive."
             : string.Join("\n", verification.MissingOrOverstatedWork.Select(item => "- " + item));
-        var humanReviewReason = string.Equals(
+        var humanReviewReason = verification.HumanReview is { } operatorBrief
+            ? operatorBrief.Situation + " " + operatorBrief.Impact
+            : string.Equals(
             verification.Summary,
             "Independent verification could not produce a trustworthy structured verdict after one envelope repair.",
             StringComparison.Ordinal)
@@ -17283,7 +17317,9 @@ public partial class MainWindow : Window
             pending.Revision,
             humanReviewReason,
             commitEvidence,
-            attentionCategory: PlanAttentionCategory.AutomaticWorkExhausted);
+            attentionCategory: humanReviewWorkflow is { HasActionableInstructions: false }
+                ? PlanAttentionCategory.HumanVerificationRequired
+                : PlanAttentionCategory.RecoveryDecisionRequired);
     }
 
     private async Task AcceptVerifiedTaskAsync(
@@ -21943,7 +21979,7 @@ public partial class MainWindow : Window
         var reviewAttention = durablePlan is null
             ? null
             : PlanReviewAttentionPresentationResolver.Resolve(durablePlan, taskId);
-        var combinedHumanReviewGate = reviewAttention?.Gate;
+        var combinedHumanReviewGates = reviewAttention?.Gates ?? [];
         var humanChecklistItems = reviewAttention?.Checklist.ToArray() ?? [];
         var humanChecklistState = humanChecklistItems.ToDictionary(
             item => item.ItemId,
@@ -22526,6 +22562,14 @@ public partial class MainWindow : Window
                             async () => await RetryDecomposeTaskAsync(plan, taskId));
                     }
                     break;
+                case PlanRecoverySurfaceActionKind.RepairReviewInstructions:
+                    AddAction(
+                        action.Label,
+                        action.Hint,
+                        () => QueueDecomposeReplan(plan, taskId),
+                        removeAfterAction: false,
+                        tone: action.Tone);
+                    break;
                 case PlanRecoverySurfaceActionKind.ReviseRemainingPlan:
                     AddAction(
                         action.Label,
@@ -22772,15 +22816,27 @@ public partial class MainWindow : Window
             }
 
             var recommendation = CreateTranscriptParagraph(bottomMargin: 6);
-            var recommendationText = combinedHumanReviewGate is null
-                ? presentation.Recommendation
-                : $"Use the commit link above to investigate. Confirming {stepLabel} also approves the human checkpoint above.";
+            var recommendationText = combinedHumanReviewGates.Count == 0
+                ? humanReview?.Recommendation ?? presentation.Recommendation
+                : humanReview?.Recommendation ??
+                  $"Use the commit link above to investigate. Confirming {stepLabel} also approves every checkpoint in the review phase above.";
             AddRecoveryRecommendationText(recommendation.Inlines, recommendationText);
             blocks.Add(recommendation);
 
+            if (!string.IsNullOrWhiteSpace(humanReview?.AlternativeGuidance))
+            {
+                var alternative = CreateTranscriptParagraph(bottomMargin: 6);
+                alternative.Inlines.Add(new Run("Another option: ") { FontWeight = FontWeights.SemiBold });
+                AddRecoveryCommitLinkedText(
+                    alternative.Inlines,
+                    humanReview.AlternativeGuidance);
+                blocks.Add(alternative);
+                copyParts.Add("Another option: " + humanReview.AlternativeGuidance);
+            }
+
         }
 
-        if (combinedHumanReviewGate is not null && humanChecklistItems.Length > 0)
+        if (combinedHumanReviewGates.Count > 0 && humanChecklistItems.Length > 0)
         {
             var completionButton = AddAsyncResultAction(
                 durablePlan!.IsPaused
@@ -22803,8 +22859,7 @@ public partial class MainWindow : Window
                     humanChecklistItems.Select(item => item with
                     {
                         IsChecked = humanChecklistState[item.ItemId]
-                    }).ToArray(),
-                    combinedHumanReviewGate.GateId),
+                    }).ToArray()),
                 removeAfterAction: true);
             AddAction(
                 "✎ Revise Remaining Plan…",
@@ -24758,10 +24813,9 @@ public partial class MainWindow : Window
                 gate.BeforeTaskIds.All(id => storedPlan.Tasks.Any(task =>
                     string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
                     task.Status == PlanTaskStatus.Pending)));
-        var combinedHumanReviewGate = combinedAmendmentGate is null
-            ? PlanHumanReviewGatePolicy.FindCombinableGate(storedPlan, taskId)
-            : null;
-        var combinedApprovalGate = combinedAmendmentGate ?? combinedHumanReviewGate;
+        var combinedHumanReviewGates = combinedAmendmentGate is null
+            ? PlanHumanReviewGatePolicy.FindCombinableGates(storedPlan, taskId)
+            : [];
 
         var activeBranch = ReadGitBranch(workspace);
         if (!string.Equals(activeBranch, storedPlan.Branch, StringComparison.Ordinal))
@@ -24989,18 +25043,24 @@ public partial class MainWindow : Window
                 storedPlan,
                 nextExecutingTaskId: null,
                 syntheticResult);
-            if (combinedApprovalGate is not null)
+            var gatesToApprove = combinedAmendmentGate is not null
+                ? [combinedAmendmentGate]
+                : combinedHumanReviewGates;
+            if (gatesToApprove.Count > 0)
             {
-                if (combinedApprovalGate.Status == PlanGateStatus.Pending)
-                    updated = PlanStoreUpdater.ApplyGateReady(updated, combinedApprovalGate.GateId);
                 var resolvedBy = await HumanApprovalIdentityResolver.ResolveAsync(workspace);
-                updated = PlanStoreUpdater.ApplyGateApproved(
-                    updated,
-                    combinedApprovalGate.GateId,
-                    combinedAmendmentGate is not null
-                        ? PlanAmendmentGateAcceptancePolicy.CombinedApprovalNote
-                        : $"Confirmed {stepLabel} complete while reviewing its commit evidence and human-observation checkpoint.",
-                    resolvedBy);
+                foreach (var gate in gatesToApprove)
+                {
+                    if (gate.Status == PlanGateStatus.Pending)
+                        updated = PlanStoreUpdater.ApplyGateReady(updated, gate.GateId);
+                    updated = PlanStoreUpdater.ApplyGateApproved(
+                        updated,
+                        gate.GateId,
+                        combinedAmendmentGate is not null
+                            ? PlanAmendmentGateAcceptancePolicy.CombinedApprovalNote
+                            : $"Confirmed {stepLabel} complete while reviewing its commit evidence and human-observation checkpoint.",
+                        resolvedBy);
+                }
             }
             if (PlanExecutionBoundaryPolicy.IsReadyToComplete(updated))
             {
@@ -25036,8 +25096,8 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         if (acceptedPlan!.LifecycleStatus == PlanLifecycleStatus.Completed)
         {
-            ResolveRecoveryTranscript(combinedHumanReviewGate is not null
-                ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human checkpoint is approved and the plan is complete."
+            ResolveRecoveryTranscript(combinedHumanReviewGates.Count > 0
+                ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human review phase is approved and the plan is complete."
                 : combinedAmendmentGate is not null
                     ? $"✓ Recovery completed. Accepted reviewed amendment {rangeLabel}, approved its checkpoint, and completed the plan."
                     : $"✓ Recovery completed. Human accepted {rangeLabel} for {stepLabel}; the plan is complete.");
@@ -25056,8 +25116,8 @@ public partial class MainWindow : Window
             hasReadyApprovalBoundary;
         var mustAwaitApproval = shouldAdvanceToApprovalBoundary &&
                                 PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(acceptedPlan!);
-        ResolveRecoveryTranscript(combinedHumanReviewGate is not null
-            ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human checkpoint is also approved."
+        ResolveRecoveryTranscript(combinedHumanReviewGates.Count > 0
+            ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human review phase is also approved."
             : combinedAmendmentGate is not null
                 ? $"✓ Recovery completed. Accepted reviewed amendment {rangeLabel} and approved its checkpoint."
                 : mustAwaitApproval
@@ -25200,7 +25260,9 @@ public partial class MainWindow : Window
     {
         if (_planStore is null || _planApprovalRuntime is null) return false;
         var token = _planApprovalRuntime.Actions.GetCurrentToken(storedPlan.PlanId);
-        if (token is null || !token.GateIds.Contains(reviewAttention.Gate.GateId, StringComparer.Ordinal))
+        var gateIds = reviewAttention.Gates.Select(gate => gate.GateId).ToArray();
+        if (token is null || gateIds.Any(gateId =>
+                !token.GateIds.Contains(gateId, StringComparer.Ordinal)))
         {
             ReportPlanActionIssue(
                 storedPlan.PlanId,
@@ -25209,14 +25271,14 @@ public partial class MainWindow : Window
             return false;
         }
 
-        await HandleApprovalClickAsync(token, gateIdsToResolve: [reviewAttention.Gate.GateId]);
+        await HandleApprovalClickAsync(token, gateIdsToResolve: gateIds);
         var current = _planStore.Load(storedPlan.PlanId);
         return current?.Tasks.Any(task =>
                    string.Equals(task.TaskId, reviewAttention.Task.TaskId, StringComparison.Ordinal) &&
                    task.Status == PlanTaskStatus.Complete) == true &&
-               current.ApprovalGates.Any(gate =>
-                   string.Equals(gate.GateId, reviewAttention.Gate.GateId, StringComparison.Ordinal) &&
-                   gate.Status == PlanGateStatus.Approved);
+               gateIds.All(gateId => current.ApprovalGates.Any(gate =>
+                   string.Equals(gate.GateId, gateId, StringComparison.Ordinal) &&
+                   gate.Status == PlanGateStatus.Approved));
     }
 
     private async Task<bool> EnsurePlanContinuationBranchReadyAsync(Plan plan)

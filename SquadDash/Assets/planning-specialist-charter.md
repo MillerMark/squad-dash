@@ -200,6 +200,10 @@ Before authoring a plan:
   by repository inspection, commands, or already accepted evidence. Keep them acceptance-level,
   disclose them in the initial proposal, allow at most seven checks per checkpoint, and never repeat
   an observation that later work cannot invalidate.
+- When multiple human checkpoints share a task boundary, model their transition explicitly. Use
+  `dependsOnGateIds` when one checkpoint must be completed before another; leave them independent
+  only when they are one review phase that can be completed together. Never hide the sequence only
+  inside a question, recipe, or operator-guide sentence.
 - Before submission, inspect every promised user-visible, interactive, live-UI, restart, focus,
   window-state, notification, timing, and other human-observable outcome that the requested work
   creates or materially changes. First inventory real AI-accessible and workspace-provided tools,

@@ -10,14 +10,24 @@ internal static class PlanApprovedReviewNotesFollowUp
     internal static string BuildCompletionKey(Plan plan) =>
         $"{plan.PlanId}\u001f{plan.Revision}";
 
+    internal static int CountNotedItems(Plan completedPlan) =>
+        ResolveNotedItems(completedPlan).Length;
+
+    internal static string BuildQueuedStatus(int noteCount, string? waitReason = null)
+    {
+        var countLabel = noteCount == 1 ? "1 approved note" : $"{noteCount} approved notes";
+        var status = $"Post-completion review queued · Checking {countLabel} for follow-up tasks…";
+        return string.IsNullOrWhiteSpace(waitReason)
+            ? status
+            : status + " " + waitReason.Trim();
+    }
+
     internal static string? BuildPrompt(Plan completedPlan)
     {
         if (completedPlan.LifecycleStatus != PlanLifecycleStatus.Completed)
             return null;
 
-        var notedItems = PlanHumanReviewChecklist.Build(completedPlan, completedPlan.ApprovalGates)
-            .Where(item => item.IsChecked && !string.IsNullOrWhiteSpace(item.Note))
-            .ToArray();
+        var notedItems = ResolveNotedItems(completedPlan);
         if (notedItems.Length == 0)
             return null;
 
@@ -33,4 +43,9 @@ internal static class PlanApprovedReviewNotesFollowUp
             "Approved review items with user notes:\n" +
             notes;
     }
+
+    private static PlanHumanReviewChecklistItem[] ResolveNotedItems(Plan completedPlan) =>
+        PlanHumanReviewChecklist.Build(completedPlan, completedPlan.ApprovalGates)
+            .Where(item => item.IsChecked && !string.IsNullOrWhiteSpace(item.Note))
+            .ToArray();
 }

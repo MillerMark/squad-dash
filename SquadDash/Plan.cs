@@ -275,7 +275,10 @@ internal sealed record PlanTaskVerificationReport(
     [property: JsonPropertyName("testAssessment")] string TestAssessment,
     [property: JsonPropertyName("reworkInstructions")] IReadOnlyList<string> ReworkInstructions,
     [property: JsonPropertyName("evaluatedCommit")] string EvaluatedCommit,
-    [property: JsonPropertyName("completedAt")] DateTimeOffset CompletedAt);
+    [property: JsonPropertyName("completedAt")] DateTimeOffset CompletedAt,
+    [property: JsonPropertyName("humanReview")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    PlanTaskHumanReviewBrief? HumanReview = null);
 
 internal sealed record PlanTaskExecutionOrigin(
     [property: JsonPropertyName("originTaskId")] string OriginTaskId,
@@ -451,7 +454,10 @@ internal sealed record PlanApprovalGate(
                                                   IReadOnlyList<PlanHumanReviewSelection>? HumanReviewSelections = null,
     [property: JsonPropertyName("humanReviewDispositions")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  IReadOnlyList<PlanHumanReviewRequirementDisposition>? HumanReviewDispositions = null);
+                                                  IReadOnlyList<PlanHumanReviewRequirementDisposition>? HumanReviewDispositions = null,
+    [property: JsonPropertyName("dependsOnGateIds")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  IReadOnlyList<string>? DependsOnGateIds = null);
 
 /// <summary>
 /// Durable cross-task validation node. Unlike a human approval gate, this is executable plan
@@ -572,11 +578,12 @@ internal static class PlanAttentionCategory
     internal const string HumanVerificationRequired = "human-verification-required";
     internal const string HumanInputRequired = "human-input-required";
     internal const string AutomaticWorkExhausted = "automatic-work-exhausted";
+    internal const string RecoveryDecisionRequired = "recovery-decision-required";
     internal const string UnexpectedState = "unexpected-state";
     internal const string ReadyToResume = "ready-to-resume";
 
     internal static bool IsValid(string? value) => value is
-        HumanVerificationRequired or HumanInputRequired or AutomaticWorkExhausted or UnexpectedState or
+        HumanVerificationRequired or HumanInputRequired or AutomaticWorkExhausted or RecoveryDecisionRequired or UnexpectedState or
             ReadyToResume;
 }
 

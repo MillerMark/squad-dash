@@ -11,6 +11,31 @@ internal static class PlanTaskVerificationVerdict
     internal const string HumanReviewRequired = "human-review-required";
 }
 
+internal static class PlanTaskHumanReviewRecommendedAction
+{
+    internal const string AcceptStep = "accept-step";
+    internal const string ContinueWorking = "continue-working";
+    internal const string RevisePlan = "revise-plan";
+    internal const string RetryVerification = "retry-verification";
+
+    internal static bool IsValid(string? value) => value is
+        AcceptStep or ContinueWorking or RevisePlan or RetryVerification;
+}
+
+/// <summary>
+/// AI-authored operator guidance for a human-review verdict. The host validates the action token
+/// and owns the actual transition; it does not synthesize explanatory prose from technical fields.
+/// </summary>
+internal sealed record PlanTaskHumanReviewBrief(
+    [property: JsonPropertyName("headline")] string Headline,
+    [property: JsonPropertyName("situation")] string Situation,
+    [property: JsonPropertyName("impact")] string Impact,
+    [property: JsonPropertyName("recommendedAction")] string RecommendedAction,
+    [property: JsonPropertyName("recommendation")] string Recommendation,
+    [property: JsonPropertyName("alternativeGuidance")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? AlternativeGuidance = null);
+
 internal enum PlanTaskVerificationNextAction
 {
     Accept,
@@ -44,7 +69,10 @@ internal sealed record PlanTaskVerificationResult(
     [property: JsonPropertyName("testAssessment")] string TestAssessment,
     [property: JsonPropertyName("reworkInstructions")]
     [property: JsonConverter(typeof(VerificationNarrativeListJsonConverter))]
-    IReadOnlyList<string> ReworkInstructions);
+    IReadOnlyList<string> ReworkInstructions,
+    [property: JsonPropertyName("humanReview")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    PlanTaskHumanReviewBrief? HumanReview = null);
 
 internal sealed class VerificationNarrativeListJsonConverter : JsonConverter<IReadOnlyList<string>>
 {
@@ -227,6 +255,19 @@ internal static class PlanTaskVerificationResultParser
                 .Where(item => !string.IsNullOrWhiteSpace(item))
                 .Select(item => item.Trim())
                 .ToArray(),
+            HumanReview = parsed.HumanReview is null
+                ? null
+                : parsed.HumanReview with
+                {
+                    Headline = parsed.HumanReview.Headline?.Trim() ?? string.Empty,
+                    Situation = parsed.HumanReview.Situation?.Trim() ?? string.Empty,
+                    Impact = parsed.HumanReview.Impact?.Trim() ?? string.Empty,
+                    RecommendedAction = parsed.HumanReview.RecommendedAction?.Trim().ToLowerInvariant() ?? string.Empty,
+                    Recommendation = parsed.HumanReview.Recommendation?.Trim() ?? string.Empty,
+                    AlternativeGuidance = string.IsNullOrWhiteSpace(parsed.HumanReview.AlternativeGuidance)
+                        ? null
+                        : parsed.HumanReview.AlternativeGuidance.Trim(),
+                },
         };
 
         if (string.IsNullOrWhiteSpace(parsed.PlanId) || string.IsNullOrWhiteSpace(parsed.TaskId) ||
@@ -269,6 +310,18 @@ internal static class PlanTaskVerificationResultParser
             (parsed.ReworkInstructions.Count == 0 || hasUnclearFinding || !hasDefiniteFinding))
         {
             parsed = parsed with { Verdict = PlanTaskVerificationVerdict.HumanReviewRequired };
+        }
+
+        if (parsed.Verdict == PlanTaskVerificationVerdict.HumanReviewRequired &&
+            (parsed.HumanReview is null ||
+             string.IsNullOrWhiteSpace(parsed.HumanReview.Headline) ||
+             string.IsNullOrWhiteSpace(parsed.HumanReview.Situation) ||
+             string.IsNullOrWhiteSpace(parsed.HumanReview.Impact) ||
+             string.IsNullOrWhiteSpace(parsed.HumanReview.Recommendation) ||
+             !PlanTaskHumanReviewRecommendedAction.IsValid(parsed.HumanReview.RecommendedAction)))
+        {
+            error = "A human-review-required result must include a complete humanReview brief with a valid recommendedAction.";
+            return false;
         }
 
         result = parsed;

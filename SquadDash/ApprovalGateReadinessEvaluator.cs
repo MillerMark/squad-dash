@@ -41,7 +41,11 @@ internal static class ApprovalGateReadinessEvaluator
                 continue;
 
             var isHumanProofGate = gate.ProofRequirements is { Count: > 0 };
-            var isReady = gate.AfterTaskIds.All(id =>
+            var gateDependenciesSatisfied = (gate.DependsOnGateIds ?? []).All(dependencyId =>
+                plan.ApprovalGates.Any(candidate =>
+                    string.Equals(candidate.GateId, dependencyId, StringComparison.Ordinal) &&
+                    candidate.Status is PlanGateStatus.Approved or PlanGateStatus.Skipped));
+            var isReady = gateDependenciesSatisfied && gate.AfterTaskIds.All(id =>
                 terminalIds.Contains(id) ||
                 isHumanProofGate && plan.Tasks.Any(task =>
                     string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
