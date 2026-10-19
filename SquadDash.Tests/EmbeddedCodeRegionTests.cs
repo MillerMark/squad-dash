@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Windows;
@@ -6,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace SquadDash.Tests;
 
@@ -177,7 +179,7 @@ internal sealed class EmbeddedCodeRegionTests
         var label = (TextBlock)((StackPanel)trigger.Content).Children[0];
         var editorBorder = (Border)stack.Children[1];
 
-        Assert.That(label.Text, Is.EqualTo("python"));
+        Assert.That(label.Text, Is.EqualTo("Python"));
         // The label is a sibling ABOVE the editor rectangle, never a descendant of it.
         Assert.That(FindDescendant<TextBlock>(editorBorder), Is.Null,
             "language label must not live inside the editor border");
@@ -219,7 +221,7 @@ internal sealed class EmbeddedCodeRegionTests
 
         Assert.That(rtb.GetPlainText(), Is.EqualTo("```python\nx = 1\n```"));
         Assert.That(region.PickerMode, Is.EqualTo(RegionLanguageMode.ExplicitLanguage));
-        Assert.That(LanguageLabel(region).Text, Is.EqualTo("python"));
+        Assert.That(LanguageLabel(region).Text, Is.EqualTo("Python"));
     }
 
     private static TextBlock LanguageLabel(EmbeddedCodeRegionBlock region)
@@ -552,10 +554,13 @@ internal sealed class EmbeddedCodeRegionTests
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
 
         Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.True);
+        var region = RichTextBoxExtensions.EnumerateEmbeddedRegions(rtb).Single();
 
         Assert.DoesNotThrow(() => rtb.SetPlainText("replacement"));
         Assert.That(rtb.GetPlainText(), Is.EqualTo("replacement"));
         Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False);
+        Assert.That(region.IsDisposed, Is.True);
+        Assert.That(region.IsAttachedToHost(), Is.False);
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -564,11 +569,13 @@ internal sealed class EmbeddedCodeRegionTests
         var rtb = new RichTextBox();
         rtb.SetPlainText("```\ncode\n```");
         EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var region = RichTextBoxExtensions.EnumerateEmbeddedRegions(rtb).Single();
         rtb.Selection.Select(rtb.Document.ContentStart, rtb.Document.ContentEnd);
 
         Assert.That(rtb.SelectionContainsEmbeddedCodeRegion(), Is.True);
         Assert.DoesNotThrow(() => rtb.DeleteSelectionWithoutUndo());
         Assert.That(rtb.ContainsEmbeddedCodeRegion(), Is.False);
+        Assert.That(region.IsDisposed, Is.True);
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -1949,6 +1956,26 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(editor.Text, Is.EqualTo("h o"));
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void AvalonEditRegionEditor_Dispose_StopsTimerAndTurnsLateMutationsIntoNoOps()
+    {
+        var editor = new AvalonEditRegionEditor("code");
+        editor.SetLanguage("");
+        editor.Dispose();
+
+        Assert.That(editor.IsDisposed, Is.True);
+        Assert.That(editor.IsAutoDetectPending, Is.False);
+
+        Assert.DoesNotThrow(() =>
+        {
+            editor.SetLanguage("python");
+            editor.InsertText("x");
+            editor.FocusEditor();
+            editor.ApplyPalette(new RegionEditorPalette(Brushes.Transparent, Brushes.Black, new Dictionary<string, ICSharpCode.AvalonEdit.Highlighting.HighlightingColor>()));
+        });
+        Assert.That(editor.Text, Is.EqualTo("code"));
+    }
+
     // ── Unmodified Space while this region is focused → insert into region and handle ───────
     //
     // Regression guard for the host RichTextBox diverting the Space text input away from the
@@ -2720,6 +2747,8 @@ internal sealed class EmbeddedCodeRegionTests
             "the region's BlockUIContainer must be gone from the document");
         Assert.That(rtb.GetPlainText(), Is.EqualTo("before\nafter"),
             "serialized source of truth must no longer contain the empty fence");
+        Assert.That(region.IsDisposed, Is.True);
+        Assert.That(region.IsAttachedToHost(), Is.False);
 
         // Proof the region does not resurrect: the FlowDocument is the single source of truth, so a
         // subsequent fence-rebuild finds nothing to convert and the serialization is unchanged.
@@ -2738,6 +2767,7 @@ internal sealed class EmbeddedCodeRegionTests
 
         Assert.That(region.TryRemoveEmptyRegionFromHost(), Is.True);
         Assert.That(rtb.Document.Blocks.OfType<BlockUIContainer>(), Is.Empty);
+        Assert.That(region.IsDisposed, Is.True);
         Assert.That(rtb.Document.Blocks.Count, Is.GreaterThan(0),
             "a blank paragraph must remain so the RichTextBox stays editable");
         Assert.That(rtb.GetPlainText(), Is.EqualTo(""));

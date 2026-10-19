@@ -141,10 +141,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- AvalonEdit powers the embedded code-region editor (EmbeddedCodeRegionBlock). Pinned
-         explicitly to the version available on the configured feed; net45 assets are consumed
-         via AssetTargetFallback on this net10-windows WPF target. -->
-    <PackageReference Include="ICSharpCode.AvalonEdit" Version="4.3.0-alpha-00000000" />
+    <!-- AvalonEdit powers the embedded code-region editor (EmbeddedCodeRegionBlock). -->
+    <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
     <PackageReference Include="Handlebars.Net" Version="2.1.6" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.49.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />

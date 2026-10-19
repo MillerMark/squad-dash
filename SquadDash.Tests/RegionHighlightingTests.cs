@@ -99,7 +99,7 @@ public sealed class RegionHighlightingTests
             ("js", "JavaScript"), ("javascript", "JavaScript"),
             ("cpp", "C++"), ("cxx", "C++"), ("cc", "C++"), ("c", "C++"),
             ("ps", "PowerShell"), ("ps1", "PowerShell"),
-            ("vb", "VBNET"), ("visualbasic", "VBNET"),
+            ("vb", "VB"), ("visualbasic", "VB"),
             ("xaml", "XML"),
             ("htm", "HTML"),
             ("aspx", "ASP/XHTML"), ("xhtml", "ASP/XHTML"),
@@ -567,7 +567,7 @@ public sealed class RegionHighlightingTests
 
     private static List<HighlightedSection> HighlightAll(TextDocument document, IHighlightingDefinition definition)
     {
-        var highlighter = new DocumentHighlighter(document, definition.MainRuleSet);
+        var highlighter = new DocumentHighlighter(document, definition);
         var sections = new List<HighlightedSection>();
         for (var line = 1; line <= document.LineCount; line++)
             sections.AddRange(highlighter.HighlightLine(line).Sections);
@@ -670,6 +670,7 @@ public sealed class RegionHighlightingTests
         }
 
         public string Name => "SynthLang";
+        public IDictionary<string, string> Properties { get; } = new Dictionary<string, string>();
         public HighlightingRuleSet MainRuleSet { get; }
         public IEnumerable<HighlightingColor> NamedHighlightingColors => new[] { _keyword };
         public HighlightingColor GetNamedColor(string name) => name == "SynthKeyword" ? _keyword : null!;

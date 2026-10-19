@@ -16,7 +16,7 @@ namespace SquadDash;
 /// integration decision, AVALONEDIT-20261014-001). Grammar selection and theme pushes share the
 /// region highlighting engine without changing the native editing/selection behavior.
 /// </summary>
-public sealed class AvalonEditRegionEditor : IRegionCodeEditor
+public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
 {
     private readonly TextEditor _editor;
     private readonly DispatcherTimer _autoDetectTimer;
@@ -24,6 +24,7 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
     private RegionEditorPalette _palette;
     private string _fenceToken = RegionLanguagePicker.PlainTextToken;
     private bool _textChangedDuringUpdate;
+    private bool _disposed;
 
     public AvalonEditRegionEditor(string initialText, RegionHighlightingEngine? highlighting = null)
     {
@@ -50,14 +51,9 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         {
             Interval = TimeSpan.FromMilliseconds(250),
         };
-        _autoDetectTimer.Tick += (_, _) =>
-        {
-            _autoDetectTimer.Stop();
-            if (RegionGrammarResolver.ShouldAutoDetect(_fenceToken))
-                RefreshHighlighting();
-        };
-        _editor.Unloaded += (_, _) => _autoDetectTimer.Stop();
-        _editor.Loaded += (_, _) => RefreshHighlighting();
+        _autoDetectTimer.Tick += AutoDetectTimer_Tick;
+        _editor.Unloaded += Editor_Unloaded;
+        _editor.Loaded += Editor_Loaded;
         ApplyPalette(_palette);
 
         // Single-authority undo/redo (PROMPTUNDO-20261015, §5): suppress THIS region's own
@@ -68,18 +64,9 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         // MainWindow's window preview-key router before they can reach AvalonEdit at all).
         _editor.Document.UndoStack.SizeLimit = 0;
 
-        _editor.Document.UpdateStarted += (_, e) => TextChanging?.Invoke(this, e);
-        _editor.TextChanged += (_, _) => _textChangedDuringUpdate = true;
-        _editor.Document.UpdateFinished += (_, e) =>
-        {
-            if (!_textChangedDuringUpdate)
-                return;
-            _textChangedDuringUpdate = false;
-            _autoDetectTimer.Stop();
-            if (_editor.IsLoaded && RegionGrammarResolver.ShouldAutoDetect(_fenceToken))
-                _autoDetectTimer.Start();
-            TextChanged?.Invoke(this, e);
-        };
+        _editor.Document.UpdateStarted += Document_UpdateStarted;
+        _editor.TextChanged += Editor_TextChanged;
+        _editor.Document.UpdateFinished += Document_UpdateFinished;
     }
 
     public event EventHandler? TextChanging;
@@ -87,9 +74,31 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
     public event EventHandler? HighlightingChanged;
     public string? HighlightingName => _editor.SyntaxHighlighting?.Name;
     internal bool IsAutoDetectPending => _autoDetectTimer.IsEnabled;
+    internal bool IsDisposed => _disposed;
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        _autoDetectTimer.Stop();
+        _autoDetectTimer.Tick -= AutoDetectTimer_Tick;
+        _editor.Unloaded -= Editor_Unloaded;
+        _editor.Loaded -= Editor_Loaded;
+        _editor.Document.UpdateStarted -= Document_UpdateStarted;
+        _editor.TextChanged -= Editor_TextChanged;
+        _editor.Document.UpdateFinished -= Document_UpdateFinished;
+        TextChanging = null;
+        TextChanged = null;
+        HighlightingChanged = null;
+    }
 
     public void SetLanguage(string fenceToken)
     {
+        if (_disposed)
+            return;
+
         _fenceToken = fenceToken ?? string.Empty;
         _autoDetectTimer.Stop();
         RefreshHighlighting();
@@ -97,6 +106,9 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     private void RefreshHighlighting()
     {
+        if (_disposed)
+            return;
+
         var grammar = _highlighting.Resolve(_fenceToken, Text);
         if (grammar == HighlightingName)
             return;
@@ -110,13 +122,23 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
     public string Text
     {
         get => _editor.Document.Text;
-        set => _editor.Document.Text = value ?? string.Empty;
+        set
+        {
+            if (_disposed)
+                return;
+            _editor.Document.Text = value ?? string.Empty;
+        }
     }
 
     public int CaretOffset
     {
         get => _editor.TextArea.Caret.Offset;
-        set => _editor.TextArea.Caret.Offset = Math.Clamp(value, 0, _editor.Document.TextLength);
+        set
+        {
+            if (_disposed)
+                return;
+            _editor.TextArea.Caret.Offset = Math.Clamp(value, 0, _editor.Document.TextLength);
+        }
     }
 
     public int SelectionStart => _editor.SelectionStart;
@@ -126,6 +148,8 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         get => _editor.SelectionLength;
         set
         {
+            if (_disposed)
+                return;
             if (value <= 0)
                 _editor.TextArea.ClearSelection();
             else
@@ -147,6 +171,9 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     public void RestoreSelection(int anchorOffset, int caretOffset)
     {
+        if (_disposed)
+            return;
+
         var length = _editor.Document.TextLength;
         anchorOffset = Math.Clamp(anchorOffset, 0, length);
         caretOffset = Math.Clamp(caretOffset, 0, length);
@@ -174,7 +201,11 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
     public double MaxHeight
     {
         get => _editor.MaxHeight;
-        set => _editor.MaxHeight = value;
+        set
+        {
+            if (!_disposed)
+                _editor.MaxHeight = value;
+        }
     }
 
     public double EditorFontSize
@@ -183,11 +214,18 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         // automatically — no explicit redraw needed. The Consolas family set in the constructor
         // is preserved; only the point size tracks the host prompt.
         get => _editor.FontSize;
-        set => _editor.FontSize = value;
+        set
+        {
+            if (!_disposed)
+                _editor.FontSize = value;
+        }
     }
 
     public void RemoveSelectedText()
     {
+        if (_disposed)
+            return;
+
         var length = _editor.SelectionLength;
         if (length <= 0)
             return;
@@ -196,6 +234,9 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     public void DeleteText(int offset, int length)
     {
+        if (_disposed)
+            return;
+
         if (length <= 0)
             return;
 
@@ -212,6 +253,9 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     public void InsertText(string text)
     {
+        if (_disposed)
+            return;
+
         using var update = _editor.Document.RunUpdate();
         text ??= string.Empty;
         var selLength = _editor.SelectionLength;
@@ -227,6 +271,9 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     public void FocusEditor()
     {
+        if (_disposed)
+            return;
+
         // FocusManager.SetFocusedElement sets logical/keyboard focus within the control's focus
         // scope even before the element has gone through a layout pass against a real
         // PresentationSource (e.g. right after the region is created, before it has rendered) —
@@ -247,6 +294,8 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         {
             textArea.Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
             {
+                if (_disposed || !_editor.IsLoaded)
+                    return;
                 if (textArea.IsKeyboardFocused)
                     return;
                 FocusManager.SetFocusedElement(FocusManager.GetFocusScope(_editor), textArea);
@@ -258,6 +307,9 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     public int GetOffsetFromPoint(Point pointInControl)
     {
+        if (_disposed)
+            return 0;
+
         if (_editor.Document.TextLength == 0)
             return 0;
 
@@ -270,11 +322,49 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
 
     public void ApplyPalette(RegionEditorPalette palette)
     {
+        if (_disposed)
+            return;
+
         _palette = palette;
         _editor.Background = palette.Surface;
         _editor.Foreground = palette.Text;
         if (_editor.SyntaxHighlighting is RegionHighlightingDefinition definition)
             definition.ApplyPalette(palette);
         _editor.TextArea.TextView.Redraw();
+    }
+
+    private void AutoDetectTimer_Tick(object? sender, EventArgs e)
+    {
+        _autoDetectTimer.Stop();
+        if (!_disposed && RegionGrammarResolver.ShouldAutoDetect(_fenceToken))
+            RefreshHighlighting();
+    }
+
+    private void Editor_Unloaded(object sender, RoutedEventArgs e) => _autoDetectTimer.Stop();
+
+    private void Editor_Loaded(object sender, RoutedEventArgs e) => RefreshHighlighting();
+
+    private void Document_UpdateStarted(object? sender, EventArgs e)
+    {
+        if (!_disposed)
+            TextChanging?.Invoke(this, e);
+    }
+
+    private void Editor_TextChanged(object? sender, EventArgs e)
+    {
+        if (!_disposed)
+            _textChangedDuringUpdate = true;
+    }
+
+    private void Document_UpdateFinished(object? sender, EventArgs e)
+    {
+        if (_disposed || !_textChangedDuringUpdate)
+            return;
+
+        _textChangedDuringUpdate = false;
+        _autoDetectTimer.Stop();
+        if (_editor.IsLoaded && RegionGrammarResolver.ShouldAutoDetect(_fenceToken))
+            _autoDetectTimer.Start();
+        TextChanged?.Invoke(this, e);
     }
 }

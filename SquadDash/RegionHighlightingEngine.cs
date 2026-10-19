@@ -36,7 +36,7 @@ public sealed class RegionHighlightingEngine
         AddAliases("C++", "cpp", "cxx", "cc", "c");
         AddAliases("JavaScript", "js", "javascript");
         AddAliases("PowerShell", "ps", "ps1");
-        AddAliases("VBNET", "vb", "visualbasic");
+        AddAliases("VB", "vb", "visualbasic");
         AddAliases("XML", "xaml");
         AddAliases("HTML", "htm");
         AddAliases("ASP/XHTML", "asp", "aspx", "xhtml");
@@ -79,7 +79,7 @@ public sealed class RegionHighlightingEngine
     private void AddAliases(string grammar, params string[] aliases)
     {
         if (!_grammars.ContainsKey(grammar))
-            throw new InvalidOperationException($"Built-in grammar '{grammar}' is not installed.");
+            return;
         foreach (var alias in aliases)
             _tokens[alias] = grammar;
     }
@@ -131,6 +131,7 @@ public sealed class RegionHighlightingDefinition : IHighlightingDefinition
     }
 
     public string Name => _source.Name;
+    public IDictionary<string, string> Properties => _source.Properties;
     public HighlightingRuleSet MainRuleSet { get; }
     public IEnumerable<HighlightingColor> NamedHighlightingColors =>
         _source.NamedHighlightingColors.Select(color => _colors[color]);

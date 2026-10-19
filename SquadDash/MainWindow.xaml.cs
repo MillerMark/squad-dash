@@ -1062,6 +1062,10 @@ public partial class MainWindow : Window
         // inside-a-region content-box Ctrl+C/X handler sets e.Handled and is a distinct case,
         // so the two paths never double-handle.
         DataObject.AddCopyingHandler(PromptTextBox, PromptTextBox_DataObjectCopying);
+        CommandBindings.Add(new CommandBinding(
+            ApplicationCommands.Cut,
+            PromptTextBox_CutExecuted,
+            PromptTextBox_CutCanExecute));
         // ── Single-authority prompt undo/redo (PROMPTUNDO-20261015-003) ───────────────
         // Suppress the host RichTextBox's native undo so it neither accumulates nor services a user
         // Ctrl+Z/Ctrl+Y — the PromptUndoManager timeline is the sole authority. The keys are
@@ -28212,6 +28216,42 @@ public partial class MainWindow : Window
         e.DataObject.SetData(DataFormats.Text, fencedText);
     }
 
+    private void PromptTextBox_CutCanExecute(object sender, CanExecuteRoutedEventArgs e)
+    {
+        if (PromptTextBox?.IsKeyboardFocusWithin == true
+            && PromptTextBox.SelectionContainsEmbeddedCodeRegion())
+        {
+            e.CanExecute = true;
+            e.Handled = true;
+        }
+    }
+
+    private void PromptTextBox_CutExecuted(object sender, ExecutedRoutedEventArgs e)
+    {
+        try
+        {
+            if (TryCutPromptSelectionContainingEmbeddedRegion())
+                e.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(PromptTextBox_CutExecuted), ex);
+        }
+    }
+
+    private bool TryCutPromptSelectionContainingEmbeddedRegion()
+    {
+        if (PromptTextBox.Selection.IsEmpty || !PromptTextBox.SelectionContainsEmbeddedCodeRegion())
+            return false;
+
+        var fencedText = PromptTextBox.GetSelectionFencedText(out var containsRegion);
+        if (!containsRegion)
+            return false;
+
+        SetClipboardTextWithRetry(fencedText);
+        return PromptTextBox.DeleteSelectionWithoutUndo();
+    }
+
     private void PromptTextBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         try
@@ -28850,6 +28890,16 @@ public partial class MainWindow : Window
                 && e.Key is Key.Delete or Key.Back
                 && PromptTextBox.SelectionContainsEmbeddedCodeRegion()
                 && PromptTextBox.DeleteSelectionWithoutUndo())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.X
+                && (modifiers & ModifierKeys.Control) != 0
+                && (modifiers & ModifierKeys.Alt) == 0
+                && (modifiers & ModifierKeys.Shift) == 0
+                && TryCutPromptSelectionContainingEmbeddedRegion())
             {
                 e.Handled = true;
                 return;

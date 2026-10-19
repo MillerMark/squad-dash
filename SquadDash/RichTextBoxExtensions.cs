@@ -108,6 +108,7 @@ internal static class RichTextBoxExtensions
 
         try
         {
+            DisposeEmbeddedRegions(rtb);
             rtb.Document.Blocks.Clear();
             var lines = (text ?? string.Empty).Replace("\r\n", "\n").Split('\n');
             foreach (var line in lines)
@@ -377,6 +378,8 @@ internal static class RichTextBoxExtensions
         if (rtb.Selection.IsEmpty)
             return false;
 
+        DisposeEmbeddedRegionsIntersectingSelection(rtb);
+
         var undoWasEnabled = rtb.IsUndoEnabled;
         if (undoWasEnabled)
             rtb.IsUndoEnabled = false;
@@ -514,6 +517,9 @@ internal static class RichTextBoxExtensions
         if (block is null)
             return false;
 
+        if (block.Child is EmbeddedCodeRegionBlock region)
+            region.DisposeRegionResources();
+
         var undoWasEnabled = rtb.IsUndoEnabled;
         if (undoWasEnabled)
             rtb.IsUndoEnabled = false;
@@ -527,6 +533,37 @@ internal static class RichTextBoxExtensions
                 rtb.IsUndoEnabled = true;
         }
         return true;
+    }
+
+    internal static void DisposeEmbeddedRegions(this RichTextBox rtb)
+    {
+        foreach (var region in rtb.Document.Blocks
+                     .OfType<BlockUIContainer>()
+                     .Select(block => block.Child)
+                     .OfType<EmbeddedCodeRegionBlock>()
+                     .ToList())
+        {
+            region.DisposeRegionResources();
+        }
+    }
+
+    private static void DisposeEmbeddedRegionsIntersectingSelection(RichTextBox rtb)
+    {
+        if (rtb.Selection.IsEmpty)
+            return;
+
+        var selStart = rtb.Selection.Start;
+        var selEnd = rtb.Selection.End;
+        foreach (var region in rtb.Document.Blocks
+                     .OfType<BlockUIContainer>()
+                     .Where(block => block.Child is EmbeddedCodeRegionBlock
+                                     && selStart.CompareTo(block.ContentEnd) < 0
+                                     && selEnd.CompareTo(block.ContentStart) > 0)
+                     .Select(block => (EmbeddedCodeRegionBlock)block.Child)
+                     .ToList())
+        {
+            region.DisposeRegionResources();
+        }
     }
 
     public static bool SelectionContainsEmbeddedCodeRegion(this RichTextBox rtb)

@@ -41,6 +41,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
         get => _language;
         set
         {
+            if (_disposed)
+                return;
+
             var token = value ?? string.Empty;
             if (_language == token)
                 return;
@@ -65,6 +68,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     private readonly Control _editorControl;
     private RichTextBox? _hostRichTextBox;
     private bool _isClosingFromTrailingFenceLine;
+    private bool _disposed;
 
     /// <summary>
     /// The embedded code region the user most recently entered (via click, arrow-key entry, or a
@@ -97,6 +101,25 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// Clears <see cref="ActiveRegion"/> unconditionally. Called when a host-prompt gesture makes
     /// clear the user has left region editing (e.g. a click landing outside every region).
     internal static void ClearActiveRegion() => ActiveRegion = null;
+
+    internal bool IsDisposed => _disposed;
+
+    internal void DisposeRegionResources()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        if (ReferenceEquals(ActiveRegion, this))
+            ActiveRegion = null;
+
+        _languagePopup.IsOpen = false;
+        PickerModeChanged = null;
+        _hostRichTextBox = null;
+
+        if (_editor is IDisposable disposable)
+            disposable.Dispose();
+    }
 
     public static EmbeddedCodeRegionBlock Build(string content, string language)
         => new(content, language);
@@ -264,7 +287,11 @@ public sealed class EmbeddedCodeRegionBlock : Border
                     // User selected text within the region. Get the selected text and wrap in fences.
                     var selectedText = _editor.SelectedText;
                     var fencedText = EmbeddedFenceDetector.BuildFencedText(selectedText, Language);
-                    Clipboard.SetText(fencedText);
+                    if (!TrySetClipboardText(fencedText))
+                    {
+                        e.Handled = true;
+                        return;
+                    }
 
                     if (e.Key == Key.X)
                     {
@@ -585,6 +612,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
     internal void AttachHost(RichTextBox hostRichTextBox)
     {
+        if (_disposed)
+            return;
+
         _hostRichTextBox = hostRichTextBox;
         _editor.MaxHeight = (double.IsNaN(hostRichTextBox.MaxHeight) || double.IsInfinity(hostRichTextBox.MaxHeight))
             ? 130
@@ -608,6 +638,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     public void ApplyEditorFontSize(double fontSize)
     {
+        if (_disposed)
+            return;
+
         if (double.IsNaN(fontSize) || fontSize <= 0)
             return;
         _editor.EditorFontSize = fontSize;
@@ -619,7 +652,11 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// fan-out after a theme dictionary swap (AvalonEdit colors are not DynamicResource-driven,
     /// so they must be re-applied imperatively; see AVALONEDIT-20261014-001).
     /// </summary>
-    public void ApplyEditorTheme(RegionEditorPalette palette) => _editor.ApplyPalette(palette);
+    public void ApplyEditorTheme(RegionEditorPalette palette)
+    {
+        if (!_disposed)
+            _editor.ApplyPalette(palette);
+    }
 
     public void NotifyThemeChanged(RegionEditorPalette palette) => ApplyEditorTheme(palette);
 
@@ -644,6 +681,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     public void FocusContent()
     {
+        if (_disposed)
+            return;
+
         Trace($"EMBEDDED_CODE_FOCUS_END enter textLen={_editor.TextLength} caretBefore={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} visible={_editorControl.IsVisible} enabled={_editorControl.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         ActiveRegion = this;
         ClearHostSelection();
@@ -663,7 +703,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// read from the host <see cref="RichTextBox"/> caret, which only ever sits at the region's
     /// element boundary while focus is really inside the nested editor.
     /// </summary>
-    internal bool HasContentKeyboardFocus => _editor.IsKeyboardFocusWithin;
+    internal bool HasContentKeyboardFocus => !_disposed && _editor.IsKeyboardFocusWithin;
 
     /// <summary>
     /// Applies a Backspace/Delete key directly to the nested editor and marks the key handled
@@ -673,6 +713,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     internal bool TryHandleRegionDeleteKey(Key key, ModifierKeys modifiers)
     {
+        if (_disposed)
+            return false;
+
         if (key is not (Key.Back or Key.Delete))
             return false;
         if (modifiers != ModifierKeys.None)
@@ -729,7 +772,7 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// by adding the region's content-base offset.
     /// </summary>
     internal (int anchorLocal, int caretLocal) GetContentSelectionLocal()
-        => _editor.GetSelectionOffsets();
+        => _disposed ? (0, 0) : _editor.GetSelectionOffsets();
 
     /// <summary>
     /// Restores a selection inside this region's content editor from region-local
@@ -740,6 +783,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     public void RestoreContentSelection(int anchorLocal, int caretLocal)
     {
+        if (_disposed)
+            return;
+
         Trace($"EMBEDDED_CODE_RESTORE_SELECTION enter anchor={anchorLocal} caret={caretLocal} textLen={_editor.TextLength} visible={_editorControl.IsVisible}");
         ActiveRegion = this;
         ClearHostSelection();
@@ -755,6 +801,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     public void FocusContentAtPosition(int caretPosition)
     {
+        if (_disposed)
+            return;
+
         var clampedPosition = Math.Clamp(caretPosition, 0, _editor.TextLength);
         Trace($"EMBEDDED_CODE_FOCUS_POSITION enter position={caretPosition} clamped={clampedPosition} textLen={_editor.TextLength} caretBefore={_editor.CaretOffset} visible={_editorControl.IsVisible}");
         ActiveRegion = this;
@@ -774,6 +823,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     public void InsertDictation(string dictatedText, IReadOnlyList<VoiceReplacementRule> replacementRules)
     {
+        if (_disposed)
+            return;
+
         var selLength = _editor.SelectionLength;
         var caret = selLength > 0 ? _editor.SelectionStart : _editor.CaretOffset;
         var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
@@ -793,6 +845,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     internal void InsertHostText(string text)
     {
+        if (_disposed)
+            return;
+
         Trace($"EMBEDDED_CODE_HOST_TEXT enter textLen-in={text?.Length ?? 0} caretBefore={_editor.CaretOffset} focusWithin={_editor.IsKeyboardFocusWithin} textAreaFocused={_editor.IsTextInputSurfaceFocused}");
         ClearHostSelection();
         _editor.InsertText(text ?? string.Empty);
@@ -809,6 +864,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     internal bool IsAttachedToHost()
     {
+        if (_disposed)
+            return false;
+
         var host = _hostRichTextBox;
         if (host is null)
             return false;
@@ -820,6 +878,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
     internal void FocusContentAtPoint(Point pointInContentBox)
     {
+        if (_disposed)
+            return;
+
         Trace($"EMBEDDED_CODE_FOCUS_POINT enter point=({pointInContentBox.X:F1},{pointInContentBox.Y:F1}) textLen={_editor.TextLength} caretBefore={_editor.CaretOffset} selection={_editor.SelectionStart}+{_editor.SelectionLength} visible={_editorControl.IsVisible} enabled={_editorControl.IsEnabled} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
         ActiveRegion = this;
         ClearHostSelection();
@@ -833,6 +894,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
     private void ClearHostSelection()
     {
+        if (_disposed)
+            return;
+
         var host = _hostRichTextBox;
         if (host is null)
         {
@@ -858,6 +922,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// </summary>
     private void TryCloseOnTrailingFenceLine()
     {
+        if (_disposed)
+            return;
+
         if (_isClosingFromTrailingFenceLine) return;
 
         var lines = Content.Split('\n');
@@ -881,6 +948,9 @@ public sealed class EmbeddedCodeRegionBlock : Border
 
     private void FocusHostOutsideRegion(LogicalDirection direction, bool landAtParagraphStart = false)
     {
+        if (_disposed)
+            return;
+
         // A deliberate boundary exit (arrow/Tab/Ctrl+Up/Down or trailing-fence close): the user is
         // leaving the region, so it is no longer the active region for the typing-safety net.
         if (ReferenceEquals(ActiveRegion, this))
@@ -921,11 +991,20 @@ public sealed class EmbeddedCodeRegionBlock : Border
         Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE schedule direction={direction} hostCaretOffset={GetHostCaretOffsetForTrace(host)}");
         host.Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
         {
-            host.Focus();
-            Keyboard.Focus(host);
-            host.CaretPosition = pointer;
-            host.Selection.Select(pointer, pointer);
-            Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE applied direction={direction} hostCaretOffset={GetHostCaretOffsetForTrace(host)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+            if (_disposed || !ReferenceEquals(_hostRichTextBox, host) || !IsAttachedToHost())
+            {
+                Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE skipped reason=stale-region direction={direction}");
+                return;
+            }
+
+            var livePointer = FindHostCaretPointer(host, direction, landAtParagraphStart);
+            if (livePointer is null)
+            {
+                Trace($"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE skipped reason=no-live-pointer direction={direction}");
+                return;
+            }
+
+            ApplyHostCaretSafely(host, livePointer, $"EMBEDDED_CODE_FOCUS_HOST_OUTSIDE direction={direction}");
         });
     }
 
@@ -994,15 +1073,15 @@ public sealed class EmbeddedCodeRegionBlock : Border
         if (undoWasEnabled)
             host.IsUndoEnabled = false;
 
-        TextPointer landing;
+        HostCaretTarget? landing;
         try
         {
             host.Document.Blocks.Remove(container);
 
             if (following is not null)
-                landing = following.ContentStart;
+                landing = new HostCaretTarget(following, UseContentStart: true);
             else if (preceding is not null)
-                landing = preceding.ContentEnd;
+                landing = new HostCaretTarget(preceding, UseContentStart: false);
             else
             {
                 // Region was the only/sole-remaining block: keep the RichTextBox editable by
@@ -1010,8 +1089,8 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 if (host.Document.Blocks.Count == 0)
                     host.Document.Blocks.Add(new Paragraph(new Run(string.Empty)) { Margin = new Thickness(0) });
                 landing = host.Document.Blocks.FirstBlock is Paragraph only
-                    ? only.ContentStart
-                    : host.Document.ContentStart;
+                    ? new HostCaretTarget(only, UseContentStart: true)
+                    : null;
             }
         }
         finally
@@ -1020,18 +1099,61 @@ public sealed class EmbeddedCodeRegionBlock : Border
                 host.IsUndoEnabled = true;
         }
 
+        DisposeRegionResources();
+
         Trace($"EMBEDDED_CODE_BACKSPACE_REMOVE removed index={index} following={following is not null} preceding={preceding is not null} blocksAfter={host.Document.Blocks.Count}");
 
         host.Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
         {
-            host.Focus();
-            Keyboard.Focus(host);
-            host.CaretPosition = landing;
-            host.Selection.Select(landing, landing);
-            Trace($"EMBEDDED_CODE_BACKSPACE_REMOVE applied hostCaretOffset={GetHostCaretOffsetForTrace(host)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+            var livePointer = landing?.Resolve(host);
+            if (livePointer is null)
+            {
+                Trace("EMBEDDED_CODE_BACKSPACE_REMOVE skipped reason=stale-landing");
+                return;
+            }
+
+            ApplyHostCaretSafely(host, livePointer, "EMBEDDED_CODE_BACKSPACE_REMOVE");
         });
 
         return true;
+    }
+
+    private readonly record struct HostCaretTarget(Paragraph Paragraph, bool UseContentStart)
+    {
+        public TextPointer? Resolve(RichTextBox host)
+        {
+            if (!ContainsBlock(host.Document, Paragraph))
+                return null;
+
+            return UseContentStart ? Paragraph.ContentStart : Paragraph.ContentEnd;
+        }
+    }
+
+    private static void ApplyHostCaretSafely(RichTextBox host, TextPointer pointer, string tracePrefix)
+    {
+        try
+        {
+            host.Focus();
+            Keyboard.Focus(host);
+            host.CaretPosition = pointer;
+            host.Selection.Select(pointer, pointer);
+            Trace($"{tracePrefix} applied hostCaretOffset={GetHostCaretOffsetForTrace(host)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+        }
+        catch (Exception ex)
+        {
+            Trace($"{tracePrefix} skipped reason={ex.GetType().Name}:{ex.Message}");
+        }
+    }
+
+    private static bool ContainsBlock(FlowDocument document, Block block)
+    {
+        foreach (var candidate in document.Blocks)
+        {
+            if (ReferenceEquals(candidate, block))
+                return true;
+        }
+
+        return false;
     }
 
     private TextPointer? FindHostCaretPointer(RichTextBox host, LogicalDirection direction, bool landAtParagraphStart = false)
@@ -1150,4 +1272,18 @@ public sealed class EmbeddedCodeRegionBlock : Border
     }
 
     private static void Trace(string message) => SquadDashTrace.Write("UI", message);
+
+    private static bool TrySetClipboardText(string text)
+    {
+        try
+        {
+            Clipboard.SetDataObject(text, copy: true);
+            return true;
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            Trace($"EMBEDDED_CODE_CLIPBOARD skipped reason={ex.GetType().Name}:{ex.Message}");
+            return false;
+        }
+    }
 }
