@@ -21448,7 +21448,7 @@ public partial class MainWindow : Window
             .OrderByDescending(candidate => candidate.Timestamps.InterruptedAt ?? candidate.Timestamps.CreatedAt)
             .FirstOrDefault();
         if (plan is null) return;
-        if (HasPendingPlanRevision(plan.PlanId))
+        if (PendingPlanRevisionOwnsRecovery(plan))
         {
             // RestorePendingPlanRevisionApprovalCards runs first and owns the next decision for
             // this plan. Do not follow it with a second, competing recovery card.
@@ -21526,6 +21526,17 @@ public partial class MainWindow : Window
     private bool HasPendingPlanRevision(string planId) =>
         _currentWorkspace is not null &&
         new PendingPlanRevisionProposalStore(_currentWorkspace.SquadFolderPath).Load(planId) is not null;
+
+    private bool PendingPlanRevisionOwnsRecovery(Plan plan)
+    {
+        if (_currentWorkspace is null)
+            return false;
+
+        var pending = new PendingPlanRevisionProposalStore(_currentWorkspace.SquadFolderPath)
+            .Load(plan.PlanId);
+        return pending is not null &&
+               PlanRevisionApprovalPresentationBuilder.Build(plan, pending).OwnsInterruptedRecovery;
+    }
 
     private void RestorePendingManualLoopResumeSurface()
     {
@@ -21839,7 +21850,7 @@ public partial class MainWindow : Window
             return;
 
         var durablePlan = _planStore?.Load(plan.Group.GroupId);
-        if (!developerPreview && durablePlan is not null && HasPendingPlanRevision(durablePlan.PlanId))
+        if (!developerPreview && durablePlan is not null && PendingPlanRevisionOwnsRecovery(durablePlan))
         {
             SquadDashTrace.Write(
                 TraceCategory.General,
