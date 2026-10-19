@@ -68,6 +68,118 @@ internal sealed class PlanViewerLiveSyncTests
     }
 
     [Test]
+    public void HumanReviewRework_LowerCompletedCountRefreshesCompletedTaskAsExecuting()
+    {
+        var broker = new WeakEventBroker();
+        var completedAt = System.DateTimeOffset.UtcNow.AddMinutes(-2);
+        var completedTask = new PlanTask(
+            "PLAN-001-TASK-006",
+            "Bundle custom grammars",
+            "Bundle and register editor-local grammars.",
+            [],
+            "mid",
+            PlanTaskStatus.Complete,
+            Commit: "abc1234",
+            CompletedAt: completedAt,
+            CompletionSummary: "Bundled the initial grammars.");
+        var initial = MakePlan("PLAN-001", completedCount: 8, totalCount: 9) with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Tasks = [completedTask],
+        };
+        Plan? received = null;
+        var handler = new PlanViewerLiveSyncHandler(
+            "PLAN-001", initial, broker,
+            plan => received = plan);
+
+        var archivedAttempt = new PlanTaskAttempt(
+            PlanTaskStatus.Complete,
+            completedTask.Commit,
+            completedAt,
+            completedTask.CompletionSummary,
+            "changes-requested",
+            "Correct the auto-detect behavior.");
+        var reopened = initial with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Executing,
+            Tasks =
+            [
+                completedTask with
+                {
+                    Status = PlanTaskStatus.Executing,
+                    Commit = null,
+                    CompletedAt = null,
+                    CompletionSummary = null,
+                    AttemptHistory = [archivedAttempt],
+                },
+            ],
+            Progress = new PlanProgress(7, 9, completedTask.TaskId),
+        };
+
+        handler.HandleEventDirect(new PlanProgressEvent("PLAN-001", reopened));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(received, Is.SameAs(reopened));
+            Assert.That(handler.CurrentPlan, Is.SameAs(reopened));
+            Assert.That(handler.AppliedCount, Is.EqualTo(1));
+            Assert.That(handler.RejectedCount, Is.Zero);
+            Assert.That(
+                PlanTaskActivityResolver.Resolve(handler.CurrentPlan!)[completedTask.TaskId],
+                Is.EqualTo(PlanTaskActivityState.Executing));
+        });
+
+        handler.Detach();
+    }
+
+    [Test]
+    public void LatePreReworkSnapshot_CannotReplaceCompletedReplacementAttempt()
+    {
+        var broker = new WeakEventBroker();
+        var archivedAttempt = new PlanTaskAttempt(
+            PlanTaskStatus.Complete,
+            "abc1234",
+            System.DateTimeOffset.UtcNow.AddMinutes(-4),
+            "Initial attempt.",
+            "changes-requested",
+            "Correct the auto-detect behavior.");
+        var replacement = new PlanTask(
+            "PLAN-001-TASK-006",
+            "Bundle custom grammars",
+            "Bundle and register editor-local grammars.",
+            [],
+            "mid",
+            PlanTaskStatus.Complete,
+            Commit: "def5678",
+            CompletedAt: System.DateTimeOffset.UtcNow,
+            CompletionSummary: "Corrected auto-detect.",
+            AttemptHistory: [archivedAttempt]);
+        var current = MakePlan("PLAN-001", completedCount: 8, totalCount: 9) with
+        {
+            Tasks = [replacement],
+        };
+        var handler = new PlanViewerLiveSyncHandler(
+            "PLAN-001", current, broker,
+            _ => Assert.Fail("A late rework snapshot must not replace the completed replacement attempt."));
+        var lateReworkSnapshot = current with
+        {
+            Tasks = [replacement with { Status = PlanTaskStatus.Executing, Commit = null, CompletedAt = null }],
+            Progress = new PlanProgress(7, 9, replacement.TaskId),
+        };
+
+        handler.HandleEventDirect(new PlanProgressEvent("PLAN-001", lateReworkSnapshot));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler.CurrentPlan, Is.SameAs(current));
+            Assert.That(handler.AppliedCount, Is.Zero);
+            Assert.That(handler.RejectedCount, Is.EqualTo(1));
+        });
+
+        handler.Detach();
+    }
+
+    [Test]
     public void PlanIdFiltering_DifferentPlanId_IsIgnored()
     {
         var broker = new WeakEventBroker();
