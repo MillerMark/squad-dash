@@ -2639,6 +2639,46 @@ internal sealed class EmbeddedCodeRegionTests
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void AdjacentEmptyAndAutoDetectedRegions_KeepOneLineEditorsVisuallyCompact()
+    {
+        var rtb = new RichTextBox
+        {
+            FontSize = 14,
+            MaxHeight = 260,
+        };
+        rtb.SetPlainText(
+            "abc\n" +
+            "```\n\n```\n" +
+            " \n" +
+            "```\n" +
+            "event EventHandler?\n" +
+            "```\n" +
+            " \n" +
+            "```c#\n" +
+            "public interface ICalloutWindow {\n" +
+            "    event EventHandler? RefreshTargetRect;\n" +
+            "}\n" +
+            "```");
+
+        while (EmbeddedCodeRegionManager.TryConvertNextFence(rtb)) { }
+
+        var regions = RichTextBoxExtensions.EnumerateEmbeddedRegions(rtb).ToArray();
+        Assert.That(regions, Has.Length.EqualTo(3));
+        var emptyEditor = GetContentEditor(regions[0]);
+        var eventEditor = GetContentEditor(regions[1]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(regions[0].Content, Is.EqualTo(""));
+            Assert.That(LanguageLabel(regions[1]).Text, Is.EqualTo("Auto detect -- C#"));
+            Assert.That(emptyEditor.Height, Is.LessThanOrEqualTo(28),
+                "an empty adjacent region must stay close to one prompt line, not read as a multi-line spacer");
+            Assert.That(eventEditor.Height, Is.EqualTo(emptyEditor.Height).Within(0.5),
+                "auto-detecting C# must not inflate a one-line region differently from an empty one-line editor");
+        });
+    }
+
     // ── Font scaling: region editor tracks the prompt font size ─────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]

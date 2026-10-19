@@ -19,6 +19,8 @@ namespace SquadDash;
 public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
 {
     private const double DefaultEditorMaxHeight = 130;
+    private const double EditorHorizontalPadding = 8;
+    private const double EditorVerticalPadding = 3;
     private const double FallbackLineHeightMultiplier = 1.35;
     private const double HeightSlack = 2;
 
@@ -39,7 +41,11 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
             FontFamily = new FontFamily("Consolas"),
             FontSize = 12,
             BorderThickness = new Thickness(0),
-            Padding = new Thickness(8),
+            Padding = new Thickness(
+                EditorHorizontalPadding,
+                EditorVerticalPadding,
+                EditorHorizontalPadding,
+                EditorVerticalPadding),
             Margin = new Thickness(0),
             MaxHeight = DefaultEditorMaxHeight,
             WordWrap = false,
