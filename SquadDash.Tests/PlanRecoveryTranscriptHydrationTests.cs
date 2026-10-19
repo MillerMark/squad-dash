@@ -26,6 +26,38 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     }
 
     [Test]
+    public void WorkspaceLoad_RestoresCleanWorktreePauseAndPendingVerificationAfterHydration()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var loadBlock = WorkspaceLoadBlock(source);
+        const string loadCall = "\"conversation-manager\"";
+        const string restoreCall = "\"waiting-for-clean-worktree-recovery\"";
+
+        var loadIndex = loadBlock.IndexOf(loadCall, StringComparison.Ordinal);
+        var restoreIndex = loadBlock.IndexOf(restoreCall, loadIndex, StringComparison.Ordinal);
+        var restoreStart = source.IndexOf(
+            "private async Task RestoreWaitingForCleanWorktreeRecoverySurfaceAsync()",
+            StringComparison.Ordinal);
+        var restoreEnd = source.IndexOf(
+            "private void RestoreFailedPlanValidationRecoverySurface()",
+            restoreStart,
+            StringComparison.Ordinal);
+        var restoreMethod = source[restoreStart..restoreEnd];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restoreIndex, Is.GreaterThan(loadIndex),
+                "Clean-worktree recovery must be reconstructed after transcript hydration.");
+            Assert.That(loadBlock, Does.Contain("await TraceWorkspaceLoadPhaseAsync("));
+            Assert.That(restoreMethod, Does.Contain("PlanLifecycleStatus.WaitingForCleanWorktree"));
+            Assert.That(restoreMethod, Does.Contain("GetPlanPreflightDirtyPathsAsync(plan.PlanId)"));
+            Assert.That(restoreMethod, Does.Contain("SelectSinglePendingVerificationTask(plan)"));
+            Assert.That(restoreMethod, Does.Contain("ResumeWaitingForCleanWorktreePlanAsync(plan.PlanId)"));
+            Assert.That(restoreMethod, Does.Contain("ShowTranscriptPlanPreflightRecovery("));
+        });
+    }
+
+    [Test]
     public void WorkspaceLoad_AwaitsHydrationBeforeRestoringPendingPlanActions()
     {
         var mainWindowSource = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

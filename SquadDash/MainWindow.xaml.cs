@@ -8795,6 +8795,7 @@ public partial class MainWindow : Window
         AppendLine($"⏳ Plan {durable.PlanId} is waiting for you to commit or stash the listed changes.");
 
         var pending = PendingDecomposePlanAdapter.FromPlan(waiting);
+        var verificationTask = SelectSinglePendingVerificationTask(waiting);
         ShowTranscriptPlanPreflightRecovery(
             pending,
             action: "continue-working",
@@ -8802,23 +8803,11 @@ public partial class MainWindow : Window
             blocked,
             sourceActionsPanel: null,
             CoordinatorThread.Document.Blocks,
-            retryOverride: async () =>
-            {
-                var latest = _planStore?.Load(waiting.PlanId)
-                    ?? throw new InvalidOperationException("The durable plan is no longer available.");
-                var verificationTask = SelectSinglePendingVerificationTask(latest);
-                if (verificationTask is not null)
-                {
-                    await ResumeInterruptedTaskVerificationAsync(latest, verificationTask.TaskId);
-                    return true;
-                }
-                await StartBackloggedDecomposeGroupAsync(
-                    PendingDecomposePlanAdapter.FromPlan(latest).Group with
-                    {
-                        HostRevision = latest.Revision,
-                    });
-                return true;
-            },
+            retryOverride: () => ResumeWaitingForCleanWorktreePlanAsync(waiting.PlanId),
+            contentFactory: exception => PlanPreflightRecoveryContent.FromWaitingForCleanWorktree(
+                exception,
+                waiting.Title,
+                verificationTask?.Title),
             retryLabel: "Resume when clean",
             autoRetryWhenReady: true);
         SyncLoopPanel();
@@ -8832,6 +8821,25 @@ public partial class MainWindow : Window
                            PlanTaskStatus.IsVerifying(task.Status))
             .ToArray();
         return candidates.Length == 1 ? candidates[0] : null;
+    }
+
+    private async Task<bool> ResumeWaitingForCleanWorktreePlanAsync(string planId)
+    {
+        var latest = _planStore?.Load(planId)
+            ?? throw new InvalidOperationException("The durable plan is no longer available.");
+        var verificationTask = SelectSinglePendingVerificationTask(latest);
+        if (verificationTask is not null)
+        {
+            await ResumeInterruptedTaskVerificationAsync(latest, verificationTask.TaskId);
+            return true;
+        }
+
+        await StartBackloggedDecomposeGroupAsync(
+            PendingDecomposePlanAdapter.FromPlan(latest).Group with
+            {
+                HostRevision = latest.Revision,
+            });
+        return true;
     }
 
     private void OnNativeLoopIterationCompleted(int iteration)
@@ -14258,7 +14266,7 @@ public partial class MainWindow : Window
         };
         var viewChangesLink = new Hyperlink(new Run("View changes")) { Cursor = Cursors.Hand };
         viewChangesLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-        if (!exception.RequiresRepositoryInitialization)
+        if (!exception.RequiresRepositoryInitialization && exception.ChangedPaths.Count > 0)
             utilities.Inlines.Add(viewChangesLink);
         else
             utilities.Visibility = Visibility.Collapsed;
@@ -21493,6 +21501,49 @@ public partial class MainWindow : Window
             plan.PlanId,
             plan.Revision,
             taskId);
+    }
+
+    private async Task RestoreWaitingForCleanWorktreeRecoverySurfaceAsync()
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+
+        var branch = ReadGitBranch(_currentWorkspace.FolderPath);
+        var plan = _planStore.LoadAll()
+            .Where(candidate =>
+                candidate.LifecycleStatus == PlanLifecycleStatus.WaitingForCleanWorktree &&
+                string.Equals(candidate.Branch, branch, StringComparison.Ordinal))
+            .OrderByDescending(candidate => candidate.Timestamps.LastRunAt ?? candidate.Timestamps.CreatedAt)
+            .FirstOrDefault();
+        if (plan is null) return;
+
+        var dirtyPaths = await GetPlanPreflightDirtyPathsAsync(plan.PlanId);
+        if (dirtyPaths is null)
+        {
+            SquadDashTrace.Write(
+                "PlanRecovery",
+                $"Could not inspect the worktree while restoring clean-worktree recovery plan={plan.PlanId}.");
+            return;
+        }
+
+        var verificationTask = SelectSinglePendingVerificationTask(plan);
+        var blocked = new PlanPreflightBlockedException(
+            "Uncommitted changes",
+            dirtyPaths,
+            targetBranch: null);
+        ShowTranscriptPlanPreflightRecovery(
+            PendingDecomposePlanAdapter.FromPlan(plan),
+            action: "continue-working",
+            branchOverride: plan.Branch,
+            blocked,
+            sourceActionsPanel: null,
+            CoordinatorThread.Document.Blocks,
+            retryOverride: () => ResumeWaitingForCleanWorktreePlanAsync(plan.PlanId),
+            contentFactory: exception => PlanPreflightRecoveryContent.FromWaitingForCleanWorktree(
+                exception,
+                plan.Title,
+                verificationTask?.Title),
+            retryLabel: verificationTask is null ? "Resume Plan" : "Resume Verification",
+            autoRetryWhenReady: true);
     }
 
     private void RestoreFailedPlanValidationRecoverySurface()
@@ -42415,6 +42466,9 @@ public partial class MainWindow : Window
         // LoadWorkspaceConversationAsync adds them to the document that hydration discards.
         // Restore after checkpoint cards so the unresolved revision action remains visible.
         TraceWorkspaceLoadPhase("pending-plan-revision-cards", () => RestorePendingPlanRevisionApprovalCards());
+        await TraceWorkspaceLoadPhaseAsync(
+            "waiting-for-clean-worktree-recovery",
+            () => RestoreWaitingForCleanWorktreeRecoverySurfaceAsync());
         // Interrupted-plan actions are live WPF controls and are not serialized with the
         // narrative. Reconstruct them only after hydration (and stale-state repair), or the
         // document replacement above will silently erase them during every restart.

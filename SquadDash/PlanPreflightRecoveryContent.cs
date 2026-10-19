@@ -78,6 +78,52 @@ internal sealed record PlanPreflightRecoveryContent(
             clipboardDetails);
     }
 
+    internal static PlanPreflightRecoveryContent FromWaitingForCleanWorktree(
+        PlanPreflightBlockedException exception,
+        string planTitle,
+        string? verificationTaskTitle)
+    {
+        var count = exception.ChangedPaths.Count;
+        var verificationPending = !string.IsNullOrWhiteSpace(verificationTaskTitle);
+        var nextAction = verificationPending
+            ? $"independent verification of “{verificationTaskTitle}”"
+            : $"the next step of “{planTitle}”";
+
+        if (count == 0)
+        {
+            return new PlanPreflightRecoveryContent(
+                verificationPending ? "Verification ready to resume" : "Plan ready to resume",
+                $"SquadDash restored the saved handoff for {nextAction} after restart. " +
+                "The workspace is now clean, and completed implementation work will not be repeated.",
+                string.Empty,
+                $"SquadDash will resume {nextAction} automatically.",
+                $"Condition: {exception.Condition}\nPlan: {planTitle}\nChanged files: 0");
+        }
+
+        var files = FormatChangedPaths(exception.ChangedPaths, capForDisplay: true);
+        var allFiles = FormatChangedPaths(exception.ChangedPaths, capForDisplay: false);
+        var details =
+            $"Condition: {exception.Condition}\n" +
+            $"Plan: {planTitle}\n" +
+            $"Next action: {nextAction}\n" +
+            $"Changed files: {count}\n\n{files}";
+        var clipboardDetails =
+            $"Condition: {exception.Condition}\n" +
+            $"Plan: {planTitle}\n" +
+            $"Next action: {nextAction}\n" +
+            $"Changed files: {count}\n\n{allFiles}";
+
+        return new PlanPreflightRecoveryContent(
+            verificationPending ? "Verification paused — workspace changes detected" : "Plan paused — workspace changes detected",
+            $"SquadDash saved the handoff for {nextAction}, but paused because {count} other uncommitted " +
+            $"{(count == 1 ? "file prevents" : "files prevent")} safe plan execution. " +
+            "Completed implementation work is preserved.",
+            files,
+            "Review these changes, then commit or stash them. SquadDash will resume automatically when the workspace is clean.",
+            details,
+            clipboardDetails);
+    }
+
     internal static PlanPreflightRecoveryContent FromRework(
         PlanPreflightBlockedException exception,
         string planTitle,
