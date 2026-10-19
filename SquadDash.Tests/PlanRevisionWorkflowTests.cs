@@ -51,6 +51,75 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void ApprovalPresentation_CombinesInterruptedRecoveryWithCurrentSavedRevision()
+    {
+        var plan = MakePlan() with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            InterruptionData = new PlanInterruptionData(
+                "The step result was invalid after automatic repair.",
+                PlanRecoveryState.PendingRecovery,
+                3,
+                InterruptedTaskId: "REVISION-20260806-002",
+                AttentionCategory: PlanAttentionCategory.AutomaticWorkExhausted),
+        };
+        var pending = new PendingPlanRevisionProposal(
+            "proposal-1",
+            new DateTimeOffset(2026, 10, 12, 8, 46, 0, TimeSpan.FromHours(-4)),
+            new PlanRevisionProposalPayload(
+                plan.PlanId,
+                plan.Revision,
+                "Use the narrower supervised path.",
+                null,
+                Operations: []));
+
+        var presentation = PlanRevisionApprovalPresentationBuilder.Build(plan, pending);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.OwnsInterruptedRecovery, Is.True);
+            Assert.That(presentation.Title, Is.EqualTo("Plan stopped - saved revision ready"));
+            Assert.That(presentation.Context, Does.Contain("Build feature"));
+            Assert.That(presentation.RecordedReason, Does.Contain("invalid after automatic repair"));
+            Assert.That(presentation.Recommendation, Does.Contain("saved on Oct 12, 2026"));
+            Assert.That(presentation.Recommendation, Does.Contain("review the proposed plan, then approve it"));
+            Assert.That(presentation.Status, Does.Contain("continue from the preserved interruption"));
+        });
+    }
+
+    [Test]
+    public void ApprovalPresentation_DoesNotReplaceRecoveryForStaleProposal()
+    {
+        var plan = MakePlan() with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            InterruptionData = new PlanInterruptionData(
+                "Stopped",
+                PlanRecoveryState.PendingRecovery,
+                1,
+                InterruptedTaskId: "REVISION-20260806-002"),
+        };
+        var pending = new PendingPlanRevisionProposal(
+            "proposal-stale",
+            DateTimeOffset.UtcNow,
+            new PlanRevisionProposalPayload(
+                plan.PlanId,
+                "older-revision",
+                "Old proposal",
+                null,
+                Operations: []));
+
+        var presentation = PlanRevisionApprovalPresentationBuilder.Build(plan, pending);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.OwnsInterruptedRecovery, Is.False);
+            Assert.That(presentation.Title, Is.EqualTo("Plan Revision - Approval Required"));
+            Assert.That(presentation.Context, Is.Null);
+        });
+    }
+
+    [Test]
     public void PromptAttachment_RoundTripsPlanIdentityAndBaseRevision()
     {
         var plan = MakePlan();

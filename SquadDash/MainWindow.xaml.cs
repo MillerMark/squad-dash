@@ -11925,11 +11925,20 @@ public partial class MainWindow : Window
             return;
 
         var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
+        var presentation = PlanRevisionApprovalPresentationBuilder.Build(current, pending);
+        if (presentation.OwnsInterruptedRecovery)
+        {
+            // A valid saved revision is the most specific next decision for this interruption.
+            // Remove the generic recovery surface so the transcript presents one cohesive path.
+            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+                CoordinatorThread.Document.Blocks,
+                current.PlanId);
+        }
         var stack = new StackPanel { Margin = new Thickness(4) };
 
         var header = new TextBlock
         {
-            Text = "Plan Revision - Approval Required",
+            Text = presentation.Title,
             FontSize = _transcriptFontSize + 2,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 6),
@@ -11990,6 +11999,14 @@ public partial class MainWindow : Window
         planTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         stack.Children.Add(planTitle);
 
+        if (presentation.Context is not null)
+        {
+            AddLabel("Why you are seeing this");
+            AddBody(presentation.Context, 5);
+            AddLabel("What happened");
+            AddBody(presentation.RecordedReason!, 8);
+        }
+
         AddLabel("Proposed change");
         AddBody(pending.Payload.Summary, 8);
         AddLabel("Impact");
@@ -12010,9 +12027,15 @@ public partial class MainWindow : Window
         if (preview.PreservedLockedTaskCount > 0)
             AddBody($"• {preview.PreservedLockedTaskCount} unaffected completed or active step(s) will remain unchanged.", 2);
 
+        if (presentation.Recommendation is not null)
+        {
+            AddLabel("Recommended next step");
+            AddBody(presentation.Recommendation, 8);
+        }
+
         var status = new TextBlock
         {
-            Text = "The current plan remains authoritative until you approve this revision.",
+            Text = presentation.Status,
             TextWrapping = TextWrapping.Wrap,
             FontSize = _transcriptFontSize - 1,
             Margin = new Thickness(0, 6, 0, 8),
@@ -12070,6 +12093,7 @@ public partial class MainWindow : Window
             actions.Visibility = Visibility.Collapsed;
             status.Text = "Current plan kept. No plan content changed.";
             RestoreAwaitingApprovalGateUI(pending.Payload.PlanId);
+            RestoreInterruptedPlanRecoverySurfaces();
         };
         ScrollToEndIfAtBottom(CoordinatorThread);
 
@@ -21424,6 +21448,15 @@ public partial class MainWindow : Window
             .OrderByDescending(candidate => candidate.Timestamps.InterruptedAt ?? candidate.Timestamps.CreatedAt)
             .FirstOrDefault();
         if (plan is null) return;
+        if (HasPendingPlanRevision(plan.PlanId))
+        {
+            // RestorePendingPlanRevisionApprovalCards runs first and owns the next decision for
+            // this plan. Do not follow it with a second, competing recovery card.
+            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+                CoordinatorThread.Document.Blocks,
+                plan.PlanId);
+            return;
+        }
         var taskId = plan.InterruptionData?.InterruptedTaskId
             ?? plan.Progress.ExecutingTaskId
             ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
@@ -21806,6 +21839,16 @@ public partial class MainWindow : Window
             return;
 
         var durablePlan = _planStore?.Load(plan.Group.GroupId);
+        if (!developerPreview && durablePlan is not null && HasPendingPlanRevision(durablePlan.PlanId))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Recovery controls suppressed because plan={durablePlan.PlanId} has a pending revision that owns the next decision.");
+            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+                CoordinatorThread.Document.Blocks,
+                durablePlan.PlanId);
+            return;
+        }
         if (!developerPreview &&
             (durablePlan is null || !PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan)))
         {
