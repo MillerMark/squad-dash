@@ -8,9 +8,11 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Xml;
 using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Document;
 using ICSharpCode.AvalonEdit.Highlighting;
+using ICSharpCode.AvalonEdit.Highlighting.Xshd;
 using ICSharpCode.AvalonEdit.Rendering;
 using SquadDash;
 
@@ -64,10 +66,14 @@ public sealed class RegionHighlightingTests
             .ToHashSet(StringComparer.Ordinal);
         var grammarOptions = options.Where(o => o.GrammarName is not null).ToList();
 
+        installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL" });
         Assert.That(grammarOptions, Has.Count.EqualTo(installed.Count),
-            "exactly one picker option per installed grammar (plus the two mode entries)");
+            "one option per built-in or bundled grammar, with no duplicate JSON entry");
         Assert.That(grammarOptions.Select(o => o.GrammarName!).ToHashSet(StringComparer.Ordinal),
             Is.EquivalentTo(installed));
+        Assert.That(options.Take(2).Select(o => o.FenceToken), Is.EqualTo(new[] { "", "text" }));
+        Assert.That(grammarOptions.Select(o => o.DisplayName),
+            Is.Ordered.Using<string>(StringComparer.OrdinalIgnoreCase));
     }
 
     [Test]
@@ -86,6 +92,134 @@ public sealed class RegionHighlightingTests
             var cloned = engine.CreateDefinition(definition.Name, palette);
             Assert.That(cloned.Name, Is.EqualTo(definition.Name));
         }
+    }
+
+    [TestCase("JSON", "Json", "json")]
+    [TestCase("TypeScript", "TypeScript", "typescript")]
+    [TestCase("YAML", "YAML", "yaml")]
+    [TestCase("SQL", "SQL", "sql")]
+    public void BundledGrammar_LoadsEmbeddedResource_AndExposesPickerOption(
+        string resource, string name, string token)
+    {
+        using var stream = typeof(RegionHighlightingEngine).Assembly
+            .GetManifestResourceStream($"SquadDash.Grammars.{resource}.xshd");
+        Assert.That(stream, Is.Not.Null);
+        using var reader = XmlReader.Create(stream!);
+        var definition = HighlightingLoader.Load(reader, null);
+        Assert.That(definition.Name, Is.EqualTo(name));
+        Assert.That(RegionLanguagePicker.Options.Single(o => o.FenceToken == token),
+            Is.EqualTo(new RegionLanguageOption(token, resource, name)));
+    }
+
+    [TestCase("json", "Json")]
+    [TestCase("JSON", "Json")]
+    [TestCase("typescript", "TypeScript")]
+    [TestCase("ts", "TypeScript")]
+    [TestCase("TS", "TypeScript")]
+    [TestCase("yaml", "YAML")]
+    [TestCase("yml", "YAML")]
+    [TestCase("YML", "YAML")]
+    [TestCase("sql", "SQL")]
+    [TestCase("SQL", "SQL")]
+    public void BundledGrammar_ExplicitTokensResolveToOwnDefinition(string token, string name)
+    {
+        var engine = new RegionHighlightingEngine();
+        var resolved = engine.Resolve(token, "using System; Console.WriteLine(1);");
+        Assert.That(resolved, Is.EqualTo(name));
+        Assert.That(engine.CreateDefinition(resolved!, PaletteFrom(engine, false)).Name, Is.EqualTo(name));
+    }
+
+    [TestCase("Json")]
+    [TestCase("TypeScript")]
+    [TestCase("YAML")]
+    [TestCase("SQL")]
+    public void BundledGrammar_PaletteRepushRecolorsEveryRole_WithoutLeaking(string name)
+    {
+        var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();
+        var before = manager.SelectMany(Snapshot).ToArray();
+        var engine = new RegionHighlightingEngine();
+        var light = engine.CreateDefinition(name, PaletteFrom(engine, false));
+        var sibling = engine.CreateDefinition(name, PaletteFrom(engine, false));
+        var dark = engine.CreateDefinition(name, PaletteFrom(engine, true));
+        var lightBefore = Snapshot(light);
+        var darkBefore = Snapshot(dark);
+        foreach (var color in light.NamedHighlightingColors)
+        {
+            Assert.That(ColorOf(color), Is.Not.Null, color.Name);
+            Assert.That(ColorOf(color), Is.Not.EqualTo(ColorOf(dark.GetNamedColor(color.Name))), color.Name);
+            Assert.That(ColorOf(color), Is.EqualTo(ColorOf(engine.CreatePaletteColors(false)[$"{name}/{color.Name}"])));
+        }
+
+        light.ApplyPalette(PaletteFrom(engine, true));
+        Assert.That(Snapshot(light), Is.EqualTo(darkBefore));
+        Assert.That(Snapshot(sibling), Is.EqualTo(lightBefore));
+        light.ApplyPalette(PaletteFrom(engine, false));
+        Assert.That(Snapshot(light), Is.EqualTo(lightBefore));
+        Assert.That(HighlightingManager.Instance.HighlightingDefinitions, Is.EqualTo(manager));
+        Assert.That(manager.SelectMany(Snapshot), Is.EqualTo(before));
+    }
+
+    [TestCase("Json", "{\"name\": \"SquadDash\", \"enabled\": true, \"count\": -1.2e+3}", "\"name\"", "Attribute")]
+    [TestCase("Json", "{\"name\": \"SquadDash\"}", "\"SquadDash\"", "String")]
+    [TestCase("Json", "{\"enabled\": true}", "true", "Keyword")]
+    [TestCase("Json", "[-1.2e+3]", "-1.2e+3", "Number")]
+    [TestCase("Json", "{\"name\": \"Ada\\\"s\"}", "\"Ada\\\"s\"", "String")]
+    [TestCase("TypeScript", "interface User { name: string; }", "interface", "Keyword")]
+    [TestCase("TypeScript", "const count: number = 42;", "number", "Type")]
+    [TestCase("TypeScript", "const name = 'Ada'; // hello", "// hello", "Comment")]
+    [TestCase("TypeScript", "// \"quoted\" /* comment\nconst value = 1;", "\"quoted\" /* comment", "Comment")]
+    [TestCase("TypeScript", "// /* comment\nconst value = 1;", "const", "Keyword")]
+    [TestCase("TypeScript", "const greeting = `Hello ${42}`;", "42", "Number")]
+    [TestCase("TypeScript", "const greeting = `Hello\nworld`;", "world", "String")]
+    [TestCase("TypeScript", "if (ready) run();", "if", "Keyword")]
+    [TestCase("TypeScript", "const name = \"Ada\\\"tail\";", "tail", "String")]
+    [TestCase("TypeScript", "const greeting = `Hello ${{ count: 42 }.count} world`;", "world", "String")]
+    [TestCase("YAML", "name: SquadDash\ncount: 42\nenabled: true", "name", "Attribute")]
+    [TestCase("YAML", "name: \"SquadDash\"", "SquadDash", "String")]
+    [TestCase("YAML", "enabled: true # hello", "# hello", "Comment")]
+    [TestCase("YAML", "count: 42", "42", "Number")]
+    [TestCase("YAML", "enabled: true", "true", "Keyword")]
+    [TestCase("YAML", "name: \"Ada\\\"s # team\"", "s # team", "String")]
+    [TestCase("YAML", "\"display name\": 'Ada''s team'", "\"display name\"", "Attribute")]
+    [TestCase("YAML", "- name: SquadDash", "name", "Attribute")]
+    [TestCase("SQL", "select Name from Users where Id = 42;", "select", "Keyword")]
+    [TestCase("SQL", "SELECT 'Ada''s team';", "'Ada''s team'", "String")]
+    [TestCase("SQL", "SELECT 'Ada''';", "'Ada'''", "String")]
+    [TestCase("SQL", "SELECT '/* not a comment */';", "/* not a comment */", "String")]
+    [TestCase("SQL", "SELECT 'first\nsecond';", "second", "String")]
+    [TestCase("SQL", "-- 'quoted' /* comment\nSELECT 1;", "'quoted' /* comment", "Comment")]
+    [TestCase("SQL", "-- /* comment\nSELECT 1;", "SELECT", "Keyword")]
+    [TestCase("SQL", "SELECT \"/* column */\", [bracket]]column] FROM Users;", "/* column */", "Attribute")]
+    [TestCase("SQL", "SELECT [bracket]]column] FROM Users;", "column", "Attribute")]
+    [TestCase("SQL", "CREATE TABLE Users (Id INTEGER);", "INTEGER", "Type")]
+    [TestCase("SQL", "SELECT 1.25;", "1.25", "Number")]
+    [TestCase("SQL", "-- hello\nSELECT 1;", "-- hello", "Comment")]
+    [TestCase("SQL", "SELECT CAST(1 AS VARCHAR(10));", "VARCHAR", "Type")]
+    public void BundledGrammar_HighlightsLanguageTokensInBothThemes(
+        string name, string content, string token, string role)
+    {
+        var engine = new RegionHighlightingEngine();
+        foreach (var isDark in new[] { false, true })
+        {
+            var definition = engine.CreateDefinition(name, PaletteFrom(engine, isDark));
+            var sections = HighlightAll(new TextDocument(content), definition);
+            var start = content.IndexOf(token, StringComparison.Ordinal);
+            Assert.That(sections.Any(section => section.Offset <= start &&
+                section.Offset + section.Length >= start + token.Length &&
+                ColorOf(section.Color) == ColorOf(definition.GetNamedColor(role))),
+                Is.True, $"{name}: '{token}' must use {role}, dark={isDark}");
+        }
+    }
+
+    [TestCase("url: https://example.org/#section")]
+    [TestCase("name: \"# not a comment\"")]
+    [TestCase("name: '# not a comment'")]
+    public void BundledYaml_DoesNotTreatScalarHashesAsComments(string content)
+    {
+        var engine = new RegionHighlightingEngine();
+        var definition = engine.CreateDefinition("YAML", PaletteFrom(engine, true));
+        Assert.That(HighlightAll(new TextDocument(content), definition)
+            .Any(section => ColorOf(section.Color) == ColorOf(definition.GetNamedColor("Comment"))), Is.False);
     }
 
     [Test]
@@ -401,10 +535,14 @@ public sealed class RegionHighlightingTests
         });
     }
 
-    [Test]
-    public void Block_NotifyThemeChanged_RecolorsDefinition_WhileContentCaretSelectionStayStable()
+    [TestCase("csharp")]
+    [TestCase("json")]
+    [TestCase("typescript")]
+    [TestCase("yaml")]
+    [TestCase("sql")]
+    public void Block_NotifyThemeChanged_RecolorsDefinition_WhileContentCaretSelectionStayStable(string token)
     {
-        var block = EmbeddedCodeRegionBlock.Build("Console.WriteLine(\"Hello, world!\");", "csharp");
+        var block = EmbeddedCodeRegionBlock.Build("Console.WriteLine(\"Hello, world!\");", token);
         var editor = LogicalDescendants<TextEditor>(block).Single();
         var definition = (RegionHighlightingDefinition)editor.SyntaxHighlighting;
 

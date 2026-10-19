@@ -1,0 +1,46 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Xml;
+using ICSharpCode.AvalonEdit.Highlighting;
+using ICSharpCode.AvalonEdit.Highlighting.Xshd;
+
+namespace SquadDash;
+
+internal static class RegionBundledGrammars
+{
+    public static void Register(RegionHighlightingEngine engine)
+    {
+        // Preserve Json's canonical name so the existing parser-backed detector still resolves it.
+        Register(engine, "JSON", "Json", "json");
+        Register(engine, "TypeScript", "TypeScript", "typescript", "ts");
+        Register(engine, "YAML", "YAML", "yaml", "yml");
+        Register(engine, "SQL", "SQL", "sql");
+    }
+
+    private static void Register(
+        RegionHighlightingEngine engine, string resourceName, string grammarName, string token,
+        params string[] aliases)
+    {
+        var definition = new Lazy<IHighlightingDefinition>(() => Load(resourceName));
+        engine.Register(new RegionLanguageOption(token, resourceName, grammarName),
+            () => definition.Value, CreatePalette, aliases);
+    }
+
+    private static IHighlightingDefinition Load(string resourceName)
+    {
+        var name = $"SquadDash.Grammars.{resourceName}.xshd";
+        using var stream = typeof(RegionBundledGrammars).Assembly.GetManifestResourceStream(name)
+            ?? throw new InvalidOperationException($"Missing bundled region grammar resource '{name}'.");
+        using var reader = XmlReader.Create(stream, new XmlReaderSettings
+        {
+            DtdProcessing = DtdProcessing.Prohibit,
+            XmlResolver = null,
+        });
+        return HighlightingLoader.Load(reader, null);
+    }
+
+    private static IReadOnlyDictionary<string, HighlightingColor> CreatePalette(bool isDark) =>
+        RegionHighlightingPalettes.CreateColors(isDark)
+            .ToDictionary(pair => pair.Key[1..], pair => pair.Value, StringComparer.Ordinal);
+}

@@ -26,8 +26,12 @@ public sealed class RegionHighlightingEngine
 
     public RegionHighlightingEngine()
     {
+        RegionBundledGrammars.Register(this);
         foreach (var definition in HighlightingManager.Instance.HighlightingDefinitions)
         {
+            // Bundled definitions take precedence only in this engine, never in the shared registry.
+            if (_grammars.ContainsKey(definition.Name))
+                continue;
             var token = Regex.Replace(definition.Name.ToLowerInvariant(), @"[^a-z0-9_+.#\-]", "");
             Register(new RegionLanguageOption(token, definition.Name, definition.Name), () => definition);
         }

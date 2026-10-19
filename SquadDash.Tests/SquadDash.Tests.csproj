@@ -203,6 +203,7 @@
     <Compile Include="..\SquadDash\RegionLanguagePicker.cs" Link="Source\RegionLanguagePicker.cs" />
     <Compile Include="..\SquadDash\RegionGrammarResolver.cs" Link="Source\RegionGrammarResolver.cs" />
     <Compile Include="..\SquadDash\RegionHighlightingEngine.cs" Link="Source\RegionHighlightingEngine.cs" />
+    <Compile Include="..\SquadDash\RegionBundledGrammars.cs" Link="Source\RegionBundledGrammars.cs" />
     <Compile Include="..\SquadDash\RegionHighlightingPalettes.cs" Link="Source\RegionHighlightingPalettes.cs" />
     <Compile Include="..\SquadDash\IRegionCodeEditor.cs" Link="Source\IRegionCodeEditor.cs" />
     <Compile Include="..\SquadDash\AvalonEditRegionEditor.cs" Link="Source\AvalonEditRegionEditor.cs" />
@@ -733,6 +734,9 @@
 
   <!-- Embedded resources shared from the main project (single source of truth — no copy) -->
   <ItemGroup>
+    <EmbeddedResource Include="..\SquadDash\Grammars\JSON.xshd;..\SquadDash\Grammars\TypeScript.xshd;..\SquadDash\Grammars\YAML.xshd;..\SquadDash\Grammars\SQL.xshd"
+                      Link="Grammars\%(Filename)%(Extension)"
+                      LogicalName="SquadDash.Grammars.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\SquadDash\Assets\squaddash.md" Link="Assets\squaddash.md" />
     <EmbeddedResource Include="..\SquadDash\Assets\squaddash-profiles.md" Link="Assets\squaddash-profiles.md" />
     <EmbeddedResource Include="..\SquadDash\Assets\decompose-planning.md" Link="Assets\decompose-planning.md" />

@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SyntaxDefinition name="SQL"
+                  extensions=".sql"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Keyword" foreground="#174EA6" />
+  <Color name="Comment" foreground="#426536" />
+  <Color name="String" foreground="#8F3520" />
+  <Color name="Number" foreground="#6841A5" />
+  <Color name="Type" foreground="#00695C" />
+  <Color name="Method" foreground="#795B00" />
+  <Color name="Attribute" foreground="#245B80" />
+  <Color name="Punctuation" foreground="#493827" />
+
+  <RuleSet ignoreCase="true">
+    <Span color="Comment" begin="--" />
+    <Span color="Comment" begin="/\*" end="\*/" multiline="true" />
+
+    <Span color="String" begin="'" end="'" multiline="true">
+      <RuleSet>
+        <Span begin="''" end="" />
+      </RuleSet>
+    </Span>
+    <Span color="Attribute" begin="&quot;" end="&quot;" multiline="true">
+      <RuleSet>
+        <Span begin="&quot;&quot;" end="" />
+      </RuleSet>
+    </Span>
+    <Span color="Attribute" begin="\[" end="\]" multiline="true">
+      <RuleSet>
+        <Span begin="\]\]" end="" />
+      </RuleSet>
+    </Span>
+
+    <Rule color="Number">\b\d+(?:\.\d+)?(?:e[+\-]?\d+)?\b</Rule>
+    <Rule color="Punctuation">[(),.;=*&lt;&gt;+\-/%]</Rule>
+
+    <Keywords color="Keyword">
+      <Word>add</Word><Word>all</Word><Word>alter</Word><Word>and</Word><Word>any</Word>
+      <Word>as</Word><Word>asc</Word><Word>between</Word><Word>by</Word><Word>case</Word>
+      <Word>check</Word><Word>constraint</Word><Word>create</Word><Word>cross</Word><Word>database</Word>
+      <Word>default</Word><Word>delete</Word><Word>desc</Word><Word>distinct</Word><Word>drop</Word>
+      <Word>else</Word><Word>end</Word><Word>except</Word><Word>exists</Word><Word>from</Word>
+      <Word>full</Word><Word>group</Word><Word>having</Word><Word>if</Word><Word>in</Word>
+      <Word>index</Word><Word>inner</Word><Word>insert</Word><Word>intersect</Word><Word>into</Word>
+      <Word>is</Word><Word>join</Word><Word>left</Word><Word>like</Word><Word>limit</Word>
+      <Word>not</Word><Word>null</Word><Word>offset</Word><Word>on</Word><Word>or</Word>
+      <Word>order</Word><Word>outer</Word><Word>primary</Word><Word>procedure</Word><Word>references</Word>
+      <Word>right</Word><Word>rownum</Word><Word>schema</Word><Word>select</Word><Word>set</Word>
+      <Word>table</Word><Word>then</Word><Word>top</Word><Word>truncate</Word><Word>union</Word>
+      <Word>unique</Word><Word>update</Word><Word>using</Word><Word>values</Word><Word>view</Word>
+      <Word>when</Word><Word>where</Word><Word>with</Word>
+    </Keywords>
+
+    <Keywords color="Type">
+      <Word>bigint</Word><Word>binary</Word><Word>bit</Word><Word>blob</Word><Word>bool</Word>
+      <Word>boolean</Word><Word>char</Word><Word>character</Word><Word>clob</Word><Word>date</Word>
+      <Word>datetime</Word><Word>decimal</Word><Word>double</Word><Word>float</Word><Word>int</Word>
+      <Word>integer</Word><Word>money</Word><Word>nchar</Word><Word>numeric</Word><Word>nvarchar</Word>
+      <Word>real</Word><Word>smallint</Word><Word>text</Word><Word>time</Word><Word>timestamp</Word>
+      <Word>tinyint</Word><Word>uuid</Word><Word>varbinary</Word><Word>varchar</Word><Word>xml</Word>
+    </Keywords>
+    <Rule color="Method">\b[A-Za-z_][A-Za-z0-9_]*\b(?=\s*\()</Rule>
+  </RuleSet>
+</SyntaxDefinition>

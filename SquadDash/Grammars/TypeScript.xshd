@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SyntaxDefinition name="TypeScript"
+                  extensions=".ts;.tsx;.mts;.cts"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Keyword" foreground="#174EA6" />
+  <Color name="Comment" foreground="#426536" />
+  <Color name="String" foreground="#8F3520" />
+  <Color name="Number" foreground="#6841A5" />
+  <Color name="Type" foreground="#00695C" />
+  <Color name="Method" foreground="#795B00" />
+  <Color name="Punctuation" foreground="#493827" />
+
+  <RuleSet name="TypeScript">
+    <Span color="Comment" begin="//" />
+    <Span color="Comment" begin="/\*" end="\*/" multiline="true" />
+
+    <Span color="String" begin="&quot;" end="&quot;" ruleSet="StringEscapes" />
+    <Span color="String" begin="'" end="'" ruleSet="StringEscapes" />
+    <Span color="String" begin="`" end="`" multiline="true" ruleSet="TemplateString" />
+    <Span color="Punctuation" begin="\{" end="\}" multiline="true" ruleSet="TypeScript" />
+
+    <Rule color="Number">(?:0[xX][0-9A-Fa-f]+|0[bB][01]+|0[oO][0-7]+|\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?)n?</Rule>
+    <Rule color="Punctuation">[{}\[\]().,;:?=&lt;&gt;+\-*/%|&amp;!^~]</Rule>
+
+    <Keywords color="Keyword">
+      <Word>as</Word><Word>async</Word><Word>await</Word><Word>break</Word><Word>case</Word>
+      <Word>catch</Word><Word>class</Word><Word>const</Word><Word>continue</Word><Word>debugger</Word>
+      <Word>declare</Word><Word>default</Word><Word>delete</Word><Word>do</Word><Word>else</Word>
+      <Word>enum</Word><Word>export</Word><Word>extends</Word><Word>finally</Word><Word>for</Word>
+      <Word>from</Word><Word>function</Word><Word>get</Word><Word>if</Word><Word>implements</Word>
+      <Word>import</Word><Word>in</Word><Word>infer</Word><Word>instanceof</Word><Word>interface</Word>
+      <Word>is</Word><Word>keyof</Word><Word>let</Word><Word>module</Word><Word>namespace</Word>
+      <Word>new</Word><Word>of</Word><Word>package</Word><Word>private</Word><Word>protected</Word>
+      <Word>public</Word><Word>readonly</Word><Word>require</Word><Word>return</Word><Word>set</Word>
+      <Word>static</Word><Word>super</Word><Word>switch</Word><Word>this</Word><Word>throw</Word>
+      <Word>try</Word><Word>type</Word><Word>typeof</Word><Word>using</Word><Word>var</Word>
+      <Word>while</Word><Word>with</Word><Word>yield</Word>
+      <Word>true</Word><Word>false</Word><Word>null</Word><Word>undefined</Word>
+    </Keywords>
+
+    <Keywords color="Type">
+      <Word>any</Word><Word>bigint</Word><Word>boolean</Word><Word>never</Word><Word>number</Word>
+      <Word>object</Word><Word>string</Word><Word>symbol</Word><Word>unknown</Word><Word>void</Word>
+      <Word>Array</Word><Word>ReadonlyArray</Word><Word>Promise</Word><Word>Map</Word><Word>Set</Word>
+      <Word>Record</Word><Word>Partial</Word><Word>Required</Word><Word>Pick</Word><Word>Omit</Word>
+      <Word>Date</Word><Word>Error</Word>
+    </Keywords>
+    <Rule color="Method">\b[A-Za-z_$][A-Za-z0-9_$]*\b(?=\s*\()</Rule>
+  </RuleSet>
+
+  <RuleSet name="StringEscapes">
+    <Span color="Punctuation" begin="\\" end="." />
+  </RuleSet>
+
+  <RuleSet name="TemplateString">
+    <Import ruleSet="StringEscapes" />
+    <Span color="Punctuation"
+          begin="\$\{"
+          end="\}"
+          ruleSet="TypeScript"
+          multiline="true" />
+  </RuleSet>
+
+  <RuleSet>
+    <Import ruleSet="TypeScript" />
+  </RuleSet>
+</SyntaxDefinition>

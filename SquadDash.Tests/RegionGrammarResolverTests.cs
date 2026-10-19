@@ -181,6 +181,23 @@ public sealed class RegionGrammarAutoDetectTests
         "  \"enabled\": true\n" +
         "}";
 
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void Resolve_AutoDetectedJson_UsesBundledDefinitionWithoutChangingBuiltInDetection()
+    {
+        var engine = new RegionHighlightingEngine();
+        var name = engine.Resolve("", JsonSample);
+        Assert.That(name, Is.EqualTo("Json"));
+        var palette = new RegionEditorPalette(
+            System.Windows.Media.Brushes.White, System.Windows.Media.Brushes.Black,
+            engine.CreatePaletteColors(false));
+        var definition = engine.CreateDefinition(name!, palette);
+        Assert.That(definition.GetNamedColor("Attribute"), Is.Not.Null,
+            "JSON property coloring comes from the bundled grammar");
+        Assert.That(engine.Resolve("", TsqlSample), Is.EqualTo("TSQL"),
+            "adding explicit SQL must not steal existing TSQL auto-detection");
+    }
+
     private const string TsqlSample =
         "DECLARE @teamId int = 42;\n" +
         "SELECT Name, Status\n" +
