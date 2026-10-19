@@ -217,6 +217,59 @@ public sealed class RegionGrammarAutoDetectTests
         Assert.That(RegionGrammarResolver.DetectBuiltIn(ambiguous), Is.Null);
     }
 
+    // AVALONEDIT-20261014-AMD-001 (Step 5a): declaration-style C# with none of the four original
+    // narrow markers must still classify as "C#" via the broadened signals, while Java / JavaScript
+    // / C++ remain unaffected and ambiguous or prose content still returns null.
+    private const string ReviewerInterfaceSample =
+        "public interface ICalloutWindow {\n" +
+        "    event EventHandler? RefreshTargetRect;\n" +
+        "    event EventHandler? AngleChanged;\n" +
+        "    bool ShowDiagnostics { get; set; }\n" +
+        "    void UpdateTargetRect(Rect rect);\n" +
+        "    void TargetMoved();\n" +
+        "    void ForceRefresh();\n" +
+        "    double LastDragAngle { get; }\n" +
+        "}";
+
+    private const string ReviewerEmptyClassSample =
+        "public class MainWindow {\n}";
+
+    private const string DeclarationPropertyClassSample =
+        "public class Person\n" +
+        "{\n" +
+        "    public string Name { get; set; }\n" +
+        "    public int Age { get; set; }\n" +
+        "    public string Greet() => \"Hi \" + Name;\n" +
+        "}";
+
+    [TestCase(ReviewerInterfaceSample)]
+    [TestCase(ReviewerEmptyClassSample)]
+    [TestCase(DeclarationPropertyClassSample)]
+    [Apartment(ApartmentState.STA)]
+    public void DetectBuiltIn_ClassifiesDeclarationStyleCSharp(string content)
+    {
+        var normalized = content.Replace("\r\n", "\n");
+        Assert.That(RegionGrammarResolver.DetectBuiltIn(normalized), Is.EqualTo("C#"));
+    }
+
+    [TestCase("import java.util.List; public class X { public static void main(String[] a){} }", "Java")]
+    [TestCase("console.log(1)", "JavaScript")]
+    [TestCase("#include <vector>", "C++")]
+    [Apartment(ApartmentState.STA)]
+    public void DetectBuiltIn_BroadenedCSharpDoesNotFalsePositiveOtherLanguages(string content, string expected)
+    {
+        Assert.That(RegionGrammarResolver.DetectBuiltIn(content), Is.EqualTo(expected));
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void DetectBuiltIn_DeclarationStyleCSharp_StaysNullForProse()
+    {
+        // Prose that merely mentions code-ish words must not trip the broadened C# markers.
+        var prose = "The event was planned for the class reunion; everyone used the main hall.";
+        Assert.That(RegionGrammarResolver.DetectBuiltIn(prose), Is.Null);
+    }
+
     [Test]
     [Apartment(ApartmentState.STA)]
     public void DetectBuiltIn_IgnoresMarkersBeyondScanWindow()

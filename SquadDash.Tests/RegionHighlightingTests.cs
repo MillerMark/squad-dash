@@ -494,6 +494,21 @@ public sealed class RegionHighlightingTests
             "the debounce must stay disarmed until the editor has actually loaded");
     }
 
+    // AVALONEDIT-20261014-AMD-001 (Step 5a): a declaration-style C# reviewer sample pasted into an
+    // Auto-detect region must drive RefreshHighlighting to a non-null "C#" grammar.
+    [TestCase("public interface ICalloutWindow {\n    event EventHandler? RefreshTargetRect;\n    bool ShowDiagnostics { get; set; }\n    void ForceRefresh();\n}")]
+    [TestCase("public class MainWindow {\n}")]
+    public void AutoDetect_DeclarationStyleCSharpSample_AppliesCsharpHighlighting(string sample)
+    {
+        var editor = new AvalonEditRegionEditor(sample, new RegionHighlightingEngine());
+        using var host = HostLoaded(editor.Control);
+
+        editor.SetLanguage(""); // auto-detect classifies the current content synchronously
+
+        Assert.That(editor.HighlightingName, Is.EqualTo("C#"),
+            "declaration-style C# must auto-detect to the C# grammar");
+    }
+
     [Test]
     public void AutoDetectDebounce_ReclassifiesAndClearsHighlightingAfterTypingPauses()
     {

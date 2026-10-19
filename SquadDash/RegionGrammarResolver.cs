@@ -76,6 +76,16 @@ public static class RegionGrammarResolver
             Make(@"\bnamespace\s+[A-Za-z_][\w.]*\s*;"),
             Make(@"\bConsole\.(Write|WriteLine)\b"),
             Make(@"\bpublic\s+static\s+void\s+Main\s*\(\s*string\[\]"),
+            // Declaration-style C# signals that do NOT also fire the Java / C++ / JavaScript /
+            // PowerShell / CSS markers, so realistic hand-written C# still classifies as a single
+            // winner. Case-sensitive (C# keywords are case-sensitive) and backtracking-free.
+            Make(@"\bnamespace\s+[A-Za-z_][\w.]*\s*\{"),
+            Make(@"\busing\s+[A-Za-z_][\w.]*\s*;"),
+            Make(@"\{\s*get\s*;"),
+            Make(@"\bevent\s+[A-Za-z_][\w.]*\??\s+[A-Za-z_]\w*\s*;"),
+            Make(@"\bEventHandler\?"),
+            Make(@"\b(public|internal|protected|private)\s+(sealed\s+|abstract\s+|static\s+|partial\s+)*class\s+[A-Za-z_]\w*\s*\{\s*\}"),
+            Make(@"\b(public|private|protected|internal)\s+(sealed\s+|abstract\s+|static\s+|partial\s+|readonly\s+|ref\s+)*(record|struct)\b"),
         }),
         new("Java", new[]
         {
