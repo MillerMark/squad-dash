@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Xml.Linq;
 using SquadDash;
 
@@ -295,6 +296,7 @@ internal sealed class ProviderFailurePresentationTests
         {
             Assert.That(codeBlock.Text, Is.EqualTo(failure.RawError));
             Assert.That(codeBlock.IsReadOnly, Is.True);
+            Assert.That(InputMethod.GetIsInputMethodEnabled(codeBlock), Is.False);
             Assert.That(codeBlock.FontFamily.Source, Is.EqualTo("Consolas"));
             Assert.That(codeBlock.Tag, Is.EqualTo(ProviderFailureTranscriptBlockFactory.CodeBlockTag));
             Assert.That(border.ReadLocalValue(Border.BackgroundProperty), Is.Not.EqualTo(DependencyProperty.UnsetValue));

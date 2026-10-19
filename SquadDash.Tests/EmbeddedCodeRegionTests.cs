@@ -2672,6 +2672,36 @@ internal sealed class EmbeddedCodeRegionTests
             Is.False);
 
     [Test, Apartment(ApartmentState.STA)]
+    public void TryHandleRegionDeleteKey_BackspaceDeletesInsideRegionAndHandles()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nabc\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var region = RichTextBoxExtensions.EnumerateEmbeddedRegions(rtb).Single();
+        region.FocusContentAtPosition(2);
+
+        Assert.That(region.TryHandleRegionDeleteKey(Key.Back, ModifierKeys.None), Is.True);
+
+        Assert.That(region.Content, Is.EqualTo("ac"));
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nac\n```"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void TryHandleRegionDeleteKey_DeleteAtEndIsHandledNoop()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("```\nabc\n```");
+        EmbeddedCodeRegionManager.TryConvertNextFence(rtb);
+        var region = RichTextBoxExtensions.EnumerateEmbeddedRegions(rtb).Single();
+        region.FocusContentAtPosition(3);
+
+        Assert.That(region.TryHandleRegionDeleteKey(Key.Delete, ModifierKeys.None), Is.True);
+
+        Assert.That(region.Content, Is.EqualTo("abc"));
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("```\nabc\n```"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void TryRemoveEmptyRegionFromHost_DropsContainer_AndRegionDoesNotResurrectOnRebuild()
     {
         // An empty fence between two plain-text lines becomes an empty region flanked by paragraphs.

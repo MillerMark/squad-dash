@@ -27,6 +27,7 @@
     <Compile Include="..\SquadDash\ButtonCommandExecutionService.cs" Link="Source\ButtonCommandExecutionService.cs" />
     <Compile Include="..\SquadDash\SquadCommandOutputWindow.cs" Link="Source\SquadCommandOutputWindow.cs" />
     <Compile Include="..\SquadDash\AnsiTextParser.cs" Link="Source\AnsiTextParser.cs" />
+    <Compile Include="..\SquadDash\ReadOnlyTextInputGuard.cs" Link="Source\ReadOnlyTextInputGuard.cs" />
     <Compile Include="..\SquadDash\ThrottledScrollRichTextBox.cs" Link="Source\ThrottledScrollRichTextBox.cs" />
     <Compile Include="..\SquadDash\ButtonCaptionPresentation.cs" Link="Source\ButtonCaptionPresentation.cs" />
     <Compile Include="..\SquadDash\ButtonTokenCompletion.cs" Link="Source\ButtonTokenCompletion.cs" />

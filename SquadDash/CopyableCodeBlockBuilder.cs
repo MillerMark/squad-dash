@@ -41,6 +41,7 @@ internal static class CopyableCodeBlockBuilder
             Padding = new Thickness(10, codeTopPadding, 10, 8),
             Tag = "codeblock",
         };
+        ReadOnlyTextInputGuard.DisableInputMethod(textBox);
         textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
 

@@ -75,6 +75,7 @@ internal static class HostCommandTranscriptRenderer {
                 MaxHeight = 200,
                 Margin = new Thickness(0, 0, 0, 4)
             };
+            ReadOnlyTextInputGuard.DisableInputMethod(outputBox);
             outputBox.SetResourceReference(TextBox.BackgroundProperty, "CodeSurface");
             outputBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
             outputBox.SetResourceReference(TextBox.ForegroundProperty, "CodeText");

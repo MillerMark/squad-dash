@@ -2,6 +2,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.IO;
 using System.Text.Json;
 using SquadDash;
@@ -181,6 +182,7 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
             Assert.That(textBox.Text, Is.EqualTo(prompt));
             Assert.That(textBox.Tag, Is.EqualTo("codeblock"));
             Assert.That(textBox.IsReadOnly, Is.True);
+            Assert.That(InputMethod.GetIsInputMethodEnabled(textBox), Is.False);
             Assert.That(textBox.ContextMenu?.Items.OfType<MenuItem>().Select(item => item.Header),
                 Does.Contain("Copy"));
         });
@@ -220,6 +222,7 @@ internal sealed class MarkdownFlowDocumentBuilderTests {
                 Does.Contain("Consolas"));
             Assert.That(codeTextBox.Text, Is.EqualTo("RenderScene();"));
             Assert.That(codeTextBox.Tag, Is.EqualTo("codeblock"));
+            Assert.That(InputMethod.GetIsInputMethodEnabled(codeTextBox), Is.False);
         });
     }
 

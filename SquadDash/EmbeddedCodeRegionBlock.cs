@@ -367,16 +367,22 @@ public sealed class EmbeddedCodeRegionBlock : Border
         // falls through untouched to normal editing. See EmbeddedRegionBackspaceRouter.
         _editorControl.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key != Key.Back)
+            if (e.Key is not (Key.Back or Key.Delete))
                 return;
 
             var regionHasFocus = _editor.IsKeyboardFocusWithin && ReferenceEquals(ActiveRegion, this);
-            if (!regionHasFocus ||
-                !EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace(e.Key, Keyboard.Modifiers, _editor.TextLength))
+            if (!regionHasFocus)
                 return;
 
-            Trace($"EMBEDDED_CODE_BACKSPACE_REMOVE enter textLen={_editor.TextLength} active={ReferenceEquals(ActiveRegion, this)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
-            if (TryRemoveEmptyRegionFromHost())
+            if (EmbeddedRegionBackspaceRouter.ShouldRemoveEmptyRegionOnBackspace(e.Key, Keyboard.Modifiers, _editor.TextLength))
+            {
+                Trace($"EMBEDDED_CODE_BACKSPACE_REMOVE enter textLen={_editor.TextLength} active={ReferenceEquals(ActiveRegion, this)} keyboardFocus={DescribeInputObject(Keyboard.FocusedElement)}");
+                if (TryRemoveEmptyRegionFromHost())
+                    e.Handled = true;
+                return;
+            }
+
+            if (TryHandleRegionDeleteKey(e.Key, Keyboard.Modifiers))
                 e.Handled = true;
         };
 
@@ -658,6 +664,61 @@ public sealed class EmbeddedCodeRegionBlock : Border
     /// element boundary while focus is really inside the nested editor.
     /// </summary>
     internal bool HasContentKeyboardFocus => _editor.IsKeyboardFocusWithin;
+
+    /// <summary>
+    /// Applies a Backspace/Delete key directly to the nested editor and marks the key handled
+    /// before WPF's parent <see cref="RichTextBox"/> can translate it into its own native
+    /// editing command. That parent path can fail-fast around hosted <see cref="BlockUIContainer"/>
+    /// regions, so deletion that belongs to a region must never fall through to it.
+    /// </summary>
+    internal bool TryHandleRegionDeleteKey(Key key, ModifierKeys modifiers)
+    {
+        if (key is not (Key.Back or Key.Delete))
+            return false;
+        if (modifiers != ModifierKeys.None)
+            return false;
+
+        ActiveRegion = this;
+        ClearHostSelection();
+
+        var selectionLength = _editor.SelectionLength;
+        if (selectionLength > 0)
+        {
+            var start = _editor.SelectionStart;
+            Trace($"EMBEDDED_CODE_REGION_DELETE selection key={key} start={start} length={selectionLength}");
+            _editor.DeleteText(start, selectionLength);
+            _editor.FocusEditor();
+            return true;
+        }
+
+        var caret = _editor.CaretOffset;
+        if (key == Key.Back)
+        {
+            if (caret <= 0)
+            {
+                _editor.FocusEditor();
+                Trace("EMBEDDED_CODE_REGION_DELETE noop reason=start-of-region");
+                return true;
+            }
+
+            Trace($"EMBEDDED_CODE_REGION_DELETE backward offset={caret - 1}");
+            _editor.DeleteText(caret - 1, 1);
+            _editor.FocusEditor();
+            return true;
+        }
+
+        if (caret >= _editor.TextLength)
+        {
+            _editor.FocusEditor();
+            Trace("EMBEDDED_CODE_REGION_DELETE noop reason=end-of-region");
+            return true;
+        }
+
+        Trace($"EMBEDDED_CODE_REGION_DELETE forward offset={caret}");
+        _editor.DeleteText(caret, 1);
+        _editor.FocusEditor();
+        return true;
+    }
 
     /// <summary>
     /// The editor's current selection as (anchorLocal, caretLocal) offsets within the region's

@@ -130,6 +130,9 @@ public interface IRegionCodeEditor
     /// Removes the current selection from the document (used by the fenced Cut path).
     void RemoveSelectedText();
 
+    /// Removes a range from the document and leaves the caret at the removal offset.
+    void DeleteText(int offset, int length);
+
     /// Inserts <paramref name="text"/> at the caret (replacing the current selection, if any)
     /// and advances the caret to the end of the inserted text. Used by the voice-dictation path
     /// so recognized text lands inside the focused region instead of the host prompt. Mirrors

@@ -28829,6 +28829,23 @@ public partial class MainWindow : Window
                     $"PROMPT_EMBEDDED_CODE_SPACE_KEY reached-host modifiers={modifiers} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)} hostHasFocus={ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)} activeAttached={EmbeddedCodeRegionBlock.ActiveRegion.IsAttachedToHost()}");
             }
 
+            // Same focus-leak safety net as printable text input, but for keys that WPF translates
+            // into native RichTextBox editing commands before TextInput. Letting Backspace reach the
+            // host while an embedded region is still active can enter WPF's fail-fast path around
+            // BlockUIContainer selection updates, so route it back into the region immediately.
+            if (modifiers == ModifierKeys.None
+                && e.Key is Key.Back or Key.Delete
+                && PromptTextBox.Selection.IsEmpty
+                && FocusedEmbeddedCodeRegion() is null
+                && ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)
+                && EmbeddedCodeRegionBlock.ActiveRegion is { } activeRegion
+                && activeRegion.IsAttachedToHost()
+                && activeRegion.TryHandleRegionDeleteKey(e.Key, modifiers))
+            {
+                e.Handled = true;
+                return;
+            }
+
             if (modifiers == ModifierKeys.None
                 && e.Key is Key.Delete or Key.Back
                 && PromptTextBox.SelectionContainsEmbeddedCodeRegion()
@@ -44822,6 +44839,7 @@ public partial class MainWindow : Window
             FontSize = _transcriptFontSize,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
+        ReadOnlyTextInputGuard.DisableInputMethod(rtb);
         rtb.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
         rtb.SetResourceReference(RichTextBox.SelectionBrushProperty, "DocEditorSelectionBrush");
         rtb.SetResourceReference(RichTextBox.SelectionOpacityProperty, "DocEditorSelectionOpacity");
@@ -47422,6 +47440,7 @@ public partial class MainWindow : Window
             Padding = new Thickness(10, codeTopPadding, 10, 8),
             Tag = "codeblock"
         };
+        ReadOnlyTextInputGuard.DisableInputMethod(textBox);
         textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
 
@@ -50652,6 +50671,7 @@ public partial class MainWindow : Window
             MinHeight = 140,
             MaxHeight = 260
         };
+        ReadOnlyTextInputGuard.DisableInputMethod(detailTextBox);
         detailTextBox.SetResourceReference(TextBox.BackgroundProperty, "CodeSurface");
         detailTextBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         detailTextBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");

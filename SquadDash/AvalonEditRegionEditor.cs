@@ -194,6 +194,22 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor
         _editor.Document.Remove(_editor.SelectionStart, length);
     }
 
+    public void DeleteText(int offset, int length)
+    {
+        if (length <= 0)
+            return;
+
+        var textLength = _editor.Document.TextLength;
+        offset = Math.Clamp(offset, 0, textLength);
+        length = Math.Min(length, textLength - offset);
+        if (length <= 0)
+            return;
+
+        _editor.Document.Remove(offset, length);
+        _editor.TextArea.ClearSelection();
+        _editor.TextArea.Caret.Offset = offset;
+    }
+
     public void InsertText(string text)
     {
         using var update = _editor.Document.RunUpdate();
