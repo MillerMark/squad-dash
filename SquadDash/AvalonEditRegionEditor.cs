@@ -18,6 +18,10 @@ namespace SquadDash;
 /// </summary>
 public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
 {
+    private const double DefaultEditorMaxHeight = 130;
+    private const double FallbackLineHeightMultiplier = 1.35;
+    private const double HeightSlack = 2;
+
     private readonly TextEditor _editor;
     private readonly DispatcherTimer _autoDetectTimer;
     private readonly RegionHighlightingEngine _highlighting;
@@ -37,7 +41,7 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
             BorderThickness = new Thickness(0),
             Padding = new Thickness(8),
             Margin = new Thickness(0),
-            MaxHeight = 130,
+            MaxHeight = DefaultEditorMaxHeight,
             WordWrap = false,
             ShowLineNumbers = false,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
@@ -67,6 +71,7 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
         _editor.Document.UpdateStarted += Document_UpdateStarted;
         _editor.TextChanged += Editor_TextChanged;
         _editor.Document.UpdateFinished += Document_UpdateFinished;
+        UpdateEditorHeight();
     }
 
     public event EventHandler? TextChanging;
@@ -113,6 +118,7 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
         if (grammar == HighlightingName)
             return;
         _editor.SyntaxHighlighting = grammar is null ? null : _highlighting.CreateDefinition(grammar, _palette);
+        UpdateEditorHeight();
         _editor.TextArea.TextView.Redraw();
         HighlightingChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -127,6 +133,7 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
             if (_disposed)
                 return;
             _editor.Document.Text = value ?? string.Empty;
+            UpdateEditorHeight();
         }
     }
 
@@ -204,7 +211,10 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
         set
         {
             if (!_disposed)
+            {
                 _editor.MaxHeight = value;
+                UpdateEditorHeight();
+            }
         }
     }
 
@@ -217,7 +227,10 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
         set
         {
             if (!_disposed)
+            {
                 _editor.FontSize = value;
+                UpdateEditorHeight();
+            }
         }
     }
 
@@ -342,7 +355,11 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
 
     private void Editor_Unloaded(object sender, RoutedEventArgs e) => _autoDetectTimer.Stop();
 
-    private void Editor_Loaded(object sender, RoutedEventArgs e) => RefreshHighlighting();
+    private void Editor_Loaded(object sender, RoutedEventArgs e)
+    {
+        UpdateEditorHeight();
+        RefreshHighlighting();
+    }
 
     private void Document_UpdateStarted(object? sender, EventArgs e)
     {
@@ -362,9 +379,35 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
             return;
 
         _textChangedDuringUpdate = false;
+        UpdateEditorHeight();
         _autoDetectTimer.Stop();
         if (_editor.IsLoaded && RegionGrammarResolver.ShouldAutoDetect(_fenceToken))
             _autoDetectTimer.Start();
         TextChanged?.Invoke(this, e);
+    }
+
+    private void UpdateEditorHeight()
+    {
+        if (_disposed)
+            return;
+
+        var lineHeight = _editor.TextArea.TextView.DefaultLineHeight;
+        if (double.IsNaN(lineHeight) || double.IsInfinity(lineHeight) || lineHeight <= 0)
+            lineHeight = _editor.FontSize * FallbackLineHeightMultiplier;
+
+        var lineCount = Math.Max(1, _editor.Document.LineCount);
+        var desired = Math.Ceiling(
+            lineCount * lineHeight +
+            _editor.Padding.Top +
+            _editor.Padding.Bottom +
+            _editor.BorderThickness.Top +
+            _editor.BorderThickness.Bottom +
+            HeightSlack);
+
+        var maxHeight = _editor.MaxHeight;
+        if (!double.IsNaN(maxHeight) && !double.IsInfinity(maxHeight) && maxHeight > 0)
+            desired = Math.Min(desired, maxHeight);
+
+        _editor.Height = desired;
     }
 }

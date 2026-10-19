@@ -2602,6 +2602,43 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(contentBox.MaxHeight, Is.EqualTo(130));
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void AutoDetectHighlighting_KeepsSingleLineEditorHeightTight()
+    {
+        var editor = new AvalonEditRegionEditor("public event EventHandler? Changed;");
+        var contentBox = (ICSharpCode.AvalonEdit.TextEditor)editor.Control;
+        var plainHeight = contentBox.Height;
+
+        editor.SetLanguage("");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor.HighlightingName, Is.EqualTo("C#"),
+                "the sample mirrors the short event/EventHandler? snippet that triggers C# auto-detect");
+            Assert.That(contentBox.Height, Is.EqualTo(plainHeight).Within(0.5),
+                "applying syntax highlighting must not inflate a one-line editor into empty viewport space");
+            Assert.That(contentBox.Height, Is.LessThan(contentBox.MaxHeight),
+                "one-line regions should stay content-sized rather than expanding to the scrollbar cap");
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ContentEditorHeight_GrowsWithLinesButCapsAtMaxHeight()
+    {
+        var editor = new AvalonEditRegionEditor("one");
+        var contentBox = (ICSharpCode.AvalonEdit.TextEditor)editor.Control;
+        var oneLineHeight = contentBox.Height;
+
+        editor.Text = string.Join("\n", Enumerable.Range(1, 12).Select(i => $"line {i}"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(contentBox.Height, Is.GreaterThan(oneLineHeight));
+            Assert.That(contentBox.Height, Is.EqualTo(contentBox.MaxHeight),
+                "large regions still use the existing capped-height + scrollbar behavior");
+        });
+    }
+
     // ── Font scaling: region editor tracks the prompt font size ─────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]
