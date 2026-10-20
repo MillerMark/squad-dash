@@ -143,16 +143,6 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
-    public ApplicationSettingsSnapshot SaveDocSourceFontSize(double docSourceFontSize) {
-        using var mutex = AcquireMutex();
-
-        var current = LoadCore();
-        var updated = current with { DocSourceFontSize = NormalizeFontSize(docSourceFontSize) };
-
-        SaveCore(updated);
-        return updated;
-    }
-
     public ApplicationSettingsSnapshot SaveMarkdownEditorZoomMultiplier(double multiplier) {
         using var mutex = AcquireMutex();
         var current = LoadCore();
@@ -1542,11 +1532,6 @@ internal sealed record ApplicationSettingsSnapshot(
     public double TranscriptFontSize { get; init; } = 14;
     public double InboxFontSize { get; init; } = 14;
 
-    /// <summary>
-    /// Font size for the documentation source editor (DocSourceTextBox). Global/machine-wide.
-    /// </summary>
-    public double DocSourceFontSize { get; init; } = 12;
-
     public double MarkdownEditorZoomMultiplier { get; init; } = 1.0;
 
     internal static double NormalizeMarkdownEditorZoomMultiplier(double multiplier) =>
@@ -2197,7 +2182,6 @@ internal sealed record ApplicationSettingsSnapshot(
             SpeechRegion = string.IsNullOrWhiteSpace(SpeechRegion) ? null : SpeechRegion.Trim(),
             TranscriptFontSize = NormalizeFontSize(TranscriptFontSize),
             InboxFontSize = NormalizeFontSize(InboxFontSize),
-            DocSourceFontSize = NormalizeFontSize(DocSourceFontSize),
             MarkdownEditorZoomMultiplier = NormalizeMarkdownEditorZoomMultiplier(MarkdownEditorZoomMultiplier),
             ValidationDetailsFontMultiplier = NormalizeValidationDetailsFontMultiplier(ValidationDetailsFontMultiplier),
             Theme = Theme is "Light" or "Dark" or "Auto" ? Theme : null,

@@ -110,12 +110,6 @@ internal static class UiTimingConstants
     /// <summary>Doc-source auto-save debounce interval.</summary>
     public static readonly TimeSpan DocSourceSaveInterval = TimeSpan.FromMilliseconds(400);
 
-    /// <summary>Doc-source hover tooltip delay.</summary>
-    public static readonly TimeSpan DocSourceHoverInterval = TimeSpan.FromSeconds(1);
-
-    /// <summary>Doc-source search debounce interval.</summary>
-    public static readonly TimeSpan DocSourceFindDebounceInterval = TimeSpan.FromMilliseconds(150);
-
     /// <summary>Periodic UI refresh (footer timestamp, transcript title).</summary>
     public static readonly TimeSpan PeriodicRefreshInterval = TimeSpan.FromSeconds(60);
 

@@ -57,6 +57,7 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
         _toolbarClickHandler = Toolbar_ButtonClick;
         _toolbar.AddHandler(ButtonBase.ClickEvent, _toolbarClickHandler, true);
         _toolbar.PreviewMouseDown += Toolbar_PreviewMouseDown;
+        _toolbar.ImageInsertRequested += Toolbar_ImageInsertRequested;
 
         _boldButton = _toolbar.FindName("BoldButton") as Button;
         _italicButton = _toolbar.FindName("ItalicButton") as Button;
@@ -106,6 +107,12 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
 
     public TextEditor Editor { get; }
 
+    public bool ShowImageButton
+    {
+        get => _toolbar.ShowImageButton;
+        set => _toolbar.ShowImageButton = value;
+    }
+
     public bool ShowHrButton
     {
         get => _toolbar.ShowHrButton;
@@ -114,6 +121,15 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
 
     public event EventHandler<string>? TextChanged;
     public event EventHandler<string>? PreviewUpdateRequested;
+    public event RoutedEventHandler? ImageInsertRequested;
+
+    private void Toolbar_ImageInsertRequested(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        ImageInsertRequested?.Invoke(this, e);
+        _hasToolbarSelectionSnapshot = false;
+        FocusEditor();
+    }
 
     public string GetText() => NormalizeLf(Editor.Document.Text);
 
@@ -184,6 +200,7 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
         _previewDebounce.Tick -= PreviewDebounce_Tick;
         _toolbar.RemoveHandler(ButtonBase.ClickEvent, _toolbarClickHandler);
         _toolbar.PreviewMouseDown -= Toolbar_PreviewMouseDown;
+        _toolbar.ImageInsertRequested -= Toolbar_ImageInsertRequested;
         Editor.TextChanged -= Editor_TextChanged;
         Editor.Document.UpdateFinished -= Document_UpdateFinished;
         DataObject.RemovePastingHandler(Editor, Editor_Pasting);
@@ -193,6 +210,7 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
         Editor.TextArea.SelectionChanged -= TextArea_SelectionChanged;
         TextChanged = null;
         PreviewUpdateRequested = null;
+        ImageInsertRequested = null;
     }
 
     private void Editor_TextChanged(object? sender, EventArgs e)

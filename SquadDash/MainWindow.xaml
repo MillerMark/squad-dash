@@ -3312,46 +3312,11 @@
                                Foreground="{DynamicResource LabelText}"
                                VerticalAlignment="Center" />
                 </DockPanel>
-                    <!-- Markdown formatting toolbar -->
-                    <Border DockPanel.Dock="Top"
-                            BorderBrush="{DynamicResource PanelBorder}"
-                            BorderThickness="0,0,0,1"
-                            Padding="6,4">
-                        <local:MarkdownEditorToolbar x:Name="DocEditorToolbar"
-                                                     ShowImageButton="True"
-                                                     ShowHrButton="False"
-                                                     ImageInsertRequested="DocEditorToolbar_ImageInsertRequested" />
-                    </Border>
-
-                    <RichTextBox x:Name="DocSourceTextBox"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto"
-                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                             FontFamily="Consolas, Courier New, monospace"
-                             FontSize="{DynamicResource FontSizeBody}"
-                             Padding="10"
-                             BorderThickness="0"
-                             Background="{DynamicResource RosterPanelSurface}"
-                             Foreground="{DynamicResource LabelText}"
-                             ContextMenu="{x:Null}"
-                             SpellCheck.IsEnabled="False"
-                             SelectionBrush="{DynamicResource DocEditorSelectionBrush}"
-                             SelectionOpacity="{DynamicResource DocEditorSelectionOpacity}"
-                             PreviewKeyDown="DocSourceTextBox_PreviewKeyDown"
-                             PreviewTextInput="DocSourceTextBox_PreviewTextInput"
-                             PreviewMouseRightButtonDown="DocSourceTextBox_PreviewMouseRightButtonDown"
-                             PreviewMouseWheel="DocSourceTextBox_PreviewMouseWheel"
-                             SelectionChanged="DocSourceTextBox_SelectionChanged"
-                             TextChanged="DocSourceTextBox_TextChanged">
-                        <RichTextBox.Document>
-                            <FlowDocument PageWidth="100000">
-                                <FlowDocument.Resources>
-                                    <Style TargetType="Paragraph">
-                                        <Setter Property="Margin" Value="0"/>
-                                    </Style>
-                                </FlowDocument.Resources>
-                            </FlowDocument>
-                        </RichTextBox.Document>
-                    </RichTextBox>
+                    <local:AvalonEditMarkdownEditor x:Name="DocSourceEditor"
+                                                    ShowImageButton="True"
+                                                    ShowHrButton="False"
+                                                    ImageInsertRequested="DocSourceEditor_ImageInsertRequested"
+                                                    TextChanged="DocSourceEditor_TextChanged" />
                 </DockPanel>
                 </Grid>
             </Border>

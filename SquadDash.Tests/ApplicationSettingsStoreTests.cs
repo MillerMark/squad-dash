@@ -368,14 +368,12 @@ internal sealed class ApplicationSettingsStoreTests {
         var path = workspace.GetPath("settings.json");
         var store = new ApplicationSettingsStore(path);
         store.SavePromptFontSize(19);
-        store.SaveDocSourceFontSize(16);
         Assert.That(store.SaveMarkdownEditorZoomMultiplier(value).MarkdownEditorZoomMultiplier, Is.EqualTo(expected));
         var reloaded = new ApplicationSettingsStore(path);
         reloaded.SavePromptFontSize(20);
         var loaded = reloaded.Load();
         Assert.Multiple(() => {
             Assert.That(loaded.MarkdownEditorZoomMultiplier, Is.EqualTo(expected));
-            Assert.That(loaded.DocSourceFontSize, Is.EqualTo(16));
             Assert.That(loaded.PromptFontSize, Is.EqualTo(20));
         });
     }

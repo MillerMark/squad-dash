@@ -91,6 +91,48 @@ internal sealed class AvalonEditMarkdownEditorTests
     }
 
     [Test]
+    public void ImageButton_IsOptIn_ForwardsOneRequest_AndKeepsInsertionUndoable()
+    {
+        SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 14);
+        using var editor = new AvalonEditMarkdownEditor();
+        var toolbar = FindToolbar(editor);
+        var imageButton = (Button)toolbar.FindName("ImageButton");
+        Assert.That(editor.ShowImageButton, Is.False);
+        Assert.That(imageButton.Visibility, Is.EqualTo(Visibility.Collapsed));
+
+        editor.ShowImageButton = true;
+        editor.ShowHrButton = false;
+        editor.SetText("# Documentation\nbody");
+        editor.Editor.Select(16, 4);
+        var requests = 0;
+        object? eventSender = null;
+        editor.ImageInsertRequested += (sender, _) =>
+        {
+            eventSender = sender;
+            requests++;
+            editor.Editor.TextArea.Selection.ReplaceSelectionWithText("![Screenshot](images/test.png)");
+        };
+        imageButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, imageButton));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(imageButton.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(toolbar.ShowHrButton, Is.False);
+            Assert.That(requests, Is.EqualTo(1));
+            Assert.That(eventSender, Is.SameAs(editor));
+            Assert.That(editor.GetText(), Is.EqualTo("# Documentation\n![Screenshot](images/test.png)"));
+            Assert.That(editor.Editor.SyntaxHighlighting.Name, Is.EqualTo("Markdown"));
+        });
+        editor.Editor.Undo();
+        Assert.That(editor.GetText(), Is.EqualTo("# Documentation\nbody"));
+        editor.ShowImageButton = false;
+        Assert.That(imageButton.Visibility, Is.EqualTo(Visibility.Collapsed));
+        editor.Dispose();
+        toolbar.RaiseEvent(new RoutedEventArgs(MarkdownEditorToolbar.ImageInsertRequestedEvent));
+        Assert.That(requests, Is.EqualTo(1), "Disposal detaches image forwarding.");
+    }
+
+    [Test]
     public void DefaultDocumentLoading_DoesNotOptOtherCallersIntoAvalonEdit()
     {
         SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 14);

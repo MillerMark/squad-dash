@@ -7,6 +7,69 @@ namespace SquadDash.Tests;
 internal sealed class AvalonEditMarkdownEditorMigrationArchitectureTests
 {
     [Test]
+    public void RepoDocumentation_UsesSharedHighlightedEditorAndKeepsDocumentLifecycle()
+    {
+        var xaml = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml"));
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(xaml, Does.Contain("<local:AvalonEditMarkdownEditor x:Name=\"DocSourceEditor\"")
+                .And.Contain("ShowImageButton=\"True\"")
+                .And.Contain("ShowHrButton=\"False\"")
+                .And.Contain("ImageInsertRequested=\"DocSourceEditor_ImageInsertRequested\"")
+                .And.Contain("TextChanged=\"DocSourceEditor_TextChanged\""));
+            Assert.That(xaml, Does.Not.Contain("DocSourceTextBox").And.Not.Contain("DocEditorToolbar"));
+            Assert.That(source, Does.Not.Contain("DocSourceTextBox.")
+                .And.Not.Contain("_docSourceFind")
+                .And.Not.Contain("_docSourceHover")
+                .And.Not.Contain("_docSourceOverlayCanvas")
+                .And.Not.Contain("ApplyDocSourceFontSize"));
+            Assert.That(source, Does.Contain("StripDocFrontMatter(raw, out var frontMatter)")
+                .And.Contain("DocSourceEditor.SetText(stripped);")
+                .And.Contain("DocSourceEditor.SetText(string.Empty);")
+                .And.Contain("var bodyText = DocSourceEditor.GetText();")
+                .And.Contain("if (string.IsNullOrWhiteSpace(bodyText))")
+                .And.Contain("File.WriteAllText(_currentDocPath, _currentDocFrontMatter + bodyText);"));
+            Assert.That(source, Does.Contain("if (_suppressDocSourceTextChanged || _isClosing) return;")
+                .And.Contain("_docSourceSaveTimer.Start();")
+                .And.Contain("_docPreviewRefreshTimer.Start();")
+                .And.Contain("DocSourceEditor?.Dispose();"));
+            Assert.That(source, Does.Contain("DocSourceEditor.HighlightSourceLine(lineHint);")
+                .And.Contain("DocSourceEditor.ClearSourceHighlight();")
+                .And.Contain("ApplicationCommands.Find.Execute(null, textArea);")
+                .And.Contain("SetDocSourceLayout(topBottom: false)")
+                .And.Contain("SetDocSourceLayout(topBottom: true)"));
+        });
+    }
+
+    [Test]
+    public void RepoDocumentation_KeepsDocActionsAndDefersInputToAvalon()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("DocSourceEditor?.Editor?.TextArea?.ContextMenu")
+                .And.Contain("Paste image from clipboard")
+                .And.Contain("Add to New Chat")
+                .And.Contain("Add to Notes")
+                .And.Contain("![Screenshot: brief description](images/screenshot-{id}.png)")
+                .And.Contain("new ClipboardImageEditorWindow(this, clipImg)"));
+            Assert.That(source, Does.Contain("DocSourceEditor.ReviseWithAiCallback")
+                .And.Contain("DocSourceEditor.StartPttCallback")
+                .And.Contain("DocSourceEditor.StopPttCallback")
+                .And.Contain("if (IsDocSourceEditorFocused())")
+                .And.Contain("private bool LastFocusedIsDocSourceTextBox()")
+                .And.Contain("DocSourceEditor.CycleCase(false);")
+                .And.Contain("DocSourceEditor?.RefreshTheme();"));
+            Assert.That(source, Does.Contain("MapRawOffsetToNormalizedOffset(beforeRawText, selectionStart)")
+                .And.Contain("MapNormalizedOffsetToRawOffset(beforeRawText, offset)")
+                .And.Contain("if (!CanMutateDocSourceRange(editor, rawOffset, rawRemoveLength))")
+                .And.Contain("using (editor.Document.RunUpdate())")
+                .And.Contain("editor.Document.Replace(rawOffset, rawRemoveLength, insertText);"));
+        });
+    }
+
+    [Test]
     public void CodeHealthTaskEditorWindow_UsesAvalonEditorForInstructionsHoverAndLifecycle()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "CodeHealthTaskEditorWindow.cs"));

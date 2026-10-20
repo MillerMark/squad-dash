@@ -60,9 +60,6 @@ public partial class MainWindow : Window
     private const double PromptFontSizeMax = 30;
     private const double PromptFontSizeStep = 1;
     private const int PromptInputTraceIntervalMs = 1000;
-    private const double DocSourceFontSizeMin = 8;
-    private const double DocSourceFontSizeMax = 28;
-    private const double DocSourceFontSizeStep = 1;
     private const double InboxFontSizeMin = 9;
     private const double InboxFontSizeMax = 28;
 
@@ -618,7 +615,6 @@ public partial class MainWindow : Window
     private int _toolSpinnerFrame;
     private double _transcriptFontSize = FontSizeBaseValues["FontSizeMedium"];
     private double _promptFontSize = FontSizeBaseValues["FontSizeMedium"];
-    private double _docSourceFontSize = FontSizeBaseValues["FontSizeBody"];
     private double _inboxFontSize = 14;
     private int _fontScaleLevel = 2; // Normal (1.0×)
     private bool _fontSizeApplyPending;
@@ -713,17 +709,6 @@ public partial class MainWindow : Window
     private DispatcherTimer? _coordinatorIntentDebounceTimer;
     private readonly Dictionary<string, DispatcherTimer> _agentIntentDebounceTimers = new();
 
-    // ── Doc source find-in-source bar state ────────────────────────────────────
-    private Border? _docSourceFindBar;
-    private TextBox? _docSourceFindTextBox;
-    private TextBlock? _docSourceFindMatchCount;
-    private Canvas? _docSourceFindOverlay;
-    private DispatcherTimer? _docSourceFindDebounceTimer;
-    private List<int> _docSourceFindMatches = [];
-    private int _docSourceFindCurrentIndex = -1;
-    private Canvas? _docSourceOverlayCanvas;     // persistent overlay canvas for highlights
-    private Shapes.Rectangle? _docSourceHoverHighlight;
-    private DispatcherTimer? _docSourceHoverTimer;
     private int _loopCurrentIteration;
     private DateTimeOffset _loopNextIterationAt;
     private bool _loopIsWaiting;
@@ -910,7 +895,7 @@ public partial class MainWindow : Window
     private ISpeechRecognitionService? _speechService;
     private PushToTalkWindow? _pttWindow;
     private TextBox? _pttTargetTextBox;       // resolved at activation; set for plain TextBox dictation targets (e.g. clipboard/note editors)
-    private RichTextBox? _pttTargetRichTextBox;  // set when a RichTextBox (e.g. DocSourceTextBox, PromptTextBox) has focus at PTT activation
+    private RichTextBox? _pttTargetRichTextBox;  // set when a RichTextBox (e.g. PromptTextBox) has focus at PTT activation
     private readonly object _pttVolumeUpdateGate = new();
     private bool _pttVolumeUpdateQueued;
     private double _pendingPttVolumeHeight;
@@ -2247,7 +2232,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            DocEditorToolbar.TargetRichTextBox = DocSourceTextBox;
+            ConfigureDocSourceEditor();
 
             DeveloperMenuItem.Visibility = Visibility.Collapsed;
 
@@ -2727,14 +2712,12 @@ public partial class MainWindow : Window
         SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: settings loaded {initWsSw.ElapsedMilliseconds}ms.");
         _promptFontSize = Math.Clamp(_settingsSnapshot.PromptFontSize, PromptFontSizeMin, PromptFontSizeMax);
         _transcriptFontSize = Math.Clamp(_settingsSnapshot.TranscriptFontSize, TranscriptFontSizeMin, TranscriptFontSizeMax);
-        _docSourceFontSize = Math.Clamp(_settingsSnapshot.DocSourceFontSize, DocSourceFontSizeMin, DocSourceFontSizeMax);
         _inboxFontSize = Math.Clamp(_settingsSnapshot.InboxFontSize, InboxFontSizeMin, InboxFontSizeMax);
         _fontScaleLevel = Math.Clamp(_settingsSnapshot.FontSizeScaleLevel, 0, FontScaleFactors.Length - 1);
         _squadCliAdapter.LastObservedModel = _settingsSnapshot.LastUsedModel;
         ApplyViewMode();
         ApplyPromptFontSize();
         ApplyTranscriptFontSize();
-        ApplyDocSourceFontSize();
         ApplyFontSizeScale();
         _themePreference = _settingsSnapshot.Theme ?? "Auto";
         var resolvedTheme = string.Equals(_themePreference, "Auto", StringComparison.OrdinalIgnoreCase)
@@ -28810,203 +28793,6 @@ public partial class MainWindow : Window
         PromptTextBox.ContextMenu = menu;
     }
 
-    private void ApplyDocSourceFontSize()
-    {
-        if (DocSourceTextBox is not null)
-            DocSourceTextBox.FontSize = _docSourceFontSize;
-    }
-
-    private void DocSourceTextBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
-    {
-        try
-        {
-            if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
-                return;
-
-            _docSourceFontSize = Math.Clamp(
-                _docSourceFontSize + (e.Delta > 0 ? DocSourceFontSizeStep : -DocSourceFontSizeStep),
-                DocSourceFontSizeMin,
-                DocSourceFontSizeMax);
-
-            ApplyDocSourceFontSize();
-            _settingsManager.Replace(_settingsStore.SaveDocSourceFontSize(_docSourceFontSize));
-            e.Handled = true;
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(DocSourceTextBox_PreviewMouseWheel), ex);
-        }
-    }
-
-    private void DocSourceTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        // ── Ctrl+Shift+Z → Redo ───────────────────────────────────────────────────
-        if (e.Key == System.Windows.Input.Key.Z
-            && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
-        {
-            if (DocSourceTextBox.CanRedo)
-                DocSourceTextBox.Redo();
-            e.Handled = true;
-            return;
-        }
-
-        // ── Shift+F3: cycle case of selected text ─────────────────────────────────
-        if (e.Key == System.Windows.Input.Key.F3
-            && Keyboard.Modifiers == ModifierKeys.Shift
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            var selStart     = DocSourceTextBox.GetSelectionStart();
-            var selectedText = DocSourceTextBox.GetSelectedText();
-
-            bool continuing = _docCycleVariants is not null
-                && selStart == _docCycleSelStart
-                && selectedText == _docCycleVariants[_docCycleIndex];
-
-            if (!continuing)
-            {
-                _docCycleOriginal = selectedText;
-                _docCycleVariants = TextCaseHelper.ComputeOrderedVariants(selectedText);
-                _docCycleIndex    = 0;
-                _docCycleSelStart = selStart;
-
-                var firstVariant = _docCycleVariants[_docCycleIndex];
-                DocSourceTextBox.ReplaceSelection(firstVariant);
-                DocSourceTextBox.SelectRange(selStart, firstVariant.Length);
-            }
-            else
-            {
-                _docCycleIndex = (_docCycleIndex + 1) % _docCycleVariants!.Count;
-                var nextVariant = _docCycleVariants[_docCycleIndex];
-
-                // Restore original (no undo), then apply next variant as a single undo entry.
-                DocSourceTextBox.IsUndoEnabled = false;
-                DocSourceTextBox.SelectRange(_docCycleSelStart, selectedText.Length);
-                DocSourceTextBox.Selection.Text = _docCycleOriginal!;
-                DocSourceTextBox.IsUndoEnabled  = true;
-                DocSourceTextBox.SelectRange(_docCycleSelStart, _docCycleOriginal!.Length);
-                DocSourceTextBox.ReplaceSelection(nextVariant);
-                DocSourceTextBox.SelectRange(_docCycleSelStart, nextVariant.Length);
-            }
-            e.Handled = true;
-            _guidedTourCoordinator.RaiseCycleCaseForward(this);
-            return;
-        }
-
-        // ── Ctrl+Shift+F3: reverse cycle case of selected text ────────────────────
-        if (e.Key == System.Windows.Input.Key.F3
-            && Keyboard.Modifiers == (ModifierKeys.Shift | ModifierKeys.Control)
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            var selStart     = DocSourceTextBox.GetSelectionStart();
-            var selectedText = DocSourceTextBox.GetSelectedText();
-
-            bool continuing = _docCycleVariants is not null
-                && selStart == _docCycleSelStart
-                && selectedText == _docCycleVariants[_docCycleIndex];
-
-            if (!continuing)
-            {
-                _docCycleOriginal = selectedText;
-                _docCycleVariants = TextCaseHelper.ComputeOrderedVariants(selectedText);
-                _docCycleSelStart = selStart;
-                _docCycleIndex    = _docCycleVariants.Count - 1;
-
-                var firstVariant = _docCycleVariants[_docCycleIndex];
-                DocSourceTextBox.ReplaceSelection(firstVariant);
-                DocSourceTextBox.SelectRange(selStart, firstVariant.Length);
-            }
-            else
-            {
-                _docCycleIndex = (_docCycleIndex - 1 + _docCycleVariants!.Count) % _docCycleVariants.Count;
-                var prevVariant = _docCycleVariants[_docCycleIndex];
-
-                DocSourceTextBox.IsUndoEnabled = false;
-                DocSourceTextBox.SelectRange(_docCycleSelStart, selectedText.Length);
-                DocSourceTextBox.Selection.Text = _docCycleOriginal!;
-                DocSourceTextBox.IsUndoEnabled  = true;
-                DocSourceTextBox.SelectRange(_docCycleSelStart, _docCycleOriginal!.Length);
-                DocSourceTextBox.ReplaceSelection(prevVariant);
-                DocSourceTextBox.SelectRange(_docCycleSelStart, prevVariant.Length);
-            }
-            e.Handled = true;
-            _guidedTourCoordinator.RaiseCycleCaseReverse(this);
-            return;
-        }
-
-        // ── Smooth Dictation: Shift+Space on selection ────────────────────────────
-        if (e.Key == System.Windows.Input.Key.Space
-            && Keyboard.Modifiers == ModifierKeys.Shift
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            e.Handled = SmoothDictationHelper.ApplyToRichTextBox(DocSourceTextBox);
-            return;
-        }
-
-        // ── Selection embedding: backtick or apostrophe wraps inline code or fence ─
-        if ((e.Key == System.Windows.Input.Key.OemTilde || e.Key == System.Windows.Input.Key.OemQuotes)
-            && Keyboard.Modifiers == ModifierKeys.None
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            if (MarkdownEditorCommands.ApplyInlineCodeOrFence(DocSourceTextBox))
-            {
-                _suppressDocSourceNextTextInput = true;
-                e.Handled = true;
-                return;
-            }
-        }
-
-        // ── Selection embedding: double-quote wraps inline quote ──────────────────
-        if (e.Key == System.Windows.Input.Key.OemQuotes
-            && Keyboard.Modifiers == ModifierKeys.Shift
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            if (MarkdownEditorCommands.ApplyInlineQuote(DocSourceTextBox))
-            {
-                _suppressDocSourceNextTextInput = true;
-                e.Handled = true;
-                return;
-            }
-        }
-
-        // ── Shift+Enter: duplicate current line ───────────────────────────────────
-        if (e.Key == System.Windows.Input.Key.Return
-            && Keyboard.Modifiers == ModifierKeys.Shift)
-        {
-            MarkdownEditorCommands.DuplicateLine(DocSourceTextBox);
-            e.Handled = true;
-            return;
-        }
-
-        // ── List continuation: Enter at end of a bullet/numbered line ─────────────
-        if (e.Key == System.Windows.Input.Key.Return
-            && Keyboard.Modifiers == ModifierKeys.None)
-        {
-            if (MarkdownEditorCommands.ContinueListOnEnter(DocSourceTextBox))
-                e.Handled = true;
-            return;
-        }
-
-        if (e.Key == System.Windows.Input.Key.Tab)
-        {
-            e.Handled = true;
-            var caret    = DocSourceTextBox.GetCaretOffset();
-            var selLen   = DocSourceTextBox.GetSelectionLength();
-            var selStart = DocSourceTextBox.GetSelectionStart();
-            var text     = DocSourceTextBox.GetPlainText();
-            if (selLen > 0)
-            {
-                DocSourceTextBox.SelectRange(selStart, selLen);
-                DocSourceTextBox.ReplaceSelection("    ");
-                DocSourceTextBox.SetCaretOffset(selStart + 4);
-            }
-            else
-            {
-                DocSourceTextBox.SetPlainText(text.Insert(caret, "    "));
-                DocSourceTextBox.SetCaretOffset(caret + 4);
-            }
-        }
-    }
-
     private void PromptTextBox_KeyDown(object sender, KeyEventArgs e)
     {
         var sw = Stopwatch.StartNew();
@@ -29850,68 +29636,22 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // ── Escape: dismiss doc find bar from any focus position (incl. WebBrowser preview) ──
-            if (e.Key == Key.Escape && _docSourceFindBar is not null)
+            // Guard against rerouting input when the docs source Avalon editor has focus.
+            if (IsDocSourceEditorFocused())
             {
-                HideDocSourceFindBar();
-                e.Handled = true;
-                return;
-            }
-
-            // ── Feature 1: Guard against rerouting input when DocSourceTextBox has focus ──
-            if (DocSourceTextBox?.IsFocused == true)
-            {
-                // Allow Ctrl+F to trigger find-in-source instead of transcript search
                 if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
                 {
                     ShowDocSourceFindBar();
                     e.Handled = true;
                     return;
                 }
-                // Ctrl+B: wrap selection (or insert empty pair) in markdown bold
-                if (e.Key == Key.B && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
-                {
-                    DocSourceTextBox_ApplyBold();
-                    e.Handled = true;
-                    return;
-                }
-                // Ctrl+I: wrap selection in markdown italic
-                if (e.Key == Key.I && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
-                {
-                    DocSourceTextBox_ApplyItalic();
-                    e.Handled = true;
-                    return;
-                }
-                // Let Ctrl+Shift+A (Revise) and Ctrl+Shift+C (Cleanup) fall through
-                // so the window-level handlers below can process them.
-                if ((e.Key == Key.A || e.Key == Key.C)
-                    && (Keyboard.Modifiers & ModifierKeys.Control) != 0
-                    && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0
-                    && (Keyboard.Modifiers & ModifierKeys.Alt)     == 0)
-                {
-                    // Fall through to the Ctrl+Shift+A / Ctrl+Shift+C handlers below.
-                }
-                // Let Alt+Arrow through for camelCase navigation.
-                else
-                {
-                    var effectiveKeyDoc = e.Key == Key.System ? e.SystemKey : e.Key;
-                    if ((effectiveKeyDoc == Key.Left || effectiveKeyDoc == Key.Right)
-                        && (Keyboard.Modifiers & ModifierKeys.Alt) != 0
-                        && (Keyboard.Modifiers & ModifierKeys.Control) == 0)
-                    {
-                        // Fall through to the camelCase nav block below.
-                    }
-                    // Let bare Ctrl key events fall through so the double-tap PTT state machine
-                    // can track them. All other keys are eaten here.
-                    else if (!IsCtrlKey(e.Key))
-                        return;
-                }
+                // Let the editor own escape/find/formatting/navigation/PTT gestures.
+                return;
             }
 
-            // Also guard the transcript search box and the doc find text box —
-            // but let bare Ctrl key events fall through so the PTT state machine can track them.
+            // Also guard the transcript search box, but let bare Ctrl key events fall through
+            // so the PTT state machine can track them.
             if (SearchBox?.IsFocused == true && !IsCtrlKey(e.Key)) return;
-            if (_docSourceFindTextBox?.IsFocused == true && !IsCtrlKey(e.Key)) return;
 
             if (_pttState == PttState.Idle
                 && PromptTextBox?.IsKeyboardFocusWithin == true
@@ -29947,7 +29687,7 @@ public partial class MainWindow : Window
             {
                 // If docs panel is open, Ctrl+F searches the doc — even if focus is on
                 // a toolbar button, the topics tree, or the rendered preview.
-                if (DocsPanel.Visibility == Visibility.Visible && DocSourceTextBox != null)
+                if (DocsPanel.Visibility == Visibility.Visible && IsDocSourceVisible() && DocSourceEditor is not null)
                 {
                     ShowDocSourceFindBar();
                     e.Handled = true;
@@ -30123,8 +29863,7 @@ public partial class MainWindow : Window
             // controls can scroll their own content normally.
             if (e.Key == Key.PageUp
                 && Keyboard.Modifiers == ModifierKeys.None
-                && DocSourceTextBox?.IsKeyboardFocusWithin != true
-                && _docSourceFindTextBox?.IsFocused != true)
+                && DocSourceEditor?.IsKeyboardFocusWithin != true)
             {
                 ActiveScrollController.ScrollPageUp();
                 e.Handled = true;
@@ -30132,8 +29871,7 @@ public partial class MainWindow : Window
             }
             if (e.Key == Key.PageDown
                 && Keyboard.Modifiers == ModifierKeys.None
-                && DocSourceTextBox?.IsKeyboardFocusWithin != true
-                && _docSourceFindTextBox?.IsFocused != true)
+                && DocSourceEditor?.IsKeyboardFocusWithin != true)
             {
                 ActiveScrollController.ScrollPageDown();
                 e.Handled = true;
@@ -30183,6 +29921,9 @@ public partial class MainWindow : Window
                     return;
                 }
             }
+
+            if (IsDocSourceEditorFocused() && IsCtrlKey(e.Key))
+                return;
 
             switch (_pttState)
             {
@@ -30271,7 +30012,7 @@ public partial class MainWindow : Window
     private void TryStartPushToTalkFromFocusedTarget(double secondTapGapMs)
     {
         // Resolve the target at activation time — prefer a focused RichTextBox
-        // (e.g. DocSourceTextBox, PromptTextBox) over the fallback TextBox path.
+        // (e.g. PromptTextBox) over the fallback TextBox path.
         var focusedTextBox     = Keyboard.FocusedElement as TextBox;
         var focusedRichTextBox = Keyboard.FocusedElement as RichTextBox;
 
@@ -30502,6 +30243,9 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (IsDocSourceEditorFocused())
+                return;
+
             // Commit any pending font-scale change immediately when Ctrl is released
             // so the apply happens at the exact moment scrolling stops.
             if (IsCtrlKey(e.Key) && _fontScaleCommitTimer is { IsEnabled: true })
@@ -33493,6 +33237,8 @@ public partial class MainWindow : Window
             if (e.StagingItem.Input is not KeyEventArgs keyArgs) return;
             if (keyArgs.RoutedEvent != Keyboard.PreviewKeyDownEvent) return;
             var key = keyArgs.Key == Key.System ? keyArgs.SystemKey : keyArgs.Key;
+            if (IsDocSourceEditorFocused() && IsCtrlKey(key))
+                return;
 
             // Ctrl+C or Ctrl+Insert while UI Reveal is active → copy happened, exit reveal.
             if (_uiRevealOverlay?.IsActive == true
@@ -40406,13 +40152,6 @@ public partial class MainWindow : Window
         DocumentUtilities.StripDocFrontMatter(raw, out frontMatter);
 
     private bool _suppressDocSourceTextChanged;
-    private bool _suppressDocSourceNextTextInput;
-
-    // ── Shift+F3 case-cycle state (DocSourceTextBox) ─────────────────────────────
-    private string?       _docCycleOriginal;    // original selected text before first cycle press
-    private List<string>? _docCycleVariants;    // [TitleCase, SentenceCase, UPPER, PascalCase]
-    private int           _docCycleIndex;       // index of the variant currently shown
-    private int           _docCycleSelStart;    // selection start when cycle began
     private DispatcherTimer? _docSourceSaveTimer;
     private DispatcherTimer? _docPreviewRefreshTimer;
 
@@ -40457,7 +40196,7 @@ public partial class MainWindow : Window
         ApplyDocSourceLayout(_docSourceLayoutTopBottom, sourceSize);
         if (ViewSourceButton is not null) ViewSourceButton.Content = "Hide Source";
 
-        ApplyDocSourceFontSize();
+        EnsureDocSourceEditorContextMenu();
         PopulateDocSourceEditor();
 
         // Inject hover JS now that the source panel is visible — the initial LoadCompleted
@@ -40485,6 +40224,7 @@ public partial class MainWindow : Window
             DocsPreviewColumn.Width = new GridLength(1, GridUnitType.Star);
         DocsSourceSplitterRow.Height = new GridLength(0);
         DocsSourceRow.Height = new GridLength(0);
+        DocSourceEditor?.ClearSourceHighlight();
         if (DocSourceSplitter is not null) DocSourceSplitter.Visibility = Visibility.Collapsed;
         if (DocSourcePanel is not null) DocSourcePanel.Visibility = Visibility.Collapsed;
         if (ViewSourceButton is not null) ViewSourceButton.Content = "View Source";
@@ -40622,7 +40362,7 @@ public partial class MainWindow : Window
 
     private void PopulateDocSourceEditor()
     {
-        if (DocSourceTextBox is null) return;
+        if (DocSourceEditor is null) return;
 
         // Cancel any pending preview refresh so it doesn't fire with stale content
         // after the document switch.
@@ -40633,23 +40373,27 @@ public partial class MainWindow : Window
         {
             if (string.IsNullOrEmpty(_currentDocPath) || !File.Exists(_currentDocPath))
             {
-                DocSourceTextBox.SetPlainText(string.Empty);
+                DocSourceEditor.SetText(string.Empty);
             }
             else
             {
                 var raw      = File.ReadAllText(_currentDocPath);
                 var stripped = StripDocFrontMatter(raw, out var frontMatter);
                 _currentDocFrontMatter = frontMatter;
-                DocSourceTextBox.SetPlainText(stripped);
+                DocSourceEditor.SetText(stripped);
             }
+            DocSourceEditor.ClearSourceHighlight();
         }
         finally
         {
             _suppressDocSourceTextChanged = false;
         }
+
+        DocSourceEditor.DocumentPath = _currentDocPath ?? string.Empty;
+        DocSourceEditor.CleanupPrompt = _settingsSnapshot.CleanupPrompt;
     }
 
-    private void DocSourceTextBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    private void DocSourceEditor_TextChanged(object? sender, string e)
     {
         // During shutdown WPF can fire TextChanged as the visual tree is torn down (template
         // detachment / document reset).  Restarting the debounce timer at that point would
@@ -40706,7 +40450,7 @@ public partial class MainWindow : Window
 
     private void RefreshDocMarkdownViewerFromSource()
     {
-        if (DocMarkdownViewer is null || DocSourceTextBox is null) return;
+        if (DocMarkdownViewer is null || DocSourceEditor is null) return;
 
         // Capture current scroll position before re-rendering
         try
@@ -40718,7 +40462,7 @@ public partial class MainWindow : Window
         }
         catch { /* WebBrowser has no document yet */ }
 
-        var markdown = DocSourceTextBox.GetPlainText();
+        var markdown = DocSourceEditor.GetText();
         var title = string.IsNullOrEmpty(_currentDocPath) ? "Documentation" : Path.GetFileNameWithoutExtension(_currentDocPath);
         var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: _currentDocPath, isDark: AgentStatusCard.IsDarkTheme);
 
@@ -40743,141 +40487,33 @@ public partial class MainWindow : Window
     // Feature 3: Highlight doc source from hover
     internal void HighlightDocSourceFromHover(string lineHint)
     {
-        if (DocSourceTextBox is null || string.IsNullOrEmpty(lineHint)) return;
-        if (!int.TryParse(lineHint, out var lineNum) || lineNum < 1) return;
-
-        var lines = DocSourceTextBox.GetPlainText().Split('\n');
-        if (lineNum > lines.Length) return;
-
-        // Find the start position of the line
-        int startPos = 0;
-        for (int i = 0; i < lineNum - 1; i++)
+        if (DocSourceEditor is null || !IsDocSourceVisible())
+            return;
+        if (string.IsNullOrWhiteSpace(lineHint))
         {
-            startPos += lines[i].Length + 1; // +1 for newline
+            DocSourceEditor.ClearSourceHighlight();
+            return;
         }
-
-        var lineLength = lineNum - 1 < lines.Length ? lines[lineNum - 1].Length : 0;
-        HighlightDocSourceRange(startPos, lineLength);
+        DocSourceEditor.HighlightSourceLine(lineHint);
     }
 
     // Called when the user clicks an element in the preview — scrolls source to that line and highlights it.
     internal void ScrollDocSourceToLine(string lineHint)
     {
-        if (DocSourceTextBox is null || string.IsNullOrEmpty(lineHint)) return;
+        if (DocSourceEditor?.Editor is null || string.IsNullOrEmpty(lineHint)) return;
         if (!int.TryParse(lineHint, out var lineNum) || lineNum < 1) return;
-
-        var lines = DocSourceTextBox.GetPlainText().Split('\n');
-        if (lineNum > lines.Length) return;
-
-        int startPos = 0;
-        for (int i = 0; i < lineNum - 1; i++)
-            startPos += lines[i].Length + 1;
-
-        var lineLength = lineNum - 1 < lines.Length ? lines[lineNum - 1].Length : 0;
-        DocSourceTextBox.ScrollToOffset(startPos);
-        // Defer highlight until after WPF has processed the scroll (layout settles at Render priority).
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render,
-            () => HighlightDocSourceRange(startPos, lineLength));
-    }
-
-    private Canvas EnsureDocSourceOverlayCanvas()
-    {
-        if (_docSourceOverlayCanvas is not null) return _docSourceOverlayCanvas;
-
-        if (DocSourcePanel is null) throw new InvalidOperationException("DocSourcePanel is null");
-
-        Grid grid;
-        if (DocSourcePanel.Child is Grid existingGrid)
-        {
-            grid = existingGrid;
-        }
-        else
-        {
-            var child = DocSourcePanel.Child;
-            grid = new Grid();
-            DocSourcePanel.Child = grid;
-            if (child is not null)
-                grid.Children.Add(child);
-        }
-
-        _docSourceOverlayCanvas = new Canvas
-        {
-            IsHitTestVisible = false,
-            Background = Brushes.Transparent
-        };
-        grid.Children.Add(_docSourceOverlayCanvas);
-        return _docSourceOverlayCanvas;
-    }
-
-    private void HighlightDocSourceRange(int start, int length)
-    {
-        if (DocSourceTextBox is null || DocSourcePanel is null) return;
-
-        // Remove existing hover highlight
-        if (_docSourceHoverHighlight is not null)
-        {
-            (_docSourceHoverHighlight.Parent as Canvas)?.Children.Remove(_docSourceHoverHighlight);
-            _docSourceHoverHighlight = null;
-        }
-
-        _docSourceHoverTimer?.Stop();
-
-        if (length <= 0) return;
-
-        // Get the bounding rect of the character in TextBox space
-        var rect = DocSourceTextBox.GetRectFromOffset(start);
-        if (rect == Rect.Empty) return;
-
-        var overlayCanvas = EnsureDocSourceOverlayCanvas();
-
-        // Convert TextBox-local coordinates to overlay Canvas coordinates
-        var origin = DocSourceTextBox.TranslatePoint(new Point(0, 0), overlayCanvas);
-        var charTopLeft = DocSourceTextBox.TranslatePoint(rect.TopLeft, overlayCanvas);
-
-        // If the target line is scrolled outside the visible area of the source box, don't draw.
-        double visibleTop = origin.Y;
-        double visibleBottom = origin.Y + DocSourceTextBox.ActualHeight;
-        if (charTopLeft.Y < visibleTop || charTopLeft.Y >= visibleBottom) return;
-
-        var isDark = AgentStatusCard.IsDarkTheme;
-        var highlightColor = isDark
-            ? Color.FromArgb(60, 255, 220, 80)    // warm amber tint on dark
-            : Color.FromArgb(50, 100, 180, 255);   // cool blue tint on light
-
-        double highlightWidth = Math.Max(DocSourceTextBox.ActualWidth - (charTopLeft.X - origin.X), 0);
-
-        _docSourceHoverHighlight = new Shapes.Rectangle
-        {
-            Width = highlightWidth,
-            Height = Math.Max(rect.Height, 14),
-            Fill = new SolidColorBrush(highlightColor),
-            IsHitTestVisible = false
-        };
-
-        Canvas.SetLeft(_docSourceHoverHighlight, charTopLeft.X);
-        Canvas.SetTop(_docSourceHoverHighlight, charTopLeft.Y);
-        overlayCanvas.Children.Add(_docSourceHoverHighlight);
-
-        // Auto-clear after 1 second
-        _docSourceHoverTimer = new DispatcherTimer { Interval = UiTimingConstants.DocSourceHoverInterval };
-        _docSourceHoverTimer.Tick += (s, e) =>
-        {
-            _docSourceHoverTimer.Stop();
-            if (_docSourceHoverHighlight is not null)
-            {
-                (_docSourceHoverHighlight.Parent as Canvas)?.Children.Remove(_docSourceHoverHighlight);
-                _docSourceHoverHighlight = null;
-            }
-        };
-        _docSourceHoverTimer.Start();
+        var maxLine = Math.Max(1, DocSourceEditor.Editor.Document.LineCount);
+        var clampedLine = Math.Min(lineNum, maxLine);
+        DocSourceEditor.Editor.ScrollToLine(clampedLine);
+        DocSourceEditor.HighlightSourceLine(clampedLine.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     private void SaveDocSourceToDisk()
     {
-        if (DocSourceTextBox is null || string.IsNullOrEmpty(_currentDocPath)) return;
+        if (DocSourceEditor is null || string.IsNullOrEmpty(_currentDocPath)) return;
         try
         {
-            var bodyText = DocSourceTextBox.GetPlainText();
+            var bodyText = DocSourceEditor.GetText();
 
             // Safety net: never overwrite a doc file with an empty body.
             // WPF fires TextChanged (and can thereby trigger saves) during visual-tree
@@ -40913,229 +40549,341 @@ public partial class MainWindow : Window
         RefreshDocMarkdownViewerFromSource();
     }
 
-    private void DocSourceTextBox_ApplyBold()
-    {
-        if (DocSourceTextBox is null) return;
-        ApplyMarkdownBold(DocSourceTextBox);
-    }
-
     private void PromptTextBox_ApplyBold()
     {
         ApplyMarkdownBold(PromptTextBox);
     }
 
+    private bool TryApplyDocSourceEditorMutation(Action<TextBox> action) =>
+        TryApplyDocSourceEditorMutation(tb =>
+        {
+            action(tb);
+            return true;
+        });
+
+    private bool TryApplyDocSourceEditorMutation(Func<TextBox, bool> action)
+    {
+        if (DocSourceEditor?.Editor is not { } editor)
+            return false;
+
+        var beforeRawText = editor.Document.Text;
+        var beforeText = NormalizeLineEndings(beforeRawText);
+        var selectionStart = Math.Clamp(editor.SelectionStart, 0, beforeRawText.Length);
+        var selectionEnd = Math.Clamp(selectionStart + editor.SelectionLength, 0, beforeRawText.Length);
+        var selectionStartLf = MapRawOffsetToNormalizedOffset(beforeRawText, selectionStart);
+        var selectionLengthLf = MapRawOffsetToNormalizedOffset(beforeRawText, selectionEnd) - selectionStartLf;
+        var bridge = new TextBox
+        {
+            Text = beforeText,
+            SelectionStart = Math.Clamp(selectionStartLf, 0, beforeText.Length),
+            SelectionLength = Math.Clamp(selectionLengthLf, 0, Math.Max(0, beforeText.Length - selectionStartLf))
+        };
+        if (bridge.SelectionLength == 0)
+            bridge.CaretIndex = Math.Clamp(MapRawOffsetToNormalizedOffset(beforeRawText, editor.CaretOffset), 0, beforeText.Length);
+
+        var beforeSelectionStart = bridge.SelectionStart;
+        var beforeSelectionLength = bridge.SelectionLength;
+
+        if (!action(bridge))
+            return false;
+
+        return ApplyDocSourceBridgeResult(editor, beforeRawText, beforeText, beforeSelectionStart, beforeSelectionLength, bridge);
+    }
+
+    private static bool ApplyDocSourceBridgeResult(ICSharpCode.AvalonEdit.TextEditor editor, string beforeRawText, string beforeText, int beforeSelectionStart, int beforeSelectionLength, TextBox bridge)
+    {
+        var afterText = NormalizeLineEndings(bridge.Text);
+        var afterSelectionStart = Math.Clamp(bridge.SelectionStart, 0, afterText.Length);
+        var afterSelectionLength = Math.Clamp(bridge.SelectionLength, 0, Math.Max(0, afterText.Length - afterSelectionStart));
+
+        if (beforeText == afterText &&
+            beforeSelectionStart == afterSelectionStart &&
+            beforeSelectionLength == afterSelectionLength)
+        {
+            return false;
+        }
+
+        var (offset, removeLength, insertText) = ComputeDocSourceBridgeDiff(beforeText, afterText);
+        var rawOffset = MapNormalizedOffsetToRawOffset(beforeRawText, offset);
+        var rawEnd = MapNormalizedOffsetToRawOffset(beforeRawText, offset + removeLength);
+        var rawRemoveLength = Math.Max(0, rawEnd - rawOffset);
+        if (!CanMutateDocSourceRange(editor, rawOffset, rawRemoveLength))
+            return false;
+        using (editor.Document.RunUpdate())
+        {
+            editor.Document.Replace(rawOffset, rawRemoveLength, insertText);
+        }
+
+        var afterRawText = editor.Document.Text;
+        var afterSelectionStartRaw = MapNormalizedOffsetToRawOffset(afterRawText, afterSelectionStart);
+        var afterSelectionEndRaw = MapNormalizedOffsetToRawOffset(afterRawText, afterSelectionStart + afterSelectionLength);
+        var afterSelectionLengthRaw = Math.Max(0, afterSelectionEndRaw - afterSelectionStartRaw);
+        editor.Select(afterSelectionStartRaw, afterSelectionLengthRaw);
+        if (afterSelectionLengthRaw == 0)
+            editor.CaretOffset = afterSelectionStartRaw;
+        return true;
+    }
+
+    private static int MapRawOffsetToNormalizedOffset(string rawText, int rawOffset)
+    {
+        rawOffset = Math.Clamp(rawOffset, 0, rawText.Length);
+        if (rawOffset == 0)
+            return 0;
+        return NormalizeLineEndings(rawText[..rawOffset]).Length;
+    }
+
+    private static int MapNormalizedOffsetToRawOffset(string rawText, int normalizedOffset)
+    {
+        normalizedOffset = Math.Clamp(normalizedOffset, 0, NormalizeLineEndings(rawText).Length);
+        if (normalizedOffset == 0)
+            return 0;
+
+        var rawOffset = 0;
+        var normalized = 0;
+        while (rawOffset < rawText.Length && normalized < normalizedOffset)
+        {
+            if (rawText[rawOffset] == '\r')
+            {
+                rawOffset++;
+                if (rawOffset < rawText.Length && rawText[rawOffset] == '\n')
+                    rawOffset++;
+            }
+            else
+            {
+                rawOffset++;
+            }
+
+            normalized++;
+        }
+
+        return rawOffset;
+    }
+
+    private static bool CanMutateDocSourceRange(ICSharpCode.AvalonEdit.TextEditor editor, int start, int length)
+    {
+        if (editor.IsReadOnly)
+            return false;
+        if (editor.TextArea.ReadOnlySectionProvider is not { } provider)
+            return true;
+
+        start = Math.Clamp(start, 0, editor.Document.TextLength);
+        length = Math.Clamp(length, 0, Math.Max(0, editor.Document.TextLength - start));
+        if (!provider.CanInsert(start))
+            return false;
+        if (length == 0)
+            return true;
+
+        var segment = new ICSharpCode.AvalonEdit.Document.TextSegment { StartOffset = start, Length = length };
+        return provider.GetDeletableSegments(segment)
+            .Any(s => s.Offset == start && s.Length == length);
+    }
+
+    private static (int Offset, int RemoveLength, string InsertText) ComputeDocSourceBridgeDiff(string before, string after)
+    {
+        var prefix = 0;
+        var maxPrefix = Math.Min(before.Length, after.Length);
+        while (prefix < maxPrefix && before[prefix] == after[prefix])
+            prefix++;
+
+        var beforeSuffix = before.Length;
+        var afterSuffix = after.Length;
+        while (beforeSuffix > prefix &&
+               afterSuffix > prefix &&
+               before[beforeSuffix - 1] == after[afterSuffix - 1])
+        {
+            beforeSuffix--;
+            afterSuffix--;
+        }
+
+        return (prefix, beforeSuffix - prefix, after[prefix..afterSuffix]);
+    }
+
+    private static string NormalizeLineEndings(string? text) =>
+        (text ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
+
     private static void ApplyMarkdownBold(TextBox box) => MarkdownEditorCommands.ApplyBold(box);
     private static void ApplyMarkdownBold(RichTextBox box) => MarkdownEditorCommands.ApplyBold(box);
-
-    private void DocSourceTextBox_ApplyItalic()
-    {
-        if (DocSourceTextBox is null) return;
-        ApplyMarkdownItalic(DocSourceTextBox);
-        DocSourceTextBox.Focus();
-    }
 
     private static void ApplyMarkdownItalic(TextBox box) => MarkdownEditorCommands.ApplyItalic(box);
     private static void ApplyMarkdownItalic(RichTextBox box) => MarkdownEditorCommands.ApplyItalic(box);
 
-    private void DocSourceTextBox_SelectionChanged(object sender, RoutedEventArgs e)
+    private void ConfigureDocSourceEditor()
     {
+        if (DocSourceEditor is null)
+            return;
+
+        DocSourceEditor.ReviseWithAiCallback = (instructions, sel, doc, cwd, ct) =>
+            _bridge.RunDocRevisionAsync(instructions, sel, doc, cwd, ct);
+        DocSourceEditor.StartPttCallback = tb => {
+            _pttTargetTextBox = tb;
+            _sessionCaretIndex = tb.SelectionStart;
+            _sessionSelectionLength = tb.SelectionLength;
+            _voiceStartedWithSendEnabled = false;
+            _pttState = PttState.Active;
+            _ = StartPushToTalkAsync();
+        };
+        DocSourceEditor.StopPttCallback = () => _ = StopPushToTalkAsync(send: false);
+        DocSourceEditor.CleanupPrompt = _settingsSnapshot.CleanupPrompt;
+        DocSourceEditor.DocumentPath = _currentDocPath ?? string.Empty;
+
+        EnsureDocSourceEditorContextMenu();
     }
 
-    private void DocEditorToolbar_ImageInsertRequested(object sender, RoutedEventArgs e)
+    private void EnsureDocSourceEditorContextMenu()
     {
-        if (DocSourceTextBox is null) return;
-        DocSourceTextBox_InsertImagePlaceholder();
-        DocSourceTextBox.Focus();
+        if (DocSourceEditor?.Editor?.TextArea?.ContextMenu is not ContextMenu menu)
+            return;
+        if (Equals(menu.Tag, "DocSourceHostMenuInitialized"))
+            return;
+
+        menu.Tag = "DocSourceHostMenuInitialized";
+
+        var separator = new Separator();
+        separator.SetResourceReference(StyleProperty, "ThemedMenuSeparatorStyle");
+        menu.Items.Add(separator);
+
+        var pasteImageItem = new MenuItem { Header = "Paste image from clipboard" };
+        pasteImageItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        pasteImageItem.Click += (_, _) => DocSourceEditor_PasteImageFromClipboard();
+        menu.Items.Add(pasteImageItem);
+
+        var addToChatItem = new MenuItem { Header = "Add to Chat" };
+        addToChatItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        addToChatItem.Click += (_, _) => AddDocSourceSelectionToChat(addToNewChat: false);
+        menu.Items.Add(addToChatItem);
+
+        var addToNewChatItem = new MenuItem { Header = "Add to New Chat" };
+        addToNewChatItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        addToNewChatItem.Click += (_, _) => AddDocSourceSelectionToChat(addToNewChat: true);
+        menu.Items.Add(addToNewChatItem);
+
+        var addToNotesItem = new MenuItem { Header = "Add to Notes" };
+        addToNotesItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        addToNotesItem.Click += (_, _) => {
+            var text = DocSourceEditor?.Editor?.SelectedText;
+            if (!string.IsNullOrWhiteSpace(text))
+                AddNoteFromText(text);
+        };
+        menu.Items.Add(addToNotesItem);
+
+        var quickCleanupItem = new MenuItem { Header = "⚡ _Quick Cleanup", InputGestureText = "Ctrl+Shift+C" };
+        quickCleanupItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        quickCleanupItem.Click += (_, _) => DirectReviseDocSourceSelection(_settingsSnapshot.CleanupPrompt);
+        menu.Items.Add(quickCleanupItem);
+
+        menu.Opened += (_, _) => {
+            if (DocSourceEditor is null)
+                return;
+            DocSourceEditor.DocumentPath = _currentDocPath ?? string.Empty;
+            DocSourceEditor.CleanupPrompt = _settingsSnapshot.CleanupPrompt;
+
+            var hasSelection = DocSourceEditor.Editor.SelectionLength > 0;
+            pasteImageItem.IsEnabled = Clipboard.ContainsImage() && !string.IsNullOrEmpty(_currentDocPath);
+            addToChatItem.IsEnabled = hasSelection;
+            addToNewChatItem.IsEnabled = hasSelection;
+            addToNotesItem.IsEnabled = hasSelection;
+            quickCleanupItem.IsEnabled = hasSelection && !string.IsNullOrWhiteSpace(_settingsSnapshot.CleanupPrompt);
+        };
     }
 
-    private void DocSourceTextBox_InsertImagePlaceholder()
+    private void AddDocSourceSelectionToChat(bool addToNewChat)
     {
-        if (DocSourceTextBox is null) return;
+        var text = DocSourceEditor?.Editor?.SelectedText;
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        var docTitle = _currentDocPath is not null
+            ? Path.GetFileNameWithoutExtension(_currentDocPath)
+            : "Documentation";
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"## Documentation: {docTitle}");
+        if (_currentDocPath is not null)
+            sb.AppendLine($"File: {_currentDocPath}");
+        sb.AppendLine();
+        sb.AppendLine(text.Trim());
+        if (addToNewChat)
+            AddEmptyQueueSlot();
+        AttachContextFollowUp($"Doc: {docTitle}", sb.ToString().TrimEnd());
+    }
+
+    private void DocSourceEditor_ImageInsertRequested(object sender, RoutedEventArgs e)
+    {
+        InsertDocSourceImagePlaceholder();
+        DocSourceEditor?.FocusEditor();
+    }
+
+    private void InsertDocSourceImagePlaceholder()
+    {
+        if (DocSourceEditor?.Editor is not { } editor)
+            return;
+
         var id = Guid.NewGuid().ToString("N")[..8];
         var placeholder =
             $"![Screenshot: brief description](images/screenshot-{id}.png)\n" +
             "> 📸 *Screenshot needed: Detailed description of what to capture in this screenshot.*";
-        DocSourceTextBox.Focus();
-        DocSourceTextBox.Selection.Text = placeholder; // inserts at caret, participates in WPF undo stack
-    }
-
-    private void DocSourceTextBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
-    {
-        if (_suppressDocSourceNextTextInput)
-        {
-            _suppressDocSourceNextTextInput = false;
-            e.Handled = true;
+        var start = editor.SelectionStart;
+        var length = editor.SelectionLength;
+        if (!CanMutateDocSourceRange(editor, start, length))
             return;
-        }
-
-        // Paren embedding (works on all keyboard layouts)
-        if ((e.Text == "(" || e.Text == ")") && DocSourceTextBox.GetSelectionLength() > 0
-            && !DocSourceTextBox.GetSelectedText().Contains('\n'))
-        {
-            if (MarkdownEditorCommands.ApplyInlineParens(DocSourceTextBox, e.Text))
-            {
-                e.Handled = true;
-                return;
-            }
-        }
+        editor.Document.Replace(start, length, placeholder);
+        editor.Select(start + placeholder.Length, 0);
+        editor.CaretOffset = start + placeholder.Length;
+        editor.TextArea.Focus();
     }
 
-    private void DocSourceTextBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    private bool TryInvokeDocSourceReviseFromContextMenu()
     {
-        if (DocSourceTextBox is null) return;
-        try
-        {
-            var menu = MakeMenu();
+        EnsureDocSourceEditorContextMenu();
+        if (DocSourceEditor?.Editor?.TextArea?.ContextMenu is not ContextMenu menu)
+            return false;
+        var reviseItem = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(item => string.Equals(item.InputGestureText, "Ctrl+Shift+A", StringComparison.OrdinalIgnoreCase));
+        if (reviseItem is null)
+            return false;
+        reviseItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        return true;
+    }
 
-            var hasSelection = DocSourceTextBox.GetSelectionLength() > 0;
-            var capturedSelStart = hasSelection ? DocSourceTextBox.GetSelectionStart() : 0;
-            var capturedSelLen   = hasSelection ? DocSourceTextBox.GetSelectionLength() : 0;
+    private void DirectReviseDocSourceSelection(string instructions)
+    {
+        if (DocSourceEditor?.Editor is not { } editor || string.IsNullOrWhiteSpace(instructions))
+            return;
+        if (editor.SelectionLength <= 0)
+            return;
 
-            if (hasSelection)
+        var selectionLength = editor.SelectionLength;
+        if (!CanMutateDocSourceRange(editor, editor.SelectionStart, selectionLength))
+            return;
+
+        var currentDocPath = _currentDocPath ?? string.Empty;
+        var currentDocument = editor.Document;
+        var selection = new AvalonEditRevisionSelection(currentDocument, editor.SelectionStart, selectionLength);
+        // The executor accepts a RichTextBox transport; only the anchored Avalon document is edited.
+        var bridge = new RichTextBox();
+        bridge.SetPlainText(DocSourceEditor.GetText());
+        bridge.SelectRange(
+            MapRawOffsetToNormalizedOffset(currentDocument.Text, editor.SelectionStart),
+            NormalizeLineEndings(selection.OriginalText).Length);
+        string? revisedText = null;
+        MarkdownRevisionExecutor.DirectRevise(bridge, currentDocPath, instructions,
+            async (prompt, selected, document, cwd, token) =>
             {
-                // Capture now — WPF clears the selection when the ContextMenu takes focus.
-                var docTitle = _currentDocPath is not null
-                    ? System.IO.Path.GetFileNameWithoutExtension(_currentDocPath)
-                    : "Documentation";
-
-                var addToChatItem = new MenuItem
-                {
-                    Header = "Add to Chat",
-                    Style  = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                addToChatItem.Click += (_, _) => {
-                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
-                    if (!string.IsNullOrWhiteSpace(text)) {
-                        var sb = new System.Text.StringBuilder();
-                        sb.AppendLine($"## Documentation: {docTitle}");
-                        if (_currentDocPath is not null) sb.AppendLine($"File: {_currentDocPath}");
-                        sb.AppendLine();
-                        sb.AppendLine(text.Trim());
-                        AttachContextFollowUp($"Doc: {docTitle}", sb.ToString().TrimEnd());
-                    }
-                };
-                menu.Items.Add(addToChatItem);
-
-                var addToNewChatDocItem = new MenuItem
-                {
-                    Header = "Add to New Chat",
-                    Style  = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                addToNewChatDocItem.Click += (_, _) => {
-                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
-                    if (!string.IsNullOrWhiteSpace(text)) {
-                        var sb = new System.Text.StringBuilder();
-                        sb.AppendLine($"## Documentation: {docTitle}");
-                        if (_currentDocPath is not null) sb.AppendLine($"File: {_currentDocPath}");
-                        sb.AppendLine();
-                        sb.AppendLine(text.Trim());
-                        AddEmptyQueueSlot();
-                        AttachContextFollowUp($"Doc: {docTitle}", sb.ToString().TrimEnd());
-                    }
-                };
-                menu.Items.Add(addToNewChatDocItem);
-
-                var addToNotesItem = new MenuItem
-                {
-                    Header = "Add to Notes",
-                    Style  = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                addToNotesItem.Click += (_, _) => {
-                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
-                    if (!string.IsNullOrWhiteSpace(text))
-                        AddNoteFromText(text);
-                };
-                menu.Items.Add(addToNotesItem);
-
-                menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
-            }
-
-            var cutItem = new MenuItem
+                revisedText = await _bridge.RunDocRevisionAsync(prompt, selected, document, cwd, token);
+                return revisedText;
+            }, this,
+            onCompleted: () =>
             {
-                Header = "Cu_t",
-                Style = (Style)FindResource("ThemedMenuItemStyle"),
-                Command = ApplicationCommands.Cut,
-                CommandTarget = DocSourceTextBox
-            };
-            var copyItem = new MenuItem
-            {
-                Header = "_Copy",
-                Style = (Style)FindResource("ThemedMenuItemStyle"),
-                Command = ApplicationCommands.Copy,
-                CommandTarget = DocSourceTextBox
-            };
-            var pasteItem = new MenuItem
-            {
-                Header = "_Paste",
-                Style = (Style)FindResource("ThemedMenuItemStyle"),
-                Command = ApplicationCommands.Paste,
-                CommandTarget = DocSourceTextBox
-            };
-
-            cutItem.IsEnabled = hasSelection;
-            copyItem.IsEnabled = hasSelection;
-            pasteItem.IsEnabled = Clipboard.ContainsText();
-
-            menu.Items.Add(cutItem);
-            menu.Items.Add(copyItem);
-            menu.Items.Add(pasteItem);
-
-            if (Clipboard.ContainsImage())
-            {
-                menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
-                var imgItem = new MenuItem
+                if (string.IsNullOrWhiteSpace(revisedText))
+                    return;
+                var targetChanged = !string.Equals(_currentDocPath, currentDocPath, StringComparison.OrdinalIgnoreCase);
+                if (targetChanged || !selection.TryGetRange(out var start, out var length)
+                    || !CanMutateDocSourceRange(editor, start, length) || !selection.TryReplace(revisedText))
                 {
-                    Header = "Paste image from clipboard",
-                    Style = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                imgItem.Click += (_, _) => DocSourceTextBox_PasteImageFromClipboard();
-                menu.Items.Add(imgItem);
-            }
-
-            if (hasSelection)
-            {
-                menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
-
-                var reviseItem = new MenuItem
-                {
-                    Header           = "✏ _Revise with AI",
-                    InputGestureText = "Ctrl+Shift+A",
-                    Style            = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                reviseItem.Click += (_, _) => ShowDocRevisePopup(DocSourceTextBox, _currentDocPath ?? "", capturedSelStart, capturedSelLen);
-                menu.Items.Add(reviseItem);
-
-                var cleanupItem = new MenuItem
-                {
-                    Header           = "⚡ _Quick Cleanup",
-                    InputGestureText = "Ctrl+Shift+C",
-                };
-                cleanupItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                cleanupItem.Click += (_, _) => DirectReviseRichTextBox(DocSourceTextBox, _currentDocPath ?? "", _settingsSnapshot.CleanupPrompt);
-                menu.Items.Add(cleanupItem);
-
-                var smoothItem = new MenuItem
-                {
-                    Header           = "✨ Smooth Dictation",
-                    InputGestureText = "Shift+Space",
-                    Style            = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                smoothItem.Click += (_, _) => {
-                    DocSourceTextBox.SelectRange(capturedSelStart, capturedSelLen);
-                    SmoothDictationHelper.ApplyToRichTextBox(DocSourceTextBox);
-                };
-                menu.Items.Add(smoothItem);
-            }
-
-            menu.PlacementTarget = DocSourceTextBox;
-            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
-            menu.IsOpen = true;
-            e.Handled = true;
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(DocSourceTextBox_PreviewMouseRightButtonDown), ex);
-        }
+                    var result = new RevisionResultWindow(revisedText) { Owner = this };
+                    WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(result, this);
+                    result.Show();
+                }
+            });
     }
 
     private void ShowDocRevisePopup(System.Windows.Controls.TextBox textBox, string filePath,
@@ -41562,10 +41310,15 @@ public partial class MainWindow : Window
 
     private bool TryShowRevisePopupForFocusedTextBox()
     {
+        if (IsDocSourceEditorFocused() && DocSourceEditor?.Editor.SelectionLength > 0)
+        {
+            return TryInvokeDocSourceReviseFromContextMenu();
+        }
+
         if (Keyboard.FocusedElement is RichTextBox rtb)
         {
             if (rtb.GetSelectionLength() <= 0) return false;
-            var filePath = ReferenceEquals(rtb, DocSourceTextBox) ? (_currentDocPath ?? "") : "";
+            var filePath = string.Empty;
             ShowDocRevisePopup(rtb, filePath);
             return true;
         }
@@ -41587,10 +41340,16 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(instructions)) return false;
 
+        if (IsDocSourceEditorFocused() && DocSourceEditor?.Editor.SelectionLength > 0)
+        {
+            DirectReviseDocSourceSelection(instructions);
+            return true;
+        }
+
         if (Keyboard.FocusedElement is RichTextBox rtb)
         {
             if (rtb.GetSelectionLength() <= 0) return false;
-            var filePath = ReferenceEquals(rtb, DocSourceTextBox) ? (_currentDocPath ?? "") : "";
+            var filePath = string.Empty;
             DirectReviseRichTextBox(rtb, filePath, instructions);
             return true;
         }
@@ -41682,13 +41441,20 @@ public partial class MainWindow : Window
         catch { return false; }
     }
 
-    private void DocSourceTextBox_PasteImageFromClipboard()
+    private void DocSourceEditor_PasteImageFromClipboard()
     {
-        if (DocSourceTextBox is null || !Clipboard.ContainsImage()) return;
-        if (string.IsNullOrEmpty(_currentDocPath)) return;
+        if (DocSourceEditor?.Editor is not { } markdownEditor || !Clipboard.ContainsImage())
+            return;
+        if (string.IsNullOrEmpty(_currentDocPath))
+            return;
 
         var clipImg = Clipboard.GetImage()!;
         var currentDocPath = _currentDocPath;
+        var currentDocument = markdownEditor.Document;
+        var insertionOffset = Math.Clamp(markdownEditor.CaretOffset, 0, currentDocument.TextLength);
+        var insertionAnchor = currentDocument.CreateAnchor(insertionOffset);
+        insertionAnchor.MovementType = ICSharpCode.AvalonEdit.Document.AnchorMovementType.BeforeInsertion;
+
         var editor = new ClipboardImageEditorWindow(this, clipImg);
         editor.ImageAccepted += image =>
         {
@@ -41705,345 +41471,43 @@ public partial class MainWindow : Window
             using (var stream = File.OpenWrite(fullImagePath))
                 encoder.Save(stream);
 
-            var caretIndex = DocSourceTextBox?.GetCaretOffset() ?? 0;
+            var skippedReason = string.Empty;
+            var liveEditor = DocSourceEditor?.Editor;
+            if (liveEditor is null)
+                skippedReason = "source editor is no longer available";
+            else if (!string.Equals(_currentDocPath, currentDocPath, StringComparison.OrdinalIgnoreCase))
+                skippedReason = "active document changed";
+            else if (!ReferenceEquals(liveEditor.Document, currentDocument))
+                skippedReason = "document instance changed";
+            else if (insertionAnchor.IsDeleted)
+                skippedReason = "target insertion point was deleted";
+            else if (!CanMutateDocSourceRange(liveEditor, insertionAnchor.Offset, 0))
+                skippedReason = "target insertion point is read-only";
+
+            if (!string.IsNullOrEmpty(skippedReason))
+            {
+                var message = $"Image saved to {fullImagePath}, but markdown link was not inserted because {skippedReason}.";
+                SquadDashTrace.Write("DocSource", message);
+                UIErrorHelper.ShowError("Image Saved Without Insert", message);
+                return;
+            }
+
+            var start = Math.Clamp(insertionAnchor.Offset, 0, currentDocument.TextLength);
             var markdown = $"![{docName} screenshot](images/{fileName})";
-            DocSourceTextBox?.SetPlainText(DocSourceTextBox.GetPlainText().Insert(caretIndex, markdown));
-            DocSourceTextBox?.SetCaretOffset(caretIndex + markdown.Length);
+            currentDocument.Insert(start, markdown);
+            markdownEditor.Select(start + markdown.Length, 0);
+            markdownEditor.CaretOffset = start + markdown.Length;
+            markdownEditor.TextArea.Focus();
         };
         OpenEditorModeless(editor);
     }
 
-    // ── Feature 2: Find-in-source bar ───────────────────────────────────────────
     private void ShowDocSourceFindBar()
     {
-        if (DocSourcePanel is null || DocSourceTextBox is null) return;
-
-        if (_docSourceFindBar is not null)
-        {
-            _docSourceFindTextBox?.Focus();
-            _docSourceFindTextBox?.SelectAll();
+        if (DocSourceEditor?.Editor?.TextArea is not { } textArea)
             return;
-        }
-
-        // Ensure overlay canvas (and Grid wrapper) exist
-        var overlayCanvas = EnsureDocSourceOverlayCanvas();
-        var grid = DocSourcePanel.Child as Grid;
-        if (grid is null) return;
-
-        // Create a separate Canvas for find match highlights
-        _docSourceFindOverlay = new Canvas
-        {
-            IsHitTestVisible = false,
-            Background = Brushes.Transparent
-        };
-        grid.Children.Add(_docSourceFindOverlay);
-
-        // Re-render highlights whenever the user scrolls the source editor
-        var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
-        if (sv is not null)
-            sv.ScrollChanged += DocSourceFind_ScrollChanged;
-
-        // Create find bar
-        var findPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4) };
-
-        _docSourceFindTextBox = new TextBox
-        {
-            Width = 150,
-            Padding = new Thickness(4),
-            Margin = new Thickness(0, 0, 6, 0)
-        };
-        _docSourceFindTextBox.TextChanged += DocSourceFind_TextChanged;
-        _docSourceFindTextBox.PreviewKeyDown += DocSourceFind_KeyDown;
-
-        var prevBtn = new Button
-        {
-            Content = "▲",
-            Width = 24,
-            Padding = new Thickness(0),
-            Margin = new Thickness(0, 0, 2, 0)
-        };
-        prevBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        prevBtn.Click += (s, e) => DocSourceFind_NavigatePrevious();
-
-        var nextBtn = new Button
-        {
-            Content = "▼",
-            Width = 24,
-            Padding = new Thickness(0),
-            Margin = new Thickness(0, 0, 6, 0)
-        };
-        nextBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        nextBtn.Click += (s, e) => DocSourceFind_NavigateNext();
-
-        _docSourceFindMatchCount = new TextBlock
-        {
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0),
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"]
-        };
-        _docSourceFindMatchCount.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-
-        var closeBtn = new Button
-        {
-            Content = "✕",
-            Width = 24,
-            Padding = new Thickness(0)
-        };
-        closeBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        closeBtn.Click += (s, e) => HideDocSourceFindBar();
-
-        findPanel.Children.Add(_docSourceFindTextBox);
-        findPanel.Children.Add(prevBtn);
-        findPanel.Children.Add(nextBtn);
-        findPanel.Children.Add(_docSourceFindMatchCount);
-        findPanel.Children.Add(closeBtn);
-
-        _docSourceFindBar = new Border
-        {
-            Child = findPanel,
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(8, 6, 8, 6),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 10, 10, 0)
-        };
-        _docSourceFindBar.SetResourceReference(Border.BackgroundProperty, "PopupSurface");
-        _docSourceFindBar.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
-        _docSourceFindBar.BorderThickness = new Thickness(1);
-
-        grid.Children.Add(_docSourceFindBar);
-
-        _docSourceFindTextBox.Focus();
-    }
-
-    private void HideDocSourceFindBar()
-    {
-        if (_docSourceFindBar is null) return;
-
-        // Unsubscribe scroll listener
-        if (DocSourceTextBox is not null)
-        {
-            var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
-            if (sv is not null)
-                sv.ScrollChanged -= DocSourceFind_ScrollChanged;
-        }
-
-        var grid = DocSourcePanel?.Child as Grid;
-        if (grid is not null)
-        {
-            grid.Children.Remove(_docSourceFindBar);
-            if (_docSourceFindOverlay is not null)
-                grid.Children.Remove(_docSourceFindOverlay);
-        }
-
-        _docSourceFindBar = null;
-        _docSourceFindTextBox = null;
-        _docSourceFindMatchCount = null;
-        _docSourceFindOverlay = null;
-        _docSourceFindMatches.Clear();
-        _docSourceFindCurrentIndex = -1;
-        DocSourceTextBox?.Focus();
-    }
-
-    private void DocSourceFind_ScrollChanged(object sender, ScrollChangedEventArgs e)
-    {
-        DocSourceFind_RenderHighlights();
-    }
-
-    private void DocSourceFind_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        _docSourceFindDebounceTimer?.Stop();
-        _docSourceFindDebounceTimer = new DispatcherTimer { Interval = UiTimingConstants.DocSourceFindDebounceInterval };
-        _docSourceFindDebounceTimer.Tick += (s, args) =>
-        {
-            _docSourceFindDebounceTimer.Stop();
-            DocSourceFind_UpdateMatches();
-        };
-        _docSourceFindDebounceTimer.Start();
-    }
-
-    private void DocSourceFind_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Escape)
-        {
-            HideDocSourceFindBar();
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Enter || e.Key == Key.F3)
-        {
-            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-                DocSourceFind_NavigatePrevious();
-            else
-                DocSourceFind_NavigateNext();
-            e.Handled = true;
-        }
-    }
-
-    private void DocSourceFind_UpdateMatches()
-    {
-        if (DocSourceTextBox is null || _docSourceFindTextBox is null || _docSourceFindOverlay is null) return;
-
-        _docSourceFindMatches.Clear();
-        _docSourceFindCurrentIndex = -1;
-        _docSourceFindOverlay.Children.Clear();
-
-        var searchText = _docSourceFindTextBox.Text;
-        if (string.IsNullOrEmpty(searchText))
-        {
-            if (_docSourceFindMatchCount is not null)
-                _docSourceFindMatchCount.Text = string.Empty;
-            return;
-        }
-
-        var text = DocSourceTextBox.GetPlainText();
-        var index = 0;
-        while ((index = text.IndexOf(searchText, index, StringComparison.OrdinalIgnoreCase)) >= 0)
-        {
-            _docSourceFindMatches.Add(index);
-            index += searchText.Length;
-        }
-
-        if (_docSourceFindMatches.Count > 0)
-            _docSourceFindCurrentIndex = 0;
-
-        DocSourceFind_RenderHighlights();
-        DocSourceFind_UpdateMatchCountDisplay();
-
-        if (_docSourceFindCurrentIndex >= 0)
-            DocSourceFind_ScrollToCurrentMatch();
-    }
-
-    private void DocSourceFind_RenderHighlights()
-    {
-        if (DocSourceTextBox is null || _docSourceFindOverlay is null || _docSourceFindTextBox is null) return;
-
-        _docSourceFindOverlay.Children.Clear();
-
-        var isDark = AgentStatusCard.IsDarkTheme;
-        var matchBg = isDark ? Color.FromArgb(200, 74, 62, 16) : Color.FromArgb(200, 200, 224, 255);
-        var currentBg = isDark ? Color.FromArgb(220, 200, 160, 0) : Color.FromArgb(220, 32, 96, 192);
-        var searchLen = _docSourceFindTextBox.Text.Length;
-        if (searchLen == 0) return;
-
-        // Draw match rectangles.
-        // GetRectFromCharacterIndex returns coords in TextBox local space (accounting for
-        // current scroll). TranslatePoint converts them to the overlay Canvas coordinate space.
-        for (int i = 0; i < _docSourceFindMatches.Count; i++)
-        {
-            var pos = _docSourceFindMatches[i];
-            var startRect = DocSourceTextBox.GetRectFromOffset(pos);
-            if (startRect == Rect.Empty) continue; // off-screen — skip, ScrollChanged will re-render
-
-            // Use start+end rects for accurate width (handles variable-width fonts too)
-            var endPos = Math.Min(pos + searchLen, DocSourceTextBox.GetTextLength());
-            var endRect = DocSourceTextBox.GetRectFromOffset(endPos);
-            double highlightWidth = (endRect != Rect.Empty && endRect.Left >= startRect.Left)
-                ? Math.Max(2, endRect.Left - startRect.Left)
-                : Math.Max(2, searchLen * (startRect.Width > 0 ? startRect.Width : 8));
-
-            var canvasOrigin = DocSourceTextBox.TranslatePoint(
-                new Point(startRect.Left, startRect.Top), _docSourceFindOverlay);
-
-            var highlight = new Shapes.Rectangle
-            {
-                Width = highlightWidth,
-                Height = Math.Max(2, startRect.Height),
-                Fill = new SolidColorBrush(i == _docSourceFindCurrentIndex ? currentBg : matchBg),
-                Opacity = 0.55
-            };
-
-            Canvas.SetLeft(highlight, canvasOrigin.X);
-            Canvas.SetTop(highlight, canvasOrigin.Y);
-            _docSourceFindOverlay.Children.Add(highlight);
-        }
-
-        // Draw scrollbar tick marks proportional to the total text length
-        if (DocSourceTextBox.GetTextLength() > 0 && _docSourceFindMatches.Count > 0)
-        {
-            var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
-            var scrollBar = sv is not null ? VisualTreeSearch.FindChild<ScrollBar>(sv) : null;
-            double trackHeight = scrollBar?.ActualHeight ?? DocSourceTextBox.ActualHeight;
-
-            foreach (var pos in _docSourceFindMatches)
-            {
-                var fraction = (double)pos / DocSourceTextBox.GetTextLength();
-                var tick = new Shapes.Rectangle
-                {
-                    Width = 4,
-                    Height = 3,
-                    Fill = new SolidColorBrush(matchBg)
-                };
-                Canvas.SetRight(tick, 0);
-                Canvas.SetTop(tick, fraction * trackHeight);
-                _docSourceFindOverlay.Children.Add(tick);
-            }
-        }
-    }
-
-    private void DocSourceFind_UpdateMatchCountDisplay()
-    {
-        if (_docSourceFindMatchCount is null) return;
-
-        if (_docSourceFindMatches.Count == 0)
-            _docSourceFindMatchCount.Text = "No matches";
-        else
-            _docSourceFindMatchCount.Text = $"{_docSourceFindCurrentIndex + 1} / {_docSourceFindMatches.Count}";
-    }
-
-    private void DocSourceFind_NavigateNext()
-    {
-        if (_docSourceFindMatches.Count == 0) return;
-
-        _docSourceFindCurrentIndex = (_docSourceFindCurrentIndex + 1) % _docSourceFindMatches.Count;
-        DocSourceFind_RenderHighlights();
-        DocSourceFind_UpdateMatchCountDisplay();
-        DocSourceFind_ScrollToCurrentMatch();
-    }
-
-    private void DocSourceFind_NavigatePrevious()
-    {
-        if (_docSourceFindMatches.Count == 0) return;
-
-        _docSourceFindCurrentIndex--;
-        if (_docSourceFindCurrentIndex < 0)
-            _docSourceFindCurrentIndex = _docSourceFindMatches.Count - 1;
-
-        DocSourceFind_RenderHighlights();
-        DocSourceFind_UpdateMatchCountDisplay();
-        DocSourceFind_ScrollToCurrentMatch();
-    }
-
-    private void DocSourceFind_ScrollToCurrentMatch()
-    {
-        if (DocSourceTextBox is null || _docSourceFindCurrentIndex < 0 || _docSourceFindCurrentIndex >= _docSourceFindMatches.Count) return;
-
-        var pos = _docSourceFindMatches[_docSourceFindCurrentIndex];
-
-        // Scroll vertically to the matching line
-        DocSourceTextBox.ScrollToOffset(pos);
-
-        // After the vertical scroll settles, handle horizontal scroll, re-render highlights
-        // (positions changed due to scroll), then return focus to the find box.
-        _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
-        {
-            var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
-            if (sv is not null && DocSourceTextBox is not null && _docSourceFindTextBox is not null)
-            {
-                var matchRect = DocSourceTextBox.GetRectFromOffset(pos);
-                if (matchRect != Rect.Empty)
-                {
-                    // Bring the match into horizontal view with a small margin
-                    const double margin = 24;
-                    if (matchRect.Left < 0)
-                        sv.ScrollToHorizontalOffset(Math.Max(0, sv.HorizontalOffset + matchRect.Left - margin));
-                    else if (matchRect.Right > DocSourceTextBox.ActualWidth)
-                        sv.ScrollToHorizontalOffset(sv.HorizontalOffset + matchRect.Right - DocSourceTextBox.ActualWidth + margin);
-                }
-            }
-
-            DocSourceFind_RenderHighlights();
-            _docSourceFindTextBox?.Focus();
-        });
+        textArea.Focus();
+        ApplicationCommands.Find.Execute(null, textArea);
     }
 
     private static bool IsPrintableKey(Key key) =>
@@ -43430,7 +42894,7 @@ public partial class MainWindow : Window
                 $"snapshotCount={_transcriptSnapshots.Count} snapshotThread={snapshotThread} " +
                 $"lastSnapshotAgeMs={snapshotAgeMs} lastSnapshot=\"{_lastTranscriptSnapshotCaptureSummary}\" " +
                 $"inputAgeMs={inputAgeMs} promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} " +
-                $"docFocused={DocSourceTextBox?.IsKeyboardFocusWithin == true} promptLen={PromptTextBox?.GetTextLength() ?? 0}";
+                $"docFocused={DocSourceEditor?.IsKeyboardFocusWithin == true} promptLen={PromptTextBox?.GetTextLength() ?? 0}";
         }
         catch (Exception ex)
         {
@@ -47065,8 +46529,7 @@ public partial class MainWindow : Window
 
         var textEditingActive =
             PromptTextBox?.IsKeyboardFocusWithin == true ||
-            DocSourceTextBox?.IsKeyboardFocusWithin == true ||
-            _docSourceFindTextBox?.IsKeyboardFocusWithin == true ||
+            DocSourceEditor?.IsKeyboardFocusWithin == true ||
             _intelliSenseOwnerBox?.IsKeyboardFocusWithin == true;
 
         var quietPeriod = textEditingActive
@@ -53600,6 +53063,9 @@ public partial class MainWindow : Window
             CleanupActiveLoopCliProjection("window-closed");
             _speechService?.Dispose();
             _speechService = null;
+            _docSourceSaveTimer?.Stop();
+            _docPreviewRefreshTimer?.Stop();
+            DocSourceEditor?.Dispose();
             var pendingPlacement = _pendingWindowPlacement;
             var pendingUtilityWindowState = _pendingUtilityWindowState;
             var pendingDocsPanelState = _pendingDocsPanelState;
@@ -57057,8 +56523,7 @@ public partial class MainWindow : Window
         var isDark = string.Equals(themeName, "Dark", StringComparison.OrdinalIgnoreCase);
         AgentStatusCard.SetTheme(isDark);
 
-        // Re-render doc-source find highlights so they use the new theme's colours.
-        DocSourceFind_RenderHighlights();
+        DocSourceEditor?.RefreshTheme();
         foreach (var agent in _agents)
             agent.NotifyThemeChanged();
 
@@ -57280,7 +56745,7 @@ public partial class MainWindow : Window
     {
         _search.InvalidateAdornerHighlights();
         _search.InvalidateScrollbarAdorner();
-        DocSourceFind_RenderHighlights();
+        DocSourceEditor?.RefreshTheme();
         RefreshSessionGapStripes();
         foreach (var thread in _agentThreadRegistry.ThreadOrder)
             SyncThreadChip(thread);
@@ -59120,11 +58585,11 @@ public partial class MainWindow : Window
             var newFrontMatter = DocumentUtilities.SetNavExclude(_currentDocFrontMatter, excluded: !isPublished);
 
             string bodyText;
-            if (DocSourcePanel?.Visibility == Visibility.Visible && DocSourceTextBox is not null)
+            if (DocSourcePanel?.Visibility == Visibility.Visible && DocSourceEditor is not null)
             {
                 _docSourceSaveTimer?.Stop();
                 _docPreviewRefreshTimer?.Stop();
-                bodyText = DocSourceTextBox.GetPlainText();
+                bodyText = DocSourceEditor.GetText();
             }
             else
             {
@@ -67726,24 +67191,64 @@ public partial class MainWindow : Window
     {
         if (e.OriginalSource is TextBox or RichTextBox)
             _lastFocusedTextElement = (IInputElement)e.OriginalSource;
+        else if (DocSourceEditor?.Editor?.TextArea is { } textArea &&
+                 e.OriginalSource is DependencyObject source &&
+                 IsDescendantOf(source, DocSourceEditor))
+            _lastFocusedTextElement = textArea;
     }
 
     private void OnWindowFocusedElementChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (e.NewValue is TextBox or RichTextBox)
             _lastFocusedTextElement = (IInputElement)e.NewValue;
+        else if (DocSourceEditor?.Editor?.TextArea is { } textArea &&
+                 e.NewValue is DependencyObject source &&
+                 IsDescendantOf(source, DocSourceEditor))
+            _lastFocusedTextElement = textArea;
     }
 
     private bool LastFocusedIsPrompt() =>
         ReferenceEquals(_lastFocusedTextElement, PromptTextBox);
 
+    private bool LastFocusedIsDocSourceTextBox() =>
+        IsDocSourceVisible()
+        && DocSourceEditor?.Editor?.TextArea is { } textArea
+        && ReferenceEquals(_lastFocusedTextElement, textArea);
+
+    private bool IsDocSourceEditorFocused() =>
+        IsDocSourceVisible()
+        && DocSourceEditor is not null
+        && Keyboard.FocusedElement is DependencyObject focused
+        && IsDescendantOf(focused, DocSourceEditor);
+
     private bool LastFocusedIsMarkdownEditor() =>
-        _lastFocusedTextElement is RichTextBox;
+        _lastFocusedTextElement is RichTextBox ||
+        LastFocusedIsDocSourceTextBox();
 
     private bool LastFocusedHasSelection()
     {
         if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) return tb.SelectionLength > 0;
         if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) return !rtb.Selection.IsEmpty;
+        if (LastFocusedIsDocSourceTextBox()) return DocSourceEditor?.Editor.SelectionLength > 0;
+        return false;
+    }
+
+    private static bool IsDescendantOf(DependencyObject source, DependencyObject? potentialAncestor)
+    {
+        if (potentialAncestor is null)
+            return false;
+
+        DependencyObject? current = source;
+        while (current is not null)
+        {
+            if (ReferenceEquals(current, potentialAncestor))
+                return true;
+            var visualParent = (current is Visual || current is System.Windows.Media.Media3D.Visual3D)
+                ? VisualTreeHelper.GetParent(current)
+                : null;
+            current = visualParent ?? LogicalTreeHelper.GetParent(current);
+        }
+
         return false;
     }
 
@@ -67754,8 +67259,15 @@ public partial class MainWindow : Window
         bool isPrompt   = LastFocusedIsPrompt();
         bool isMdEditor = LastFocusedIsMarkdownEditor();
         bool hasSel     = LastFocusedHasSelection();
-        bool isText     = _lastFocusedTextElement is not null;
+        bool isText     = _lastFocusedTextElement is not null || LastFocusedIsDocSourceTextBox();
         bool hasQueuedTab = _activeTabId is not null;
+        // Otherwise leave command routing untouched, particularly the prompt's custom undo timeline.
+        IInputElement? commandTarget = LastFocusedIsDocSourceTextBox() ? DocSourceEditor.Editor.TextArea : null;
+        EditUndoMenuItem.CommandTarget = commandTarget;
+        EditRedoMenuItem.CommandTarget = commandTarget;
+        EditCutMenuItem.CommandTarget = commandTarget;
+        EditCopyMenuItem.CommandTarget = commandTarget;
+        EditPasteMenuItem.CommandTarget = commandTarget;
 
         EditPasteAsAttachmentMenuItem.IsEnabled = isPrompt;
         EditCopyAppendMenuItem.IsEnabled        = hasSel;
@@ -67787,7 +67299,7 @@ public partial class MainWindow : Window
 
     private void EditFindMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (DocsPanel.Visibility == Visibility.Visible && DocSourceTextBox != null)
+        if (DocsPanel.Visibility == Visibility.Visible && IsDocSourceVisible() && DocSourceEditor is not null)
         {
             ShowDocSourceFindBar();
             return;
@@ -67900,7 +67412,9 @@ public partial class MainWindow : Window
     private void EditCopyAppendMenuItem_Click(object sender, RoutedEventArgs e)
     {
         string? selected = null;
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
+        if (LastFocusedIsDocSourceTextBox())
+            selected = DocSourceEditor.Editor.SelectedText;
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
             selected = rtb.Selection.Text;
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb)
             selected = tb.SelectedText;
@@ -67921,19 +67435,27 @@ public partial class MainWindow : Window
 
     private void EditBoldMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBold(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyBold); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBold(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyBold(tb); tb.Focus(); }
     }
 
     private void EditItalicMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyItalic(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyItalic); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyItalic(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyItalic(tb); tb.Focus(); }
     }
 
     private void EditInlineCodeMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
+        if (LastFocusedIsDocSourceTextBox())
+        {
+            if (!TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyInlineCodeOrFence))
+                TryApplyDocSourceEditorMutation(MarkdownEditorCommands.InsertInlineCode);
+            DocSourceEditor.FocusEditor();
+        }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
         {
             if (!MarkdownEditorCommands.ApplyInlineCodeOrFence(rtb))
                 MarkdownEditorCommands.InsertInlineCode(rtb);
@@ -67949,7 +67471,20 @@ public partial class MainWindow : Window
 
     private void EditParenthesesMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
+        if (LastFocusedIsDocSourceTextBox())
+        {
+            if (!TryApplyDocSourceEditorMutation(tb => MarkdownEditorCommands.ApplyInlineParens(tb, "(")))
+            {
+                TryApplyDocSourceEditorMutation(tb =>
+                {
+                    var pos = tb.SelectionStart;
+                    tb.SelectedText = "()";
+                    tb.SelectionStart = pos + 1;
+                });
+            }
+            DocSourceEditor.FocusEditor();
+        }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
         {
             if (!MarkdownEditorCommands.ApplyInlineParens(rtb, "("))
             {
@@ -67974,7 +67509,8 @@ public partial class MainWindow : Window
 
     private void EditQuotesMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyInlineQuote(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyInlineQuote); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyInlineQuote(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyInlineQuote(tb); tb.Focus(); }
     }
 
@@ -68021,11 +67557,17 @@ public partial class MainWindow : Window
             rtb.ReplaceSelection(variants[idx]);
             rtb.Focus();
         }
+        else if (LastFocusedIsDocSourceTextBox())
+        {
+            DocSourceEditor.CycleCase(false);
+            DocSourceEditor.FocusEditor();
+        }
     }
 
     private void EditSmoothDictationMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { SmoothDictationHelper.ApplyToRichTextBox(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(SmoothDictationHelper.ApplyToTextBox); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { SmoothDictationHelper.ApplyToRichTextBox(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { SmoothDictationHelper.ApplyToTextBox(tb); tb.Focus(); }
     }
 
@@ -68045,23 +67587,24 @@ public partial class MainWindow : Window
 
     private void EditInsertBulletListMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBulletList(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyBulletList); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBulletList(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyBulletList(tb); tb.Focus(); }
     }
 
     private void EditInsertHorizontalRuleMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (DocSourceTextBox?.IsKeyboardFocusWithin == true || ReferenceEquals(_lastFocusedTextElement, DocSourceTextBox))
+        if (LastFocusedIsDocSourceTextBox())
         {
-            MarkdownEditorCommands.InsertHorizontalRule(DocSourceTextBox!);
-            DocSourceTextBox!.Focus();
+            TryApplyDocSourceEditorMutation(MarkdownEditorCommands.InsertHorizontalRule);
+            DocSourceEditor.FocusEditor();
         }
     }
 
     private void EditInsertImageMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (DocSourceTextBox is not null && (DocSourceTextBox.IsKeyboardFocusWithin || ReferenceEquals(_lastFocusedTextElement, DocSourceTextBox)))
-            DocEditorToolbar_ImageInsertRequested(sender, e);
+        if (LastFocusedIsDocSourceTextBox())
+            DocSourceEditor_ImageInsertRequested(sender, e);
     }
 
     private void EditInsertLineBreakMenuItem_Click(object sender, RoutedEventArgs e)
@@ -68075,19 +67618,22 @@ public partial class MainWindow : Window
 
     private void EditInsertLinkMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertLink(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.InsertLink); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertLink(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.InsertLink(tb); tb.Focus(); }
     }
 
     private void EditInsertNumberedListMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyNumberedList(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyNumberedList); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyNumberedList(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyNumberedList(tb); tb.Focus(); }
     }
 
     private void EditInsertTableMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertTable(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.InsertTable); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertTable(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.InsertTable(tb); tb.Focus(); }
     }
 
