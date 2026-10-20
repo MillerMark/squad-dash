@@ -116,6 +116,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private FlowDocumentScrollViewer? _detailViewer;
     private PlanDescriptionPresentation? _descriptionPresentation;
     private PlanDescriptionDocumentSession? _descriptionSession;
+    private AvalonEditMarkdownEditor? _taskDescriptionEditor;
     private readonly List<FlowDocument> _descriptionPreviews = [];
     private TextBox? _descriptionFindInput;
     private double _inspectorFontScale = 1.0;
@@ -612,7 +613,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     private static bool IsGraphTextInput(IInputElement? element) =>
-        element is TextBoxBase or PasswordBox or ComboBox { IsEditable: true };
+        element is TextBoxBase or PasswordBox or ComboBox { IsEditable: true }
+            or ICSharpCode.AvalonEdit.Editing.TextArea;
 
     private void OnGraphPanPreviewKeyUp(object sender, KeyEventArgs e)
     {
@@ -6705,6 +6707,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         _descriptionSession?.Dispose();
         _descriptionSession = null;
+        _taskDescriptionEditor?.Dispose();
+        _taskDescriptionEditor = null;
         MarkdownVisibleContent.Detach(_detailDocument);
         RestoreInspectorFontScale();
         _inspectorEditorSaveAction = null;
@@ -6714,7 +6718,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_isInspectorEditing && TryPopulateStagedEditor())
         {
             PrependInspectorToolbar();
-            // The staged editor is a TextBox, not the FlowDocument; don't track its scroll.
+            // Staged editors own their scrolling rather than the FlowDocument.
             _inspectorRenderedElement = null;
             return;
         }
@@ -7474,7 +7478,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var panel = CreateEditorPanel("Edit step", out var status);
         var title = AddEditorField(panel, "Title", task.Title, 34);
         _inspectorPrimaryEditor = title;
-        var description = AddEditorField(panel, "Description (Markdown supported)", task.Description, 170);
+        var descriptionLabel = new TextBlock
+        {
+            Text = "Description (Markdown supported)",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 3),
+        };
+        descriptionLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        descriptionLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        var description = new AvalonEditMarkdownEditor { MinHeight = 170 };
+        description.SetText(task.Description);
+        _taskDescriptionEditor = description;
+        var descriptionBorder = new Border
+        {
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(6, 4, 6, 4),
+            Child = description,
+        };
+        descriptionBorder.SetResourceReference(Border.BackgroundProperty, "PanelBackground");
+        descriptionBorder.SetResourceReference(Border.BorderBrushProperty, "LineColor");
+        panel.Children.Add(descriptionLabel);
+        panel.Children.Add(descriptionBorder);
         var contractExamples = CreateContractExampleEditor(panel, task.ContractExamples);
         CheckBox? parallel = null;
         // Parallel eligibility remains part of the durable plan contract. Re-enable this
@@ -7493,10 +7517,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         AddEditorActions(panel, status, () =>
         {
-            if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(description.Text))
+            var descriptionText = description.GetText();
+            if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(descriptionText))
                 return "Title and description are required.";
             var updated = StagedPlanEditor.UpdateTask(
-                _plan!.Group, taskId, title.Text, description.Text, task.Priority, task.DependsOn,
+                _plan!.Group, taskId, title.Text, descriptionText, task.Priority, task.DependsOn,
                 BuildContractExamples(contractExamples));
             if (parallel is not null)
             {
@@ -8435,6 +8460,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void DetachDescriptionDocuments()
     {
+        _taskDescriptionEditor?.Dispose();
+        _taskDescriptionEditor = null;
         _descriptionSession?.Dispose();
         _descriptionSession = null;
         if (_detailDocument is not null) MarkdownVisibleContent.Detach(_detailDocument);

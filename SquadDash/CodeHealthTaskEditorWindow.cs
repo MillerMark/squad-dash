@@ -11,6 +11,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
+using ICSharpCode.AvalonEdit.Document;
+using ICSharpCode.AvalonEdit.Rendering;
 
 namespace SquadDash;
 
@@ -29,8 +31,6 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
     private readonly Func<ApplicationSettingsSnapshot>       _settingsProvider;
     private readonly Action                                  _onSaved;
     private readonly Action                                  _reloadPanel;
-    private readonly Action<RichTextBox, string>?            _onReviseWithAi;
-    private readonly Action<RichTextBox, string, string>?    _onDirectRevise;
     private readonly TaskEditorMode                          _mode;
     private readonly string?                                 _loopMdPath;
 
@@ -51,7 +51,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
     private readonly TextBox     _optionsYamlBox;
     private readonly StackPanel  _optionsPreviewPanel;
     private readonly FlowDocumentScrollViewer _markdownPreview;
-    private readonly MarkdownEditorPanel _instructionsPanel;
+    private readonly AvalonEditMarkdownEditor _instructionsPanel;
     private StackPanel? _weeklyDayPickerPanel;  // Day picker UI for weekly frequency
     private TextBlock?  _captionLabel;          // Caption text block (for mode-specific retitle)
     private StackPanel? _propsRow;              // Properties row (hidden in Loop mode)
@@ -60,7 +60,6 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
     private readonly PttTextBoxAttachment     _pttTitle;
     private readonly PttTextBoxAttachment     _pttOptions;
-    private readonly PttRichTextBoxAttachment _pttInstructions;
 
     // ── CamelCase navigation ──────────────────────────────────────────────────
 
@@ -101,8 +100,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         Func<ApplicationSettingsSnapshot> settingsProvider,
         Action onSaved,
         Action reloadPanel,
-        Action<RichTextBox, string>?         onReviseWithAi = null,
-        Action<RichTextBox, string, string>? onDirectRevise = null,
+        Action<AvalonEditMarkdownEditor>?    configureMarkdownEditor = null,
         CodeHealthStateStore?                stateStore     = null,
         string?                              workspacePath  = null,
         TaskEditorMode                       mode           = TaskEditorMode.CodeHealth,
@@ -112,8 +110,6 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _settingsProvider = settingsProvider;
         _onSaved          = onSaved;
         _reloadPanel      = reloadPanel;
-        _onReviseWithAi   = onReviseWithAi;
-        _onDirectRevise   = onDirectRevise;
         _mode             = mode;
         _loopMdPath       = loopMdPath;
 
@@ -128,7 +124,6 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
         _pttTitle        = new PttTextBoxAttachment(_settingsProvider, this, Dispatcher);
         _pttOptions      = new PttTextBoxAttachment(_settingsProvider, this, Dispatcher);
-        _pttInstructions = new PttRichTextBoxAttachment(_settingsProvider, this, Dispatcher);
 
         _titleBox            = BuildTitleBox();
         _enabledCheck        = BuildEnabledCheck();
@@ -138,6 +133,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         _optionsPreviewPanel = new StackPanel { Margin = new Thickness(4) };
         _markdownPreview     = BuildMarkdownPreview();
         _instructionsPanel   = BuildInstructionsPanel();
+        configureMarkdownEditor?.Invoke(_instructionsPanel);
 
         // Initialize the weekly day selection based on the task's current frequency
         if (_task.Frequency.StartsWith("weekly-", StringComparison.OrdinalIgnoreCase)) {
@@ -189,6 +185,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp   += OnPreviewKeyUp;
+        KeyDown        += OnKeyDown;
         Closed         += OnClosed;
         Closing        += OnClosing;
 
@@ -244,60 +241,28 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             if (_pttTitle.HandlePreviewKeyDown(e, _titleBox)) e.Handled = true;
         if (_optionsYamlBox.IsKeyboardFocusWithin)
             if (_pttOptions.HandlePreviewKeyDown(e, _optionsYamlBox)) e.Handled = true;
-        if (_instructionsPanel.IsKeyboardFocusWithin)
-            if (_pttInstructions.HandlePreviewKeyDown(e, _instructionsPanel.EditorBox)) e.Handled = true;
+    }
 
-        // Escape: close with unsaved changes confirmation
+    private void OnKeyDown(object sender, KeyEventArgs e) {
+        // Let the editor cancel dictation or search before closing the window.
         if (e.Key == Key.Escape && !e.Handled) {
             if (HandleCloseRequest()) Close();
             e.Handled = true;
-            return;
-        }
-
-        // Ctrl+Shift+A: Revise with AI
-        if (_instructionsPanel.IsKeyboardFocusWithin
-            && e.Key == Key.A
-            && (Keyboard.Modifiers & ModifierKeys.Control) != 0
-            && (Keyboard.Modifiers & ModifierKeys.Shift) != 0
-            && _onReviseWithAi is not null
-            && _instructionsPanel.EditorBox.GetSelectionLength() > 0)
-        {
-            _onReviseWithAi(_instructionsPanel.EditorBox, "");
-            e.Handled = true;
-            return;
-        }
-
-        // Ctrl+Shift+C: Quick Cleanup
-        if (_instructionsPanel.IsKeyboardFocusWithin
-            && e.Key == Key.C
-            && (Keyboard.Modifiers & ModifierKeys.Control) != 0
-            && (Keyboard.Modifiers & ModifierKeys.Shift) != 0
-            && _onDirectRevise is not null
-            && _instructionsPanel.EditorBox.GetSelectionLength() > 0)
-        {
-            var cleanupPrompt = _settingsProvider().CleanupPrompt;
-            if (!string.IsNullOrWhiteSpace(cleanupPrompt))
-            {
-                _onDirectRevise(_instructionsPanel.EditorBox, "", cleanupPrompt);
-                e.Handled = true;
-                return;
-            }
         }
     }
 
     private void OnPreviewKeyUp(object sender, KeyEventArgs e) {
         _pttTitle.HandlePreviewKeyUp(e);
         _pttOptions.HandlePreviewKeyUp(e);
-        _pttInstructions.HandlePreviewKeyUp(e);
     }
 
     private void OnClosed(object? sender, EventArgs e) {
         if (_pttTitle.IsActive)        _ = _pttTitle.StopAsync();
         if (_pttOptions.IsActive)      _ = _pttOptions.StopAsync();
-        if (_pttInstructions.IsActive) _ = _pttInstructions.StopAsync();
         _pttTitle.Dispose();
         _pttOptions.Dispose();
-        _pttInstructions.Dispose();
+        ClearInstructionsHoverHighlight();
+        _instructionsPanel.Dispose();
     }
 
     /// <summary>Checks if the given file path is the system code-health.md file.</summary>
@@ -547,7 +512,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         Grid.SetColumn(leftStack, 0);
         leftStack.Children.Add(_markdownPreview);
 
-        // Right: editable MarkdownEditorPanel (Row 1, Col 2)
+        // Right: editable markdown (Row 1, Col 2)
         _instructionsHost = new Grid();
         _instructionsHost.Children.Add(_instructionsPanel);
 
@@ -751,11 +716,17 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         return viewer;
     }
 
-    private MarkdownEditorPanel BuildInstructionsPanel() {
-        var panel = new MarkdownEditorPanel(showImageButton: false, showHrButton: false);
+    private AvalonEditMarkdownEditor BuildInstructionsPanel() {
+        var panel = new AvalonEditMarkdownEditor { ShowHrButton = false };
+        panel.DocumentPath = _loopMdPath ?? _task.SourceFilePath ?? string.Empty;
+        panel.CleanupPrompt = _settingsProvider().CleanupPrompt;
         panel.SetText(_task.Instructions ?? "");
-        panel.TextChanged            += (_, _)    => _hasUnsavedChanges = true;
+        panel.TextChanged += (_, _) => {
+            _hasUnsavedChanges = true;
+            ClearInstructionsHoverHighlight();
+        };
         panel.PreviewUpdateRequested += (_, _)    => UpdateMarkdownPreview();
+        panel.Editor.TextArea.TextView.ScrollOffsetChanged += (_, _) => ClearInstructionsHoverHighlight();
         return panel;
     }
 
@@ -1093,16 +1064,19 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
         ClearInstructionsHoverHighlight();
         if (length <= 0) return;
 
-        var editorBox = _instructionsPanel.EditorBox;
-        var rect = editorBox.GetRectFromOffset(start);
-        if (rect == Rect.Empty) return;
+        var editor = _instructionsPanel.Editor;
+        if (start < 0 || start >= editor.Document.TextLength) return;
+        var textView = editor.TextArea.TextView;
+        textView.EnsureVisualLines();
+        var segment = new TextSegment {
+            StartOffset = start,
+            Length = Math.Min(length, editor.Document.TextLength - start),
+        };
+        var rectangles = BackgroundGeometryBuilder.GetRectsForSegment(textView, segment).ToList();
+        if (rectangles.Count == 0) return;
 
         var overlay    = EnsureInstructionsOverlay();
-        var origin     = editorBox.TranslatePoint(new Point(0, 0), overlay);
-        var charTopLeft = editorBox.TranslatePoint(rect.TopLeft, overlay);
-
-        // Don't draw if the target line is scrolled outside the visible area.
-        if (charTopLeft.Y < origin.Y || charTopLeft.Y >= origin.Y + editorBox.ActualHeight) return;
+        var viewport = new Rect(new Point(), textView.RenderSize);
 
         var isDark = IsDark();
         var highlightColor = isDark
@@ -1110,19 +1084,13 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
             : Color.FromArgb(50, 100, 180, 255);
 
         var geometry = new GeometryGroup { FillRule = FillRule.Nonzero };
-        if (exact) {
-            for (int i = start; i < start + length; i++) {
-                var left = editorBox.GetTextPointerAt(i).GetCharacterRect(LogicalDirection.Forward);
-                var right = editorBox.GetTextPointerAt(i + 1).GetCharacterRect(LogicalDirection.Backward);
-                if (left == Rect.Empty || right == Rect.Empty) continue;
-                var bounds = Rect.Union(left, right);
-                var location = editorBox.TranslatePoint(bounds.TopLeft, overlay);
-                geometry.Children.Add(new RectangleGeometry(new Rect(location, bounds.Size)));
-            }
-        } else {
-            double highlightWidth = Math.Max(editorBox.ActualWidth - (charTopLeft.X - origin.X), 0);
-            geometry.Children.Add(new RectangleGeometry(
-                new Rect(charTopLeft, new Size(highlightWidth, Math.Max(rect.Height, 14)))));
+        foreach (var rectangle in exact ? rectangles : rectangles.Take(1)) {
+            var bounds = exact ? rectangle : new Rect(
+                rectangle.TopLeft, new Size(Math.Max(viewport.Width - rectangle.Left, 0), rectangle.Height));
+            bounds.Intersect(viewport);
+            if (bounds.IsEmpty) continue;
+            var location = textView.TranslatePoint(bounds.TopLeft, overlay);
+            geometry.Children.Add(new RectangleGeometry(new Rect(location, bounds.Size)));
         }
 
         _instructionsHighlight = new System.Windows.Shapes.Path {

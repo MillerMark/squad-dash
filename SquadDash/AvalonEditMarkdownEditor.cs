@@ -106,6 +106,12 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
 
     public TextEditor Editor { get; }
 
+    public bool ShowHrButton
+    {
+        get => _toolbar.ShowHrButton;
+        set => _toolbar.ShowHrButton = value;
+    }
+
     public event EventHandler<string>? TextChanged;
     public event EventHandler<string>? PreviewUpdateRequested;
 

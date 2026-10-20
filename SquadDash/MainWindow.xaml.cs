@@ -63395,8 +63395,12 @@ public partial class MainWindow : Window
                                             .ContinueWith(t => HandleUiCallbackException(nameof(SyncCodeHealthPanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
                 simulateIdle:           () => StartCodeHealthCycleAsync()
                                             .ContinueWith(t => HandleUiCallbackException(nameof(SyncCodeHealthPanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
-                onReviseWithAi:         (rtb, path) => ShowDocRevisePopup(rtb, path),
-                onDirectRevise:         (rtb, path, instructions) => DirectReviseRichTextBox(rtb, path, instructions));
+                configureMarkdownEditor: editor => {
+                    var context = BuildMarkdownCaptureContext();
+                    editor.ReviseWithAiCallback = context.ReviseWithAiCallback;
+                    editor.StartPttCallback = context.StartPttCallback;
+                    editor.StopPttCallback = context.StopPttCallback;
+                });
             _codeHealthPanel.ClearFilterAction = () => { if (CodeHealthFilterBox is not null) CodeHealthFilterBox.Text = string.Empty; };
 
             // Wire dynamic max-width hint so splitter snap targets content width

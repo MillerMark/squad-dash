@@ -372,6 +372,46 @@ internal sealed class AvalonEditMarkdownEditorTests
         });
     }
 
+    [Test]
+    public void ShowHrButton_DefaultsVisible_AndTogglesHrControlsWithoutUnhidingImageButton()
+    {
+        SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 14);
+        using var editor = new AvalonEditMarkdownEditor();
+        var toolbar = FindToolbar(editor);
+        var image = (Button?)toolbar.FindName("ImageButton");
+        var hr = (Button?)toolbar.FindName("HrButton");
+        var hrSeparator = (Separator?)toolbar.FindName("HrSeparator");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor.ShowHrButton, Is.True);
+            Assert.That(hr, Is.Not.Null);
+            Assert.That(hrSeparator, Is.Not.Null);
+            Assert.That(image, Is.Not.Null);
+            Assert.That(hr!.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(hrSeparator!.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(image!.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+
+        editor.ShowHrButton = false;
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor.ShowHrButton, Is.False);
+            Assert.That(hr!.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(hrSeparator!.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(image!.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+
+        editor.ShowHrButton = true;
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor.ShowHrButton, Is.True);
+            Assert.That(hr!.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(hrSeparator!.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(image!.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+    }
+
     private static MarkdownEditorToolbar FindToolbar(AvalonEditMarkdownEditor editor) =>
         editor.Children.OfType<MarkdownEditorToolbar>().Single();
 
