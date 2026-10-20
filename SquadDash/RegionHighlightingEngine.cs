@@ -29,6 +29,9 @@ public sealed class RegionHighlightingEngine
         RegionBundledGrammars.Register(this);
         foreach (var definition in HighlightingManager.Instance.HighlightingDefinitions)
         {
+            // This redundant AvalonEdit built-in is superseded by our bundled Markdown grammar.
+            if (string.Equals(definition.Name, "MarkDownWithFontSize", StringComparison.OrdinalIgnoreCase))
+                continue;
             // Bundled definitions take precedence only in this engine, never in the shared registry.
             if (_grammars.ContainsKey(definition.Name))
                 continue;

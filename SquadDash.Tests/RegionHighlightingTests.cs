@@ -44,7 +44,7 @@ namespace SquadDash.Tests;
 public sealed class RegionHighlightingTests
 {
     [Test]
-    public void Options_ExposeAutoDetectPlainText_AndEveryInstalledGrammar()
+    public void Options_ExposeAutoDetectPlainText_AndEveryIncludedGrammar()
     {
         var engine = new RegionHighlightingEngine();
         var options = engine.Options;
@@ -67,9 +67,10 @@ public sealed class RegionHighlightingTests
         var grammarOptions = options.Where(o => o.GrammarName is not null).ToList();
 
         installed.Remove("MarkDown");
+        installed.Remove("MarkDownWithFontSize");
         installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message" });
         Assert.That(grammarOptions, Has.Count.EqualTo(installed.Count),
-            "one option per built-in or bundled grammar, with no duplicate JSON entry");
+            "one option per included built-in or bundled grammar, with no duplicate JSON entry");
         Assert.That(grammarOptions.Select(o => o.GrammarName!).ToHashSet(StringComparer.Ordinal),
             Is.EquivalentTo(installed));
         Assert.That(options.Take(2).Select(o => o.FenceToken), Is.EqualTo(new[] { "", "text" }));
@@ -78,13 +79,39 @@ public sealed class RegionHighlightingTests
     }
 
     [Test]
-    public void InstalledBuiltIns_ResolveToStandardDefinitions()
+    public void Options_ExcludeMarkdownFontSizeVariant_AndKeepBundledMarkdown()
+    {
+        var engine = new RegionHighlightingEngine();
+        var installed = HighlightingManager.Instance.HighlightingDefinitions.Select(d => d.Name).ToArray();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(installed, Does.Contain("MarkDownWithFontSize"),
+                "verify AvalonEdit's exact registered name and leave its shared definition intact");
+            Assert.That(installed, Does.Contain("MarkDown"));
+            Assert.That(engine.Options.Any(o => string.Equals(o.GrammarName,
+                "MarkDownWithFontSize", StringComparison.OrdinalIgnoreCase)), Is.False);
+            Assert.That(RegionLanguagePicker.Options.Any(o => string.Equals(o.GrammarName,
+                "MarkDownWithFontSize", StringComparison.OrdinalIgnoreCase)), Is.False);
+            Assert.That(RegionLanguagePicker.Options, Does.Contain(
+                new RegionLanguageOption("markdown", "Markdown", "Markdown")));
+            Assert.That(engine.ResolveFenceToken("markdownwithfontsize"), Is.Null);
+            Assert.That(engine.ResolveFenceToken("markdown"), Is.EqualTo("Markdown"));
+        });
+        Assert.That(engine.CreateDefinition("Markdown", PaletteFrom(engine, false)).Name,
+            Is.EqualTo("Markdown"));
+    }
+
+    [Test]
+    public void IncludedBuiltIns_ResolveToStandardDefinitions()
     {
         var engine = new RegionHighlightingEngine();
         var palette = PaletteFrom(engine, isDark: true);
 
         foreach (var definition in HighlightingManager.Instance.HighlightingDefinitions)
         {
+            if (string.Equals(definition.Name, "MarkDownWithFontSize", StringComparison.OrdinalIgnoreCase))
+                continue;
             var token = SanitizeToken(definition.Name);
             var expectedName = definition.Name == "MarkDown" ? "Markdown" : definition.Name;
 

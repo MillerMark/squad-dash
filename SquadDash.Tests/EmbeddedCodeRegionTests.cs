@@ -235,7 +235,7 @@ internal sealed class EmbeddedCodeRegionTests
             .Children.Cast<Button>().ToArray();
 
     [Test, Apartment(ApartmentState.STA)]
-    public void LanguagePicker_ListsSpecialModesThenEveryInstalledGrammar_InOrder()
+    public void LanguagePicker_ListsSpecialModesThenEveryIncludedGrammar_InOrder()
     {
         var options = RegionLanguagePicker.Options;
         Assert.That(options.Take(2).Select(option => option.DisplayName),
@@ -243,6 +243,7 @@ internal sealed class EmbeddedCodeRegionTests
         Assert.That(options.Take(2).Select(option => option.Mode),
             Is.EqualTo(new[] { RegionLanguageMode.AutoDetect, RegionLanguageMode.PlainText }));
         var grammars = ICSharpCode.AvalonEdit.Highlighting.HighlightingManager.Instance.HighlightingDefinitions
+            .Where(grammar => !string.Equals(grammar.Name, "MarkDownWithFontSize", StringComparison.OrdinalIgnoreCase))
             .Select(grammar => grammar.Name == "MarkDown" ? "Markdown" : grammar.Name)
             .Concat(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message" })
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
