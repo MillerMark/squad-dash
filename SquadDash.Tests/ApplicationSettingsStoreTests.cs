@@ -348,6 +348,49 @@ internal sealed class ApplicationSettingsStoreTests {
     }
 
     [Test]
+    public void MarkdownEditorZoom_DefaultsToOneForExistingSettings() {
+        using var workspace = new TestWorkspace();
+        var path = workspace.GetPath("settings.json");
+        var json = System.Text.Json.JsonSerializer.SerializeToNode(new ApplicationSettingsStore(path).Load())!.AsObject();
+        json.Remove("MarkdownEditorZoomMultiplier");
+        File.WriteAllText(path, json.ToJsonString());
+        Assert.That(new ApplicationSettingsStore(path).Load().MarkdownEditorZoomMultiplier, Is.EqualTo(1.0));
+    }
+
+    [TestCase(1.75, 1.75)]
+    [TestCase(0.1, 0.5)]
+    [TestCase(8.0, 3.0)]
+    [TestCase(double.NaN, 1.0)]
+    [TestCase(double.PositiveInfinity, 1.0)]
+    [TestCase(double.NegativeInfinity, 1.0)]
+    public void SaveMarkdownEditorZoom_RoundTripsGloballyAndPreservesOtherFonts(double value, double expected) {
+        using var workspace = new TestWorkspace();
+        var path = workspace.GetPath("settings.json");
+        var store = new ApplicationSettingsStore(path);
+        store.SavePromptFontSize(19);
+        store.SaveDocSourceFontSize(16);
+        Assert.That(store.SaveMarkdownEditorZoomMultiplier(value).MarkdownEditorZoomMultiplier, Is.EqualTo(expected));
+        var reloaded = new ApplicationSettingsStore(path);
+        reloaded.SavePromptFontSize(20);
+        var loaded = reloaded.Load();
+        Assert.Multiple(() => {
+            Assert.That(loaded.MarkdownEditorZoomMultiplier, Is.EqualTo(expected));
+            Assert.That(loaded.DocSourceFontSize, Is.EqualTo(16));
+            Assert.That(loaded.PromptFontSize, Is.EqualTo(20));
+        });
+    }
+
+    [TestCase(-2.0, 0.5)]
+    [TestCase(5.0, 3.0)]
+    public void MarkdownEditorZoom_NormalizesPersistedOutOfRangeValues(double value, double expected) {
+        using var workspace = new TestWorkspace();
+        var path = workspace.GetPath("settings.json");
+        var snapshot = new ApplicationSettingsStore(path).Load() with { MarkdownEditorZoomMultiplier = value };
+        File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(snapshot));
+        Assert.That(new ApplicationSettingsStore(path).Load().MarkdownEditorZoomMultiplier, Is.EqualTo(expected));
+    }
+
+    [Test]
     public void SaveValidationDetailsFontMultiplier_PersistsGlobally() {
         using var workspace = new TestWorkspace();
         var settingsPath = workspace.GetPath("settings", "settings.json");

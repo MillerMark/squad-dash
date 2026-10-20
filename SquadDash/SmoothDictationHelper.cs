@@ -3,6 +3,7 @@ namespace SquadDash;
 using System;
 using System.Text.RegularExpressions;
 using System.Windows.Controls;
+using ICSharpCode.AvalonEdit;
 
 /// <summary>
 /// Smooth Dictation — removes sentence-break periods inserted by voice dictation
@@ -123,6 +124,32 @@ internal static class SmoothDictationHelper
             rtb.SetPlainText(output);
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// Applies smooth-dictation to the selected text in <paramref name="editor"/>.
+    /// If nothing is selected, applies to the entire text.
+    /// Returns true if any change was made.
+    /// </summary>
+    public static bool ApplyToAvalonEdit(TextEditor editor)
+    {
+        if (editor.IsReadOnly)
+            return false;
+        var hasSelection = editor.SelectionLength > 0;
+        var start = hasSelection ? editor.SelectionStart : 0;
+        var length = hasSelection ? editor.SelectionLength : editor.Document.TextLength;
+        var input = editor.Document.GetText(start, length);
+        var output = Apply(input.ReplaceLineEndings("\n"));
+        if (input == output)
+            return false;
+        var caret = editor.CaretOffset;
+        using (editor.Document.RunUpdate())
+            editor.Document.Replace(start, length, output);
+        if (hasSelection)
+            editor.Select(start, output.Length);
+        else
+            editor.Select(Math.Min(caret, output.Length), 0);
         return true;
     }
 }

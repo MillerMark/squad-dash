@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -10,7 +11,7 @@ using ICSharpCode.AvalonEdit.Search;
 
 namespace SquadDash;
 
-internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
+internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
 {
     private static readonly TimeSpan PreviewDebounceInterval = TimeSpan.FromMilliseconds(350);
 
@@ -32,9 +33,17 @@ internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
     private bool _hasToolbarSelectionSnapshot;
     private int _toolbarSelectionStart;
     private int _toolbarSelectionLength;
+    private readonly CamelCaseAvalonEditAttachment _camelCaseNavigation = new();
+    private IReadOnlyList<string>? _cycleVariants;
+    private int _cycleIndex;
+    private int _cycleStart;
+    private bool _cycling;
 
-    public AvalonEditMarkdownEditor()
+    public AvalonEditMarkdownEditor() : this(new ApplicationSettingsStore()) { }
+
+    internal AvalonEditMarkdownEditor(ApplicationSettingsStore settingsStore)
     {
+        _settingsStore = settingsStore;
         LastChildFill = true;
         _paletteSource = new ThemeResourcePaletteSource(_highlighting);
         _commandBridge = new TextBox();
@@ -61,12 +70,13 @@ internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             ShowLineNumbers = false,
             FontFamily = SystemFonts.MessageFontFamily,
-            BorderThickness = new Thickness(1),
+            BorderThickness = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Stretch,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
-        Editor.SetResourceReference(TextEditor.FontSizeProperty, "FontSizeBody");
-        Editor.SetResourceReference(TextEditor.BorderBrushProperty, "SubtleBorder");
+        InitializeZoom();
+        InitializeHighlights();
+        InitializeDictation();
         Editor.Document.UndoStack.SizeLimit = 200;
         Editor.TextArea.PreviewKeyDown += Editor_PreviewKeyDown;
         Editor.TextArea.PreviewTextInput += Editor_PreviewTextInput;
@@ -80,16 +90,6 @@ internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
 
         DockPanel.SetDock(_toolbar, Dock.Top);
         Children.Add(_toolbar);
-        var trialNote = new TextBlock
-        {
-            Text = "AvalonEdit trial: AI revision, dictation, case cycling, custom word navigation and preview hover highlights are not available.",
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 0, 0, 6),
-        };
-        trialNote.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-        trialNote.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-        DockPanel.SetDock(trialNote, Dock.Top);
-        Children.Add(trialNote);
         Children.Add(Editor);
 
         _previewDebounce = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
@@ -170,6 +170,10 @@ internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
             return;
 
         _isDisposed = true;
+        DisposeDictation();
+        DisposeZoom();
+        DisposeHighlights();
+        DisposeRevisions();
         _previewDebounce.Stop();
         _previewDebounce.Tick -= PreviewDebounce_Tick;
         _toolbar.RemoveHandler(ButtonBase.ClickEvent, _toolbarClickHandler);
@@ -187,6 +191,9 @@ internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
 
     private void Editor_TextChanged(object? sender, EventArgs e)
     {
+        if (!_cycling)
+            _cycleVariants = null;
+        ClearSourceHighlight();
         _textChangedDuringUpdate = true;
     }
 
@@ -217,6 +224,8 @@ internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
 
     private void TextArea_SelectionChanged(object? sender, EventArgs e)
     {
+        if (!_cycling)
+            _cycleVariants = null;
         _hasToolbarSelectionSnapshot = false;
         UpdateToolbarSelectionGates();
     }
@@ -225,10 +234,45 @@ internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
     {
         var modifiers = Keyboard.Modifiers;
 
+        if (_camelCaseNavigation.HandlePreviewKeyDown(e, Editor))
+        {
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Space && modifiers == ModifierKeys.Shift && Editor.SelectionLength > 0)
+        {
+            if (CanMutateSelection())
+                SmoothDictationHelper.ApplyToAvalonEdit(Editor);
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.F3 && (modifiers == ModifierKeys.Shift ||
+            modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) && Editor.SelectionLength > 0)
+        {
+            CycleCase((modifiers & ModifierKeys.Control) != 0);
+            e.Handled = true;
+            return;
+        }
+        if (modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && CanReviseSelection)
+        {
+            if (e.Key == Key.A)
+            {
+                TriggerReviseWithAi();
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.C && !string.IsNullOrWhiteSpace(CleanupPrompt))
+            {
+                TriggerDirectReviseWithAi();
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (e.Key == Key.Return && modifiers == ModifierKeys.None)
         {
-            if (!ApplyBridgeMutation(MarkdownEditorCommands.ContinueListOnEnter))
-                Editor.SelectedText = "\n";
+            if (CanMutateSelection() && !ApplyBridgeMutation(MarkdownEditorCommands.ContinueListOnEnter))
+                Editor.TextArea.Selection.ReplaceSelectionWithText("\n");
             e.Handled = true;
             return;
         }
@@ -404,7 +448,60 @@ internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
         menu.Items.Add(CreateItem("Cu_t", ApplicationCommands.Cut));
         menu.Items.Add(CreateItem("_Copy", ApplicationCommands.Copy));
         menu.Items.Add(CreateItem("_Paste", ApplicationCommands.Paste));
+        var featureSeparator = new Separator();
+        featureSeparator.SetResourceReference(StyleProperty, "ThemedMenuSeparatorStyle");
+        menu.Items.Add(featureSeparator);
+        var smooth = new MenuItem { Header = "\u2728 Smooth Dictation", InputGestureText = "Shift+Space" };
+        smooth.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        smooth.Click += (_, _) => {
+            if (Editor.SelectionLength > 0 && CanMutateSelection())
+                SmoothDictationHelper.ApplyToAvalonEdit(Editor);
+        };
+        var revise = new MenuItem { Header = "\u270F _Revise with AI", InputGestureText = "Ctrl+Shift+A" };
+        revise.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        revise.Click += (_, _) => TriggerReviseWithAi();
+        menu.Items.Add(smooth);
+        menu.Items.Add(revise);
+        menu.Opened += (_, _) => {
+            smooth.IsEnabled = Editor.SelectionLength > 0 && CanMutateSelection();
+            revise.IsEnabled = CanReviseSelection;
+        };
         return menu;
+    }
+
+    internal void CycleCase(bool reverse)
+    {
+        if (Editor.SelectionLength == 0 || !CanMutateSelection())
+            return;
+        var selected = Editor.SelectedText;
+        var continuing = _cycleVariants is not null && _cycleStart == Editor.SelectionStart
+            && selected == _cycleVariants[_cycleIndex];
+        if (!continuing)
+        {
+            _cycleStart = Editor.SelectionStart;
+            _cycleVariants = TextCaseHelper.ComputeVariants(selected);
+            _cycleIndex = reverse ? _cycleVariants.Count - 1 : TextCaseHelper.GetFirstVariantIndex(selected);
+        }
+        else
+            _cycleIndex = (_cycleIndex + (reverse ? -1 : 1) + _cycleVariants!.Count) % _cycleVariants.Count;
+
+        _cycling = true;
+        var undo = Editor.Document.UndoStack;
+        if (continuing)
+            undo.StartContinuedUndoGroup();
+        else
+            undo.StartUndoGroup();
+        try
+        {
+            var variant = _cycleVariants![_cycleIndex];
+            Editor.Document.Replace(_cycleStart, Editor.SelectionLength, variant);
+            Editor.Select(_cycleStart, variant.Length);
+        }
+        finally
+        {
+            undo.EndUndoGroup();
+            _cycling = false;
+        }
     }
 
     private bool ApplyBridgeMutation(Action<TextBox> action, bool useToolbarSnapshot = false)
@@ -445,6 +542,8 @@ internal sealed class AvalonEditMarkdownEditor : DockPanel, IDisposable
         }
 
         var (offset, removeLength, insertText) = ComputeDiff(beforeText, afterText);
+        if (!CanMutateRange(offset, removeLength))
+            return false;
         using (Editor.Document.RunUpdate())
         {
             Editor.Document.Replace(offset, removeLength, insertText);

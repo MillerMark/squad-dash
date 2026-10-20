@@ -561,6 +561,15 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         bool isReadOnly = false, bool useAvalonEdit = false) {
         var window = new MarkdownDocumentWindow(title, documents, noteContext, loopEditContext, useAvalonEdit);
         window._captureContext = captureContext;
+        foreach (var document in window._documents) {
+            if (document.AvalonEditor is not { } editor) continue;
+            editor.DocumentPath = document.FilePath;
+            editor.ReviseWithAiCallback = captureContext?.ReviseWithAiCallback;
+            editor.CleanupPrompt = captureContext?.CleanupPrompt;
+            editor.StartPttCallback = captureContext?.StartPttCallback;
+            editor.StopPttCallback = captureContext?.StopPttCallback;
+            editor.RevisionCompleted += () => RevisionCompleted?.Invoke();
+        }
         window._autoSave       = autoSave;
         if (owner is not null)
             window.Owner = owner;
@@ -2141,6 +2150,11 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     }
 
     private void HighlightSourceFromHover(string lineHint) {
+        if (_activeDocument?.AvalonEditor is { } editor) {
+            if (_showSource)
+                editor.HighlightSourceLine(lineHint);
+            return;
+        }
         if (_activeDocument is null || string.IsNullOrEmpty(lineHint)) return;
         if (!int.TryParse(lineHint, out var lineNum) || lineNum < 1) return;
         var textBox = _activeDocument.EditorTextBox;
@@ -2161,8 +2175,10 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
         if (_activeDocument is null || string.IsNullOrEmpty(lineHint)) return;
         if (!int.TryParse(lineHint, out var lineNum) || lineNum < 1) return;
         if (_activeDocument.AvalonEditor is { } editor) {
-            if (_showSource && lineNum <= editor.Editor.Document.LineCount)
+            if (_showSource && lineNum <= editor.Editor.Document.LineCount) {
                 editor.Editor.ScrollToLine(lineNum);
+                editor.HighlightSourceLine(lineHint);
+            }
             return;
         }
         var textBox = _activeDocument.EditorTextBox;
@@ -2193,6 +2209,7 @@ internal sealed class MarkdownDocumentWindow : ChromedWindow {
     }
 
     private void ClearSourceHoverHighlight() {
+        _activeDocument?.AvalonEditor?.ClearSourceHighlight();
         _sourceHoverTimer?.Stop();
         if (_sourceHoverHighlight is not null) {
             (_sourceHoverHighlight.Parent as Canvas)?.Children.Remove(_sourceHoverHighlight);

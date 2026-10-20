@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Windows.Controls;
+using ICSharpCode.AvalonEdit;
 
 namespace SquadDash.Tests;
 
@@ -154,5 +155,66 @@ internal sealed class SmoothDictationHelperTests {
         SmoothDictationHelper.ApplyToTextBox(tb);
         // After transform: "hello world is great." — caret should be clamped within new length
         Assert.That(tb.CaretIndex, Is.LessThanOrEqualTo(tb.Text.Length));
+    }
+
+    // ── ApplyToAvalonEdit ─────────────────────────────────────────────────────
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ApplyToAvalonEdit_NoSelection_TransformsFullText() {
+        var editor = new TextEditor { Text = "one. Two. Three." };
+
+        var changed = SmoothDictationHelper.ApplyToAvalonEdit(editor);
+
+        Assert.That(changed, Is.True);
+        Assert.That(editor.Text, Is.EqualTo("one two three."));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ApplyToAvalonEdit_WithSelection_TransformsOnlySelection() {
+        var editor = new TextEditor { Text = "prefix. Start. Middle. End suffix." };
+        editor.Select(7, 15); // " Start. Middle."
+
+        var changed = SmoothDictationHelper.ApplyToAvalonEdit(editor);
+
+        Assert.That(changed, Is.True);
+        Assert.That(editor.Text, Does.StartWith("prefix. Start middle."));
+        Assert.That(editor.SelectionStart, Is.EqualTo(7));
+        Assert.That(editor.SelectedText, Is.EqualTo(" Start middle."));
+        editor.Undo();
+        Assert.That(editor.Text, Is.EqualTo("prefix. Start. Middle. End suffix."));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ApplyToAvalonEdit_NoMatchInText_ReturnsFalse() {
+        var editor = new TextEditor { Text = "no sentence breaks here" };
+
+        var changed = SmoothDictationHelper.ApplyToAvalonEdit(editor);
+
+        Assert.That(changed, Is.False);
+        Assert.That(editor.Text, Is.EqualTo("no sentence breaks here"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ApplyToAvalonEdit_NormalizesToLf() {
+        var editor = new TextEditor { Text = "line1\r\nline2. Three" };
+
+        var changed = SmoothDictationHelper.ApplyToAvalonEdit(editor);
+
+        Assert.That(changed, Is.True);
+        Assert.That(editor.Text, Is.EqualTo("line1\nline2 three"));
+        Assert.That(editor.Text.Contains('\r'), Is.False);
+        editor.Undo();
+        Assert.That(editor.Text, Is.EqualTo("line1\r\nline2. Three"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ApplyToAvalonEdit_SelectionAfterCrLf_UsesRawDocumentOffsets() {
+        var editor = new TextEditor { Text = "prefix\r\none. Two suffix" };
+        editor.Select(8, 8);
+        SmoothDictationHelper.ApplyToAvalonEdit(editor);
+        Assert.That(editor.Text, Is.EqualTo("prefix\r\none two suffix"));
+        Assert.That(editor.SelectedText, Is.EqualTo("one two"));
+        editor.Undo();
+        Assert.That(editor.Text, Is.EqualTo("prefix\r\none. Two suffix"));
     }
 }

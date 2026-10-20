@@ -153,6 +153,16 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
+    public ApplicationSettingsSnapshot SaveMarkdownEditorZoomMultiplier(double multiplier) {
+        using var mutex = AcquireMutex();
+        var current = LoadCore();
+        var updated = current with {
+            MarkdownEditorZoomMultiplier = ApplicationSettingsSnapshot.NormalizeMarkdownEditorZoomMultiplier(multiplier)
+        };
+        SaveCore(updated);
+        return updated;
+    }
+
     public ApplicationSettingsSnapshot SaveInboxFontSize(double inboxFontSize) {
         using var mutex = AcquireMutex();
 
@@ -1536,6 +1546,11 @@ internal sealed record ApplicationSettingsSnapshot(
     /// Font size for the documentation source editor (DocSourceTextBox). Global/machine-wide.
     /// </summary>
     public double DocSourceFontSize { get; init; } = 12;
+
+    public double MarkdownEditorZoomMultiplier { get; init; } = 1.0;
+
+    internal static double NormalizeMarkdownEditorZoomMultiplier(double multiplier) =>
+        double.IsFinite(multiplier) ? Math.Clamp(multiplier, 0.5, 3.0) : 1.0;
     public double ValidationDetailsFontMultiplier { get; init; } = 1.0;
     public IReadOnlyDictionary<string, DeveloperStartupIssueSimulation> StartupIssueSimulationByWorkspace { get; init; } =
         new Dictionary<string, DeveloperStartupIssueSimulation>(StringComparer.OrdinalIgnoreCase);
@@ -2183,6 +2198,7 @@ internal sealed record ApplicationSettingsSnapshot(
             TranscriptFontSize = NormalizeFontSize(TranscriptFontSize),
             InboxFontSize = NormalizeFontSize(InboxFontSize),
             DocSourceFontSize = NormalizeFontSize(DocSourceFontSize),
+            MarkdownEditorZoomMultiplier = NormalizeMarkdownEditorZoomMultiplier(MarkdownEditorZoomMultiplier),
             ValidationDetailsFontMultiplier = NormalizeValidationDetailsFontMultiplier(ValidationDetailsFontMultiplier),
             Theme = Theme is "Light" or "Dark" or "Auto" ? Theme : null,
             LastUsedModel = string.IsNullOrWhiteSpace(LastUsedModel) ? null : LastUsedModel.Trim(),

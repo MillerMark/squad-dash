@@ -495,6 +495,17 @@
     <Compile Include="..\SquadDash\CodeHealthTaskEditorWindow.cs" Link="Source\CodeHealthTaskEditorWindow.cs" />
     <Compile Include="..\SquadDash\MarkdownEditorPanel.cs" Link="Source\MarkdownEditorPanel.cs" />
     <Compile Include="..\SquadDash\AvalonEditMarkdownEditor.cs" Link="Source\AvalonEditMarkdownEditor.cs" />
+    <Compile Include="..\SquadDash\AvalonEditMarkdownEditor.Dictation.cs" Link="Source\AvalonEditMarkdownEditor.Dictation.cs" />
+    <Compile Include="..\SquadDash\AvalonEditMarkdownEditor.Presentation.cs" Link="Source\AvalonEditMarkdownEditor.Presentation.cs" />
+    <Compile Include="..\SquadDash\AvalonEditMarkdownEditor.Revision.cs" Link="Source\AvalonEditMarkdownEditor.Revision.cs" />
+    <Compile Include="..\SquadDash\AvalonEditRevisionSelection.cs" Link="Source\AvalonEditRevisionSelection.cs" />
+    <Compile Include="..\SquadDash\CamelCaseAvalonEditAttachment.cs" Link="Source\CamelCaseAvalonEditAttachment.cs" />
+    <Compile Include="..\SquadDash\DocRevisePopup.cs" Link="Source\DocRevisePopup.cs" />
+    <Compile Include="..\SquadDash\MarkdownRevisionExecutor.cs" Link="Source\MarkdownRevisionExecutor.cs" />
+    <Compile Include="..\SquadDash\RevisionResultWindow.cs" Link="Source\RevisionResultWindow.cs" />
+    <Compile Include="..\SquadDash\RevisionWorkingOverlay.cs" Link="Source\RevisionWorkingOverlay.cs" />
+    <Compile Include="..\SquadDash\RevisionHighlightAdorner.cs" Link="Source\RevisionHighlightAdorner.cs" />
+    <Compile Include="..\SquadDash\WindowPlacementHelper.cs" Link="Source\WindowPlacementHelper.cs" />
     <Page Include="..\SquadDash\MarkdownEditorToolbar.xaml" Link="Source\MarkdownEditorToolbar.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>

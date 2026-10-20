@@ -330,7 +330,8 @@ internal sealed class AvalonEditMarkdownEditorTests
         var lightImportant = Color.FromRgb(0x53, 0x37, 0x1E);
         SeedThemeResources(lightSurface, lightCodeText, lightImportant, 19d);
 
-        using var editor = new AvalonEditMarkdownEditor();
+        using var workspace = new TestWorkspace();
+        using var editor = new AvalonEditMarkdownEditor(new ApplicationSettingsStore(workspace.GetPath("settings.json")));
         using var host = HostLoaded(editor);
         var toolbar = FindToolbar(editor);
         var image = (Button?)toolbar.FindName("ImageButton");
@@ -373,6 +374,134 @@ internal sealed class AvalonEditMarkdownEditorTests
 
     private static MarkdownEditorToolbar FindToolbar(AvalonEditMarkdownEditor editor) =>
         editor.Children.OfType<MarkdownEditorToolbar>().Single();
+
+    [Test]
+    public void CaseCycling_ReusesVariants_AndOneUndoRestoresOriginalWithoutErasingEarlierHistory()
+    {
+        SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 14);
+        using var editor = new AvalonEditMarkdownEditor();
+        editor.SetText("some words");
+        editor.Editor.Document.Insert(0, "prefix ");
+        editor.Editor.Select(7, 10);
+        var variants = TextCaseHelper.ComputeVariants("some words");
+        var first = TextCaseHelper.GetFirstVariantIndex("some words");
+        editor.CycleCase(false);
+        Assert.That(editor.Editor.SelectedText, Is.EqualTo(variants[first]));
+        editor.CycleCase(false);
+        Assert.That(editor.Editor.SelectedText, Is.EqualTo(variants[(first + 1) % variants.Count]));
+        editor.CycleCase(true);
+        Assert.That(editor.Editor.SelectedText, Is.EqualTo(variants[first]));
+        editor.Editor.Undo();
+        Assert.That(editor.GetText(), Is.EqualTo("prefix some words"));
+        editor.Editor.Undo();
+        Assert.That(editor.GetText(), Is.EqualTo("some words"));
+    }
+
+    [Test]
+    public void ReverseCaseCycling_StartsAtLastVariant_AndResetsOnReselection()
+    {
+        SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 14);
+        using var editor = new AvalonEditMarkdownEditor();
+        editor.SetText("some words");
+        editor.Editor.Select(0, 10);
+        editor.CycleCase(true);
+        Assert.That(editor.Editor.SelectedText, Is.EqualTo(TextCaseHelper.ComputeVariants("some words")[^1]));
+        editor.Editor.Select(0, 4);
+        var selected = editor.Editor.SelectedText;
+        editor.CycleCase(false);
+        Assert.That(editor.Editor.SelectedText, Is.EqualTo(
+            TextCaseHelper.ComputeVariants(selected)[TextCaseHelper.GetFirstVariantIndex(selected)]));
+    }
+
+    [Test]
+    public void Zoom_ComposesWithLiveEnvironmentFont_AndPersistsAcrossControls()
+    {
+        SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 20);
+        using var workspace = new TestWorkspace();
+        var path = workspace.GetPath("settings.json");
+        var store = new ApplicationSettingsStore(path);
+        store.SaveMarkdownEditorZoomMultiplier(1.5);
+        using var editor = new AvalonEditMarkdownEditor(store);
+        using var second = new AvalonEditMarkdownEditor(new ApplicationSettingsStore(path));
+        using var host = HostLoaded(editor);
+        Assert.That(editor.Editor.FontSize, Is.EqualTo(30).Within(.001));
+        editor.ZoomByWheelDelta(120);
+        PumpDispatcher(TimeSpan.FromMilliseconds(1));
+        Assert.That(editor.Editor.FontSize, Is.EqualTo(33).Within(.001));
+        Assert.That(second.Editor.FontSize, Is.EqualTo(33).Within(.001));
+        // HwndSource is not an Application window, so invalidate its resource scope directly.
+        editor.Resources["FontSizeBody"] = 10d;
+        PumpDispatcher(TimeSpan.FromMilliseconds(1));
+        Assert.That(editor.Editor.FontSize, Is.EqualTo(16.5).Within(.001));
+        Assert.That(new ApplicationSettingsStore(path).Load().MarkdownEditorZoomMultiplier, Is.EqualTo(1.65).Within(.001));
+        editor.ZoomByWheelDelta(-120);
+        Assert.That(editor.Editor.FontSize, Is.EqualTo(15).Within(.001));
+        Assert.That(editor.Editor.BorderThickness, Is.EqualTo(new Thickness(0)));
+        Assert.That(editor.Children.OfType<TextBlock>(), Is.Empty);
+    }
+
+    [Test]
+    public void Zoom_ClampsAndRestoresOnLoad_WithoutMutatingTextOrUndo()
+    {
+        SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 20);
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings.json"));
+        using var editor = new AvalonEditMarkdownEditor(store);
+        editor.SetText("original");
+        editor.Editor.Document.Insert(8, " edit");
+        editor.ZoomByWheelDelta(int.MaxValue);
+        Assert.That(editor.Editor.FontSize, Is.EqualTo(60));
+        editor.ZoomByWheelDelta(int.MinValue);
+        Assert.That(editor.Editor.FontSize, Is.EqualTo(10));
+        store.SaveMarkdownEditorZoomMultiplier(2);
+        using var host = HostLoaded(editor);
+        Assert.That(editor.Editor.FontSize, Is.EqualTo(40));
+        Assert.That(editor.GetText(), Is.EqualTo("original edit"));
+        editor.Editor.Undo();
+        Assert.That(editor.GetText(), Is.EqualTo("original"));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Dictation_TracksTargetAcrossAdjacentEdits_AndPreservesUndo(bool replaceSelection)
+    {
+        SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 20);
+        using var workspace = new TestWorkspace();
+        using var editor = new AvalonEditMarkdownEditor(new ApplicationSettingsStore(workspace.GetPath("settings.json")));
+        editor.SetText("before selected after");
+        editor.Editor.Select(7, replaceSelection ? 8 : 0);
+        editor.CaptureDictationSelection();
+        editor.Editor.Document.Insert(0, "prefix ");
+        var before = editor.GetText();
+        var plan = VoiceHeuristics.VoiceInsertionHeuristics.PlanDictationInsertion(
+            before, 14, replaceSelection ? 8 : 0, "New text", []);
+        editor.InsertDictationPhrase("New text");
+        Assert.That(editor.GetText(), Is.EqualTo(plan.TextAfterInsert));
+        Assert.That(editor.Editor.CaretOffset, Is.EqualTo(plan.CaretIndexAfterInsert));
+        editor.Editor.Undo();
+        Assert.That(editor.GetText(), Is.EqualTo(before));
+        editor.Editor.Undo();
+        Assert.That(editor.GetText(), Is.EqualTo("before selected after"));
+    }
+
+    [Test]
+    public void Dictation_ReplacementRulesNormalizeLf_AndUndoSeparatelyFromRecognition()
+    {
+        SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 20);
+        using var workspace = new TestWorkspace();
+        var store = new ApplicationSettingsStore(workspace.GetPath("settings.json"));
+        store.SaveVoiceReplacementRules([new VoiceHeuristics.VoiceReplacementRule("Hello", "First\r\nSecond")]);
+        using var editor = new AvalonEditMarkdownEditor(store);
+        editor.SetText("");
+        editor.CaptureDictationSelection();
+        editor.InsertDictationPhrase("Hello");
+        Assert.That(editor.Editor.Text, Is.EqualTo("First\nSecond"));
+        Assert.That(editor.Editor.CaretOffset, Is.EqualTo(12));
+        editor.Editor.Undo();
+        Assert.That(editor.GetText(), Is.EqualTo("Hello"));
+        editor.Editor.Undo();
+        Assert.That(editor.GetText(), Is.Empty);
+    }
 
     private static HwndSource HostLoaded(FrameworkElement element)
     {
