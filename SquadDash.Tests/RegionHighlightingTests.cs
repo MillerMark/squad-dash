@@ -567,6 +567,7 @@ public sealed class RegionHighlightingTests
     [TestCase("MonthDay", "#71C9B8", "#00695C")]
     [TestCase("FileName", "#C7ACF0", "#6841A5")]
     [TestCase("LineNumber", "#78966D", "#527647")]
+    [TestCase("ExceptionType", "#F64F4F", "#D82323")]
     public void ErrorMessage_PaletteUsesSpecifiedScopedColors(string role, string dark, string light)
     {
         var engine = new RegionHighlightingEngine();
@@ -585,6 +586,11 @@ public sealed class RegionHighlightingTests
     [TestCase("   at Example.Worker.<<Run>g__Step|4>d.MoveNext()", "MoveNext")]
     [TestCase("   at Example.Worker.Run[T](T value)", "Run[T]")]
     [TestCase("   at Example.Worker..ctor()", "ctor")]
+    [TestCase("   at System.IO.__Error.WinIOError(Int32 errorCode, String maybeFullPath)", "WinIOError")]
+    [TestCase("    at java.base/java.lang.Double.parseDouble(Double.java:651)", "parseDouble")]
+    [TestCase("    at module/com.example.Worker.run(Unknown Source)", "run")]
+    [TestCase("    at loader/java.base/java.lang.Double.parseDouble(Double.java:651)", null)]
+    [TestCase("    at java.base//java.lang.Double.parseDouble(Double.java:651)", null)]
     [TestCase("   at Example.Worker.Run(String text = \"Other.Call()\")", null)]
     public void ErrorMessage_MethodColorsOnlyTerminalIdentifier(string content, string? method)
     {
@@ -610,12 +616,75 @@ public sealed class RegionHighlightingTests
         AssertErrorSections(content, ("10-19", "MonthDay"), ("15:16:39", "Time"));
     }
 
-    [TestCase("System.InvalidOperationException: Failed to decompose plan JSON.")]
-    [TestCase(" ---> System.InvalidOperationException: Failed to decompose plan JSON.")]
-    [TestCase("Exception: Failed to decompose plan JSON.")]
-    public void ErrorMessage_ExceptionColorsOnlyExplanation(string content)
+    [TestCase("System.InvalidOperationException: Failed to decompose plan JSON.", "InvalidOperationException")]
+    [TestCase(" ---> System.InvalidOperationException: Failed to decompose plan JSON.", "InvalidOperationException")]
+    [TestCase("Caused by: java.lang.NumberFormatException: Failed to decompose plan JSON.", "NumberFormatException")]
+    [TestCase("AggregateException: Failed to decompose plan JSON.", "AggregateException")]
+    public void ErrorMessage_ExceptionColorsTypeAndExplanationSeparately(string content, string exceptionType)
     {
-        AssertErrorSections(content, ("Failed to decompose plan JSON.", "Message"));
+        AssertErrorSections(content, (exceptionType, "ExceptionType"), ("Failed to decompose plan JSON.", "Message"));
+    }
+
+    [Test]
+    public void ErrorMessage_BareExceptionPreservesExplanationColor()
+    {
+        AssertErrorSections("Exception: Failed to decompose plan JSON.", ("Failed to decompose plan JSON.", "Message"));
+    }
+
+    [Test]
+    public void ErrorMessage_ExceptionTypeDoesNotLeakAcrossLines()
+    {
+        AssertErrorSections("System.InvalidOperationException:\nnext line remains neutral",
+            ("InvalidOperationException", "ExceptionType"));
+    }
+
+    [TestCase("Observed java.lang.NumberFormatException and AggregateException.",
+        "NumberFormatException", "AggregateException")]
+    [TestCase("IllegalArgumentException NumberFormatException", "IllegalArgumentException", "NumberFormatException")]
+    public void ErrorMessage_ExceptionTypesOutsideHeaders(string content, string first, string second)
+    {
+        AssertErrorSections(content, (first, "ExceptionType"), (second, "ExceptionType"));
+    }
+
+    [Test]
+    public void ErrorMessage_ExceptionTypeRequiresUppercaseAndWordBoundaries()
+    {
+        AssertErrorSections("illegalArgumentException 1IllegalArgumentException _IllegalArgumentException IllegalArgumentExceptions Exception");
+    }
+
+    [Test]
+    public void ErrorMessage_ExceptionTypeDoesNotOverrideStackFrameRoles()
+    {
+        AssertErrorSections(
+            "   at Example.AggregateException.ThrowException(NumberFormatException value) in C:\\Source\\AggregateException.cs:line 123\n" +
+            "    at java.base/java.lang.NumberFormatException.ThrowException(NumberFormatException.java:42)",
+            ("ThrowException", "Method"), ("AggregateException.cs", "FileName"), ("123", "LineNumber"),
+            ("ThrowException", "Method"));
+    }
+
+    [TestCase("\n")]
+    [TestCase("\r\n")]
+    public void ErrorMessage_RepresentativeJavaDumpHasExactColoredBoundaries(string newline)
+    {
+        const string content = """
+            Exception in thread "main" java.lang.IllegalArgumentException: Failed to process payment for order 1042
+                at com.example.shop.PaymentService.processPayment(PaymentService.java:76)
+                at com.example.shop.OrderController.checkout(OrderController.java:42)
+                at com.example.shop.Application.main(Application.java:18)
+            Caused by: java.lang.NumberFormatException: For input string: "12.5x"
+                at java.base/jdk.internal.math.FloatingDecimal.readJavaFormatString(FloatingDecimal.java:2054)
+                at java.base/jdk.internal.math.FloatingDecimal.parseDouble(FloatingDecimal.java:110)
+                at java.base/java.lang.Double.parseDouble(Double.java:651)
+                at com.example.shop.PaymentService.parseAmount(PaymentService.java:91)
+                at com.example.shop.PaymentService.processPayment(PaymentService.java:72)
+            """;
+
+        AssertErrorSections(content.Replace("\r\n", "\n").Replace("\n", newline),
+            ("IllegalArgumentException", "ExceptionType"), ("Failed to process payment for order 1042", "Message"),
+            ("processPayment", "Method"), ("checkout", "Method"), ("main", "Method"),
+            ("NumberFormatException", "ExceptionType"), ("For input string: \"12.5x\"", "Message"),
+            ("readJavaFormatString", "Method"), ("parseDouble", "Method"), ("parseDouble", "Method"),
+            ("parseAmount", "Method"), ("processPayment", "Method"));
     }
 
     [TestCase("Run() 2026-10-19T15:16:39 214 Worker.cs")]
@@ -623,7 +692,6 @@ public sealed class RegionHighlightingTests
     [TestCase("Occurred: 2026-10-19T15:16:39garbage")]
     [TestCase("   at Example.Worker.Run() in C:\\Worker.cs:line nope")]
     [TestCase("   at Example.Worker.Run(\nString value)")]
-    [TestCase("System.InvalidOperationException:\nnext line remains neutral")]
     public void ErrorMessage_ContextDoesNotLeakToUnrelatedText(string content)
     {
         AssertErrorSections(content);
@@ -635,6 +703,7 @@ public sealed class RegionHighlightingTests
     {
         AssertErrorSections(RegionGrammarAutoDetectTests.ReviewerErrorMessageSample.Replace("\r\n", "\n").Replace("\n", newline),
             ("10-19", "MonthDay"), ("15:16:39", "Time"),
+            ("InvalidOperationException", "ExceptionType"),
             ("Failed to decompose plan JSON.", "Message"), ("ExecuteAsync", "Method"),
             ("MoveNext", "Method"), ("MoveNext", "Method"), ("DecomposeRunner.cs", "FileName"),
             ("214", "LineNumber"));

@@ -7,10 +7,15 @@
   <Color name="FileName" />
   <Color name="LineNumber" />
   <Color name="Message" />
+  <Color name="ExceptionType" />
+
+  <RuleSet name="ExceptionTypes">
+    <Rule color="ExceptionType">\b\p{Lu}[\p{L}\p{N}_]*Exception\b</Rule>
+  </RuleSet>
 
   <RuleSet>
     <Span multiline="false">
-      <Begin>^[ \t]+at[ \t]+(?:[\p{L}_&lt;&gt;$][\p{L}\p{N}_&lt;&gt;`$+|,\[\]-]*\.)+\.?(?=[\p{L}_&lt;&gt;$][\p{L}\p{N}_&lt;&gt;`$+|,\[\]-]*\([^\r\n()]*\)(?:[ \t]+in[ \t]+[^ \t\r\n][^\r\n]*:line[ \t]+[0-9]+)?[ \t]*$)</Begin>
+      <Begin>^[ \t]+at[ \t]+(?:[\p{L}_$][\p{L}\p{N}_$]*(?:\.[\p{L}_$][\p{L}\p{N}_$]*)*/)?(?:[\p{L}_&lt;&gt;$][\p{L}\p{N}_&lt;&gt;`$+|,\[\]-]*\.)+\.?(?=[\p{L}_&lt;&gt;$][\p{L}\p{N}_&lt;&gt;`$+|,\[\]-]*\([^\r\n()]*\)(?:[ \t]+in[ \t]+[^ \t\r\n][^\r\n]*:line[ \t]+[0-9]+)?[ \t]*$)</Begin>
       <RuleSet>
         <Rule color="Method">[\p{L}_&lt;&gt;$][\p{L}\p{N}_&lt;&gt;`$+|,\[\]-]*</Rule>
         <Span multiline="false">
@@ -48,10 +53,17 @@
     </Span>
 
     <Span multiline="false">
-      <Begin>^[ \t]*(?:---&gt;[ \t]+)?(?:[\p{L}_][\p{L}\p{N}_`]*[.+])*(?:[\p{L}_][\p{L}\p{N}_`]*Exception|Exception):[ \t]*</Begin>
+      <Begin>^[ \t]*(?:(?:---&gt;|Caused[ ]by:|Exception[ ]in[ ]thread[ ]"[^"\r\n]+")[ \t]+)?(?=(?:[\p{L}_][\p{L}\p{N}_`]*[.+])*(?:[\p{L}_][\p{L}\p{N}_`]*Exception|Exception):)</Begin>
       <RuleSet>
-        <Rule color="Message">[^\r\n]+</Rule>
+        <Import ruleSet="ExceptionTypes" />
+        <Span multiline="false">
+          <Begin>:[ \t]*</Begin>
+          <RuleSet>
+            <Rule color="Message">[^\r\n]+</Rule>
+          </RuleSet>
+        </Span>
       </RuleSet>
     </Span>
+    <Import ruleSet="ExceptionTypes" />
   </RuleSet>
 </SyntaxDefinition>
