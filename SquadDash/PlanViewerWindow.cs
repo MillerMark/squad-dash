@@ -3916,8 +3916,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             if (_saveDefinitionEdit is not null)
             {
-                var capturedTaskId = task.Id;
-                var capturedVerificationLevel = verificationLevel;
                 var verMenu = CreateThemedMenu();
 
                 var levelHeader = CreateThemedMenuItem("Verification level:");
@@ -3926,25 +3924,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 verMenu.Items.Add(levelHeader);
                 verMenu.Items.Add(CreateThemedMenuSeparator());
 
-                foreach (var (value, label) in new[]
-                {
-                    (PlanTaskVerificationLevel.Lightweight, "Lightweight"),
-                    (PlanTaskVerificationLevel.Standard, "Standard"),
-                    (PlanTaskVerificationLevel.Enhanced, "Enhanced"),
-                })
-                {
-                    var captured = value;
-                    var item = CreateThemedMenuItem(label);
-                    item.IsCheckable = true;
-                    item.IsChecked = capturedVerificationLevel == value;
-                    item.Click += (_, _) =>
-                    {
-                        if (_plan is null || !IsTaskDefinitionEditable(capturedTaskId)) return;
-                        ApplyStagedMutation(StagedPlanEditor.UpdateTaskVerificationLevel(
-                            _plan.Group, capturedTaskId, captured), selectKind: "task", selectId: capturedTaskId);
-                    };
-                    verMenu.Items.Add(item);
-                }
+                AddVerificationLevelMenuItems(verMenu, task.Id, verificationLevel);
                 verificationIndicator.ContextMenu = verMenu;
             }
             Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(17.6 * _scaleFactor));
@@ -5286,6 +5266,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     "Verification level cannot be changed after this step enters execution history.")
                 : null;
 
+        AddVerificationLevelMenuItems(submenu, taskId, current);
+        return submenu;
+    }
+
+    private void AddVerificationLevelMenuItems(ItemsControl menu, string taskId, string current)
+    {
+        var items = new Dictionary<string, MenuItem>(StringComparer.Ordinal);
+
+        void RestoreChecks()
+        {
+            var task = _plan?.Group.Tasks.FirstOrDefault(candidate => candidate.Id == taskId);
+            if (task is not null)
+                current = PlanTaskVerificationLevel.Normalize(task.VerificationLevel);
+            foreach (var (level, sibling) in items)
+                sibling.IsChecked = current == level;
+        }
+
         foreach (var (value, label) in new[]
         {
             (PlanTaskVerificationLevel.Lightweight, "Lightweight"),
@@ -5297,16 +5294,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var item = CreateThemedMenuItem(label);
             item.IsCheckable = true;
             item.IsChecked = current == value;
+            items.Add(value, item);
             item.Click += (_, _) =>
             {
+                // IsChecked is already toggled before Click fires on a checkable MenuItem.
+                RestoreChecks();
                 if (_plan is null || !IsTaskDefinitionEditable(taskId)) return;
                 ApplyStagedMutation(StagedPlanEditor.UpdateTaskVerificationLevel(
                     _plan.Group, taskId, captured), selectKind: "task", selectId: taskId);
+                // Restore on failure, or reflect the saved level while the rebuild is deferred.
+                RestoreChecks();
             };
-            submenu.Items.Add(item);
+            menu.Items.Add(item);
         }
-
-        return submenu;
     }
 
     private ContextMenu? CreateAgentChipAssignContextMenu(string taskId, string clickedAgentHandle)
