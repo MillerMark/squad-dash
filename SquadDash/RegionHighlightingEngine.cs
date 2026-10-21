@@ -207,5 +207,7 @@ public sealed class RegionHighlightingDefinition : IHighlightingDefinition
         target.Background = replacement?.Background;
         target.FontWeight = replacement?.FontWeight ?? source.FontWeight;
         target.FontStyle = replacement?.FontStyle ?? source.FontStyle;
+        target.FontFamily = replacement?.FontFamily ?? source.FontFamily;
+        target.FontSize = replacement?.FontSize ?? source.FontSize;
     }
 }

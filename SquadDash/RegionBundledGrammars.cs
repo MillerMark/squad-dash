@@ -19,7 +19,13 @@ internal static class RegionBundledGrammars
         Register(engine, "Go", "Go", "go", "golang");
         Register(engine, "Rust", "Rust", "rust", "rs");
         Register(engine, "Bash", "Bash", "bash", "sh", "shell");
-        Register(engine, "Markdown", "Markdown", "markdown", "md");
+        var markdown = new Lazy<IHighlightingDefinition>(() => Load("Markdown"));
+        engine.Register(new RegionLanguageOption("markdown", "Markdown", "Markdown"),
+            () => markdown.Value,
+            isDark => new Dictionary<string, HighlightingColor>(CreatePalette(isDark), StringComparer.Ordinal)
+            {
+                ["InlineCode"] = RegionHighlightingPalettes.CreateMarkdownColors(isDark)["Markdown/InlineCode"],
+            }, "md");
         var errorMessage = new Lazy<IHighlightingDefinition>(() => Load("ErrorMessage"));
         engine.Register(new RegionLanguageOption("error", "Error message", "Error message"),
             () => errorMessage.Value,

@@ -6,6 +6,7 @@
   <Color name="Comment" foreground="#426536" />
   <Color name="String" foreground="#8F3520" />
   <Color name="Tag" foreground="#174EA6" />
+  <Color name="InlineCode" foreground="#8A176F" />
   <Color name="Attribute" foreground="#245B80" />
   <Color name="Punctuation" foreground="#493827" />
 
@@ -15,8 +16,8 @@
     <Span color="String" begin="^[ ]{0,3}`{3}[^`]*$" end="^[ ]{0,3}`{3,}[\t ]*$" multiline="true" />
     <Span color="String" begin="^[ ]{0,3}~{4,}.*$" end="^[ ]{0,3}~{4,}[\t ]*$" multiline="true" />
     <Span color="String" begin="^[ ]{0,3}~{3}(?!~).*$" end="^[ ]{0,3}~{3,}[\t ]*$" multiline="true" />
-    <Span color="Tag" begin="``(?!`)" end="``" />
-    <Span color="Tag" begin="`(?!`)" end="`" />
+    <Span color="InlineCode" begin="``(?!`)" end="``" />
+    <Span color="InlineCode" begin="`(?!`)" end="`" />
 
     <Rule color="Keyword">^\s{0,3}(?:\#{1,6}\s+.+|(?:=+|-+)\s*$)</Rule>
     <Rule color="Punctuation">^\s*(?:[-+*]|\d+\.)\s+</Rule>

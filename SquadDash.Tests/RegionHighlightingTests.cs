@@ -327,9 +327,9 @@ public sealed class RegionHighlightingTests
     [TestCase("Markdown", "Use **bold** text.", "**bold**", "Keyword")]
     [TestCase("Markdown", "[guide](https://example.org)", "[guide](https://example.org)", "Attribute")]
     [TestCase("Markdown", "- item", "- ", "Punctuation")]
-    [TestCase("Markdown", "Use `code` here.", "`code`", "Tag")]
-    [TestCase("Markdown", "Use `<!-- code -->` here.", "<!-- code -->", "Tag")]
-    [TestCase("Markdown", "Use ``a ` b`` here.", "a ` b", "Tag")]
+    [TestCase("Markdown", "Use `code` here.", "`code`", "InlineCode")]
+    [TestCase("Markdown", "Use `<!-- code -->` here.", "<!-- code -->", "InlineCode")]
+    [TestCase("Markdown", "Use ``a ` b`` here.", "a ` b", "InlineCode")]
     [TestCase("Markdown", "```text\n# code\n```\n# Heading", "# code", "String")]
     [TestCase("Markdown", "~~~text\ncode\n~~~\n# Heading", "# Heading", "Keyword")]
     [TestCase("Markdown", "````text\n```\n# code\n````\n# Heading", "# code", "String")]
@@ -569,7 +569,8 @@ public sealed class RegionHighlightingTests
         {
             foreach (var isDark in new[] { false, true })
             foreach (var (role, ink) in RegionHighlightingPalettes.CreateColors(isDark)
-                .Concat(RegionHighlightingPalettes.CreateErrorMessageColors(isDark)))
+                .Concat(RegionHighlightingPalettes.CreateErrorMessageColors(isDark))
+                .Concat(RegionHighlightingPalettes.CreateMarkdownColors(isDark)))
             {
                 var surface = Luminance(isDark ? darkSurface : lightSurface);
                 var foreground = Luminance(ColorOf(ink)!.Value);
@@ -577,6 +578,115 @@ public sealed class RegionHighlightingTests
                 Assert.That(contrast, Is.GreaterThanOrEqualTo(4.5), $"{role}, dark={isDark}");
             }
         });
+    }
+
+    [TestCase("`code`")]
+    [TestCase("``a ` b``")]
+    public void Markdown_InlineCodeUsesDistinctMonospaceColor_AcrossThemeChanges(string code)
+    {
+        var engine = new RegionHighlightingEngine();
+        var definition = engine.CreateDefinition("Markdown", PaletteFrom(engine, false));
+        var inlineCode = definition.GetNamedColor("InlineCode");
+        var content = $"Before {code} after **bold** *italic* ~~strike~~ [link](target) ![image](target)";
+        var document = new TextDocument(content);
+
+        foreach (var isDark in new[] { false, true, false })
+        {
+            var palette = PaletteFrom(engine, isDark);
+            definition.ApplyPalette(palette);
+            var expected = (Color)ColorConverter.ConvertFromString(isDark ? "#F3A6DE" : "#8A176F");
+            var keyword = (Color)ColorConverter.ConvertFromString(isDark ? "#8AB4F8" : "#174EA6");
+            var sections = HighlightAll(document, definition);
+            var codeSection = sections.Single(section =>
+                section.Offset == content.IndexOf(code, StringComparison.Ordinal) && section.Length == code.Length);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(codeSection.Color, Is.SameAs(inlineCode));
+                Assert.That(inlineCode.Name, Is.EqualTo("InlineCode"));
+                Assert.That(inlineCode.FontFamily?.Source, Is.EqualTo("Consolas"));
+                Assert.That(inlineCode.FontSize, Is.Null, "inline code inherits the editor's font size");
+                Assert.That(ColorOf(inlineCode), Is.EqualTo(expected));
+                Assert.That(ColorOf(palette.HighlightColors["Markdown/InlineCode"]), Is.EqualTo(expected));
+                Assert.That(ColorOf(definition.GetNamedColor("Keyword")), Is.EqualTo(keyword));
+                foreach (var role in new[] { "Keyword", "Tag", "Attribute", "Comment", "String" })
+                {
+                    Assert.That(ColorOf(inlineCode), Is.Not.EqualTo(ColorOf(definition.GetNamedColor(role))), role);
+                    Assert.That(definition.GetNamedColor(role).FontFamily, Is.Null, role);
+                }
+            });
+
+            foreach (var (token, role) in new[]
+            {
+                ("**bold**", "Keyword"), ("*italic*", "Keyword"), ("~~strike~~", "Keyword"),
+                ("[link](target)", "Attribute"), ("![image](target)", "Tag"),
+            })
+            {
+                var section = sections.Single(section =>
+                    section.Offset == content.IndexOf(token, StringComparison.Ordinal) && section.Length == token.Length);
+                Assert.That(section.Color, Is.SameAs(definition.GetNamedColor(role)), token);
+            }
+
+            var surface = Luminance(((SolidColorBrush)palette.Surface).Color);
+            var foreground = Luminance(expected);
+            var contrast = (Math.Max(surface, foreground) + 0.05) / (Math.Min(surface, foreground) + 0.05);
+            Assert.That(contrast, Is.GreaterThanOrEqualTo(4.5), $"inline code, dark={isDark}");
+        }
+    }
+
+    [TestCase("```")]
+    [TestCase("~~~")]
+    public void Markdown_FencedBlocksKeepStringStyle(string fence)
+    {
+        var engine = new RegionHighlightingEngine();
+        foreach (var isDark in new[] { false, true })
+        {
+            var definition = engine.CreateDefinition("Markdown", PaletteFrom(engine, isDark));
+            var document = new TextDocument($"{fence}text\n`code` **bold**\n{fence}");
+            var sections = new DocumentHighlighter(document, definition).HighlightLine(2).Sections;
+            Assert.That(sections, Is.Not.Empty);
+            foreach (var section in sections)
+            {
+                Assert.That(section.Color, Is.SameAs(definition.GetNamedColor("String")));
+                Assert.That(section.Color.FontFamily, Is.Null);
+            }
+        }
+    }
+
+    [Test]
+    public void ApplyPalette_PreservesSourceFonts_AndSupportsReplacementAndReset()
+    {
+        var source = new SyntheticDefinition();
+        var sourceColor = source.GetNamedColor("SynthKeyword");
+        sourceColor.FontFamily = new FontFamily("Courier New");
+        sourceColor.FontSize = 15;
+        var engine = new RegionHighlightingEngine();
+        var palette = PaletteFrom(engine, false);
+        var definition = new RegionHighlightingDefinition(source, palette);
+        var color = definition.GetNamedColor("SynthKeyword");
+
+        Assert.That(color.FontFamily, Is.EqualTo(sourceColor.FontFamily));
+        Assert.That(color.FontSize, Is.EqualTo(15));
+
+        definition.ApplyPalette(palette with
+        {
+            HighlightColors = new Dictionary<string, HighlightingColor>
+            {
+                ["SynthLang/SynthKeyword"] = new()
+                {
+                    FontFamily = new FontFamily("Consolas"),
+                    FontSize = 18,
+                },
+            },
+        });
+        Assert.That(color.FontFamily?.Source, Is.EqualTo("Consolas"));
+        Assert.That(color.FontSize, Is.EqualTo(18));
+        Assert.That(sourceColor.FontFamily.Source, Is.EqualTo("Courier New"));
+        Assert.That(sourceColor.FontSize, Is.EqualTo(15));
+
+        definition.ApplyPalette(palette);
+        Assert.That(color.FontFamily, Is.EqualTo(sourceColor.FontFamily));
+        Assert.That(color.FontSize, Is.EqualTo(15));
     }
 
     [Test]

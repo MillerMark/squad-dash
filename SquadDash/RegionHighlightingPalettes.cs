@@ -30,6 +30,12 @@ public static class RegionHighlightingPalettes
         };
     }
 
+    public static IReadOnlyDictionary<string, HighlightingColor> CreateMarkdownColors(bool isDark) =>
+        new Dictionary<string, HighlightingColor>(StringComparer.Ordinal)
+        {
+            ["Markdown/InlineCode"] = Color(isDark ? 0xF3A6DEu : 0x8A176Fu, new FontFamily("Consolas")),
+        };
+
     public static IReadOnlyDictionary<string, HighlightingColor> CreateErrorMessageColors(bool isDark) =>
         new Dictionary<string, HighlightingColor>(StringComparer.Ordinal)
         {
@@ -41,10 +47,11 @@ public static class RegionHighlightingPalettes
             ["Error message/ExceptionType"] = Color(isDark ? 0xF64F4Fu : 0xD82323u),
         };
 
-    private static HighlightingColor Color(uint rgb) => new()
+    private static HighlightingColor Color(uint rgb, FontFamily? fontFamily = null) => new()
     {
         Foreground = new RegionHighlightingBrush(System.Windows.Media.Color.FromRgb(
             (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb)),
+        FontFamily = fontFamily,
     };
 
     internal static string GetRole(string? name)
