@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -223,6 +224,7 @@ public sealed class RegionHighlightingTests
     [TestCase("Rust")]
     [TestCase("Bash")]
     [TestCase("Markdown")]
+    [TestCase("MarkdownDirectives")]
     public void BundledGrammar_PaletteRepushRecolorsEveryRole_WithoutLeaking(string name)
     {
         var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();
@@ -681,6 +683,258 @@ public sealed class RegionHighlightingTests
                 Assert.That(section.Color, Is.SameAs(definition.GetNamedColor("String")));
                 Assert.That(section.Color.FontFamily, Is.Null);
             }
+        }
+    }
+
+    [Test]
+    public void MarkdownDirectives_IsHiddenFromPickerAndResolver_ButCreateDefinitionWorks()
+    {
+        var engine = new RegionHighlightingEngine();
+        const string content = "{{#if safety == \"direct\"}}\n{{/if}}";
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(engine.Options.Any(o => string.Equals(o.GrammarName, "MarkdownDirectives", StringComparison.OrdinalIgnoreCase)),
+                Is.False);
+            Assert.That(RegionLanguagePicker.Options.Any(o => string.Equals(o.GrammarName, "MarkdownDirectives", StringComparison.OrdinalIgnoreCase)),
+                Is.False);
+            Assert.That(engine.ResolveFenceToken("markdowndirectives"), Is.Null);
+            Assert.That(engine.Resolve("markdowndirectives", content), Is.Null);
+            Assert.That(engine.Resolve("MarkdownDirectives", content), Is.Null);
+            Assert.That(engine.Resolve("", content), Is.Not.EqualTo("MarkdownDirectives"));
+            Assert.That(engine.CreateDefinition("MarkdownDirectives", PaletteFrom(engine, false)).Name,
+                Is.EqualTo("MarkdownDirectives"));
+        });
+    }
+
+    [TestCase(false, "#174EA6", "#6841A5", "#D82323")]
+    [TestCase(true, "#8AB4F8", "#C7ACF0", "#F64F4F")]
+    public void MarkdownDirectives_PaintsDirectiveRoles_WithSpecifiedThemeColors(
+        bool isDark, string expectedKeyword, string expectedVariable, string expectedString)
+    {
+        var engine = new RegionHighlightingEngine();
+        var palette = PaletteFrom(engine, isDark);
+        var definition = engine.CreateDefinition("MarkdownDirectives", palette);
+        const string content = """
+            {{#if safety == "direct"}}
+            {{#if safety == "branch"}}
+            {{#if safety == "dir\"ect"}}
+            {{#unless safety}}
+            {{else}}
+            {{/unless}}
+            {{/if}}
+            """;
+        var sections = HighlightAll(new TextDocument(content), definition);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ColorOf(definition.GetNamedColor("DirectiveKeyword")),
+                Is.EqualTo((Color)ColorConverter.ConvertFromString(expectedKeyword)));
+            Assert.That(ColorOf(definition.GetNamedColor("DirectiveVariable")),
+                Is.EqualTo((Color)ColorConverter.ConvertFromString(expectedVariable)));
+            Assert.That(ColorOf(definition.GetNamedColor("DirectiveString")),
+                Is.EqualTo((Color)ColorConverter.ConvertFromString(expectedString)));
+
+            AssertTokenUsesRole(content, "#if", "DirectiveKeyword", sections, definition, occurrence: 0);
+            AssertTokenUsesRole(content, "#if", "DirectiveKeyword", sections, definition, occurrence: 1);
+            AssertTokenUsesRole(content, "#unless", "DirectiveKeyword", sections, definition);
+            AssertTokenUsesRole(content, "{{else}}", "DirectiveKeyword", sections, definition, tokenOffset: 2, tokenLength: 4);
+            AssertTokenUsesRole(content, "/unless", "DirectiveKeyword", sections, definition);
+            AssertTokenUsesRole(content, "/if", "DirectiveKeyword", sections, definition);
+
+            AssertTokenUsesRole(content, "safety", "DirectiveVariable", sections, definition, occurrence: 0);
+            AssertTokenUsesRole(content, "safety", "DirectiveVariable", sections, definition, occurrence: 1);
+            AssertTokenUsesRole(content, "safety", "DirectiveVariable", sections, definition, occurrence: 2);
+
+            AssertTokenUsesRole(content, "\"direct\"", "DirectiveString", sections, definition);
+            AssertTokenUsesRole(content, "\"branch\"", "DirectiveString", sections, definition);
+            AssertTokenUsesRole(content, "\"dir\\\"ect\"", "DirectiveString", sections, definition);
+            AssertEntireTokenUsesRole(content, "\"direct\"", "DirectiveString", sections, definition);
+            AssertEntireTokenUsesRole(content, "\"dir\\\"ect\"", "DirectiveString", sections, definition);
+        });
+    }
+
+    [Test]
+    public void MarkdownDirectives_ColorsHaveThemeContrast_AndRedLightensInDarkTheme()
+    {
+        var engine = new RegionHighlightingEngine();
+        var lightPalette = PaletteFrom(engine, isDark: false);
+        var darkPalette = PaletteFrom(engine, isDark: true);
+        var light = engine.CreateDefinition("MarkdownDirectives", lightPalette);
+        var dark = engine.CreateDefinition("MarkdownDirectives", darkPalette);
+        var lightRed = ColorOf(light.GetNamedColor("DirectiveString"))!.Value;
+        var darkRed = ColorOf(dark.GetNamedColor("DirectiveString"))!.Value;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(lightRed, Is.EqualTo((Color)ColorConverter.ConvertFromString("#D82323")));
+            Assert.That(darkRed, Is.EqualTo((Color)ColorConverter.ConvertFromString("#F64F4F")));
+            Assert.That(Luminance(darkRed), Is.GreaterThan(Luminance(lightRed)));
+        });
+
+        foreach (var (palette, definition, label) in new[]
+        {
+            (lightPalette, light, "light"),
+            (darkPalette, dark, "dark"),
+        })
+        {
+            foreach (var role in new[] { "DirectiveKeyword", "DirectiveVariable", "DirectiveString" })
+            {
+                var surface = Luminance(((SolidColorBrush)palette.Surface).Color);
+                var foreground = Luminance(ColorOf(definition.GetNamedColor(role))!.Value);
+                var contrast = (Math.Max(surface, foreground) + 0.05) / (Math.Min(surface, foreground) + 0.05);
+                Assert.That(contrast, Is.GreaterThanOrEqualTo(4.5), $"{role} {label}");
+            }
+        }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void MarkdownDirectives_SuppressesDirectiveSpanInsideFencesInlineCodeAndComments(bool isDark)
+    {
+        var engine = new RegionHighlightingEngine();
+        var definition = engine.CreateDefinition("MarkdownDirectives", PaletteFrom(engine, isDark));
+        const string content = """
+            <!-- {{#if safety == "comment"}} -->
+            `{{#if safety == "inline"}}`
+            ```text
+            {{#if safety == "fence"}}
+            ```
+            {{#if safety == "direct"}}
+            {{/if}}
+            """;
+        var sections = HighlightAll(new TextDocument(content), definition);
+
+        Assert.Multiple(() =>
+        {
+            AssertTokenDoesNotUseRole(content, "#if", "DirectiveKeyword", sections, definition, occurrence: 0);
+            AssertTokenDoesNotUseRole(content, "#if", "DirectiveKeyword", sections, definition, occurrence: 1);
+            AssertTokenDoesNotUseRole(content, "#if", "DirectiveKeyword", sections, definition, occurrence: 2);
+            AssertTokenUsesRole(content, "#if", "DirectiveKeyword", sections, definition, occurrence: 3);
+            AssertTokenUsesRole(content, "/if", "DirectiveKeyword", sections, definition);
+
+            AssertTokenDoesNotUseRole(content, "safety", "DirectiveVariable", sections, definition, occurrence: 0);
+            AssertTokenDoesNotUseRole(content, "safety", "DirectiveVariable", sections, definition, occurrence: 1);
+            AssertTokenDoesNotUseRole(content, "safety", "DirectiveVariable", sections, definition, occurrence: 2);
+            AssertTokenUsesRole(content, "safety", "DirectiveVariable", sections, definition, occurrence: 3);
+
+            AssertTokenDoesNotUseRole(content, "\"comment\"", "DirectiveString", sections, definition);
+            AssertTokenDoesNotUseRole(content, "\"inline\"", "DirectiveString", sections, definition);
+            AssertTokenDoesNotUseRole(content, "\"fence\"", "DirectiveString", sections, definition);
+            AssertTokenUsesRole(content, "\"direct\"", "DirectiveString", sections, definition);
+        });
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void MarkdownDirectives_PreservesMarkdownParity_ForCoreMarkdownRules(bool isDark)
+    {
+        var engine = new RegionHighlightingEngine();
+        var palette = PaletteFrom(engine, isDark);
+        var markdown = engine.CreateDefinition("Markdown", palette);
+        var directives = engine.CreateDefinition("MarkdownDirectives", palette);
+        const string content = """
+            # Heading
+            Use **bold** text and _italic_ text.
+            [guide](https://example.org)
+            - item
+            INBOX_MESSAGE_JSON some_identifier a_b_c
+            Use `inline_code` and ``a ` b``.
+            ```text
+            # code
+            ```
+            <!-- **comment** -->
+            """;
+        var document = new TextDocument(content);
+        var markdownSections = HighlightAll(document, markdown);
+        var directiveSections = HighlightAll(document, directives);
+
+        Assert.That(SnapshotSections(markdownSections), Is.EqualTo(SnapshotSections(directiveSections)));
+
+        Assert.Multiple(() =>
+        {
+            var inline = "`inline_code`";
+            var inlineOffset = content.IndexOf(inline, StringComparison.Ordinal);
+            var markdownInline = markdownSections.Single(section => section.Offset == inlineOffset && section.Length == inline.Length);
+            var directivesInline = directiveSections.Single(section => section.Offset == inlineOffset && section.Length == inline.Length);
+            Assert.That(markdownInline.Color?.FontFamily?.Source, Is.EqualTo("Consolas"));
+            Assert.That(directivesInline.Color?.FontFamily?.Source, Is.EqualTo("Consolas"));
+            Assert.That(markdownInline.Color?.Name, Is.EqualTo("InlineCode"));
+            Assert.That(directivesInline.Color?.Name, Is.EqualTo("InlineCode"));
+
+            AssertTokenDoesNotUseRole(content, "INBOX_MESSAGE_JSON", "Keyword", markdownSections, markdown);
+            AssertTokenDoesNotUseRole(content, "INBOX_MESSAGE_JSON", "Keyword", directiveSections, directives);
+        });
+    }
+
+    [Test]
+    public void MarkdownEditor_GrammarNameSwitching_PreservesPaletteAndRecoversFromInvalidAssignment()
+    {
+        var application = Application.Current ?? new Application();
+        var resources = application.Resources;
+        var savedResources = resources.Cast<DictionaryEntry>().ToArray();
+        try
+        {
+            EnsureThemeResourcesForMarkdownEditor();
+            using var workspace = new TestWorkspace();
+            var settingsPath = workspace.GetPath("markdown-directives-settings.json");
+            var light = PaletteFrom(RegionHighlightingEngine.Default, isDark: false);
+            var dark = PaletteFrom(RegionHighlightingEngine.Default, isDark: true);
+            using var defaultEditor = new AvalonEditMarkdownEditor(new ApplicationSettingsStore(settingsPath));
+            using var initialized = new AvalonEditMarkdownEditor(new ApplicationSettingsStore(settingsPath))
+            {
+                GrammarName = "MarkdownDirectives",
+            };
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(defaultEditor.GrammarName, Is.EqualTo("Markdown"));
+                Assert.That(defaultEditor.Editor.SyntaxHighlighting.Name, Is.EqualTo("Markdown"));
+                Assert.That(initialized.GrammarName, Is.EqualTo("MarkdownDirectives"));
+                Assert.That(initialized.Editor.SyntaxHighlighting.Name, Is.EqualTo("MarkdownDirectives"));
+            });
+
+            foreach (var palette in new[] { dark, light, dark })
+            {
+                var before = initialized.Editor.SyntaxHighlighting;
+                initialized.ApplyPalette(palette);
+                Assert.That(initialized.Editor.SyntaxHighlighting, Is.SameAs(before));
+                foreach (var role in new[] { "DirectiveKeyword", "DirectiveVariable", "DirectiveString" })
+                    Assert.That(ColorOf(before.GetNamedColor(role)),
+                        Is.EqualTo(ColorOf(palette.HighlightColors[$"MarkdownDirectives/{role}"])));
+            }
+
+            initialized.GrammarName = "Markdown";
+            Assert.That(initialized.Editor.SyntaxHighlighting.Name, Is.EqualTo("Markdown"));
+            Assert.That(ColorOf(initialized.Editor.SyntaxHighlighting.GetNamedColor("Keyword")),
+                Is.EqualTo((Color)ColorConverter.ConvertFromString("#8AB4F8")));
+            initialized.ApplyPalette(light);
+            initialized.GrammarName = "MarkdownDirectives";
+            Assert.That(ColorOf(initialized.Editor.SyntaxHighlighting.GetNamedColor("DirectiveString")),
+                Is.EqualTo((Color)ColorConverter.ConvertFromString("#D82323")));
+
+            initialized.Editor.SyntaxHighlighting = null;
+            initialized.ApplyPalette(dark);
+            Assert.That(initialized.Editor.SyntaxHighlighting, Is.Not.Null);
+            var validDefinition = initialized.Editor.SyntaxHighlighting!;
+            Assert.That(validDefinition.Name, Is.EqualTo("MarkdownDirectives"));
+            Assert.That(() => initialized.GrammarName = "NotARealGrammar", Throws.ArgumentException);
+            Assert.Multiple(() =>
+            {
+                Assert.That(initialized.GrammarName, Is.EqualTo("MarkdownDirectives"));
+                Assert.That(initialized.Editor.SyntaxHighlighting, Is.SameAs(validDefinition));
+                Assert.That(defaultEditor.Editor.SyntaxHighlighting.Name, Is.EqualTo("Markdown"));
+            });
+
+            initialized.SetText("# Heading");
+            var sections = HighlightAll(initialized.Editor.Document, validDefinition);
+            Assert.That(sections, Is.Not.Empty);
+        }
+        finally
+        {
+            resources.Clear();
+            foreach (var entry in savedResources)
+                resources[entry.Key] = entry.Value;
         }
     }
 
@@ -1289,6 +1543,95 @@ public sealed class RegionHighlightingTests
         for (var line = 1; line <= document.LineCount; line++)
             sections.AddRange(highlighter.HighlightLine(line).Sections);
         return sections;
+    }
+
+    private static List<string> SnapshotSections(IEnumerable<HighlightedSection> sections) =>
+        sections.Select(section =>
+        {
+            var color = ColorOf(section.Color);
+            var rgb = color is null ? "null" : $"{color.Value.R:X2}{color.Value.G:X2}{color.Value.B:X2}";
+            var font = section.Color?.FontFamily?.Source ?? "null";
+            return $"{section.Offset}:{section.Length}:{section.Color?.Name ?? "null"}:{rgb}:{font}";
+        }).ToList();
+
+    private static void AssertTokenUsesRole(
+        string content, string token, string role, IReadOnlyList<HighlightedSection> sections,
+        IHighlightingDefinition definition, int occurrence = 0, int tokenOffset = 0, int? tokenLength = null)
+    {
+        var start = IndexOfOccurrence(content, token, occurrence) + tokenOffset;
+        var end = start + (tokenLength ?? token.Length);
+        var expected = ColorOf(definition.GetNamedColor(role));
+        Assert.That(sections.Any(section =>
+                section.Offset <= start &&
+                section.Offset + section.Length >= end &&
+                ColorOf(section.Color) == expected),
+            Is.True, $"{token} must use {role}");
+    }
+
+    private static void AssertTokenDoesNotUseRole(
+        string content, string token, string role, IReadOnlyList<HighlightedSection> sections,
+        IHighlightingDefinition definition, int occurrence = 0)
+    {
+        var start = IndexOfOccurrence(content, token, occurrence);
+        var end = start + token.Length;
+        var expected = ColorOf(definition.GetNamedColor(role));
+        Assert.That(sections.Any(section =>
+                section.Offset < end &&
+                section.Offset + section.Length > start &&
+                ColorOf(section.Color) == expected),
+            Is.False, $"{token} must not use {role}");
+    }
+
+    private static void AssertEntireTokenUsesRole(
+        string content, string token, string role, IReadOnlyList<HighlightedSection> sections,
+        IHighlightingDefinition definition, int occurrence = 0)
+    {
+        var start = IndexOfOccurrence(content, token, occurrence);
+        var end = start + token.Length;
+        var expected = ColorOf(definition.GetNamedColor(role));
+        var overlapping = sections
+            .Where(section => section.Offset < end && section.Offset + section.Length > start)
+            .ToArray();
+        Assert.That(overlapping, Is.Not.Empty, token);
+        for (var offset = start; offset < end; offset++)
+            Assert.That(overlapping.Any(section => section.Offset <= offset && section.Offset + section.Length > offset),
+                Is.True, $"{token} offset {offset} must be colored");
+        foreach (var section in overlapping)
+            Assert.That(ColorOf(section.Color), Is.EqualTo(expected), $"{token} should be fully {role}");
+    }
+
+    private static int IndexOfOccurrence(string content, string token, int occurrence)
+    {
+        var start = -1;
+        for (var i = 0; i <= occurrence; i++)
+        {
+            start = content.IndexOf(token, start + 1, StringComparison.Ordinal);
+            Assert.That(start, Is.GreaterThanOrEqualTo(0), $"Missing occurrence {occurrence} of token '{token}'");
+        }
+        return start;
+    }
+
+    private static void EnsureThemeResourcesForMarkdownEditor()
+    {
+        if (Application.Current is null)
+            _ = new Application();
+        var resources = Application.Current!.Resources;
+        resources["ThemedButtonStyle"] = new Style(typeof(Button));
+        resources["ThemedMenuItemStyle"] = new Style(typeof(MenuItem));
+        resources["ThemedContextMenuStyle"] = new Style(typeof(ContextMenu));
+        resources["ThemedMenuSeparatorStyle"] = new Style(typeof(Separator));
+        resources["SubtleBorder"] = new SolidColorBrush(Color.FromRgb(0x88, 0x88, 0x88));
+        resources["PanelBorder"] = new SolidColorBrush(Color.FromRgb(0xAA, 0xAA, 0xAA));
+        resources["LabelText"] = Brushes.Black;
+        resources["FontSizeTiny"] = 10d;
+        resources["FontSizeNormal"] = 14d;
+        resources["FontSizeMedium"] = 15d;
+        resources["FontSizeLarge"] = 16d;
+        resources["FontSizeHeading"] = 18d;
+        resources["CodeSurface"] = new SolidColorBrush(Color.FromRgb(0xFB, 0xFA, 0xF7));
+        resources["CodeText"] = new SolidColorBrush(Color.FromRgb(0x2A, 0x1E, 0x12));
+        resources["ImportantText"] = new SolidColorBrush(Color.FromRgb(0x53, 0x37, 0x1E));
+        resources["FontSizeBody"] = 14d;
     }
 
     /// <summary>

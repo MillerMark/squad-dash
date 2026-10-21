@@ -17,7 +17,8 @@ public sealed class RegionHighlightingEngine
     private sealed record Registration(
         RegionLanguageOption Option,
         Func<IHighlightingDefinition> Definition,
-        Func<bool, IReadOnlyDictionary<string, HighlightingColor>>? Palette);
+        Func<bool, IReadOnlyDictionary<string, HighlightingColor>>? Palette,
+        bool InternalOnly);
 
     private readonly Dictionary<string, Registration> _grammars = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _tokens = new(StringComparer.OrdinalIgnoreCase);
@@ -54,12 +55,20 @@ public sealed class RegionHighlightingEngine
     public IReadOnlyList<RegionLanguageOption> Options =>
         new[] { new RegionLanguageOption("", "Auto detect", null),
             new RegionLanguageOption(RegionLanguagePicker.PlainTextToken, "Plain text", null) }
-        .Concat(_grammars.Values.Select(item => item.Option)
+        .Concat(_grammars.Values.Where(item => !item.InternalOnly).Select(item => item.Option)
             .OrderBy(option => option.DisplayName, StringComparer.OrdinalIgnoreCase)).ToArray();
 
     public void Register(
         RegionLanguageOption option,
         Func<IHighlightingDefinition> definitionFactory,
+        Func<bool, IReadOnlyDictionary<string, HighlightingColor>>? palette = null,
+        params string[] aliases)
+        => Register(option, definitionFactory, false, palette, aliases);
+
+    public void Register(
+        RegionLanguageOption option,
+        Func<IHighlightingDefinition> definitionFactory,
+        bool internalOnly,
         Func<bool, IReadOnlyDictionary<string, HighlightingColor>>? palette = null,
         params string[] aliases)
     {
@@ -78,14 +87,18 @@ public sealed class RegionHighlightingEngine
             new[] { option.FenceToken }.Concat(aliases).Any(_tokens.ContainsKey))
             throw new ArgumentException("The grammar or one of its fence tokens is already registered.", nameof(option));
 
-        _grammars.Add(option.GrammarName, new Registration(option, definitionFactory, palette));
-        _tokens.Add(option.FenceToken, option.GrammarName);
-        AddAliases(option.GrammarName, aliases);
+        _grammars.Add(option.GrammarName, new Registration(option, definitionFactory, palette, internalOnly));
+        // Internal editor variants are available only through CreateDefinition, not user language selection.
+        if (!internalOnly)
+        {
+            _tokens.Add(option.FenceToken, option.GrammarName);
+            AddAliases(option.GrammarName, aliases);
+        }
     }
 
     private void AddAliases(string grammar, params string[] aliases)
     {
-        if (!_grammars.ContainsKey(grammar))
+        if (!_grammars.TryGetValue(grammar, out var registration) || registration.InternalOnly)
             return;
         foreach (var alias in aliases)
             _tokens[alias] = grammar;
@@ -95,7 +108,8 @@ public sealed class RegionHighlightingEngine
 
     public string? Resolve(string token, string content) =>
         RegionGrammarResolver.Resolve(token, content, ResolveFenceToken,
-            sample => RegionGrammarResolver.Detect(sample, _grammars.ContainsKey));
+            sample => RegionGrammarResolver.Detect(sample,
+                name => _grammars.TryGetValue(name, out var registration) && !registration.InternalOnly));
 
     public IReadOnlyDictionary<string, HighlightingColor> CreatePaletteColors(bool isDark)
     {

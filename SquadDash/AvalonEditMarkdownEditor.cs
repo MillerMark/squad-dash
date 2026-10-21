@@ -38,6 +38,8 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
     private int _cycleIndex;
     private int _cycleStart;
     private bool _cycling;
+    private string _grammarName = "Markdown";
+    private RegionEditorPalette? _currentPalette;
 
     public AvalonEditMarkdownEditor() : this(new ApplicationSettingsStore()) { }
 
@@ -100,7 +102,7 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
         _previewDebounce.Tick += PreviewDebounce_Tick;
 
         var markdownPalette = _paletteSource.CreatePalette();
-        Editor.SyntaxHighlighting = _highlighting.CreateDefinition("Markdown", markdownPalette);
+        Editor.SyntaxHighlighting = _highlighting.CreateDefinition(GrammarName, markdownPalette);
         ApplyPalette(markdownPalette);
         UpdateToolbarSelectionGates();
     }
@@ -117,6 +119,23 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
     {
         get => _toolbar.ShowHrButton;
         set => _toolbar.ShowHrButton = value;
+    }
+
+    public string GrammarName
+    {
+        get => _grammarName;
+        set
+        {
+            ThrowIfDisposed();
+            ArgumentException.ThrowIfNullOrWhiteSpace(value);
+            if (string.Equals(_grammarName, value, StringComparison.Ordinal))
+                return;
+
+            var definition = _highlighting.CreateDefinition(value, _currentPalette ?? _paletteSource.CreatePalette());
+            _grammarName = value;
+            Editor.SyntaxHighlighting = definition;
+            Editor.TextArea.TextView.Redraw();
+        }
     }
 
     public event EventHandler<string>? TextChanged;
@@ -166,15 +185,17 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
         Editor.Background = effectivePalette.Surface;
         Editor.Foreground = effectivePalette.Text;
 
-        if (Editor.SyntaxHighlighting is RegionHighlightingDefinition definition)
+        if (Editor.SyntaxHighlighting is RegionHighlightingDefinition definition &&
+            string.Equals(definition.Name, GrammarName, StringComparison.OrdinalIgnoreCase))
         {
             definition.ApplyPalette(effectivePalette);
         }
         else
         {
-            Editor.SyntaxHighlighting = _highlighting.CreateDefinition("Markdown", effectivePalette);
+            Editor.SyntaxHighlighting = _highlighting.CreateDefinition(GrammarName, effectivePalette);
         }
 
+        _currentPalette = effectivePalette;
         Editor.TextArea.TextView.Redraw();
     }
 

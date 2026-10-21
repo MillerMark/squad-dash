@@ -21,11 +21,15 @@ internal static class RegionBundledGrammars
         Register(engine, "Bash", "Bash", "bash", "sh", "shell");
         var markdown = new Lazy<IHighlightingDefinition>(() => Load("Markdown"));
         engine.Register(new RegionLanguageOption("markdown", "Markdown", "Markdown"),
-            () => markdown.Value,
-            isDark => new Dictionary<string, HighlightingColor>(CreatePalette(isDark), StringComparer.Ordinal)
-            {
-                ["InlineCode"] = RegionHighlightingPalettes.CreateMarkdownColors(isDark)["Markdown/InlineCode"],
-            }, "md");
+            () => markdown.Value, CreateMarkdownPalette, "md");
+        var markdownDirectives = new Lazy<IHighlightingDefinition>(() => Load("MarkdownDirectives"));
+        engine.Register(new RegionLanguageOption("markdowndirectives", "Markdown directives", "MarkdownDirectives"),
+            () => markdownDirectives.Value, internalOnly: true,
+            palette: isDark => CreateMarkdownPalette(isDark)
+                .Concat(RegionHighlightingPalettes.CreateMarkdownDirectivesColors(isDark)
+                    .Select(pair => new KeyValuePair<string, HighlightingColor>(
+                        pair.Key["MarkdownDirectives/".Length..], pair.Value)))
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal));
         var errorMessage = new Lazy<IHighlightingDefinition>(() => Load("ErrorMessage"));
         engine.Register(new RegionLanguageOption("error", "Error message", "Error message"),
             () => errorMessage.Value,
@@ -58,4 +62,10 @@ internal static class RegionBundledGrammars
     private static IReadOnlyDictionary<string, HighlightingColor> CreatePalette(bool isDark) =>
         RegionHighlightingPalettes.CreateColors(isDark)
             .ToDictionary(pair => pair.Key[1..], pair => pair.Value, StringComparer.Ordinal);
+
+    private static IReadOnlyDictionary<string, HighlightingColor> CreateMarkdownPalette(bool isDark) =>
+        new Dictionary<string, HighlightingColor>(CreatePalette(isDark), StringComparer.Ordinal)
+        {
+            ["InlineCode"] = RegionHighlightingPalettes.CreateMarkdownColors(isDark)["Markdown/InlineCode"],
+        };
 }

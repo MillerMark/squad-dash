@@ -36,6 +36,14 @@ public static class RegionHighlightingPalettes
             ["Markdown/InlineCode"] = Color(isDark ? 0xF3A6DEu : 0x8A176Fu, new FontFamily("Consolas")),
         };
 
+    public static IReadOnlyDictionary<string, HighlightingColor> CreateMarkdownDirectivesColors(bool isDark) =>
+        new Dictionary<string, HighlightingColor>(StringComparer.Ordinal)
+        {
+            ["MarkdownDirectives/DirectiveKeyword"] = Color(isDark ? 0x8AB4F8u : 0x174EA6u),
+            ["MarkdownDirectives/DirectiveVariable"] = Color(isDark ? 0xC7ACF0u : 0x6841A5u),
+            ["MarkdownDirectives/DirectiveString"] = Color(isDark ? 0xF64F4Fu : 0xD82323u),
+        };
+
     public static IReadOnlyDictionary<string, HighlightingColor> CreateErrorMessageColors(bool isDark) =>
         new Dictionary<string, HighlightingColor>(StringComparer.Ordinal)
         {

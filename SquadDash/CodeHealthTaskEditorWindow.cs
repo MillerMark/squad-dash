@@ -717,7 +717,7 @@ internal sealed class CodeHealthTaskEditorWindow : ChromedWindow {
     }
 
     private AvalonEditMarkdownEditor BuildInstructionsPanel() {
-        var panel = new AvalonEditMarkdownEditor { ShowHrButton = false };
+        var panel = new AvalonEditMarkdownEditor { ShowHrButton = false, GrammarName = "MarkdownDirectives" };
         panel.DocumentPath = _loopMdPath ?? _task.SourceFilePath ?? string.Empty;
         panel.CleanupPrompt = _settingsProvider().CleanupPrompt;
         panel.SetText(_task.Instructions ?? "");
