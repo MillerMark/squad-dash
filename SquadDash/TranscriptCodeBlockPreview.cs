@@ -60,17 +60,18 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
             {
                 Text = language,
                 FontFamily = new FontFamily("Consolas"),
-                FontSize = plain.FontSize,
-                Margin = new Thickness(10, 4, copyHost.Width + 12, 0),
+                FontSize = plain.FontSize / 0.9 * 0.8,
+                Margin = new Thickness(10, 5, copyHost.Width + 12, 0),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
                 IsHitTestVisible = false,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
-            _label.SetResourceReference(TextBlock.ForegroundProperty, "CodeText");
+            _label.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
             container.Children.Add(_label);
         }
 
+        UpdateCodePadding();
         container.PreviewMouseWheel += OnMouseWheel;
         if (_grammar is null)
             return;
@@ -121,11 +122,11 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
     {
         _plain.FontSize = baseFontSize * 0.9;
         _copyHost.Width = _copyHost.Height = baseFontSize * 1.5;
-        _plain.Padding = new Thickness(10, Math.Max(30, _copyHost.Height + 8), 10, 8);
+        UpdateCodePadding();
         if (_label is not null)
         {
-            _label.FontSize = _plain.FontSize;
-            _label.Margin = new Thickness(10, 4, _copyHost.Width + 12, 0);
+            _label.FontSize = baseFontSize * 0.8;
+            _label.Margin = new Thickness(10, 5, _copyHost.Width + 12, 0);
         }
         if (_editor is not null)
         {
@@ -134,6 +135,12 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
             _plain.Measure(new Size(Math.Max(1, _container.ActualWidth), double.PositiveInfinity));
             _editor.Height = Math.Min(MaximumHeight, _plain.DesiredSize.Height);
         }
+    }
+
+    private void UpdateCodePadding()
+    {
+        // Roughly halve the label-to-code gap (11px to 6px at 14px base), clearing the copy host.
+        _plain.Padding = new Thickness(10, Math.Max(24, _copyHost.Height + 2), 10, 8);
     }
 
     internal static TranscriptCodeBlockPreview? Find(DependencyObject? source)
@@ -233,7 +240,7 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
         editor.Document.UndoStack.SizeLimit = 0;
         editor.Text = _plain.Text;
         editor.SyntaxHighlighting = _pool.GetDefinition(_grammar);
-        editor.Background = _pool.Palette.Surface;
+        editor.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
         editor.Foreground = _pool.Palette.Text;
         ReadOnlyTextInputGuard.DisableInputMethod(editor);
         AvalonEditClipboardGuard.Attach(editor);
@@ -372,7 +379,6 @@ internal sealed class TranscriptHighlightingPool(RegionHighlightingEngine engine
             definition.ApplyPalette(palette);
         foreach (var editor in Editors)
         {
-            editor.Background = palette.Surface;
             editor.Foreground = palette.Text;
             editor.TextArea.TextView.Redraw();
         }

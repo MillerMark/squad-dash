@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Threading;
 using ICSharpCode.AvalonEdit;
 using ICSharpCode.AvalonEdit.Highlighting;
 using SquadDash;
@@ -227,6 +231,105 @@ internal sealed class TranscriptCodeBlockPreviewTests
             Assert.That(textBox.MaxHeight, Is.EqualTo(double.PositiveInfinity));
             Assert.That(textBox.IsReadOnly, Is.True);
         });
+    }
+
+    [TestCase(12)]
+    [TestCase(14)]
+    [TestCase(20)]
+    public void LanguageLabel_UsesEightyPercentOfBaseFont_BeforeAndAfterResize(double baseFontSize)
+    {
+        EnsureApplicationResources();
+        var block = (BlockUIContainer)CopyableCodeBlockBuilder.Build(
+            "var value = 1;", baseFontSize, transcript: true, language: "cs");
+        var container = (Grid)block.Child;
+        var preview = (TranscriptCodeBlockPreview)block.Tag;
+        var label = container.Children.OfType<TextBlock>().Single();
+
+        Assert.That(label.FontSize, Is.EqualTo(baseFontSize * 0.8).Within(0.001));
+        var initialPadding = preview.PlainTextBox.Padding;
+        preview.UpdateFontSize(baseFontSize);
+        Assert.That(preview.PlainTextBox.Padding, Is.EqualTo(initialPadding));
+
+        preview.UpdateFontSize(baseFontSize + 4);
+        Assert.Multiple(() =>
+        {
+            Assert.That(label.FontSize, Is.EqualTo((baseFontSize + 4) * 0.8).Within(0.001));
+            Assert.That(label.FontSize, Is.LessThan(preview.PlainTextBox.FontSize));
+            Assert.That(label.Margin.Top, Is.EqualTo(5));
+            Assert.That(preview.PlainTextBox.Padding.Top, Is.EqualTo(Math.Max(24, (baseFontSize + 4) * 1.5 + 2)));
+        });
+    }
+
+    [TestCase("Light", "Dark")]
+    [TestCase("Dark", "Light")]
+    public void UpgradeAndThemeSwitch_KeepLiveSubtleLabelAndCodeSurface(string initialTheme, string nextTheme)
+    {
+        EnsureApplicationResources();
+        var block = (BlockUIContainer)CopyableCodeBlockBuilder.Build(
+            "var value = 1;", 14, transcript: true, language: "cs");
+        var container = (Grid)block.Child;
+        var preview = (TranscriptCodeBlockPreview)block.Tag;
+        var label = container.Children.OfType<TextBlock>().Single();
+        var referenceBlock = (BlockUIContainer)CopyableCodeBlockBuilder.Build("plain", 14);
+        var reference = FindCodeTextBox(referenceBlock);
+        var document = new FlowDocument(block);
+        document.Blocks.Add(referenceBlock);
+        var window = new Window
+        {
+            Content = new RichTextBox { Document = document, IsReadOnly = true },
+            Width = 400, Height = 300, ShowActivated = false, ShowInTaskbar = false,
+        };
+        var initialPalette = PaletteFrom(new RegionHighlightingEngine(), initialTheme == "Dark");
+        try
+        {
+            window.Resources.MergedDictionaries.Add(LoadTheme(initialTheme));
+            Assert.That(preview.PlainTextBox.Background, Is.SameAs(reference.Background));
+            window.Show();
+            window.UpdateLayout();
+            // Exercise styling independently of deferred viewport scheduling.
+            typeof(TranscriptCodeBlockPreview).GetMethod("Upgrade", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(preview, null);
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            Assert.That(preview.Surface, Is.TypeOf<TextEditor>());
+            var editor = (TextEditor)preview.Surface;
+            Assert.Multiple(() =>
+            {
+                Assert.That(editor.Background, Is.SameAs(reference.Background));
+                Assert.That(label.Foreground, Is.SameAs(window.FindResource("SubtleText")));
+                Assert.That(editor.Padding, Is.EqualTo(preview.PlainTextBox.Padding));
+            });
+
+            window.Resources.MergedDictionaries[0] = LoadTheme(nextTheme);
+            var palette = PaletteFrom(new RegionHighlightingEngine(), nextTheme == "Dark");
+            TranscriptCodeBlockPreview.ApplyTheme(window.Dispatcher, palette);
+            window.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+            preview.UpdateFontSize(20);
+            Assert.Multiple(() =>
+            {
+                Assert.That(label.Foreground, Is.SameAs(window.FindResource("SubtleText")));
+                Assert.That(editor.Background, Is.SameAs(window.FindResource("CodeSurface")));
+                Assert.That(editor.Background, Is.SameAs(reference.Background));
+                Assert.That(editor.Foreground, Is.SameAs(palette.Text));
+                Assert.That(editor.Padding, Is.EqualTo(preview.PlainTextBox.Padding));
+                Assert.That(DependencyPropertyHelper.GetValueSource(editor, Control.BackgroundProperty).IsExpression, Is.True);
+            });
+        }
+        finally
+        {
+            window.Close();
+            TranscriptCodeBlockPreview.ApplyTheme(window.Dispatcher, initialPalette);
+        }
+    }
+
+    private static ResourceDictionary LoadTheme(string theme)
+    {
+        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "SquadDash")))
+            directory = directory.Parent;
+        using var stream = File.OpenRead(Path.Combine(
+            directory?.FullName ?? throw new DirectoryNotFoundException("SquadDash source not found."),
+            "SquadDash", "Themes", theme + ".xaml"));
+        return (ResourceDictionary)XamlReader.Load(stream);
     }
 
     [Test]
