@@ -23,7 +23,7 @@
     <Rule color="Punctuation">^\s*(?:[-+*]|\d+\.)\s+</Rule>
     <Rule color="Tag">!\[[^\]\r\n]*\]\([^)]+\)</Rule>
     <Rule color="Attribute">\[[^\]\r\n]+\]\([^)]+\)</Rule>
-    <Rule color="Keyword">\*\*[^*\r\n]+\*\*|__[^_\r\n]+__|\*[^*\r\n]+\*|_[^_\r\n]+_|~~[^~\r\n]+~~</Rule>
+    <Rule color="Keyword">\*\*[^*\r\n]+\*\*|(?&lt;![A-Za-z0-9])__[^_\r\n]+__(?![A-Za-z0-9])|\*[^*\r\n]+\*|(?&lt;![A-Za-z0-9])_[^_\r\n]+_(?![A-Za-z0-9])|~~[^~\r\n]+~~</Rule>
     <Rule color="Punctuation">[\\`*_{}\[\]()#+\-.!&gt;]</Rule>
   </RuleSet>
 </SyntaxDefinition>

@@ -325,6 +325,16 @@ public sealed class RegionHighlightingTests
     [TestCase("Bash", "echo ${#name}", "${#name}", "Method")]
     [TestCase("Markdown", "# Heading", "# Heading", "Keyword")]
     [TestCase("Markdown", "Use **bold** text.", "**bold**", "Keyword")]
+    [TestCase("Markdown", "Use _italic_ text.", "_italic_", "Keyword")]
+    [TestCase("Markdown", "_italic_", "_italic_", "Keyword")]
+    [TestCase("Markdown", "Use __bold__ text.", "__bold__", "Keyword")]
+    [TestCase("Markdown", "__bold__", "__bold__", "Keyword")]
+    [TestCase("Markdown", "Use *italic* text.", "*italic*", "Keyword")]
+    [TestCase("Markdown", "Use ~~strike~~ text.", "~~strike~~", "Keyword")]
+    [TestCase("Markdown", "(_italic_)", "_italic_", "Keyword")]
+    [TestCase("Markdown", "_italic_.", "_italic_", "Keyword")]
+    [TestCase("Markdown", "(__bold__)", "__bold__", "Keyword")]
+    [TestCase("Markdown", "__bold__.", "__bold__", "Keyword")]
     [TestCase("Markdown", "[guide](https://example.org)", "[guide](https://example.org)", "Attribute")]
     [TestCase("Markdown", "- item", "- ", "Punctuation")]
     [TestCase("Markdown", "Use `code` here.", "`code`", "InlineCode")]
@@ -351,6 +361,27 @@ public sealed class RegionHighlightingTests
                 section.Offset + section.Length >= start + token.Length &&
                 ColorOf(section.Color) == ColorOf(definition.GetNamedColor(role))),
                 Is.True, $"{name}: '{token}' must use {role}, dark={isDark}");
+        }
+    }
+
+    [TestCase("INBOX_MESSAGE_JSON")]
+    [TestCase("some_identifier")]
+    [TestCase("MAX_RETRY_COUNT")]
+    [TestCase("a_b_c")]
+    [TestCase("a_b_")]
+    [TestCase("_b_c")]
+    [TestCase("1_b_")]
+    [TestCase("_b_2")]
+    public void Markdown_IntrawordUnderscoresDoNotUseEmphasisColorInBothThemes(string content)
+    {
+        var engine = new RegionHighlightingEngine();
+        foreach (var isDark in new[] { false, true })
+        {
+            var definition = engine.CreateDefinition("Markdown", PaletteFrom(engine, isDark));
+            var sections = HighlightAll(new TextDocument(content), definition);
+            Assert.That(sections.Any(section =>
+                ColorOf(section.Color) == ColorOf(definition.GetNamedColor("Keyword"))),
+                Is.False, $"'{content}' must not use emphasis anywhere in the token, dark={isDark}");
         }
     }
 
