@@ -4,6 +4,47 @@ namespace SquadDash.Tests;
 internal sealed class SettingsSnapshotManagerTests
 {
     [Test]
+    public void MainWindow_InitializesSettingsManagerBeforeHintRefreshTimerStarts()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var initialLoad = source.IndexOf(
+            "var initialSettings = _settingsStore.Load();",
+            StringComparison.Ordinal);
+        var managerInitialization = source.IndexOf(
+            "_settingsManager = new SettingsSnapshotManager(_settingsStore, initialSettings);",
+            initialLoad,
+            StringComparison.Ordinal);
+        var hintTimerStart = source.IndexOf("_hintRefreshTimer.Start();", StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(initialLoad, Is.GreaterThanOrEqualTo(0));
+            Assert.That(managerInitialization, Is.GreaterThan(initialLoad));
+            Assert.That(hintTimerStart, Is.GreaterThan(managerInitialization));
+        });
+    }
+
+    [Test]
+    public void InitializeWorkspace_RefreshesExistingSettingsManager()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var methodStart = source.IndexOf(
+            "private async Task InitializeWorkspace(string? startupFolder)",
+            StringComparison.Ordinal);
+        var methodEnd = source.IndexOf(
+            "private async Task OpenWorkspace(",
+            methodStart,
+            StringComparison.Ordinal);
+        var method = source[methodStart..methodEnd];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("_settingsManager.Replace(initialSnapshot);"));
+            Assert.That(method, Does.Not.Contain("_settingsManager = new SettingsSnapshotManager"));
+        });
+    }
+
+    [Test]
     public void MutateAndReplace_UpdateOwnedSnapshot()
     {
         using var workspace = new TestWorkspace();
@@ -199,5 +240,17 @@ internal sealed class SettingsSnapshotManagerTests
             Assert.That(manager.Current, Is.SameAs(snap),
                 $"After Replace, Current must be exactly the supplied snapshot (UserName={snap.UserName})");
         }
+    }
+
+    private static string FindRepoFile(params string[] parts)
+    {
+        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "SquadDash")))
+            directory = directory.Parent;
+
+        if (directory is null)
+            throw new DirectoryNotFoundException("Could not locate repository root.");
+
+        return Path.Combine([directory.FullName, .. parts]);
     }
 }

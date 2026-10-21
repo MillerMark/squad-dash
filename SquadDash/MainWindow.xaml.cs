@@ -986,6 +986,7 @@ public partial class MainWindow : Window
             DateTimeOffset.Now,
             AgentArtifactStore.ArchiveRetention);
         var initialSettings = _settingsStore.Load();
+        _settingsManager = new SettingsSnapshotManager(_settingsStore, initialSettings);
         _bridge = new SquadSdkProcess(_workspacePaths);
         _bridge.ByokProviderSettings = BuildByokSettings(initialSettings);
         _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(initialSettings);
@@ -2707,7 +2708,7 @@ public partial class MainWindow : Window
         var initWsSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "InitializeWorkspace: begin.");
         var initialSnapshot = _settingsStore.Load();
-        _settingsManager = new SettingsSnapshotManager(_settingsStore, initialSnapshot);
+        _settingsManager.Replace(initialSnapshot);
         _bridge.BridgeDiagnosticsEnabled = _settingsSnapshot.BridgeDiagnosticsEnabled;
         RefreshBridgeDiagnosticsMenuCheckmark();
         AgentStatusCard.AvatarsSettingEnabled = _settingsSnapshot.ShowAgentAvatars;
