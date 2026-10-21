@@ -20,7 +20,6 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
     internal const int MaximumLines = 300;
     internal const int MaximumCharacters = 32_768;
 
-    private static readonly ConditionalWeakTable<Dispatcher, TranscriptHighlightingPool> Pools = new();
     private static readonly ConditionalWeakTable<ScrollViewer, ViewportObserver> Observers = new();
     private static readonly DependencyProperty PreviewProperty = DependencyProperty.RegisterAttached(
         "Preview", typeof(TranscriptCodeBlockPreview), typeof(TranscriptCodeBlockPreview));
@@ -31,7 +30,6 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
     private readonly TextBlock? _label;
     private TextEditor? _editor;
     private ViewportObserver? _observer;
-    private TranscriptHighlightingPool? _pool;
     private bool _syncingSelection;
 
     internal Control Surface => (Control?)_editor ?? _plain;
@@ -56,18 +54,7 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
         };
         if (!string.IsNullOrWhiteSpace(language))
         {
-            _label = new TextBlock
-            {
-                Text = language,
-                FontFamily = SystemFonts.MessageFontFamily,
-                FontSize = plain.FontSize / 0.9 * 0.7,
-                Margin = new Thickness(10, 7, copyHost.Width + 12, 0),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-                IsHitTestVisible = false,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            };
-            _label.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+            _label = ReadOnlyHighlightedEditorFactory.CreateLanguageLabel(language, plain.FontSize / 0.9, copyHost.Width);
             container.Children.Add(_label);
         }
 
@@ -168,11 +155,7 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
     }
 
     internal static void ApplyTheme(Dispatcher dispatcher, RegionEditorPalette palette)
-    {
-        dispatcher.VerifyAccess();
-        if (Pools.TryGetValue(dispatcher, out var pool))
-            pool.ApplyPalette(palette);
-    }
+        => ReadOnlyHighlightedEditorFactory.ApplyTheme(dispatcher, palette);
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
@@ -196,7 +179,6 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
         if (_editor is not null)
         {
             var editor = _editor;
-            _pool?.Editors.Remove(editor);
             editor.TextArea.SelectionChanged -= OnEditorSelectionChanged;
             _plain.Select(editor.SelectionStart, editor.SelectionLength);
             _container.Children.Remove(editor);
@@ -207,7 +189,6 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
             editor.Document = null;
             _container.Children.Insert(0, _plain);
         }
-        _pool = null;
     }
 
     private bool Intersects(FrameworkElement viewport)
@@ -225,48 +206,16 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
     {
         if (_editor is not null || _grammar is null)
             return;
-        _pool = Pools.GetValue(_container.Dispatcher,
-            _ => new TranscriptHighlightingPool(RegionHighlightingEngine.Default,
-                new ThemeResourcePaletteSource().CreatePalette()));
-        var editor = new TextEditor
-        {
-            IsReadOnly = true,
-            FontFamily = _plain.FontFamily,
-            FontSize = _plain.FontSize,
-            Padding = _plain.Padding,
-            BorderThickness = new Thickness(0),
-            MaxHeight = MaximumHeight,
-            WordWrap = false,
-            ShowLineNumbers = false,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Tag = "codeblock",
-            ContextMenu = _plain.ContextMenu,
-        };
-        editor.Options.EnableHyperlinks = false;
-        editor.Options.EnableEmailHyperlinks = false;
-        editor.Document.UndoStack.SizeLimit = 0;
-        editor.Text = _plain.Text;
-        editor.SyntaxHighlighting = _pool.GetDefinition(_grammar);
-        editor.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
-        editor.Foreground = _pool.Palette.Text;
-        ReadOnlyTextInputGuard.DisableInputMethod(editor);
-        AvalonEditClipboardGuard.Attach(editor);
+        var editor = ReadOnlyHighlightedEditorFactory.Create(
+            _plain.Text, _grammar, _plain.FontSize, _plain.Padding,
+            GetCopyText, _plain.ContextMenu, MaximumHeight);
         editor.SetValue(PreviewProperty, this);
         editor.TextArea.SelectionChanged += OnEditorSelectionChanged;
-        CommandManager.AddPreviewExecutedHandler(editor.TextArea, (_, args) =>
-        {
-            if (args.Command != ApplicationCommands.Copy)
-                return;
-            CopyableCodeBlockBuilder.TrySetClipboard(GetCopyText(true));
-            args.Handled = true;
-        });
         var selectionStart = _plain.SelectionStart;
         var selectionLength = _plain.SelectionLength;
         var horizontalOffset = _plain.HorizontalOffset;
         var verticalOffset = _plain.VerticalOffset;
         _editor = editor;
-        _pool.Editors.Add(editor);
         _container.Children.Remove(_plain);
         _container.Children.Insert(0, editor);
         RecomputeEditorHeight(editor);
@@ -372,7 +321,7 @@ internal sealed class TranscriptHighlightingPool(RegionHighlightingEngine engine
 {
     private readonly Dictionary<string, RegionHighlightingDefinition> _definitions = new(StringComparer.OrdinalIgnoreCase);
     internal RegionEditorPalette Palette { get; private set; } = palette;
-    internal HashSet<TextEditor> Editors { get; } = [];
+    internal ConditionalWeakTable<TextEditor, object> Editors { get; } = new();
 
     internal RegionHighlightingDefinition GetDefinition(string canonicalGrammar)
     {
@@ -386,7 +335,7 @@ internal sealed class TranscriptHighlightingPool(RegionHighlightingEngine engine
         Palette = palette;
         foreach (var definition in _definitions.Values)
             definition.ApplyPalette(palette);
-        foreach (var editor in Editors)
+        foreach (var (editor, _) in Editors)
         {
             editor.Foreground = palette.Text;
             editor.TextArea.TextView.Redraw();

@@ -200,6 +200,8 @@
     <Compile Include="..\SquadDash\CopyButton.cs" Link="Source\CopyButton.cs" />
     <Compile Include="..\SquadDash\CopyableCodeBlockBuilder.cs" Link="Source\CopyableCodeBlockBuilder.cs" />
     <Compile Include="..\SquadDash\TranscriptCodeBlockPreview.cs" Link="Source\TranscriptCodeBlockPreview.cs" />
+    <Compile Include="..\SquadDash\ReadOnlyHighlightedEditorFactory.cs" Link="Source\ReadOnlyHighlightedEditorFactory.cs" />
+    <Compile Include="..\SquadDash\AttachmentTextClassifier.cs" Link="Source\AttachmentTextClassifier.cs" />
     <Compile Include="..\SquadDash\EmbeddedCodeRegionBlock.cs" Link="Source\EmbeddedCodeRegionBlock.cs" />
     <Compile Include="..\SquadDash\RegionLanguagePicker.cs" Link="Source\RegionLanguagePicker.cs" />
     <Compile Include="..\SquadDash\RegionGrammarResolver.cs" Link="Source\RegionGrammarResolver.cs" />

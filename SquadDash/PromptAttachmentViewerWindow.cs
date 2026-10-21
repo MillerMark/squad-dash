@@ -395,20 +395,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             text = sb.ToString().TrimEnd();
         }
 
-        var textBox = new TextBox
-        {
-            Text                          = text,
-            IsReadOnly                    = true,
-            TextWrapping                  = TextWrapping.Wrap,
-            AcceptsReturn                 = true,
-            BorderThickness               = new Thickness(0),
-            Background                    = Brushes.Transparent,
-            FontSize = (double)Application.Current.Resources["FontSizeBody"],
-            Padding                       = new Thickness(2),
-            VerticalScrollBarVisibility   = ScrollBarVisibility.Disabled,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        };
-        textBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        var textContent = BuildTextContent(text);
 
         // For inbox-excerpt attachments, add an "Open in Inbox" button when the callback is available.
         bool isInboxExcerpt = att.ContentBlock is not null
@@ -431,16 +418,62 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             var panel = new DockPanel { LastChildFill = true };
             DockPanel.SetDock(openBtn, Dock.Bottom);
             panel.Children.Add(openBtn);
-
-            var textScroll = new ScrollViewer
-            {
-                Content                       = textBox,
-                VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            };
-            panel.Children.Add(textScroll);
+            panel.Children.Add(textContent);
             return panel;
         }
+
+        return textContent;
+    }
+
+    internal static UIElement BuildTextContent(string text)
+    {
+        var classification = AttachmentTextClassifier.Classify(text);
+        var fontSize = (double)Application.Current.Resources["FontSizeBody"];
+        if (classification.Mode == AttachmentTextRenderMode.WholeCode)
+            return ReadOnlyHighlightedEditorFactory.Build(
+                classification.Content, classification.Grammar, classification.LanguageLabel!, fontSize);
+
+        if (classification.Mode == AttachmentTextRenderMode.MixedMarkdown)
+        {
+            var viewer = new FlowDocumentScrollViewer
+            {
+                Document = MarkdownDocumentRenderer.BuildReadOnlyDocument(text, fontSize),
+                IsToolBarVisible = false,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Background = Brushes.Transparent,
+            };
+            ReadOnlyTextInputGuard.DisableInputMethod(viewer);
+            DataObject.AddCopyingHandler(viewer, (_, e) =>
+            {
+                e.CancelCommand();
+                e.Handled = true;
+                CopyableCodeBlockBuilder.TrySetClipboard(MarkdownVisibleContent.GetSelectedText(viewer));
+            });
+            IDisposable? selectionScope = null;
+            viewer.Loaded += (_, _) => selectionScope ??= MarkdownVisibleContent.TrackSelections(viewer);
+            viewer.Unloaded += (_, _) =>
+            {
+                selectionScope?.Dispose();
+                selectionScope = null;
+            };
+            return viewer;
+        }
+
+        var textBox = new TextBox
+        {
+            Text                          = text,
+            IsReadOnly                    = true,
+            TextWrapping                  = TextWrapping.Wrap,
+            AcceptsReturn                 = true,
+            BorderThickness               = new Thickness(0),
+            Background                    = Brushes.Transparent,
+            FontSize = (double)Application.Current.Resources["FontSizeBody"],
+            Padding                       = new Thickness(2),
+            VerticalScrollBarVisibility   = ScrollBarVisibility.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+        textBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
 
         var textScroll2 = new ScrollViewer
         {

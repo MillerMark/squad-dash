@@ -48,6 +48,32 @@ internal static class CopyableCodeBlockBuilder
         string ReadCopyText(bool selectionOnly) =>
             preview?.GetCopyText(selectionOnly) ?? GetCopyText(textBox, selectionOnly);
 
+        var stickyCopyHost = CreateCopyHost(copyButtonSize, () => ReadCopyText(selectionOnly: false));
+        DataObject.AddCopyingHandler(textBox, (_, e) =>
+        {
+            e.CancelCommand();
+            e.Handled = true;
+            TrySetClipboard(ReadCopyText(selectionOnly: true));
+        });
+        textBox.ContextMenu = CreateCopyMenu(
+            () => ReadCopyText(selectionOnly: true),
+            () =>
+            {
+                if (preview is not null) preview.SelectAll();
+                else textBox.SelectAll();
+            },
+            () => preview?.SelectionLength ?? textBox.SelectionLength);
+
+        var container = new Grid();
+        container.Children.Add(textBox);
+        if (transcript)
+            preview = new TranscriptCodeBlockPreview(container, textBox, stickyCopyHost, language);
+        StickyCodeBlockBehavior.Attach(container, stickyCopyHost);
+        return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10), Tag = preview };
+    }
+
+    internal static Grid CreateCopyHost(double copyButtonSize, Func<string> readCopyText)
+    {
         var copyButton = new CopyButton
         {
             CopyTooltip = "Copy code",
@@ -58,13 +84,7 @@ internal static class CopyableCodeBlockBuilder
             HorizontalAlignment = HorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
         };
-        copyButton.Click += (_, _) => TrySetClipboard(ReadCopyText(selectionOnly: false));
-        DataObject.AddCopyingHandler(textBox, (_, e) =>
-        {
-            e.CancelCommand();
-            e.Handled = true;
-            TrySetClipboard(ReadCopyText(selectionOnly: true));
-        });
+        copyButton.Click += (_, _) => TrySetClipboard(readCopyText());
 
         var copyButtonBackdrop = new Border
         {
@@ -84,29 +104,22 @@ internal static class CopyableCodeBlockBuilder
         };
         stickyCopyHost.Children.Add(copyButtonBackdrop);
         stickyCopyHost.Children.Add(copyButton);
+        return stickyCopyHost;
+    }
 
+    internal static ContextMenu CreateCopyMenu(Func<string> readCopyText, Action selectAll, Func<int> selectionLength)
+    {
         var copyMenuItem = new MenuItem { Header = "Copy" };
-        copyMenuItem.Click += (_, _) => TrySetClipboard(ReadCopyText(selectionOnly: true));
+        copyMenuItem.Click += (_, _) => TrySetClipboard(readCopyText());
         var selectAllMenuItem = new MenuItem { Header = "Select All" };
-        selectAllMenuItem.Click += (_, _) =>
-        {
-            if (preview is not null) preview.SelectAll();
-            else textBox.SelectAll();
-        };
+        selectAllMenuItem.Click += (_, _) => selectAll();
         var contextMenu = new ContextMenu();
         contextMenu.Items.Add(copyMenuItem);
         contextMenu.Items.Add(new Separator());
         contextMenu.Items.Add(selectAllMenuItem);
         contextMenu.Opened += (_, _) =>
-            copyMenuItem.Header = (preview?.SelectionLength ?? textBox.SelectionLength) > 0 ? "Copy Selection" : "Copy All";
-        textBox.ContextMenu = contextMenu;
-
-        var container = new Grid();
-        container.Children.Add(textBox);
-        if (transcript)
-            preview = new TranscriptCodeBlockPreview(container, textBox, stickyCopyHost, language);
-        StickyCodeBlockBehavior.Attach(container, stickyCopyHost);
-        return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10), Tag = preview };
+            copyMenuItem.Header = selectionLength() > 0 ? "Copy Selection" : "Copy All";
+        return contextMenu;
     }
 
     internal static bool TrySetClipboard(string text)
