@@ -82,6 +82,18 @@ internal class TextCaseHelperTests
         Assert.That(variants[1], Is.EqualTo(ToPascalCase(original)));
     }
 
+    [Test]
+    public void ComputeOrderedVariants_TrailingSpace_PreservesPascalCaseSelectionLength()
+    {
+        var variants = ComputeOrderedVariants("hello world ");
+        Assert.That(variants, Is.EqualTo(new[]
+        {
+            "Hello World ", "HelloWorld ", "Hello world ",
+            "HELLO WORLD ", "hello-world-", "hello_world_"
+        }));
+        Assert.That(variants[1].Length, Is.EqualTo(11));
+    }
+
     // ──────────────────────────────────────────────────────────────
     // 4. Full cycle — None input cycles through 6 canonical variants
     // ──────────────────────────────────────────────────────────────
@@ -153,6 +165,16 @@ internal class TextCaseHelperTests
     [Test]
     public void ToPascalCase_SpotCheck()
         => Assert.That(ToPascalCase("to a tag and a tag filter"), Is.EqualTo("ToATagAndATagFilter"));
+
+    [TestCase("hello world ", "HelloWorld ")]
+    [TestCase("hello world", "HelloWorld")]
+    [TestCase("hello world   ", "HelloWorld ")]
+    [TestCase("hello world\t\r\n", "HelloWorld ")]
+    [TestCase("  hello_world-", "HelloWorld")]
+    [TestCase("", "")]
+    [TestCase(" \t  ", " \t  ")]
+    public void ToPascalCase_TrailingWhitespace_ReturnsExpected(string input, string expected)
+        => Assert.That(ToPascalCase(input), Is.EqualTo(expected));
 
     [Test]
     public void ToKebabCase_SpotCheck()

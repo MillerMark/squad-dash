@@ -480,6 +480,33 @@ internal sealed class AvalonEditMarkdownEditorTests
     }
 
     [Test]
+    public void CaseCycling_TrailingSpace_PreservesSelectionThroughRepeatedFullCycles()
+    {
+        SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 14);
+        using var editor = new AvalonEditMarkdownEditor();
+        const string original = "hello world ";
+        const string prefix = "prefix ";
+        const string suffix = "suffix";
+        editor.SetText(prefix + original + suffix);
+        editor.Editor.Select(prefix.Length, original.Length);
+        var variants = TextCaseHelper.ComputeOrderedVariants(original);
+        Assert.That(variants[1], Is.EqualTo("HelloWorld "));
+
+        for (int i = 0; i < variants.Count * 2; i++)
+        {
+            editor.CycleCase(false);
+            var expected = variants[i % variants.Count];
+            Assert.Multiple(() =>
+            {
+                Assert.That(editor.Editor.SelectedText, Is.EqualTo(expected));
+                Assert.That(editor.Editor.SelectionStart, Is.EqualTo(prefix.Length));
+                Assert.That(editor.Editor.SelectionLength, Is.EqualTo(expected.Length));
+                Assert.That(editor.GetText(), Is.EqualTo(prefix + expected + suffix));
+            });
+        }
+    }
+
+    [Test]
     public void ReverseCaseCycling_StartsAtLastVariant_AndResetsOnReselection()
     {
         SeedThemeResources(Colors.White, Colors.Black, Colors.Black, 14);
