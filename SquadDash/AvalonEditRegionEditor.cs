@@ -53,6 +53,7 @@ public sealed class AvalonEditRegionEditor : IRegionCodeEditor, IDisposable
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         };
+        AvalonEditClipboardGuard.Attach(_editor);
         // A prompt code region is a plain editor: no clickable hyperlinks, no folding.
         _editor.Options.EnableHyperlinks = false;
         _editor.Options.EnableEmailHyperlinks = false;

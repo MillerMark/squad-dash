@@ -207,6 +207,7 @@
     <Compile Include="..\SquadDash\RegionHighlightingPalettes.cs" Link="Source\RegionHighlightingPalettes.cs" />
     <Compile Include="..\SquadDash\IRegionCodeEditor.cs" Link="Source\IRegionCodeEditor.cs" />
     <Compile Include="..\SquadDash\AvalonEditRegionEditor.cs" Link="Source\AvalonEditRegionEditor.cs" />
+    <Compile Include="..\SquadDash\AvalonEditClipboardGuard.cs" Link="Source\AvalonEditClipboardGuard.cs" />
     <Compile Include="..\SquadDash\EmbeddedCaretNavMath.cs" Link="Source\EmbeddedCaretNavMath.cs" />
     <Compile Include="..\SquadDash\EmbeddedCodeRegionManager.cs" Link="Source\EmbeddedCodeRegionManager.cs" />
     <Compile Include="..\SquadDash\EmbeddedFenceDetector.cs" Link="Source\EmbeddedFenceDetector.cs" />

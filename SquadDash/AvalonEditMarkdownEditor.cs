@@ -77,6 +77,7 @@ internal sealed partial class AvalonEditMarkdownEditor : DockPanel, IDisposable
             VerticalAlignment = VerticalAlignment.Stretch,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
+        AvalonEditClipboardGuard.Attach(Editor);
         InitializeZoom();
         InitializeHighlights();
         InitializeDictation();
