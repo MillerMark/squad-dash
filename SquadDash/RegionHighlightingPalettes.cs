@@ -53,6 +53,7 @@ public static class RegionHighlightingPalettes
             ["Error message/FileName"] = Color(isDark ? 0xC7ACF0u : 0x6841A5u),
             ["Error message/LineNumber"] = Color(isDark ? 0x78966Du : 0x527647u),
             ["Error message/ExceptionType"] = Color(isDark ? 0xF64F4Fu : 0xD82323u),
+            ["Error message/Subtle"] = Color(isDark ? 0x909090u : 0x707070u),
         };
 
     private static HighlightingColor Color(uint rgb, FontFamily? fontFamily = null) => new()

@@ -990,6 +990,7 @@ public sealed class RegionHighlightingTests
     [TestCase("FileName", "#C7ACF0", "#6841A5")]
     [TestCase("LineNumber", "#78966D", "#527647")]
     [TestCase("ExceptionType", "#F64F4F", "#D82323")]
+    [TestCase("Subtle", "#909090", "#707070")]
     public void ErrorMessage_PaletteUsesSpecifiedScopedColors(string role, string dark, string light)
     {
         var engine = new RegionHighlightingEngine();
@@ -1004,9 +1005,13 @@ public sealed class RegionHighlightingTests
     }
 
     [TestCase("   at System.Console.WriteLine(String value)", "WriteLine")]
+    [TestCase("   at Example.Worker.at()", "at")]
+    [TestCase("   at Example.Worker.in()", "in")]
     [TestCase("   at Example.Worker.<>c__DisplayClass12_0.<Run>b__0()", "<Run>b__0")]
     [TestCase("   at Example.Worker.<<Run>g__Step|4>d.MoveNext()", "MoveNext")]
     [TestCase("   at Example.Worker.Run[T](T value)", "Run[T]")]
+    [TestCase("   at SquadDash.MainWindow.<.ctor>b__697_80(Object _, EventArgs _)", "<.ctor>b__697_80")]
+    [TestCase("   at SquadDash.MainWindow.<.cctor>b__0_0()", "<.cctor>b__0_0")]
     [TestCase("   at Example.Worker..ctor()", "ctor")]
     [TestCase("   at System.IO.__Error.WinIOError(Int32 errorCode, String maybeFullPath)", "WinIOError")]
     [TestCase("    at java.base/java.lang.Double.parseDouble(Double.java:651)", "parseDouble")]
@@ -1016,26 +1021,51 @@ public sealed class RegionHighlightingTests
     [TestCase("   at Example.Worker.Run(String text = \"Other.Call()\")", null)]
     public void ErrorMessage_MethodColorsOnlyTerminalIdentifier(string content, string? method)
     {
-        AssertErrorSections(content, method is null ? Array.Empty<(string, string)>() : new[] { (method, "Method") });
+        if (method is null)
+        {
+            AssertErrorSections(content);
+            return;
+        }
+        var expected = new List<(string, string)> { ("at", "Subtle"), (method, "Method") };
+        if (content.EndsWith("()", StringComparison.Ordinal))
+            expected.Add(("()", "Subtle"));
+        else
+            expected.AddRange(new[] { ("(", "Subtle"), (")", "Subtle") });
+        AssertErrorSections(content, expected.ToArray());
     }
 
     [TestCase(@"C:\My Source\SquadDash\MainWindow.xaml.cs", "MainWindow.xaml.cs")]
     [TestCase("/src/My Project/Worker.cs", "Worker.cs")]
     [TestCase("Worker.cs", "Worker.cs")]
+    [TestCase("in file.cs", "in file.cs")]
+    [TestCase(@"C:\My Source\in file.cs", "in file.cs")]
     [TestCase(@"\\server\share\My Source\Worker File.cs", "Worker File.cs")]
     public void ErrorMessage_SourceColorsOnlyFileNameAndLineDigits(string path, string fileName)
     {
         AssertErrorSections("   at Example.Worker.Run(String value) in " + path + ":line 214",
-            ("Run", "Method"), (fileName, "FileName"), ("214", "LineNumber"));
+            ("at", "Subtle"), ("Run", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("in", "Subtle"), (fileName, "FileName"), (":line", "Subtle"), ("214", "LineNumber"));
     }
 
-    [TestCase("Occurred: 2026-10-19T15:16:39.096-04:00")]
-    [TestCase("Operation: 2026-10-19T15:16:39Z")]
-    [TestCase("2026-10-19T15:16:39+04:30")]
-    [TestCase("2026-10-19T15:16:39")]
-    public void ErrorMessage_TimestampLeavesYearFractionAndOffsetNeutral(string content)
+    [TestCase("Occurred: 2026-10-19T15:16:39.096-04:00", ".096-04:00")]
+    [TestCase("Operation: 2026-10-19T15:16:39Z", "Z")]
+    [TestCase("2026-10-19T15:16:39+04:30", "+04:30")]
+    [TestCase("2026-10-19T15:16:39-04:00", "-04:00")]
+    [TestCase("2026-10-19T15:16:39", "")]
+    [TestCase("2026-10-19T15:16:39.6510568", ".6510568")]
+    [TestCase("2026-10-19T15:16:39.6510568Z", ".6510568Z")]
+    [TestCase("2026-10-19T15:16:39.6510568+04:30", ".6510568+04:30")]
+    [TestCase("2026-10-19T15:16:39.6510568-04:00", ".6510568-04:00")]
+    public void ErrorMessage_TimestampSubduesSeparatorsAndTailButPreservesYearAndMainTime(string content, string tail)
     {
-        AssertErrorSections(content, ("10-19", "MonthDay"), ("15:16:39", "Time"));
+        var expected = new List<(string, string)>
+        {
+            ("-", "Subtle"), ("10-19", "MonthDay"), ("T", "Subtle"), ("15:16:39", "Time"),
+        };
+        if (tail.Length > 0)
+            expected.Add((tail, "Subtle"));
+        AssertErrorSections(content, expected.ToArray());
+        AssertErrorSections(content + " neutral 12:34:56 - at in :line ()", expected.ToArray());
     }
 
     [TestCase("System.InvalidOperationException: Failed to decompose plan JSON.", "InvalidOperationException")]
@@ -1080,8 +1110,9 @@ public sealed class RegionHighlightingTests
         AssertErrorSections(
             "   at Example.AggregateException.ThrowException(NumberFormatException value) in C:\\Source\\AggregateException.cs:line 123\n" +
             "    at java.base/java.lang.NumberFormatException.ThrowException(NumberFormatException.java:42)",
-            ("ThrowException", "Method"), ("AggregateException.cs", "FileName"), ("123", "LineNumber"),
-            ("ThrowException", "Method"));
+            ("at", "Subtle"), ("ThrowException", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("in", "Subtle"), ("AggregateException.cs", "FileName"), (":line", "Subtle"), ("123", "LineNumber"),
+            ("at", "Subtle"), ("ThrowException", "Method"), ("(", "Subtle"), (")", "Subtle"));
     }
 
     [TestCase("\n")]
@@ -1103,10 +1134,15 @@ public sealed class RegionHighlightingTests
 
         AssertErrorSections(content.Replace("\r\n", "\n").Replace("\n", newline),
             ("IllegalArgumentException", "ExceptionType"), ("Failed to process payment for order 1042", "Message"),
-            ("processPayment", "Method"), ("checkout", "Method"), ("main", "Method"),
+            ("at", "Subtle"), ("processPayment", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("at", "Subtle"), ("checkout", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("at", "Subtle"), ("main", "Method"), ("(", "Subtle"), (")", "Subtle"),
             ("NumberFormatException", "ExceptionType"), ("For input string: \"12.5x\"", "Message"),
-            ("readJavaFormatString", "Method"), ("parseDouble", "Method"), ("parseDouble", "Method"),
-            ("parseAmount", "Method"), ("processPayment", "Method"));
+            ("at", "Subtle"), ("readJavaFormatString", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("at", "Subtle"), ("parseDouble", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("at", "Subtle"), ("parseDouble", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("at", "Subtle"), ("parseAmount", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("at", "Subtle"), ("processPayment", "Method"), ("(", "Subtle"), (")", "Subtle"));
     }
 
     [TestCase("Run() 2026-10-19T15:16:39 214 Worker.cs")]
@@ -1123,32 +1159,65 @@ public sealed class RegionHighlightingTests
     [TestCase("\r\n")]
     public void ErrorMessage_RepresentativeDecomposeDumpHasExactColoredBoundaries(string newline)
     {
-        AssertErrorSections(RegionGrammarAutoDetectTests.ReviewerErrorMessageSample.Replace("\r\n", "\n").Replace("\n", newline),
-            ("10-19", "MonthDay"), ("15:16:39", "Time"),
+        var content = RegionGrammarAutoDetectTests.ReviewerErrorMessageSample.Replace("\r\n", "\n").Replace("\n", newline);
+        AssertErrorSections(content, content.IndexOf("2026", StringComparison.Ordinal),
+            ("-", "Subtle"), ("10-19", "MonthDay"), ("T", "Subtle"), ("15:16:39", "Time"), (".096-04:00", "Subtle"),
             ("InvalidOperationException", "ExceptionType"),
-            ("Failed to decompose plan JSON.", "Message"), ("ExecuteAsync", "Method"),
-            ("MoveNext", "Method"), ("MoveNext", "Method"), ("DecomposeRunner.cs", "FileName"),
-            ("214", "LineNumber"));
+            ("Failed to decompose plan JSON.", "Message"),
+            ("at", "Subtle"), ("ExecuteAsync", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("at", "Subtle"), ("MoveNext", "Method"), ("()", "Subtle"),
+            ("at", "Subtle"), ("MoveNext", "Method"), ("()", "Subtle"),
+            ("in", "Subtle"), ("DecomposeRunner.cs", "FileName"), (":line", "Subtle"), ("214", "LineNumber"));
+    }
+
+    private const string HintRefreshErrorSample = """
+        Operation: HintRefreshTimer.Tick
+        Occurred: 2026-10-20T20:52:01.6510568-04:00
+
+        System.NullReferenceException: Object reference not set to an instance of an object.
+           at SquadDash.MainWindow.get__settingsSnapshot() in D:\Drive\Source\SquadDash-public\SquadDash\MainWindow.xaml.cs:line 775
+           at SquadDash.MainWindow.IsSpeechConfigured() in D:\Drive\Source\SquadDash-public\SquadDash\MainWindow.xaml.cs:line 30814
+           at SquadDash.MainWindow.BuildShortcutsHint() in D:\Drive\Source\SquadDash-public\SquadDash\MainWindow.xaml.cs:line 30852
+           at SquadDash.MainWindow.<.ctor>b__697_80(Object _, EventArgs _) in D:\Drive\Source\SquadDash-public\SquadDash\MainWindow.xaml.cs:line 1414
+        """;
+
+    [TestCase("\n")]
+    [TestCase("\r\n")]
+    public void ErrorMessage_HintRefreshReferenceHasExactColoredBoundaries(string newline)
+    {
+        AssertErrorSections(HintRefreshErrorSample.Replace("\r\n", "\n").Replace("\n", newline),
+            ("-", "Subtle"), ("10-20", "MonthDay"), ("T", "Subtle"), ("20:52:01", "Time"),
+            (".6510568-04:00", "Subtle"), ("NullReferenceException", "ExceptionType"),
+            ("Object reference not set to an instance of an object.", "Message"),
+            ("at", "Subtle"), ("get__settingsSnapshot", "Method"), ("()", "Subtle"), ("in", "Subtle"),
+            ("MainWindow.xaml.cs", "FileName"), (":line", "Subtle"), ("775", "LineNumber"),
+            ("at", "Subtle"), ("IsSpeechConfigured", "Method"), ("()", "Subtle"), ("in", "Subtle"),
+            ("MainWindow.xaml.cs", "FileName"), (":line", "Subtle"), ("30814", "LineNumber"),
+            ("at", "Subtle"), ("BuildShortcutsHint", "Method"), ("()", "Subtle"), ("in", "Subtle"),
+            ("MainWindow.xaml.cs", "FileName"), (":line", "Subtle"), ("30852", "LineNumber"),
+            ("at", "Subtle"), ("<.ctor>b__697_80", "Method"), ("(", "Subtle"), (")", "Subtle"), ("in", "Subtle"),
+            ("MainWindow.xaml.cs", "FileName"), (":line", "Subtle"), ("1414", "LineNumber"));
     }
 
     [Test]
     [NonParallelizable]
-    public void ErrorMessage_ThemeSourceRepushUsesActiveImportantTextWithoutLeaking()
+    public void ErrorMessage_ThemeSourceRepushUsesActiveImportantAndSubtleTextWithoutLeaking()
     {
         var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        var keys = new[] { "CodeSurface", "CodeText", "ImportantText" };
+        var keys = new[] { "CodeSurface", "CodeText", "ImportantText", "SubtleText" };
         var before = keys.ToDictionary(key => key, key => app.Resources.Contains(key) ? app.Resources[key] : null);
         var engine = new RegionHighlightingEngine();
         var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();
         var managerBefore = manager.SelectMany(Snapshot).ToArray();
-        using var editor = new AvalonEditRegionEditor(RegionGrammarAutoDetectTests.ReviewerErrorMessageSample, engine);
-        using var sibling = new AvalonEditRegionEditor(RegionGrammarAutoDetectTests.ReviewerErrorMessageSample, engine);
+        using var editor = new AvalonEditRegionEditor(HintRefreshErrorSample, engine);
+        using var sibling = new AvalonEditRegionEditor(HintRefreshErrorSample, engine);
         var source = new ThemeResourcePaletteSource(engine);
         try
         {
             app.Resources["CodeSurface"] = new SolidColorBrush(Color.FromRgb(0xFB, 0xFA, 0xF7));
             app.Resources["CodeText"] = Brushes.Black;
             app.Resources["ImportantText"] = new SolidColorBrush(Color.FromRgb(0x53, 0x37, 0x1E));
+            app.Resources["SubtleText"] = Brushes.DimGray;
             var light = source.CreatePalette();
             editor.ApplyPalette(light);
             sibling.ApplyPalette(light);
@@ -1161,12 +1230,28 @@ public sealed class RegionHighlightingTests
             {
                 var surface = isDark ? Color.FromRgb(0x14, 0x11, 0x0D) : Color.FromRgb(0xFB, 0xFA, 0xF7);
                 var message = isDark ? Color.FromRgb(0xE5, 0xD5, 0xC0) : Color.FromRgb(0x53, 0x37, 0x1E);
+                var subtle = isDark ? Colors.DarkGray : Colors.DimGray;
                 app.Resources["CodeSurface"] = new SolidColorBrush(surface);
                 app.Resources["ImportantText"] = new SolidColorBrush(message);
+                app.Resources["SubtleText"] = new SolidColorBrush(subtle);
                 var palette = source.CreatePalette();
                 editor.ApplyPalette(palette);
                 Assert.That(control.SyntaxHighlighting, Is.SameAs(definition));
                 Assert.That(ColorOf(definition.GetNamedColor("Message")), Is.EqualTo(message));
+                Assert.That(ColorOf(definition.GetNamedColor("Subtle")), Is.EqualTo(subtle));
+                Assert.That(ColorOf(palette.HighlightColors["Error message/Subtle"]), Is.EqualTo(subtle));
+                var sections = HighlightAll(control.Document, definition);
+                AssertTokenUsesRole(HintRefreshErrorSample, ".6510568-04:00", "Subtle", sections, definition);
+                for (var frame = 0; frame < 4; frame++)
+                {
+                    AssertTokenUsesRole(HintRefreshErrorSample, "   at", "Subtle", sections, definition,
+                        occurrence: frame, tokenOffset: 3, tokenLength: 2);
+                    AssertTokenUsesRole(HintRefreshErrorSample, " in ", "Subtle", sections, definition,
+                        occurrence: frame, tokenOffset: 1, tokenLength: 2);
+                    AssertTokenUsesRole(HintRefreshErrorSample, ":line", "Subtle", sections, definition, occurrence: frame);
+                    AssertTokenUsesRole(HintRefreshErrorSample, "(", "Subtle", sections, definition, occurrence: frame);
+                    AssertTokenUsesRole(HintRefreshErrorSample, ")", "Subtle", sections, definition, occurrence: frame);
+                }
                 Assert.That(HighlightAll(control.Document, definition).Any(section => ColorOf(section.Color) == message), Is.True);
                 Assert.That(Snapshot(((TextEditor)sibling.Control).SyntaxHighlighting), Is.EqualTo(siblingBefore));
                 Assert.That(ColorOf(palette.HighlightColors["$Method"]),
@@ -1176,9 +1261,12 @@ public sealed class RegionHighlightingTests
                 Assert.That(contrast, Is.GreaterThanOrEqualTo(4.5));
             }
             app.Resources["ImportantText"] = Brushes.Magenta;
+            app.Resources["SubtleText"] = Brushes.Cyan;
             editor.ApplyPalette(source.CreatePalette());
             Assert.That(ColorOf(definition.GetNamedColor("Message")), Is.EqualTo(Colors.Magenta),
                 "the active resource, not a hard-coded light/dark approximation, must drive the message");
+            Assert.That(ColorOf(definition.GetNamedColor("Subtle")), Is.EqualTo(Colors.Cyan),
+                "the active SubtleText resource must supersede the grammar fallback and generic role");
             Assert.That(HighlightingManager.Instance.HighlightingDefinitions, Is.EqualTo(manager));
             Assert.That(manager.SelectMany(Snapshot), Is.EqualTo(managerBefore));
         }
@@ -1195,6 +1283,9 @@ public sealed class RegionHighlightingTests
     }
 
     private static void AssertErrorSections(string content, params (string Text, string Role)[] expected)
+        => AssertErrorSections(content, 0, expected);
+
+    private static void AssertErrorSections(string content, int expectedSearchStart, params (string Text, string Role)[] expected)
     {
         var engine = new RegionHighlightingEngine();
         foreach (var isDark in new[] { false, true })
@@ -1206,8 +1297,11 @@ public sealed class RegionHighlightingTests
             };
             var definition = engine.CreateDefinition("Error message", palette with { HighlightColors = colors });
             var sections = HighlightAll(new TextDocument(content), definition);
-            Assert.That(sections, Has.Count.EqualTo(expected.Length), $"Unexpected colored ranges: {content}");
-            var searchStart = 0;
+            Assert.That(sections, Has.Count.EqualTo(expected.Length),
+                $"Unexpected colored ranges: {content}\n" +
+                string.Join("\n", sections.Select(section =>
+                    $"{section.Offset}:{section.Length} {section.Color.Name}: '{content.Substring(section.Offset, section.Length)}'")));
+            var searchStart = expectedSearchStart;
             for (var i = 0; i < expected.Length; i++)
             {
                 var (text, role) = expected[i];

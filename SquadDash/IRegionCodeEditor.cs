@@ -60,6 +60,10 @@ public sealed class ThemeResourcePaletteSource : IRegionEditorPaletteSource
             {
                 Foreground = new RegionHighlightingBrush((app?.TryFindResource("ImportantText") as Brush) ?? text),
             },
+            ["Error message/Subtle"] = new()
+            {
+                Foreground = new RegionHighlightingBrush((app?.TryFindResource("SubtleText") as Brush) ?? text),
+            },
         };
         return new RegionEditorPalette(surface, text, colors);
     }
