@@ -904,6 +904,8 @@ public partial class MainWindow : Window
     private int _pttVolumeEventTraceCount;
     private int _pttVolumeUiUpdateTraceCount;
     private readonly Stopwatch _pttVolumeTraceStopwatch = Stopwatch.StartNew();
+    private int _pttSessionId;
+    private long _pttPhraseDispatchSequence;
     private int _sessionCaretIndex;       // caret captured before PTT panel becomes visible
     private int _sessionSelectionLength;  // selection length captured before PTT panel becomes visible
     private DispatcherTimer? _transcriptGlowHoldTimer;
@@ -28566,6 +28568,27 @@ public partial class MainWindow : Window
             : typeName;
     }
 
+    private static string DescribePttTarget(Control target)
+        => target is FrameworkElement { Name.Length: > 0 } element
+            ? $"{target.GetType().Name}#{element.Name}"
+            : target.GetType().Name;
+
+    private static (int Paragraphs, int LineBreaks) GetRichTextStructureCounts(RichTextBox rtb)
+    {
+        var paragraphs = 0;
+        var lineBreaks = 0;
+        foreach (var block in rtb.Document.Blocks)
+        {
+            if (block is not Paragraph paragraph)
+                continue;
+            paragraphs++;
+            foreach (var inline in paragraph.Inlines)
+                if (inline is LineBreak)
+                    lineBreaks++;
+        }
+        return (paragraphs, lineBreaks);
+    }
+
     private string GetPromptCaretOffsetForTrace()
     {
         try
@@ -29434,10 +29457,14 @@ public partial class MainWindow : Window
         if (!PromptOwnsUndoContext())
             return false;
 
-        if (isUndo)
-            _promptUndoHistory.Undo();
-        else
-            _promptUndoHistory.Redo();
+        var before = PromptUndoManager.CaptureSnapshot(PromptTextBox);
+        var changed = isUndo ? _promptUndoHistory.Undo() : _promptUndoHistory.Redo();
+        var after = PromptUndoManager.CaptureSnapshot(PromptTextBox);
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PROMPT_UNDO operation={(isUndo ? "undo" : "redo")} changed={changed} " +
+            $"beforeLen={before.SerializedText.Length} beforeCaret={before.CaretOffset} beforeAnchor={before.AnchorOffset} " +
+            $"afterLen={after.SerializedText.Length} afterCaret={after.CaretOffset} afterAnchor={after.AnchorOffset}");
 
         e.Handled = true;
         return true;
@@ -30091,7 +30118,6 @@ public partial class MainWindow : Window
             _pttState = PttState.Idle;
             return;
         }
-
         // Capture caret/selection before the PTT panel becomes visible (layout shifts can reset it).
         if (_pttTargetRichTextBox != null)
         {
@@ -30383,6 +30409,41 @@ public partial class MainWindow : Window
             return;
         }
 
+        var sessionId = ++_pttSessionId;
+        var targetKind = _pttTargetRichTextBox is not null
+            ? "rtb"
+            : _pttTargetTextBox is not null
+                ? "textbox"
+                : "none";
+        var focusedEmbedded = _pttTargetRichTextBox == PromptTextBox && FocusedEmbeddedCodeRegion() is not null;
+        if (_pttTargetRichTextBox is not null)
+        {
+            var (paragraphCount, lineBreakCount) = GetRichTextStructureCounts(_pttTargetRichTextBox);
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CAPTURE session={sessionId} target={targetKind} name={DescribePttTarget(_pttTargetRichTextBox)} " +
+                $"focusedEmbedded={focusedEmbedded.ToString().ToLowerInvariant()} caret={_sessionCaretIndex} selection={_sessionSelectionLength} " +
+                $"docLen={_pttTargetRichTextBox.GetTextLength()} paragraphs={paragraphCount} lineBreaks={lineBreakCount}");
+        }
+        else if (_pttTargetTextBox is not null)
+        {
+            var text = _pttTargetTextBox.Text ?? string.Empty;
+            var lineBreakCount = text.Count(c => c == '\n');
+            var lineCount = lineBreakCount + 1;
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CAPTURE session={sessionId} target={targetKind} name={DescribePttTarget(_pttTargetTextBox)} " +
+                $"focusedEmbedded={focusedEmbedded.ToString().ToLowerInvariant()} caret={_sessionCaretIndex} selection={_sessionSelectionLength} " +
+                $"docLen={text.Length} paragraphs={lineCount} lineBreaks={lineBreakCount}");
+        }
+        else
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CAPTURE session={sessionId} target={targetKind} focusedEmbedded={focusedEmbedded.ToString().ToLowerInvariant()} " +
+                $"caret={_sessionCaretIndex} selection={_sessionSelectionLength} docLen=0");
+        }
+
         SquadDashTrace.Write(
             TraceCategory.UI,
             $"PTT_START provider={_settingsSnapshot.SpeechProvider} targetIsPrompt={targetIsPrompt} targetHadText={_pttHadPreexistingText}");
@@ -30398,16 +30459,31 @@ public partial class MainWindow : Window
             : new AzureSpeechRecognitionService();
 
         _speechService.PhraseRecognized += (_, text) =>
-            Dispatcher.BeginInvoke(DispatcherPriority.Input, () => AppendSpeechToPrompt(text));
+        {
+            var dispatchId = Interlocked.Increment(ref _pttPhraseDispatchSequence);
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CALLBACK_SCHEDULE event=phrase session={sessionId} dispatch={dispatchId} priority={DispatcherPriority.Input} state={_pttState}");
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, () => AppendSpeechToPrompt(text, sessionId, dispatchId));
+        };
 
         _speechService.VolumeChanged += (_, level) => QueuePttVolumeUpdate(level);
 
         _speechService.RecognitionError += (_, msg) =>
+        {
+            var dispatchId = Interlocked.Increment(ref _pttPhraseDispatchSequence);
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CALLBACK_SCHEDULE event=error session={sessionId} dispatch={dispatchId} priority={DispatcherPriority.Input} state={_pttState}");
             Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
             {
+                SquadDashTrace.Write(
+                    TraceCategory.Avalon,
+                    $"AVALON_PTT_CALLBACK_EXEC event=error session={sessionId} dispatch={dispatchId} state={_pttState}");
                 _ = StopPushToTalkAsync(send: false);
                 AppendLine("[voice error] " + msg, System.Windows.Media.Brushes.Red);
             });
+        };
 
         try
         {
@@ -30579,7 +30655,12 @@ public partial class MainWindow : Window
 
     private async Task StopPushToTalkAsync(bool send, bool sendAsQuickReply = false)
     {
+        var stoppingSessionId = _pttSessionId;
         SquadDashTrace.Write("UI", $"PTT_STOP begin send={send} sendAsQuickReply={sendAsQuickReply} state={_pttState}");
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_STOP_BEGIN session={stoppingSessionId} currentSession={_pttSessionId} send={send} sendAsQuickReply={sendAsQuickReply} " +
+            $"state={_pttState} callbackPriority={DispatcherPriority.Input} cleanupPriority={DispatcherPriority.Background}");
         _pttState = PttState.Idle;
         StopPttCtrlPollTimer();
         _pttLostFocusDuringRecording = false;
@@ -30587,7 +30668,7 @@ public partial class MainWindow : Window
         // Do NOT null _pttTargetTextBox here — pending AppendSpeechToPrompt BeginInvoke
         // callbacks in the dispatcher queue still need it to route text to the correct target.
         // It is cleared inside the Background-priority dispatcher callback below, after all
-        // Normal-priority phrase callbacks have drained.
+        // Input-priority phrase callbacks have drained.
 
         var service = _speechService;
         _speechService = null;
@@ -30612,15 +30693,21 @@ public partial class MainWindow : Window
             service.Dispose();
         }
 
-        // Yield to the dispatcher at Background priority. All queued Normal-priority
+        // Yield to the dispatcher at Background priority. All queued Input-priority
         // PhraseRecognized → AppendSpeechToPrompt callbacks run first, writing the final
         // dictated text into PromptTextBox.GetPlainText(). Then our Background item runs on the
         // dispatcher thread — we clear _pttDraining and trigger the deferred close if needed.
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_CLEANUP_SCHEDULE session={stoppingSessionId} currentSession={_pttSessionId} priority={DispatcherPriority.Background} targetRtb={_pttTargetRichTextBox is not null} targetTextBox={_pttTargetTextBox is not null}");
         await Dispatcher.InvokeAsync(() =>
         {
-            _pttTargetTextBox = null;  // Clear after all Normal-priority phrase callbacks have run.
+            _pttTargetTextBox = null;  // Clear after all Input-priority phrase callbacks have run.
             _pttTargetRichTextBox = null;
             _pttDraining = false;
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CLEANUP_EXEC session={stoppingSessionId} currentSession={_pttSessionId} priority={DispatcherPriority.Background} targetRtb={_pttTargetRichTextBox is not null} targetTextBox={_pttTargetTextBox is not null}");
             TryCompletePendingRestart("ptt-restart-after-drain", emergencySaveBeforeClose: true);
         }, System.Windows.Threading.DispatcherPriority.Background);
 
@@ -30706,8 +30793,23 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AppendSpeechToPrompt(string text)
+    private void AppendSpeechToPrompt(string text, int callbackSessionId, long dispatchId)
     {
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_CALLBACK_EXEC event=phrase session={callbackSessionId} dispatch={dispatchId} " +
+            $"state={_pttState} currentSession={_pttSessionId} targetRtb={_pttTargetRichTextBox is not null} targetTextBox={_pttTargetTextBox is not null} focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
+        var focusedRegion = FocusedEmbeddedCodeRegion();
+        var targetRichTextBox = _pttTargetRichTextBox;
+        var targetTextBox = _pttTargetTextBox;
+        if (focusedRegion is null && targetRichTextBox is null && targetTextBox is null)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_DROP session={callbackSessionId} dispatch={dispatchId} reason=no-target");
+            return;
+        }
+
         _promptHasVoiceInput = true;
 
         // If this PTT result has more than 2 words and is landing on an active dummy tab, mark it.
@@ -30723,21 +30825,40 @@ public partial class MainWindow : Window
         // INSIDE that region's editor (at its caret) rather than the host prompt. Without this
         // the recognized text would be inserted at the host RichTextBox's own caret, outside
         // the region the user is clearly working in.
-        var focusedRegion = FocusedEmbeddedCodeRegion();
         if (focusedRegion is not null)
         {
+            var liveHostCaret = targetRichTextBox?.GetSelectionStart() ?? -1;
+            var liveHostSelection = targetRichTextBox?.GetSelectionLength() ?? -1;
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_DISPATCH session={callbackSessionId} dispatch={dispatchId} route=embedded-region " +
+                $"words={CountWords(text)} sessionCaret={_sessionCaretIndex} sessionSelection={_sessionSelectionLength} " +
+                $"liveHostCaret={liveHostCaret} liveHostSelection={liveHostSelection}");
             SquadDashTrace.Write("UI", $"PROMPT_EMBEDDED_CODE_DICTATION routing-to-region words={CountWords(text)}");
             focusedRegion.InsertDictation(text, _settingsSnapshot.VoiceReplacementRules);
             return;
         }
 
-        if (_pttTargetRichTextBox != null)
+        if (targetRichTextBox != null)
         {
-            AppendSpeechToRichTextBox(_pttTargetRichTextBox, text);
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_DISPATCH session={callbackSessionId} dispatch={dispatchId} route=rtb name={DescribePttTarget(targetRichTextBox)}");
+            AppendSpeechToRichTextBox(targetRichTextBox, text, callbackSessionId, dispatchId);
             return;
         }
 
-        var target = _pttTargetTextBox!;
+        var target = targetTextBox;
+        if (target is null)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_DROP session={callbackSessionId} dispatch={dispatchId} reason=no-target");
+            return;
+        }
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_DISPATCH session={callbackSessionId} dispatch={dispatchId} route=textbox name={DescribePttTarget(target)}");
         var current = target.Text;
         // Clamp in case text was externally modified since session start.
         var caretIndex = Math.Min(_sessionCaretIndex, current.Length);
@@ -30762,6 +30883,11 @@ public partial class MainWindow : Window
         var replaced = rules.Count > 0
             ? prefix + VoiceInsertionHeuristics.ApplyReplacementRules(processed, rules)
             : insert;
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_TEXTBOX_PLAN session={callbackSessionId} dispatch={dispatchId} currentLen={current.Length} " +
+            $"sessionCaret={_sessionCaretIndex} sessionSelection={selLength} planCaret={caretIndex} planInsertLen={insert.Length} " +
+            $"planReplacement={(!string.Equals(replaced, insert, StringComparison.Ordinal)).ToString().ToLowerInvariant()}");
 
         // Step 1: insert conditioned text
         target.Text = leftContext + insert + rightContext;
@@ -30775,32 +30901,71 @@ public partial class MainWindow : Window
             target.CaretIndex = caretIndex + replaced.Length;
             _sessionCaretIndex = caretIndex + replaced.Length;
         }
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_TEXTBOX_INSERT_POST session={callbackSessionId} dispatch={dispatchId} textLen={target.Text.Length} caret={target.CaretIndex}");
     }
 
-    private void AppendSpeechToRichTextBox(RichTextBox rtb, string text)
+    private void AppendSpeechToRichTextBox(RichTextBox rtb, string text, int callbackSessionId, long dispatchId)
     {
         var current = rtb.GetPlainText();
         var selLength = _sessionSelectionLength;
         _sessionSelectionLength = 0; // consume once; subsequent dictation appends
         var rules = _settingsSnapshot.VoiceReplacementRules;
+        var (paragraphCount, lineBreakCount) = GetRichTextStructureCounts(rtb);
         var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
             current, _sessionCaretIndex, selLength, text, rules);
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_RTB_PLAN session={callbackSessionId} dispatch={dispatchId} currentLen={current.Length} " +
+            $"sessionCaret={_sessionCaretIndex} sessionSelection={selLength} paragraphs={paragraphCount} lineBreaks={lineBreakCount} " +
+            $"planCaret={plan.CaretIndex} planSelection={plan.SelectionLength} planInsertedLen={plan.InsertedText.Length} " +
+            $"planHasReplacement={plan.HasReplacementStep.ToString().ToLowerInvariant()} " +
+            $"planCaretAfterInsert={plan.CaretIndexAfterInsert} planCaretAfterReplace={plan.CaretIndexAfterReplace} " +
+            $"liveCaret={rtb.GetSelectionStart()} liveSelection={rtb.GetSelectionLength()}");
 
         // Step 1: insert conditioned text
         // Use SelectRange + ReplaceSelection — undo-safe, preserves scroll position and formatting.
         rtb.SelectRange(plan.CaretIndex, plan.SelectionLength);
+        var selectStart = rtb.GetSelectionStart();
+        var selectLength = rtb.GetSelectionLength();
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_RTB_SELECT_POST session={callbackSessionId} dispatch={dispatchId} phase=pre-insert expected={plan.CaretIndex}+{plan.SelectionLength} " +
+            $"actual={selectStart}+{selectLength} deltaStart={selectStart - plan.CaretIndex} deltaLength={selectLength - plan.SelectionLength}");
         rtb.ReplaceSelection(plan.InsertedText);
         rtb.SelectRange(plan.CaretIndexAfterInsert, 0);
+        var postInsertStart = rtb.GetSelectionStart();
+        var postInsertLength = rtb.GetSelectionLength();
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_RTB_SELECT_POST session={callbackSessionId} dispatch={dispatchId} phase=post-insert expected={plan.CaretIndexAfterInsert}+0 " +
+            $"actual={postInsertStart}+{postInsertLength} deltaStart={postInsertStart - plan.CaretIndexAfterInsert} deltaLength={postInsertLength}");
         _sessionCaretIndex = plan.CaretIndexAfterInsert;
 
         // Step 2: apply replacements as a separate undo entry
         if (plan.HasReplacementStep)
         {
             rtb.SelectRange(plan.CaretIndex, plan.InsertedText.Length);
+            var replaceSelectStart = rtb.GetSelectionStart();
+            var replaceSelectLength = rtb.GetSelectionLength();
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_RTB_SELECT_POST session={callbackSessionId} dispatch={dispatchId} phase=pre-replace expected={plan.CaretIndex}+{plan.InsertedText.Length} " +
+                $"actual={replaceSelectStart}+{replaceSelectLength} deltaStart={replaceSelectStart - plan.CaretIndex} deltaLength={replaceSelectLength - plan.InsertedText.Length}");
             rtb.ReplaceSelection(plan.ReplacedText);
             rtb.SelectRange(plan.CaretIndexAfterReplace, 0);
+            var postReplaceStart = rtb.GetSelectionStart();
+            var postReplaceLength = rtb.GetSelectionLength();
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_RTB_SELECT_POST session={callbackSessionId} dispatch={dispatchId} phase=post-replace expected={plan.CaretIndexAfterReplace}+0 " +
+                $"actual={postReplaceStart}+{postReplaceLength} deltaStart={postReplaceStart - plan.CaretIndexAfterReplace} deltaLength={postReplaceLength}");
             _sessionCaretIndex = plan.CaretIndexAfterReplace;
         }
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_RTB_INSERT_POST session={callbackSessionId} dispatch={dispatchId} textLen={rtb.GetTextLength()} sessionCaret={_sessionCaretIndex}");
     }
 
     private void UpdateVoiceHintVisibility()

@@ -167,8 +167,24 @@ internal static class RichTextBoxExtensions
             {
                 if (isWithinBlock)
                 {
-                    var range = new TextRange(para.ContentStart, pointer);
-                    return offset + range.Text.Replace("\r\n", "\n").Length;
+                    // Count only the same Run/LineBreak content GetParagraphText serializes,
+                    // not TextRange's paragraph terminators or embedded UI placeholders.
+                    foreach (var inline in para.Inlines)
+                    {
+                        if (pointer.CompareTo(inline.ElementStart) <= 0)
+                            break;
+                        if (inline is Run run)
+                        {
+                            if (pointer.CompareTo(run.ContentStart) <= 0)
+                                break;
+                            if (pointer.CompareTo(run.ContentEnd) < 0)
+                                return offset + run.ContentStart.GetOffsetToPosition(pointer);
+                            offset += run.Text.Length;
+                        }
+                        else if (inline is LineBreak && pointer.CompareTo(inline.ElementEnd) >= 0)
+                            offset++;
+                    }
+                    return offset;
                 }
                 offset += GetParagraphText(para).Length;
             }
@@ -233,7 +249,18 @@ internal static class RichTextBoxExtensions
                             return run.ContentStart.GetPositionAtOffset(remaining) ?? run.ContentEnd;
                         remaining -= run.Text.Length;
                     }
+                    else if (inline is LineBreak lineBreak)
+                    {
+                        if (remaining == 0)
+                            return lineBreak.ElementStart;
+                        remaining--; // Shift+Enter contributes one '\n', just like GetParagraphText.
+                        if (remaining == 0)
+                            return lineBreak.ElementEnd;
+                    }
                 }
+                // A freshly emptied Paragraph need not contain a Run.
+                if (remaining == 0)
+                    return para.ContentEnd;
             }
             else if (block is BlockUIContainer { Child: EmbeddedCodeRegionBlock region })
             {

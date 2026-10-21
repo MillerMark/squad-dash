@@ -830,8 +830,17 @@ public sealed class EmbeddedCodeRegionBlock : Border
         var caret = selLength > 0 ? _editor.SelectionStart : _editor.CaretOffset;
         var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
             _editor.Text, caret, selLength, dictatedText, replacementRules);
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_REGION_PLAN caret={caret} selection={selLength} textLen={_editor.TextLength} " +
+            $"caretSource=current-region liveCaret={_editor.CaretOffset} " +
+            $"planCaret={plan.CaretIndex} planSelection={plan.SelectionLength} insertedLen={plan.ReplacedText.Length} " +
+            $"planCaretAfterInsert={plan.CaretIndexAfterInsert} planCaretAfterReplace={plan.CaretIndexAfterReplace}");
         Trace($"EMBEDDED_CODE_DICTATION enter caret={caret} selection={selLength} textLen={_editor.TextLength} inserted-len={plan.ReplacedText.Length}");
         _editor.InsertText(plan.ReplacedText);
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_REGION_INSERT_POST caret={_editor.CaretOffset} textLen={_editor.TextLength}");
         Trace($"EMBEDDED_CODE_DICTATION exit caret={_editor.CaretOffset} textLen={_editor.TextLength}");
     }
 

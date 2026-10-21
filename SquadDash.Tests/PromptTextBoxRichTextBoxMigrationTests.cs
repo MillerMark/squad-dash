@@ -161,6 +161,165 @@ internal sealed class PromptTextBoxRichTextBoxMigrationTests
 
     // ── GetLineCount (used by the "is multi-line prompt" check) ─────────────────
 
+    [TestCase(false)]
+    [TestCase(true)]
+    [Apartment(ApartmentState.STA)]
+    public void SelectRange_FiveLinesWithFreshLineBreaks_RoundTripsEveryOffset(bool useLineBreaks)
+    {
+        var rtb = CreateFiveLineDocument(useLineBreaks);
+        const string expected = "abc\n\ndef\n\nghi";
+        Assert.That(rtb.GetPlainText(), Is.EqualTo(expected));
+
+        for (var offset = 0; offset <= expected.Length; offset++)
+        {
+            rtb.SelectRange(offset, 0);
+            Assert.That(rtb.GetSelectionStart(), Is.EqualTo(offset), $"caret offset {offset}");
+            if (offset < expected.Length)
+            {
+                rtb.SelectRange(offset, 1);
+                Assert.That(rtb.GetSelectionStart(), Is.EqualTo(offset), $"selection offset {offset}");
+                Assert.That(rtb.GetSelectionLength(), Is.EqualTo(1), $"selection length at {offset}");
+                Assert.That(rtb.GetSelectedText(), Is.EqualTo(expected.Substring(offset, 1)));
+            }
+        }
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DictationInsertion_AfterFreshLineBreak_ReplacesMiddleCharacterAndRestoresUndoSelection()
+    {
+        var rtb = CreateFiveLineDocument(useLineBreaks: true);
+        rtb.IsUndoEnabled = false;
+        var history = new PromptUndoHistory(rtb);
+        history.CaptureBaseline();
+        rtb.SelectionChanged += (_, _) => history.RefreshSelection();
+        rtb.TextChanged += (_, _) => history.PushSnapshot();
+        var lastRun = (Run)((Paragraph)rtb.Document.Blocks.LastBlock).Inlines.LastInline;
+        // Select via native pointers, as the mouse does, independently of the offset resolver.
+        rtb.Selection.Select(lastRun.ContentStart.GetPositionAtOffset(1)!,
+            lastRun.ContentStart.GetPositionAtOffset(2)!);
+        Assert.That(rtb.GetSelectedText(), Is.EqualTo("h"));
+        var start = rtb.GetSelectionStart();
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            rtb.GetPlainText(), start, rtb.GetSelectionLength(), "replace", NoRules);
+        Assert.That(plan.CaretIndex, Is.EqualTo(11));
+        Assert.That(plan.SelectionLength, Is.EqualTo(1));
+        Assert.That(plan.RightContext, Is.EqualTo("i"));
+
+        ApplyPlanToRichTextBox(rtb, plan);
+
+        Assert.That(rtb.GetPlainText(), Is.EqualTo(plan.TextAfterInsert));
+        Assert.That(rtb.GetPlainText(), Does.EndWith(plan.InsertedText + "i"));
+        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(plan.CaretIndexAfterInsert));
+        Assert.That(history.Undo(), Is.True);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("abc\n\ndef\n\nghi"));
+        Assert.That(rtb.GetSelectionStart(), Is.EqualTo(start));
+        Assert.That(rtb.GetSelectedText(), Is.EqualTo("h"));
+        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(start + 1));
+        Assert.That(history.Redo(), Is.True);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo(plan.TextAfterInsert));
+        Assert.That(rtb.GetCaretOffset(), Is.EqualTo(plan.CaretIndexAfterInsert));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void SelectRange_LineBreakBeforeLaterParagraph_PreservesSingleCharacterSelection()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("abc\n\ndef\n\nghi");
+        var blank = (Paragraph)rtb.Document.Blocks.FirstBlock.NextBlock!;
+        rtb.Document.Blocks.Remove(blank);
+        ((Paragraph)rtb.Document.Blocks.FirstBlock).Inlines.Add(new LineBreak());
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("abc\n\ndef\n\nghi"));
+        rtb.SelectRange(11, 1);
+        Assert.That(rtb.GetSelectionStart(), Is.EqualTo(11));
+        Assert.That(rtb.GetSelectionLength(), Is.EqualTo(1));
+        Assert.That(rtb.GetSelectedText(), Is.EqualTo("h"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void SelectRange_IgnoredInlineAndParagraphEdges_UseSerializedOffsets()
+    {
+        var rtb = new RichTextBox();
+        var paragraph = new Paragraph(new Run("ab"));
+        paragraph.Inlines.Add(new InlineUIContainer(new TextBlock { Text = "indicator" }));
+        var lastRun = new Run("cd");
+        paragraph.Inlines.Add(lastRun);
+        rtb.Document.Blocks.Clear();
+        rtb.Document.Blocks.Add(paragraph);
+
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("abcd"));
+        Assert.That(rtb.GetCharOffset(paragraph.ElementStart), Is.Zero);
+        Assert.That(rtb.GetCharOffset(paragraph.ElementEnd), Is.EqualTo(4));
+        rtb.Selection.Select(lastRun.ContentStart, lastRun.ContentStart.GetPositionAtOffset(1)!);
+        Assert.That(rtb.GetSelectionStart(), Is.EqualTo(2));
+        Assert.That(rtb.GetSelectionLength(), Is.EqualTo(1));
+        rtb.SelectRange(2, 1);
+        Assert.That(rtb.GetSelectionStart(), Is.EqualTo(2));
+        Assert.That(rtb.GetSelectionLength(), Is.EqualTo(1));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void DictationInsertion_AboveEmbeddedRegionAfterLineBreaks_StaysAtHostCaret()
+    {
+        var rtb = new RichTextBox { IsUndoEnabled = false };
+        rtb.SetPlainText("before\n```text\ncode\n```\nafter");
+        EmbeddedCodeRegionManager.ConvertAllFences(rtb);
+        try
+        {
+            var paragraph = (Paragraph)rtb.Document.Blocks.FirstBlock;
+            paragraph.Inlines.Clear();
+            paragraph.Inlines.Add(new Run("abc"));
+            paragraph.Inlines.Add(new LineBreak());
+            paragraph.Inlines.Add(new LineBreak());
+            var lastRun = new Run("ghi");
+            paragraph.Inlines.Add(lastRun);
+            rtb.CaretPosition = lastRun.ContentStart.GetPositionAtOffset(1)!;
+            var original = rtb.GetPlainText();
+            var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+                original, rtb.GetCaretOffset(), 0, "replace", NoRules);
+
+            rtb.SelectRange(plan.CaretIndex, 0);
+            Assert.That(rtb.CaretPosition.Paragraph, Is.SameAs(paragraph));
+            Assert.That(rtb.GetCaretOffset(), Is.EqualTo(plan.CaretIndex));
+            ApplyPlanToRichTextBox(rtb, plan);
+
+            Assert.That(rtb.GetPlainText(), Is.EqualTo(plan.TextAfterInsert));
+            Assert.That(rtb.CaretPosition.Paragraph, Is.SameAs(paragraph));
+            Assert.That(rtb.GetPlainText(), Does.EndWith("```text\ncode\n```\nafter"));
+        }
+        finally
+        {
+            rtb.DisposeEmbeddedRegions();
+        }
+    }
+
+    private static RichTextBox CreateFiveLineDocument(bool useLineBreaks)
+    {
+        var rtb = new RichTextBox();
+        rtb.Document.Blocks.Clear();
+        if (useLineBreaks)
+        {
+            var paragraph = new Paragraph(new Run("abc"));
+            paragraph.Inlines.Add(new LineBreak());
+            paragraph.Inlines.Add(new LineBreak());
+            paragraph.Inlines.Add(new Run("def"));
+            paragraph.Inlines.Add(new LineBreak());
+            var editedBreak = new LineBreak();
+            paragraph.Inlines.Add(editedBreak);
+            var lastRun = new Run("ghi");
+            paragraph.Inlines.Add(lastRun);
+            rtb.Document.Blocks.Add(paragraph);
+            paragraph.Inlines.Remove(editedBreak);
+            paragraph.Inlines.InsertBefore(lastRun, new LineBreak());
+        }
+        else
+        {
+            // Truly empty Paragraphs have no Run to provide an offset landing point.
+            foreach (var line in new[] { "abc", "", "def", "", "ghi" })
+                rtb.Document.Blocks.Add(line.Length == 0 ? new Paragraph() : new Paragraph(new Run(line)));
+        }
+        return rtb;
+    }
+
     [Test, Apartment(ApartmentState.STA)]
     public void GetLineCount_SingleLine_ReturnsOne()
     {

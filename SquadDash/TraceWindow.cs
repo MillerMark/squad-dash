@@ -226,6 +226,7 @@ internal sealed class TraceWindow : ChromedWindow, ILiveTraceTarget
 
     private static string GetCategoryDescription(TraceCategory cat) => cat switch
     {
+        TraceCategory.Avalon       => "Dictation target routing, RichTextBox offset mapping, AvalonEdit anchors, and caret/selection capture.",
         TraceCategory.AgentCards   => "Agent card panel events — cards added, removed, updated, or synced with active threads.",
         TraceCategory.Bridge       => "TypeScript SDK ↔ C# bridge communication — agent stdin/stdout pipe messages and protocol events.",
         TraceCategory.Callouts     => "Callout shape geometry — placement angle, dangle-side selection, triangle point calculation, and no-dangle conditions.",

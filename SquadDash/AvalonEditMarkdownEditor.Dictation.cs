@@ -25,6 +25,7 @@ internal sealed partial class AvalonEditMarkdownEditor
     private int _dictationCaretIndex;
     private int _dictationSelectionLength;
     private int _dictationSessionId;
+    private long _dictationDispatchSequence;
     private bool _dictationStopping;
     private TextAnchor? _dictationInsertionAnchor;
     private AvalonEditRevisionSelection? _dictationSelection;
@@ -35,6 +36,7 @@ internal sealed partial class AvalonEditMarkdownEditor
             return;
 
         _dictationInitialized = true;
+        SquadDashTrace.Write(TraceCategory.Avalon, "AVALON_DICTATION_LIFECYCLE event=initialize");
         Editor.TextArea.PreviewKeyDown += Dictation_PreviewKeyDown;
         Editor.TextArea.PreviewKeyUp += Dictation_PreviewKeyUp;
         Editor.TextArea.LostKeyboardFocus += Dictation_LostKeyboardFocus;
@@ -51,6 +53,7 @@ internal sealed partial class AvalonEditMarkdownEditor
         _dictationDisposed = true;
         _dictationInitialized = false;
         _dictationSessionId++;
+        SquadDashTrace.Write(TraceCategory.Avalon, $"AVALON_DICTATION_LIFECYCLE event=dispose session={_dictationSessionId}");
         _dictationStopOnCtrlRelease = false;
         _dictationGesture.Reset();
 
@@ -183,6 +186,9 @@ internal sealed partial class AvalonEditMarkdownEditor
             }
             _dictationSessionId++;
             var sessionId = _dictationSessionId;
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_DICTATION_LIFECYCLE event=start session={sessionId} provider={settings.SpeechProvider} caret={_dictationCaretIndex} selection={_dictationSelectionLength} docLen={Editor.Document.TextLength}");
 
             ISpeechRecognitionService service = settings.SpeechProvider == SpeechProvider.OpenAI
                 ? new WhisperSpeechRecognitionService()
@@ -222,6 +228,10 @@ internal sealed partial class AvalonEditMarkdownEditor
         if (_dictationStopping)
             return;
         _dictationStopping = true;
+        var sessionId = _dictationSessionId;
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_DICTATION_LIFECYCLE event=stop-begin session={sessionId} callbackPriority={DispatcherPriority.Normal} cleanupPriority={DispatcherPriority.Background}");
         _dictationStopOnCtrlRelease = false;
         await _dictationTransitionGate.WaitAsync();
         try
@@ -240,7 +250,13 @@ internal sealed partial class AvalonEditMarkdownEditor
                 await service.StopAsync();
                 // Drain the final recognition phrase before retiring this session (Whisper
                 // commonly returns its entire transcript only when recording stops).
+                SquadDashTrace.Write(
+                    TraceCategory.Avalon,
+                    $"AVALON_DICTATION_LIFECYCLE event=stop-drain-schedule session={sessionId} priority={DispatcherPriority.Background}");
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+                SquadDashTrace.Write(
+                    TraceCategory.Avalon,
+                    $"AVALON_DICTATION_LIFECYCLE event=stop-drain-exec session={sessionId} priority={DispatcherPriority.Background}");
             }
             catch (ObjectDisposedException ex)
             {
@@ -257,6 +273,9 @@ internal sealed partial class AvalonEditMarkdownEditor
             finally
             {
                 _dictationSessionId++;
+                SquadDashTrace.Write(
+                    TraceCategory.Avalon,
+                    $"AVALON_DICTATION_LIFECYCLE event=stop-finalize session={sessionId} retiredSession={_dictationSessionId}");
                 DetachDictationServiceHandlers(service);
                 service.Dispose();
             }
@@ -279,6 +298,9 @@ internal sealed partial class AvalonEditMarkdownEditor
         _dictationSelectionLength = Editor.SelectionLength;
         _dictationSelection = _dictationSelectionLength > 0
             ? new AvalonEditRevisionSelection(Editor.Document, _dictationCaretIndex, _dictationSelectionLength) : null;
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_DICTATION_CAPTURE session={_dictationSessionId} caret={_dictationCaretIndex} selection={_dictationSelectionLength} docLen={Editor.Document.TextLength}");
         SetDictationInsertionAnchor();
     }
 
@@ -291,7 +313,13 @@ internal sealed partial class AvalonEditMarkdownEditor
     private void AttachDictationServiceHandlers(ISpeechRecognitionService service, int sessionId)
     {
         _dictationPhraseHandler = (_, text) =>
-            Dispatcher.BeginInvoke(() => AppendSpeechToEditor(text, sessionId));
+        {
+            var dispatchId = Interlocked.Increment(ref _dictationDispatchSequence);
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_DICTATION_CALLBACK_SCHEDULE event=phrase session={sessionId} dispatch={dispatchId} priority={DispatcherPriority.Normal}");
+            Dispatcher.BeginInvoke(() => AppendSpeechToEditor(text, sessionId, dispatchId));
+        };
 
         _dictationVolumeHandler = (_, level) =>
             Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
@@ -302,13 +330,22 @@ internal sealed partial class AvalonEditMarkdownEditor
             });
 
         _dictationErrorHandler = (_, message) =>
+        {
+            var dispatchId = Interlocked.Increment(ref _dictationDispatchSequence);
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_DICTATION_CALLBACK_SCHEDULE event=error session={sessionId} dispatch={dispatchId} priority={DispatcherPriority.Normal}");
             Dispatcher.BeginInvoke(() =>
             {
+                SquadDashTrace.Write(
+                    TraceCategory.Avalon,
+                    $"AVALON_DICTATION_CALLBACK_EXEC event=error session={sessionId} dispatch={dispatchId} currentSession={_dictationSessionId}");
                 if (sessionId != _dictationSessionId)
                     return;
                 SquadDashTrace.Write(TraceCategory.UI, $"[voice error] AvalonEdit dictation recognition error: {message}");
                 _ = StopDictationAsync();
             });
+        };
 
         service.PhraseRecognized += _dictationPhraseHandler;
         service.VolumeChanged += _dictationVolumeHandler;
@@ -330,31 +367,64 @@ internal sealed partial class AvalonEditMarkdownEditor
         _dictationErrorHandler = null;
     }
 
-    private void AppendSpeechToEditor(string text, int sessionId)
+    private void AppendSpeechToEditor(string text, int sessionId, long dispatchId)
     {
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_DICTATION_CALLBACK_EXEC event=phrase session={sessionId} dispatch={dispatchId} currentSession={_dictationSessionId} disposed={_dictationDisposed} editorDisposed={_isDisposed}");
         if (_dictationDisposed || _isDisposed || sessionId != _dictationSessionId)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_DICTATION_CALLBACK_DROP session={sessionId} dispatch={dispatchId} reason={(sessionId != _dictationSessionId ? "session-mismatch" : "disposed")}");
             return;
+        }
         InsertDictationPhrase(text);
     }
 
     internal void InsertDictationPhrase(string text)
     {
         ThrowIfDisposed();
+        var liveCaret = Editor.CaretOffset;
+        var anchor = _dictationInsertionAnchor;
+        var anchorOffset = anchor is { IsDeleted: false } ? anchor.Offset : -1;
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_DICTATION_RANGE_DECISION session={_dictationSessionId} source=initial capturedCaret={_dictationCaretIndex} capturedSelection={_dictationSelectionLength} " +
+            $"liveCaret={liveCaret} anchorOffset={anchorOffset} anchorDeleted={(anchor?.IsDeleted ?? true).ToString().ToLowerInvariant()}");
         if (_dictationSelection is { } selection)
         {
             if (!selection.TryGetRange(out _dictationCaretIndex, out _dictationSelectionLength) ||
                 Editor.Document.GetText(_dictationCaretIndex, _dictationSelectionLength) != selection.OriginalText)
             {
+                SquadDashTrace.Write(
+                    TraceCategory.Avalon,
+                    $"AVALON_DICTATION_DROP session={_dictationSessionId} reason=target-changed capturedCaret={_dictationCaretIndex} capturedSelection={_dictationSelectionLength} " +
+                    $"liveCaret={Editor.CaretOffset} anchorOffset={anchorOffset}");
                 SquadDashTrace.Write(TraceCategory.UI, "Dictation target changed before recognition completed.");
                 MessageBox.Show($"The dictation target was edited. Recognized text:\n\n{text}",
                     "Dictation", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_DICTATION_RANGE_DECISION session={_dictationSessionId} source=selection capturedCaret={_dictationCaretIndex} capturedSelection={_dictationSelectionLength} " +
+                $"liveCaret={Editor.CaretOffset} anchorOffset={anchorOffset}");
         }
-        else if (_dictationInsertionAnchor is { IsDeleted: false } anchor)
+        else if (anchor is { IsDeleted: false })
+        {
             _dictationCaretIndex = anchor.Offset;
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_DICTATION_RANGE_DECISION session={_dictationSessionId} source=anchor capturedCaret={_dictationCaretIndex} capturedSelection={_dictationSelectionLength} " +
+                $"liveCaret={Editor.CaretOffset} anchorOffset={anchor.Offset}");
+        }
         else
         {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_DICTATION_DROP session={_dictationSessionId} reason=anchor-deleted capturedCaret={_dictationCaretIndex} capturedSelection={_dictationSelectionLength} " +
+                $"liveCaret={Editor.CaretOffset} anchorOffset={anchorOffset}");
             SquadDashTrace.Write(TraceCategory.UI, "Dictation insertion anchor was deleted.");
             MessageBox.Show($"The dictation target was deleted. Recognized text:\n\n{text}",
                 "Dictation", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -362,6 +432,9 @@ internal sealed partial class AvalonEditMarkdownEditor
         }
         if (!CanMutateRange(_dictationCaretIndex, _dictationSelectionLength))
         {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_DICTATION_DROP session={_dictationSessionId} reason=active-revision caret={_dictationCaretIndex} selection={_dictationSelectionLength} liveCaret={Editor.CaretOffset}");
             SquadDashTrace.Write(TraceCategory.UI, "Dictation insertion blocked by an active revision.");
             return;
         }
@@ -375,6 +448,12 @@ internal sealed partial class AvalonEditMarkdownEditor
             NormalizeLf(text),
             rules);
         plan = plan with { InsertedText = NormalizeLf(plan.InsertedText), ReplacedText = NormalizeLf(plan.ReplacedText) };
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_DICTATION_PLAN session={_dictationSessionId} currentLen={current.Length} caret={_dictationCaretIndex} selection={_dictationSelectionLength} " +
+            $"planCaret={plan.CaretIndex} planSelection={plan.SelectionLength} insertedLen={plan.InsertedText.Length} hasReplacement={plan.HasReplacementStep.ToString().ToLowerInvariant()} " +
+            $"planCaretAfterInsert={plan.CaretIndexAfterInsert} planCaretAfterReplace={plan.CaretIndexAfterReplace} " +
+            $"liveCaret={Editor.CaretOffset} anchorOffset={(anchor is { IsDeleted: false } ? anchor.Offset : -1)}");
         _dictationSelectionLength = 0;
         _dictationSelection = null;
 
@@ -391,6 +470,9 @@ internal sealed partial class AvalonEditMarkdownEditor
             _dictationCaretIndex = plan.CaretIndexAfterReplace;
         }
         SetDictationInsertionAnchor();
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_DICTATION_INSERT_POST session={_dictationSessionId} docLen={Editor.Document.TextLength} caret={_dictationCaretIndex}");
     }
 
     private void ShowDictationWindow()
