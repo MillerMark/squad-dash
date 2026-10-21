@@ -31,6 +31,58 @@ internal sealed class SystemSteeringPolicyTests
         });
     }
 
+    [Test]
+    public void Decide_RecentToolActivitySuppressesGentleAndStrongNotices()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(SystemSteeringPolicy.Decide(15, false, 20, 4, -1,
+                    hasRecentToolActivity: true),
+                Is.EqualTo(SystemSteeringDecision.None));
+            Assert.That(SystemSteeringPolicy.Decide(25, true, 20, 10, 9,
+                    minutesSinceLastNotice: 10,
+                    hasRecentToolActivity: true),
+                Is.EqualTo(SystemSteeringDecision.None));
+        });
+    }
+
+    [TestCase(0, SystemSteeringDecision.None)]
+    [TestCase(4, SystemSteeringDecision.None)]
+    [TestCase(5, SystemSteeringDecision.Strong)]
+    public void Decide_StrongNoticeHonorsMinimumCooldown(
+        int minutesSinceLastNotice,
+        SystemSteeringDecision expected)
+    {
+        Assert.That(SystemSteeringPolicy.Decide(
+                25, true, 20, 10, 9, minutesSinceLastNotice),
+            Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void RecentToolActivity_UsesTwoMinuteGraceWindow()
+    {
+        var now = new DateTimeOffset(2026, 10, 20, 18, 0, 0, TimeSpan.Zero);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(SystemSteeringPolicy.HasRecentToolActivity(now, now.AddSeconds(-119)), Is.True);
+            Assert.That(SystemSteeringPolicy.HasRecentToolActivity(now, now.AddMinutes(-2)), Is.False);
+            Assert.That(SystemSteeringPolicy.HasRecentToolActivity(now, null), Is.False);
+        });
+    }
+
+    [Test]
+    public void ResumeEpochAfterPause_ExcludesDescendantRuntime()
+    {
+        var epoch = new DateTimeOffset(2026, 10, 20, 16, 0, 0, TimeSpan.Zero);
+        var pausedAt = epoch.AddMinutes(10);
+        var resumedAt = pausedAt.AddMinutes(45);
+
+        Assert.That(
+            SystemSteeringPolicy.ResumeEpochAfterPause(epoch, pausedAt, resumedAt),
+            Is.EqualTo(epoch.AddMinutes(45)));
+    }
+
     [TestCase(20, 25)]
     [TestCase(25, 30)]
     [TestCase(27, 30)]

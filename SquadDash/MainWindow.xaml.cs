@@ -267,6 +267,8 @@ public partial class MainWindow : Window
         internal bool FirstNoticeSent { get; set; }
         internal int NextStrongNoticeMinute { get; set; } = SystemSteeringPolicy.FirstStrongNoticeMinute;
         internal int ToolCountAtLastNotice { get; set; } = -1;
+        internal DateTimeOffset? LastNoticeAt { get; set; }
+        internal DateTimeOffset? DescendantPauseStartedAt { get; set; }
         internal bool DeliveryPending { get; set; }
     }
     private WorkspaceIssuePresentation? _startupIssue;
@@ -3394,12 +3396,6 @@ public partial class MainWindow : Window
 
         foreach (var thread in liveThreads)
         {
-            if (thread.ThrottleRetryAt is { } retryAt && retryAt > now)
-                continue;
-            if (liveThreads.Any(candidate => !ReferenceEquals(candidate, thread) &&
-                                             IsDescendantOf(candidate, thread)))
-                continue;
-
             var turn = thread.CurrentTurn!;
             var key = BuildSystemSteeringStateKey(thread, turn);
             if (!_systemSteeringStates.TryGetValue(key, out var state))
@@ -3407,6 +3403,33 @@ public partial class MainWindow : Window
                 state = new SystemSteeringState { EpochStartedAt = turn.StartedAt };
                 _systemSteeringStates[key] = state;
             }
+
+            var hasLiveDescendant = liveThreads.Any(candidate =>
+                !ReferenceEquals(candidate, thread) && IsDescendantOf(candidate, thread));
+            if (hasLiveDescendant)
+            {
+                if (state.DescendantPauseStartedAt is null)
+                {
+                    state.DescendantPauseStartedAt = now;
+                    SquadDashTrace.Write("SystemSteering",
+                        $"Write timer paused thread={thread.ThreadId} reason=live-descendant.");
+                }
+                continue;
+            }
+
+            if (state.DescendantPauseStartedAt is { } pauseStartedAt)
+            {
+                state.EpochStartedAt = SystemSteeringPolicy.ResumeEpochAfterPause(
+                    state.EpochStartedAt,
+                    pauseStartedAt,
+                    now);
+                state.DescendantPauseStartedAt = null;
+                SquadDashTrace.Write("SystemSteering",
+                    $"Write timer resumed thread={thread.ThreadId} pausedMs={(long)(now - pauseStartedAt).TotalMilliseconds}.");
+            }
+
+            if (thread.ThrottleRetryAt is { } retryAt && retryAt > now)
+                continue;
 
             var lastWrite = turn.ToolEntries
                 .Where(tool => tool.IsCompleted && tool.Success &&
@@ -3422,6 +3445,7 @@ public partial class MainWindow : Window
                 state.FirstNoticeSent = false;
                 state.NextStrongNoticeMinute = SystemSteeringPolicy.FirstStrongNoticeMinute;
                 state.ToolCountAtLastNotice = turn.ToolEntries.Count;
+                state.LastNoticeAt = null;
                 state.DeliveryPending = false;
                 SquadDashTrace.Write("SystemSteering",
                     $"Write epoch reset thread={thread.ThreadId} at={lastWrite:O}.");
@@ -3431,12 +3455,30 @@ public partial class MainWindow : Window
             if (state.DeliveryPending)
                 continue;
             var minutesSinceWrite = Math.Max(0, (int)Math.Floor((now - state.EpochStartedAt).TotalMinutes));
+            var lastToolActivityAt = turn.ToolEntries
+                .Select(tool => tool.FinishedAt ?? tool.StartedAt)
+                .DefaultIfEmpty()
+                .Max();
+            if (turn.ToolEntries.Any(tool => !tool.IsCompleted) &&
+                thread.DirectLastActivityAt is { } directActivityAt &&
+                (lastToolActivityAt == default || directActivityAt > lastToolActivityAt))
+            {
+                lastToolActivityAt = directActivityAt;
+            }
+            var hasRecentToolActivity = SystemSteeringPolicy.HasRecentToolActivity(
+                now,
+                lastToolActivityAt == default ? null : lastToolActivityAt);
+            var minutesSinceLastNotice = state.LastNoticeAt is { } lastNoticeAt
+                ? Math.Max(0, (int)Math.Floor((now - lastNoticeAt).TotalMinutes))
+                : int.MaxValue;
             var decision = SystemSteeringPolicy.Decide(
                 minutesSinceWrite,
                 state.FirstNoticeSent,
                 state.NextStrongNoticeMinute,
                 turn.ToolEntries.Count,
-                state.ToolCountAtLastNotice);
+                state.ToolCountAtLastNotice,
+                minutesSinceLastNotice,
+                hasRecentToolActivity);
             if (decision == SystemSteeringDecision.Gentle)
             {
                 _ = SendSystemSteeringNoticeAsync(thread, turn, state, minutesSinceWrite, decision);
@@ -3495,6 +3537,7 @@ public partial class MainWindow : Window
                 return;
             state.FirstNoticeSent = true;
             state.ToolCountAtLastNotice = turn.ToolEntries.Count;
+            state.LastNoticeAt = DateTimeOffset.Now;
             if (strong)
             {
                 state.NextStrongNoticeMinute = SystemSteeringPolicy.NextStrongMinute(
