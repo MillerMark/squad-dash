@@ -59,9 +59,9 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
             _label = new TextBlock
             {
                 Text = language,
-                FontFamily = new FontFamily("Consolas"),
-                FontSize = plain.FontSize / 0.9 * 0.8,
-                Margin = new Thickness(10, 5, copyHost.Width + 12, 0),
+                FontFamily = SystemFonts.MessageFontFamily,
+                FontSize = plain.FontSize / 0.9 * 0.7,
+                Margin = new Thickness(10, 7, copyHost.Width + 12, 0),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
                 IsHitTestVisible = false,
@@ -77,7 +77,7 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
             return;
 
         // Reserve the bounded footprint while still cheap, before entering the viewport.
-        // The editor adopts the measured footprint verbatim, avoiding transcript reflow.
+        // The editor measures its own content against the same cap when upgraded.
         plain.MaxHeight = MaximumHeight;
         plain.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         container.Loaded += OnLoaded;
@@ -125,22 +125,31 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
         UpdateCodePadding();
         if (_label is not null)
         {
-            _label.FontSize = baseFontSize * 0.8;
-            _label.Margin = new Thickness(10, 5, _copyHost.Width + 12, 0);
+            _label.FontSize = baseFontSize * 0.7;
+            _label.Margin = new Thickness(10, 7, _copyHost.Width + 12, 0);
         }
         if (_editor is not null)
         {
             _editor.FontSize = _plain.FontSize;
             _editor.Padding = _plain.Padding;
-            _plain.Measure(new Size(Math.Max(1, _container.ActualWidth), double.PositiveInfinity));
-            _editor.Height = Math.Min(MaximumHeight, _plain.DesiredSize.Height);
+            RecomputeEditorHeight(_editor);
         }
     }
 
     private void UpdateCodePadding()
     {
-        // Roughly halve the label-to-code gap (11px to 6px at 14px base), clearing the copy host.
-        _plain.Padding = new Thickness(10, Math.Max(24, _copyHost.Height + 2), 10, 8);
+        // At 14px base, the 7px label inset leaves ~3.6px instead of ~6px (60%).
+        // Keep 0.6px below the copy host's 2px sticky inset (Attach clears its Margin).
+        _plain.Padding = new Thickness(10, Math.Max(23.6, _copyHost.Height + 2.6), 10, 8);
+    }
+
+    private void RecomputeEditorHeight(TextEditor editor)
+    {
+        // Release the previous zoom's explicit height. Measuring the real editor includes
+        // its padding and any horizontal scrollbar, unlike the detached plain proxy.
+        editor.Height = double.NaN;
+        editor.Measure(new Size(Math.Max(1, _container.ActualWidth), double.PositiveInfinity));
+        editor.Height = Math.Min(MaximumHeight, editor.DesiredSize.Height);
     }
 
     internal static TranscriptCodeBlockPreview? Find(DependencyObject? source)
@@ -226,7 +235,6 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
             FontSize = _plain.FontSize,
             Padding = _plain.Padding,
             BorderThickness = new Thickness(0),
-            Height = Math.Min(MaximumHeight, _plain.ActualHeight),
             MaxHeight = MaximumHeight,
             WordWrap = false,
             ShowLineNumbers = false,
@@ -261,6 +269,7 @@ internal sealed class TranscriptCodeBlockPreview : ICopyable
         _pool.Editors.Add(editor);
         _container.Children.Remove(_plain);
         _container.Children.Insert(0, editor);
+        RecomputeEditorHeight(editor);
         editor.Select(selectionStart, selectionLength);
         editor.ScrollToHorizontalOffset(horizontalOffset);
         editor.ScrollToVerticalOffset(verticalOffset);

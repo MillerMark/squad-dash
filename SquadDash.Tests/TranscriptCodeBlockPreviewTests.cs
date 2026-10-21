@@ -236,7 +236,7 @@ internal sealed class TranscriptCodeBlockPreviewTests
     [TestCase(12)]
     [TestCase(14)]
     [TestCase(20)]
-    public void LanguageLabel_UsesEightyPercentOfBaseFont_BeforeAndAfterResize(double baseFontSize)
+    public void LanguageLabel_UsesSystemFontAndSeventyPercentOfBaseFont_BeforeAndAfterResize(double baseFontSize)
     {
         EnsureApplicationResources();
         var block = (BlockUIContainer)CopyableCodeBlockBuilder.Build(
@@ -245,7 +245,12 @@ internal sealed class TranscriptCodeBlockPreviewTests
         var preview = (TranscriptCodeBlockPreview)block.Tag;
         var label = container.Children.OfType<TextBlock>().Single();
 
-        Assert.That(label.FontSize, Is.EqualTo(baseFontSize * 0.8).Within(0.001));
+        Assert.Multiple(() =>
+        {
+            Assert.That(label.FontFamily, Is.EqualTo(SystemFonts.MessageFontFamily));
+            Assert.That(label.FontSize, Is.EqualTo(baseFontSize * 0.7).Within(0.001));
+            Assert.That(label.Margin.Top, Is.EqualTo(7));
+        });
         var initialPadding = preview.PlainTextBox.Padding;
         preview.UpdateFontSize(baseFontSize);
         Assert.That(preview.PlainTextBox.Padding, Is.EqualTo(initialPadding));
@@ -253,11 +258,53 @@ internal sealed class TranscriptCodeBlockPreviewTests
         preview.UpdateFontSize(baseFontSize + 4);
         Assert.Multiple(() =>
         {
-            Assert.That(label.FontSize, Is.EqualTo((baseFontSize + 4) * 0.8).Within(0.001));
+            Assert.That(label.FontSize, Is.EqualTo((baseFontSize + 4) * 0.7).Within(0.001));
             Assert.That(label.FontSize, Is.LessThan(preview.PlainTextBox.FontSize));
-            Assert.That(label.Margin.Top, Is.EqualTo(5));
-            Assert.That(preview.PlainTextBox.Padding.Top, Is.EqualTo(Math.Max(24, (baseFontSize + 4) * 1.5 + 2)));
+            Assert.That(label.Margin.Top, Is.EqualTo(7));
+            Assert.That(preview.PlainTextBox.Padding.Top,
+                Is.EqualTo(Math.Max(23.6, (baseFontSize + 4) * 1.5 + 2.6)));
         });
+    }
+
+    [TestCase(8, false, false)]
+    [TestCase(8, false, true)]
+    [TestCase(40, true, false)]
+    public void EditorHeight_RepeatedZoom_MeasuresRealContentAndHonorsCap(int lines, bool startsCapped, bool wideLines)
+    {
+        EnsureApplicationResources();
+        var code = string.Join("\n", Enumerable.Repeat(wideLines ? new string('x', 100) : "var value = 1;", lines));
+        var block = (BlockUIContainer)CopyableCodeBlockBuilder.Build(
+            code, 30, transcript: true, language: "cs");
+        var container = (Grid)block.Child;
+        var preview = (TranscriptCodeBlockPreview)block.Tag;
+        container.Measure(new Size(400, double.PositiveInfinity));
+        container.Arrange(new Rect(0, 0, 400, container.DesiredSize.Height));
+        typeof(TranscriptCodeBlockPreview).GetMethod("Upgrade", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(preview, null);
+        var editor = (TextEditor)preview.Surface;
+        var largeHeight = editor.Height;
+        Assert.That(largeHeight, startsCapped
+            ? Is.EqualTo(TranscriptCodeBlockPreview.MaximumHeight)
+            : Is.LessThan(TranscriptCodeBlockPreview.MaximumHeight));
+        Assert.That(container.Children.Contains(preview.PlainTextBox), Is.False);
+
+        for (var cycle = 0; cycle < 3; cycle++)
+        {
+            preview.UpdateFontSize(10);
+            var smallHeight = editor.Height;
+            Assert.Multiple(() =>
+            {
+                Assert.That(smallHeight, Is.GreaterThan(editor.Padding.Top + editor.Padding.Bottom));
+                Assert.That(smallHeight, Is.LessThan(largeHeight));
+                Assert.That(editor.Padding, Is.EqualTo(preview.PlainTextBox.Padding));
+            });
+            preview.UpdateFontSize(30);
+            Assert.That(editor.Height, Is.EqualTo(largeHeight).Within(0.01));
+        }
+
+        preview.UpdateFontSize(120);
+        Assert.That(editor.Height, Is.EqualTo(TranscriptCodeBlockPreview.MaximumHeight));
+        Assert.That(editor.VerticalScrollBarVisibility, Is.EqualTo(ScrollBarVisibility.Auto));
     }
 
     [TestCase("Light", "Dark")]
