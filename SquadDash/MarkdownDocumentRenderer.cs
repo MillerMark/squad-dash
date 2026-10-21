@@ -189,7 +189,7 @@ internal sealed class MarkdownDocumentRenderer {
             var trimmed = line.TrimStart();
 
             // Code fence
-            if (TryReadFenceStart(trimmed, out var fenceLength)) {
+            if (TryReadFenceStart(trimmed, out var fenceLength, out var language)) {
                 foreach (var block in BuildParagraphBlocks(paragraphLines))
                     yield return block;
                 paragraphLines.Clear();
@@ -201,7 +201,7 @@ internal sealed class MarkdownDocumentRenderer {
                     index++;
                 }
 
-                yield return BuildCodeBlock(string.Join("\n", codeLines));
+                yield return BuildCodeBlock(string.Join("\n", codeLines), language);
                 continue;
             }
 
@@ -381,8 +381,19 @@ internal sealed class MarkdownDocumentRenderer {
 
     // ── Code block ─────────────────────────────────────────────────────────
 
-    internal static bool TryReadFenceStart(string trimmedLine, out int fenceLength) {
+    internal static bool TryReadFenceStart(string trimmedLine, out int fenceLength) =>
+        TryReadFenceStart(trimmedLine, out fenceLength, out _);
+
+    internal static bool TryReadFenceStart(string trimmedLine, out int fenceLength, out string language) {
         fenceLength = CountLeadingBackticks(trimmedLine);
+        language = "";
+        if (fenceLength >= 3) {
+            var info = trimmedLine.AsSpan(fenceLength).Trim();
+            var end = 0;
+            while (end < info.Length && !char.IsWhiteSpace(info[end]))
+                end++;
+            language = info[..end].ToString();
+        }
         return fenceLength >= 3;
     }
 
@@ -401,8 +412,8 @@ internal sealed class MarkdownDocumentRenderer {
         return count;
     }
 
-    private Block BuildCodeBlock(string code) {
-        return CopyableCodeBlockBuilder.Build(code, _getFontSize());
+    private Block BuildCodeBlock(string code, string language) {
+        return CopyableCodeBlockBuilder.Build(code, _getFontSize(), transcript: true, language: language);
     }
 
     // ── Quick-reply block ──────────────────────────────────────────────────

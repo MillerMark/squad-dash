@@ -27556,6 +27556,8 @@ public partial class MainWindow : Window
             var rtb = (sender as RichTextBox) ?? OutputTextBox;
             if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
+                if (TranscriptCodeBlockPreview.Find(e.OriginalSource as DependencyObject) is not null)
+                    return;
                 FocusTranscriptForInactiveSelectionScroll(rtb);
                 TryPrecisionTrackpadScroll(rtb, e);
                 return;
@@ -28045,6 +28047,11 @@ public partial class MainWindow : Window
         {
             foreach (var inner in blocks.OfType<BlockUIContainer>())
             {
+                if (inner.Tag is TranscriptCodeBlockPreview preview)
+                {
+                    preview.UpdateFontSize(_transcriptFontSize);
+                    continue;
+                }
                 if (inner.Tag is MarkdownDetailView detail)
                 {
                     detail.Expander.FontSize = _transcriptFontSize;
@@ -28250,6 +28257,8 @@ public partial class MainWindow : Window
         try
         {
             var clickSource = e.OriginalSource as DependencyObject;
+            if (TranscriptCodeBlockPreview.Find(clickSource) is not null)
+                return;
             if (TranscriptApprovalCardBuilder.ShouldDeferContextMenuToEditableTextBox(clickSource, out var editableTextBox))
             {
                 _ = editableTextBox.Focus();
@@ -44747,6 +44756,8 @@ public partial class MainWindow : Window
         {
             try
             {
+                if (TranscriptCodeBlockPreview.Find(e.OriginalSource as DependencyObject) is not null)
+                    return;
                 var menu = new ContextMenu();
                 menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
@@ -47047,7 +47058,7 @@ public partial class MainWindow : Window
             }
 
             // Code fence
-            if (MarkdownDocumentRenderer.TryReadFenceStart(trimmed, out var fenceLength))
+            if (MarkdownDocumentRenderer.TryReadFenceStart(trimmed, out var fenceLength, out var language))
             {
                 foreach (var block in BuildParagraphBlocks(paragraphLines))
                     yield return block;
@@ -47061,7 +47072,7 @@ public partial class MainWindow : Window
                     index++;
                 }
 
-                yield return BuildCodeBlock(string.Join("\n", codeLines));
+                yield return BuildCodeBlock(string.Join("\n", codeLines), language);
                 continue;
             }
 
@@ -47319,67 +47330,8 @@ public partial class MainWindow : Window
         return p;
     }
 
-    private Block BuildCodeBlock(string code)
-    {
-        var copyButtonSize = _transcriptFontSize * 1.5;
-        var codeTopPadding = Math.Max(30, copyButtonSize + 8);
-        var textBox = new TextBox
-        {
-            Text = code,
-            IsReadOnly = true,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.NoWrap,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = _transcriptFontSize * 0.9,
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, codeTopPadding, 10, 8),
-            Tag = "codeblock"
-        };
-        ReadOnlyTextInputGuard.DisableInputMethod(textBox);
-        textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
-        textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
-
-        var copyBtn = new CopyButton
-        {
-            CopyTooltip = "Copy code",
-            Width = copyButtonSize,
-            Height = copyButtonSize,
-            Padding = new Thickness(0),
-            Margin = new Thickness(0),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch
-        };
-        copyBtn.Click += (_, _) =>
-        {
-            try { Clipboard.SetText(code); } catch { }
-        };
-
-        var copyButtonBackdrop = new Border
-        {
-            CornerRadius = new CornerRadius(2),
-            Opacity = 0.5,
-            BorderThickness = new Thickness(0)
-        };
-        copyButtonBackdrop.SetResourceReference(Border.BackgroundProperty, "CodeSurface");
-
-        var stickyCopyHost = new Grid
-        {
-            Width = copyButtonSize,
-            Height = copyButtonSize,
-            Margin = new Thickness(4, 2, 4, 2),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top
-        };
-        stickyCopyHost.Children.Add(copyButtonBackdrop);
-        stickyCopyHost.Children.Add(copyBtn);
-
-        var container = new Grid();
-        container.Children.Add(textBox);
-        StickyCodeBlockBehavior.Attach(container, stickyCopyHost);
-        return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
-    }
+    private Block BuildCodeBlock(string code, string language) =>
+        CopyableCodeBlockBuilder.Build(code, _transcriptFontSize, transcript: true, language: language);
 
     private sealed record QuickReplyButtonPayload(
         TranscriptResponseEntry Entry,
@@ -56741,6 +56693,7 @@ public partial class MainWindow : Window
         // theme dictionaries have been swapped (AVALONEDIT-20261014-001, §3). Newly created
         // regions pull the same palette at construction, so one created between switches is themed.
         var regionPalette = _regionEditorPaletteSource.CreatePalette();
+        TranscriptCodeBlockPreview.ApplyTheme(Dispatcher, regionPalette);
         foreach (var region in RichTextBoxExtensions.EnumerateEmbeddedRegions(PromptTextBox))
             region.NotifyThemeChanged(regionPalette);
 
