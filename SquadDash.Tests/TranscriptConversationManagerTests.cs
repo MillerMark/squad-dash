@@ -1139,6 +1139,32 @@ internal sealed class TranscriptConversationManagerTests {
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void UpdateQueuedPromptsState_PreservesTranscriptSourceAndDetectsSourceOnlyChanges()
+    {
+        var manager = MakeManager();
+        var item = new PromptQueueItem { Text = "prompt", SequenceNumber = 1 };
+        var source = new TranscriptAttachmentSource(TurnIndex: 1, Timestamp: "2026-06-17T10:00:00.0000000Z");
+        var attachment = new FollowUpAttachment("", "quote", null, TranscriptQuote: "quoted", TranscriptSource: source);
+        var attachments = new Dictionary<string, List<FollowUpAttachment>> { [item.Id] = [attachment] };
+        manager.UpdateQueuedPromptsState([item], attachments);
+        var previous = manager.ConversationState;
+
+        attachments[item.Id][0] = attachment with
+        {
+            TranscriptSource = source with { ConversationHint = "Updated hint" }
+        };
+        manager.UpdateQueuedPromptsState([item], attachments);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(previous.QueuedPromptEntries![0].Attachments![0].TranscriptSource, Is.EqualTo(source));
+            Assert.That(manager.ConversationState.QueuedPromptEntries![0].Attachments![0].TranscriptSource!.ConversationHint,
+                Is.EqualTo("Updated hint"));
+            Assert.That(manager.ConversationState.QueueLastChangedAt, Is.GreaterThan(previous.QueueLastChangedAt!.Value));
+        });
+    }
+
     // ── ClearAndPersist ───────────────────────────────────────────────────────
 
     [Test, Apartment(ApartmentState.STA)]

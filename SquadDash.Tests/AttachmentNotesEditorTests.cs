@@ -56,8 +56,10 @@ internal sealed class AttachmentNotesEditorTests
         var application = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         var panel = AttachmentNotesEditor.Create(new FollowUpAttachment("", "text", null, ContentBlock: "source"), _ => { })!;
         var editor = panel.Children.OfType<TextBox>().Single();
+        var label = panel.Children.OfType<Label>().Single();
         var host = new StackPanel();
         host.Resources["FontSizeBody"] = 14.0;
+        host.Resources["FontSizeSmall"] = 11.0;
         host.Children.Add(panel);
         var window = new Window
         {
@@ -69,16 +71,22 @@ internal sealed class AttachmentNotesEditorTests
             window.Show();
             Layout(window);
             var small = AssertLineSizing(editor, window);
+            var smallLabel = label.FontSize;
             host.Resources["FontSizeBody"] = 24.0;
+            host.Resources["FontSizeSmall"] = 18.0;
             Layout(window);
             Assert.That(editor.FontSize, Is.EqualTo(24));
+            Assert.That(label.FontSize, Is.EqualTo(18));
             var large = AssertLineSizing(editor, window);
             Assert.Multiple(() =>
             {
+                Assert.That(smallLabel, Is.EqualTo(11));
                 Assert.That(large.Min, Is.GreaterThan(small.Min));
                 Assert.That(large.Max, Is.GreaterThan(small.Max));
                 Assert.That((large.Max - large.Min) / (small.Max - small.Min),
                     Is.EqualTo(24.0 / 14.0).Within(0.05));
+                Assert.That(label.FontSize / smallLabel, Is.EqualTo(18.0 / 11.0).Within(0.05));
+                Assert.That(label.FontSize, Is.LessThan(editor.FontSize));
             });
             editor.Text = string.Join(" ", Enumerable.Repeat("wrapping", 300));
             Layout(window);

@@ -110,6 +110,7 @@ internal static class SteeringTranscriptEntryFactory
         var hasDictation = prompt.EndsWith(VoiceAnnotation, StringComparison.Ordinal);
         var promptBody = hasDictation ? prompt[..^VoiceAnnotation.Length] : prompt;
         var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 8) };
+        TranscriptAttachmentSourceFactory.SetRole(paragraph, isSystem ? "system" : "user");
 
         var prefix = new Run((isSystem ? SystemMarkerText : MarkerText) + ": ") { FontWeight = FontWeights.SemiBold };
         prefix.SetResourceReference(TextElement.ForegroundProperty, "UserPromptPrefixText");
@@ -295,6 +296,8 @@ internal static class SteeringTranscriptEntryFactory
     private static FollowUpAttachment BuildHistoricalTypedAttachment(string block)
     {
         var (type, title) = AttachmentBlockFormatter.ExtractAttachmentMetadata(block);
+        var notes = AttachmentBlockFormatter.ExtractAttachmentNotes(block);
+        var content = AttachmentBlockFormatter.ExtractAttachmentContent(block);
         var description = !string.IsNullOrWhiteSpace(title)
             ? title!
             : type switch
@@ -308,10 +311,21 @@ internal static class SteeringTranscriptEntryFactory
                 "transcript" => "Transcript",
                 _ => "Attachment",
             };
+        if (string.Equals(type, "transcript", StringComparison.Ordinal))
+        {
+            return new FollowUpAttachment(
+                string.Empty,
+                description,
+                null,
+                TranscriptQuote: content,
+                Notes: notes,
+                TranscriptSource: AttachmentBlockFormatter.ExtractTranscriptSource(block));
+        }
         return new FollowUpAttachment(
             string.Empty,
             description,
             null,
-            ContentBlock: block);
+            ContentBlock: block,
+            Notes: notes);
     }
 }

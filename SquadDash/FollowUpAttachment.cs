@@ -1,5 +1,12 @@
 namespace SquadDash;
 
+internal sealed record TranscriptAttachmentSource(
+    string? Role = null,
+    int? TurnIndex = null,
+    string? Timestamp = null,
+    string? ConversationHint = null,
+    string? MessageId = null);
+
 internal sealed record FollowUpAttachment(
     string CommitSha,
     string Description,
@@ -12,7 +19,8 @@ internal sealed record FollowUpAttachment(
     string? FileReferencePath = null,
     bool RequiresRemovalConfirmation = false,
     string? RemovalWarning = null,
-    string? Notes = null)
+    string? Notes = null,
+    TranscriptAttachmentSource? TranscriptSource = null)
 {
     internal bool SupportsNotes => ImagePath is null &&
         System.IO.Path.GetExtension(FileReferencePath ?? "").ToLowerInvariant() is not
@@ -44,5 +52,6 @@ internal sealed class FollowUpAttachmentDto
     public bool RequiresRemovalConfirmation { get; set; }
     public string? RemovalWarning { get; set; }
     public string? Notes { get; set; }
+    public TranscriptAttachmentSource? TranscriptSource { get; set; }
 }
 

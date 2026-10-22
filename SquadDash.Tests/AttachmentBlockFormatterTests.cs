@@ -3,6 +3,35 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class AttachmentBlockFormatterTests {
 
+    [Test]
+    public void LegacyEntityTitle_IsPreservedWhenReadingAndAddingNotes() {
+        const string title = "Literal &copy; &lt;tag&gt; &nbsp;";
+        var block = AttachmentBlockFormatter.BuildTypedAttachmentBlock("transcript", title, "text");
+        var withNotes = AttachmentBlockFormatter.WithNotes(block, "notes");
+        Assert.Multiple(() =>
+        {
+            Assert.That(AttachmentBlockFormatter.ExtractAttachmentMetadata(block).Title, Is.EqualTo(title));
+            Assert.That(AttachmentBlockFormatter.ExtractAttachmentMetadata(withNotes).Title, Is.EqualTo(title));
+        });
+    }
+
+    [Test]
+    public void TranscriptSource_EscapesAttributesWithoutChangingSelectedText() {
+        const string title = "A \"title\" &lt;text&gt; </attachment>";
+        var source = new TranscriptAttachmentSource("user", 2, "invalid",
+            "A & B \"quoted\" </attachment>", "id");
+        var block = AttachmentBlockFormatter.BuildTranscriptAttachmentBlock(title, "text </attachment> end", source);
+        var withNotes = AttachmentBlockFormatter.WithNotes(block, "notes </attachment>");
+        Assert.Multiple(() =>
+        {
+            Assert.That(AttachmentBlockFormatter.ExtractAttachmentBlocks(block), Has.Count.EqualTo(1));
+            Assert.That(AttachmentBlockFormatter.ExtractAttachmentMetadata(block).Title, Is.EqualTo(title));
+            Assert.That(AttachmentBlockFormatter.ExtractTranscriptSource(block), Is.EqualTo(source));
+            Assert.That(AttachmentBlockFormatter.ExtractTranscriptSource(withNotes), Is.EqualTo(source));
+            Assert.That(AttachmentBlockFormatter.ExtractAttachmentContent(withNotes), Is.EqualTo("text </attachment> end"));
+        });
+    }
+
     // ── BuildTypedAttachmentBlock ─────────────────────────────────────────────
 
     [Test]
@@ -139,5 +168,39 @@ internal sealed class AttachmentBlockFormatterTests {
 
         Assert.That(type, Is.EqualTo("inbox-message"));
         Assert.That(title, Is.EqualTo("Quoted \"Title\""));
+    }
+
+    [Test]
+    public void TranscriptSource_RoundTripsThroughTypedBlockAndNotes() {
+        var source = new TranscriptAttachmentSource(
+            Role: "assistant",
+            TurnIndex: 4,
+            Timestamp: "2026-06-19T20:15:43.0000000Z",
+            ConversationHint: "Investigate queue deadlock",
+            MessageId: "msg-42");
+        var block = AttachmentBlockFormatter.BuildTranscriptAttachmentBlock("Transcript", "selected lines", source);
+        var withNotes = AttachmentBlockFormatter.WithNotes(block, "note");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(AttachmentBlockFormatter.ExtractAttachmentContent(block), Is.EqualTo("selected lines"));
+            Assert.That(AttachmentBlockFormatter.ExtractTranscriptSource(block), Is.EqualTo(source));
+            Assert.That(AttachmentBlockFormatter.ExtractTranscriptSource(withNotes), Is.EqualTo(source));
+            Assert.That(AttachmentBlockFormatter.ExtractAttachmentContent(withNotes), Is.EqualTo("selected lines"));
+        });
+    }
+
+    [Test]
+    public void ExtractTranscriptSource_InvalidTurnIndex_DoesNotThrowAndYieldsNullTurnIndex() {
+        const string block = "<attachment type=\"transcript\" source-turn-index=\"NaN\" source-timestamp=\"bad-ts\">\nquoted\n</attachment>";
+
+        var source = AttachmentBlockFormatter.ExtractTranscriptSource(block);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Is.Not.Null);
+            Assert.That(source!.TurnIndex, Is.Null);
+            Assert.That(source.Timestamp, Is.EqualTo("bad-ts"));
+        });
     }
 }

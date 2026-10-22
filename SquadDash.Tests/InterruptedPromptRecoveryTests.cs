@@ -448,6 +448,47 @@ internal sealed class InterruptedPromptRecoveryTests {
         });
     }
 
+    [Test]
+    public void Detector_RecoversTranscriptSourceMetadataFromTypedAttachment()
+    {
+        var startedAt = new DateTimeOffset(2026, 9, 9, 19, 31, 23, TimeSpan.FromHours(-4));
+        var completedAt = startedAt.AddMinutes(10);
+        var source = new TranscriptAttachmentSource(
+            TurnIndex: 5,
+            Timestamp: "2026-06-17T10:00:00.0000000Z",
+            ConversationHint: "Preceding prompt");
+        var prompt = FollowUpPromptBuilder.Build("Continue", [
+            new FollowUpAttachment("", "Transcript", null, TranscriptQuote: "quote text", TranscriptSource: source),
+        ]);
+        var turn = new TranscriptTurnRecord(
+            startedAt,
+            completedAt,
+            prompt,
+            string.Empty,
+            "[error] The prompt stopped before Squad returned a complete answer.",
+            false,
+            Array.Empty<TranscriptToolRecord>());
+        var conversation = new WorkspaceConversationState(
+            "session-1",
+            completedAt,
+            null,
+            Array.Empty<string>(),
+            [turn]);
+        File.WriteAllText(
+            Path.Combine(_tempDirectory, "trace.log"),
+            $"{completedAt:yyyy-MM-dd HH:mm:ss.fff zzz} [Bridge] Prompt inactivity timeout reached after 600s. lastActivityAt=ignored. Restarting bridge process.{Environment.NewLine}");
+
+        var detected = InterruptedPromptRecoveryDetector.TryDetect(conversation, _tempDirectory);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(detected, Is.Not.Null);
+            Assert.That(detected!.Attachments.Single().TranscriptQuote, Is.EqualTo("quote text"));
+            Assert.That(detected.Attachments.Single().TranscriptSource, Is.EqualTo(source));
+            Assert.That(InterruptedPromptRecoveryPresentation.BuildEditablePrompt(detected), Is.EqualTo("Continue"));
+        });
+    }
+
     private static InterruptedPromptRecoveryState CreateState(
         InterruptedPromptExecutionKind kind = InterruptedPromptExecutionKind.Coordinator,
         string prompt = "Original request",

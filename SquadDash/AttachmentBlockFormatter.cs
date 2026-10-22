@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace SquadDash;
 
@@ -13,6 +15,11 @@ internal static class AttachmentBlockFormatter
     private const string EscapedCloseTag = "&lt;/attachment&gt;";
     private const string LiteralCloseTag = "</attachment>";
     private const string NotesEncoding = "json-notes-v1";
+    private const string TranscriptRoleAttribute = "source-role";
+    private const string TranscriptTurnIndexAttribute = "source-turn-index";
+    private const string TranscriptTimestampAttribute = "source-timestamp";
+    private const string TranscriptConversationHintAttribute = "source-conversation-hint";
+    private const string TranscriptMessageIdAttribute = "source-message-id";
 
     /// <summary>
     /// Notes-bearing blocks have an explicitly versioned JSON body with separate Content
@@ -25,11 +32,13 @@ internal static class AttachmentBlockFormatter
         if (string.IsNullOrEmpty(notes))
             return context;
 
-        var (type, title) = ExtractAttachmentMetadata(context);
+        var attributes = ExtractAttachmentAttributes(context);
+        if (!attributes.ContainsKey("type"))
+            attributes["type"] = "text";
+        attributes["encoding"] = NotesEncoding;
         var content = ExtractAttachmentContent(context);
-        var titleAttribute = title is null ? "" : $" title=\"{EncodeAttribute(title)}\"";
         var payload = JsonSerializer.Serialize(new NotesPayload(content, notes));
-        return $"<attachment type=\"{EncodeAttribute(type ?? "text")}\"{titleAttribute} encoding=\"{NotesEncoding}\">\n{payload}\n{LiteralCloseTag}";
+        return $"{BuildOpenTag(attributes)}\n{payload}\n{LiteralCloseTag}";
     }
 
     internal static string? ExtractAttachmentNotes(string block) =>
@@ -76,6 +85,36 @@ internal static class AttachmentBlockFormatter
             ? $"<attachment type=\"{type}\" title=\"{title.Replace("\"", "&quot;")}\">"
             : $"<attachment type=\"{type}\">";
         return $"{openTag}\n{content}\n{LiteralCloseTag}";
+    }
+
+    internal static string BuildTranscriptAttachmentBlock(
+        string? title,
+        string content,
+        TranscriptAttachmentSource? source)
+    {
+        if (source is null)
+            return BuildTypedAttachmentBlock("transcript", title, content);
+
+        var attributes = new Dictionary<string, string>
+        {
+            ["type"] = "transcript",
+            ["attribute-encoding"] = "xml-v1",
+        };
+        if (!string.IsNullOrWhiteSpace(title))
+            attributes["title"] = title;
+        if (!string.IsNullOrWhiteSpace(source.Role))
+            attributes[TranscriptRoleAttribute] = source.Role!;
+        if (source.TurnIndex is { } turnIndex)
+            attributes[TranscriptTurnIndexAttribute] = turnIndex.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (!string.IsNullOrWhiteSpace(source.Timestamp))
+            attributes[TranscriptTimestampAttribute] = source.Timestamp!;
+        if (!string.IsNullOrWhiteSpace(source.ConversationHint))
+            attributes[TranscriptConversationHintAttribute] = source.ConversationHint!;
+        if (!string.IsNullOrWhiteSpace(source.MessageId))
+            attributes[TranscriptMessageIdAttribute] = source.MessageId!;
+
+        content = content.Replace(LiteralCloseTag, EscapedCloseTag, StringComparison.Ordinal);
+        return $"{BuildOpenTag(attributes)}\n{content}\n{LiteralCloseTag}";
     }
 
     /// <summary>
@@ -247,16 +286,42 @@ internal static class AttachmentBlockFormatter
         if (!block.StartsWith("<attachment ", StringComparison.Ordinal))
             return (null, null);
 
-        var closeAngle = block.IndexOf('>', StringComparison.Ordinal);
-        if (closeAngle < 0)
+        var openTag = ExtractOpenTag(block);
+        if (openTag is null)
             return (null, null);
 
-        var openTag = block[..closeAngle];
         var type = ExtractAttribute(openTag, "type");
         var title = ExtractAttribute(openTag, "title");
-        return IsNotesBlock(block)
-            ? (System.Net.WebUtility.HtmlDecode(type), System.Net.WebUtility.HtmlDecode(title))
-            : (type, title);
+        return (type, title);
+    }
+
+    internal static TranscriptAttachmentSource? ExtractTranscriptSource(string block)
+    {
+        var openTag = ExtractOpenTag(block);
+        if (openTag is null)
+            return null;
+        var type = ExtractAttribute(openTag, "type");
+        if (!string.Equals(type, "transcript", StringComparison.Ordinal))
+            return null;
+
+        var role = ExtractAttribute(openTag, TranscriptRoleAttribute);
+        int? turnIndex = null;
+        var turnIndexText = ExtractAttribute(openTag, TranscriptTurnIndexAttribute);
+        if (int.TryParse(turnIndexText, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsedTurnIndex))
+            turnIndex = parsedTurnIndex;
+        var timestamp = ExtractAttribute(openTag, TranscriptTimestampAttribute);
+        var conversationHint = ExtractAttribute(openTag, TranscriptConversationHintAttribute);
+        var messageId = ExtractAttribute(openTag, TranscriptMessageIdAttribute);
+
+        if (role is null && turnIndex is null && timestamp is null && conversationHint is null && messageId is null)
+            return null;
+
+        return new TranscriptAttachmentSource(
+            Role: role,
+            TurnIndex: turnIndex,
+            Timestamp: timestamp,
+            ConversationHint: conversationHint,
+            MessageId: messageId);
     }
 
     /// <summary>
@@ -284,7 +349,7 @@ internal static class AttachmentBlockFormatter
 
     private static string? ExtractAttribute(string openTag, string name)
     {
-        var marker = name + "=\"";
+        var marker = " " + name + "=\"";
         var start = openTag.IndexOf(marker, StringComparison.Ordinal);
         if (start < 0)
             return null;
@@ -294,6 +359,76 @@ internal static class AttachmentBlockFormatter
         if (end < 0)
             return null;
 
-        return openTag[start..end].Replace("&quot;", "\"", StringComparison.Ordinal);
+        return DecodeAttribute(openTag, openTag[start..end]);
+    }
+
+    private static string DecodeAttribute(string openTag, string value) =>
+        openTag.Contains($" encoding=\"{NotesEncoding}\"", StringComparison.Ordinal) ||
+        openTag.Contains(" attribute-encoding=\"xml-v1\"", StringComparison.Ordinal)
+            ? System.Net.WebUtility.HtmlDecode(value)
+            : value.Replace("&quot;", "\"", StringComparison.Ordinal);
+
+    private static string? ExtractOpenTag(string block)
+    {
+        if (!block.StartsWith("<attachment ", StringComparison.Ordinal))
+            return null;
+        var closeAngle = block.IndexOf('>', StringComparison.Ordinal);
+        if (closeAngle < 0)
+            return null;
+        return block[..closeAngle];
+    }
+
+    private static Dictionary<string, string> ExtractAttachmentAttributes(string block)
+    {
+        var openTag = ExtractOpenTag(block);
+        var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (openTag is null)
+            return attributes;
+
+        var span = openTag.AsSpan();
+        var index = "<attachment ".Length;
+        while (index < span.Length)
+        {
+            while (index < span.Length && char.IsWhiteSpace(span[index]))
+                index++;
+            if (index >= span.Length)
+                break;
+
+            var equals = openTag.IndexOf("=\"", index, StringComparison.Ordinal);
+            if (equals < 0)
+                break;
+            var key = openTag[index..equals].Trim();
+            var valueStart = equals + 2;
+            var valueEnd = openTag.IndexOf('"', valueStart);
+            if (valueEnd < 0)
+                break;
+            attributes[key] = DecodeAttribute(openTag, openTag[valueStart..valueEnd]);
+            index = valueEnd + 1;
+        }
+
+        return attributes;
+    }
+
+    private static string BuildOpenTag(Dictionary<string, string> attributes)
+    {
+        var type = attributes.TryGetValue("type", out var typeValue) ? typeValue : "text";
+        attributes.Remove("type");
+        var title = attributes.TryGetValue("title", out var titleValue) ? titleValue : null;
+        if (title is not null)
+            attributes.Remove("title");
+        var encoding = attributes.TryGetValue("encoding", out var encodingValue) ? encodingValue : null;
+        if (encoding is not null)
+            attributes.Remove("encoding");
+
+        var sb = new System.Text.StringBuilder("<attachment");
+        sb.Append($" type=\"{EncodeAttribute(type)}\"");
+        if (title is not null)
+            sb.Append($" title=\"{EncodeAttribute(title)}\"");
+        if (encoding is not null)
+            sb.Append($" encoding=\"{EncodeAttribute(encoding)}\"");
+        foreach (var (key, value) in attributes.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            sb.Append($" {key}=\"{EncodeAttribute(value)}\"");
+        sb.Append('>');
+        return sb.ToString();
     }
 }

@@ -128,15 +128,41 @@ internal sealed class AttachmentNotesTests
     [Test]
     public void Notes_SurviveModelAndDraftDtoJsonRoundTrip()
     {
-        var original = new FollowUpAttachment("", "text", null, ContentBlock: "source", Notes: DangerousNotes);
+        var source = new TranscriptAttachmentSource(
+            TurnIndex: 2,
+            Timestamp: "2026-06-17T10:00:00.0000000Z",
+            ConversationHint: "Original prompt");
+        var original = new FollowUpAttachment("", "text", null, ContentBlock: "source", Notes: DangerousNotes, TranscriptSource: source);
         var model = JsonSerializer.Deserialize<FollowUpAttachment>(JsonSerializer.Serialize(original));
-        var dto = new FollowUpAttachmentDto("", "text", null, null, "source") { Notes = DangerousNotes };
+        var dto = new FollowUpAttachmentDto("", "text", null, null, "source") { Notes = DangerousNotes, TranscriptSource = source };
         var restored = JsonSerializer.Deserialize<List<FollowUpAttachmentDto>>(JsonSerializer.Serialize(new[] { dto }))!;
         Assert.Multiple(() =>
         {
             Assert.That(model, Is.EqualTo(original));
             Assert.That(restored.Single().Notes, Is.EqualTo(DangerousNotes));
+            Assert.That(restored.Single().TranscriptSource, Is.EqualTo(source));
             Assert.That(JsonSerializer.Deserialize<FollowUpAttachmentDto>("{\"Description\":\"old draft\"}")!.Notes, Is.Null);
+            Assert.That(JsonSerializer.Deserialize<FollowUpAttachmentDto>("{\"Description\":\"old draft\"}")!.TranscriptSource, Is.Null);
+        });
+    }
+
+    [Test]
+    public void PromptComposition_UsesTypedTranscriptBlockWhenSourceMetadataPresent()
+    {
+        var source = new TranscriptAttachmentSource(Timestamp: "2026-06-17T10:00:00.0000000Z", TurnIndex: 7);
+        var prompt = FollowUpPromptBuilder.Build("message",
+            [new FollowUpAttachment("", "Transcript", null, TranscriptQuote: "quoted", TranscriptSource: source)]);
+        var blocks = AttachmentBlockFormatter.ExtractAttachmentBlocks(prompt);
+        var (type, title) = AttachmentBlockFormatter.ExtractAttachmentMetadata(blocks.Single());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompt, Does.StartWith("The user has attached the following context items."));
+            Assert.That(blocks, Has.Count.EqualTo(1));
+            Assert.That(type, Is.EqualTo("transcript"));
+            Assert.That(title, Is.EqualTo("Transcript"));
+            Assert.That(AttachmentBlockFormatter.ExtractAttachmentContent(blocks.Single()), Is.EqualTo("quoted"));
+            Assert.That(AttachmentBlockFormatter.ExtractTranscriptSource(blocks.Single()), Is.EqualTo(source));
         });
     }
 }

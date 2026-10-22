@@ -191,6 +191,7 @@ internal sealed class TranscriptResponseEntry {
         Turn = turn;
         Sequence = sequence;
         Section = section;
+        TranscriptAttachmentSourceFactory.SetRole(section, "assistant");
         AllowQuickReplies = allowQuickReplies;
         RawTextBuilder = new StringBuilder();
     }

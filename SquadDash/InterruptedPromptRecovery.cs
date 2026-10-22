@@ -582,8 +582,23 @@ internal static partial class InterruptedPromptRecoveryDetector {
                 var metadata = AttachmentBlockFormatter.ExtractAttachmentMetadata(block);
                 var content = AttachmentBlockFormatter.ExtractAttachmentContent(block);
                 var label = FirstNonEmpty(metadata.Title, metadata.Type, "Attachment")!;
-                return new FollowUpAttachment(string.Empty, label, null, ContentBlock: content,
-                    Notes: AttachmentBlockFormatter.ExtractAttachmentNotes(block));
+                var notes = AttachmentBlockFormatter.ExtractAttachmentNotes(block);
+                if (string.Equals(metadata.Type, "transcript", StringComparison.Ordinal))
+                {
+                    return new FollowUpAttachment(
+                        string.Empty,
+                        label,
+                        null,
+                        TranscriptQuote: content,
+                        Notes: notes,
+                        TranscriptSource: AttachmentBlockFormatter.ExtractTranscriptSource(block));
+                }
+                return new FollowUpAttachment(
+                    string.Empty,
+                    label,
+                    null,
+                    ContentBlock: content,
+                    Notes: notes);
             })
             .ToArray();
 

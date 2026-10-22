@@ -42355,7 +42355,8 @@ public partial class MainWindow : Window
                             a.FileReferencePath,
                             a.RequiresRemovalConfirmation,
                             a.RemovalWarning,
-                            a.Notes))
+                            a.Notes,
+                            a.TranscriptSource))
                         .ToList();
                 }
             }
@@ -46060,6 +46061,7 @@ public partial class MainWindow : Window
                     promptParagraph.Inlines.Add(voiceRun);
                 }
             }
+            TranscriptAttachmentSourceFactory.SetRole(promptParagraph, promptIsSystemInjected ? "system" : "user");
             thread.Document.Blocks.Add(promptParagraph);
             topLevelBlocks.Add(promptParagraph);
             thread.PromptParagraphs.Add(new PromptEntry(promptParagraph, startedAt,
@@ -58511,7 +58513,8 @@ public partial class MainWindow : Window
                         d.FileReferencePath,
                         d.RequiresRemovalConfirmation,
                         d.RemovalWarning,
-                        d.Notes)));
+                        d.Notes,
+                        d.TranscriptSource)));
             }
             catch { /* corrupt data — ignore */ }
         }
@@ -59616,21 +59619,21 @@ public partial class MainWindow : Window
 
     private void AttachTranscriptFollowUp(RichTextBox rtb)
     {
+        if (TryBuildTranscriptFollowUpAttachment(rtb) is { } attachment)
+            AddTranscriptFollowUp(attachment);
+    }
+
+    private FollowUpAttachment? TryBuildTranscriptFollowUpAttachment(RichTextBox rtb)
+    {
         var quote = TranscriptCopyService.BuildSelectionText(rtb);
-        if (string.IsNullOrWhiteSpace(quote)) return;
+        if (string.IsNullOrWhiteSpace(quote))
+            return null;
 
-        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
-        // Deduplicate: don't add if the same transcript quote is already in the list.
-        if (list.Count >= 15 || list.Any(a => a.TranscriptQuote == quote)) return;
-
-        // Title: first non-whitespace line of the selection, capped at 80 chars.
         var firstLine = quote.Split('\n')
             .Select(l => l.Trim())
             .FirstOrDefault(l => l.Length > 0) ?? quote.TrimStart();
         var title = firstLine.Length > 80 ? firstLine[..80].TrimEnd() + "…" : firstLine;
 
-        // Scan backwards through the thread's prompt paragraphs to find the prompt
-        // that precedes the selection, giving the AI useful context.
         var thread = FindThreadForDocument(rtb.Document);
         var selectionStart = rtb.Selection.Start;
         PromptEntry? precedingEntry = null;
@@ -59651,7 +59654,9 @@ public partial class MainWindow : Window
                 {
                     if (entry.Paragraph.Parent is null) continue;
                     if (entry.Paragraph.ContentStart.CompareTo(selectionStart) < 0)
+                    {
                         precedingEntry = entry;
+                    }
                     else
                         break;
                 }
@@ -59667,18 +59672,32 @@ public partial class MainWindow : Window
         string? originalPrompt = precedingEntry is not null
             ? new TextRange(precedingEntry.Paragraph.ContentStart, precedingEntry.Paragraph.ContentEnd).Text.Trim()
             : null;
+        var transcriptSource = TranscriptAttachmentSourceFactory.FromSelection(
+            thread,
+            rtb.Document,
+            selectionStart,
+            rtb.Selection.End);
 
-        // TRACE: log raw bytes of quote at build time to diagnose missing-space bug
         var quoteBytes = System.Text.Encoding.UTF8.GetBytes(quote.Length > 200 ? quote[..200] : quote);
         SquadDashTrace.Write(TraceCategory.UI,
             $"[ExcerptTrace] AttachTranscriptFollowUp — quote length={quote.Length}, " +
             $"bytes[0..{Math.Min(quoteBytes.Length, 200)}]: {string.Join(",", quoteBytes.Select(b => b.ToString()))}");
 
-        list.Add(new FollowUpAttachment(
-            CommitSha:      string.Empty,
-            Description:    title,
+        return new FollowUpAttachment(
+            CommitSha: string.Empty,
+            Description: title,
             OriginalPrompt: originalPrompt,
-            TranscriptQuote: quote));
+            TranscriptQuote: quote,
+            TranscriptSource: transcriptSource);
+    }
+
+    private void AddTranscriptFollowUp(FollowUpAttachment attachment)
+    {
+        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+        if (list.Count >= 15 || list.Any(a => a.TranscriptQuote == attachment.TranscriptQuote))
+            return;
+
+        list.Add(attachment);
         UpdateFollowUpStrip();
         SyncQueuePanel();
         if (_activeTabId is null) PersistDraftFollowUp();
@@ -59690,10 +59709,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void AddTranscriptSelectionToNewChat(RichTextBox rtb)
     {
+        var precomputedAttachment = TryBuildTranscriptFollowUpAttachment(rtb);
+
         void AddAndAttach()
         {
             AddEmptyQueueSlot();
-            AttachTranscriptFollowUp(rtb);
+            if (precomputedAttachment is not null)
+                AddTranscriptFollowUp(precomputedAttachment);
         }
 
         PreserveVisibleTranscriptViewportsThroughLayout(
@@ -60007,6 +60029,8 @@ public partial class MainWindow : Window
     private static FollowUpAttachment BuildHistoricalTypedAttachment(string block)
     {
         var (type, title) = AttachmentBlockFormatter.ExtractAttachmentMetadata(block);
+        var notes = AttachmentBlockFormatter.ExtractAttachmentNotes(block);
+        var content = AttachmentBlockFormatter.ExtractAttachmentContent(block);
         var description = !string.IsNullOrWhiteSpace(title)
             ? title!
             : type switch
@@ -60021,12 +60045,23 @@ public partial class MainWindow : Window
                 _                => "Attachment",
             };
 
+        if (string.Equals(type, "transcript", StringComparison.Ordinal))
+        {
+            return new FollowUpAttachment(
+                CommitSha: string.Empty,
+                Description: description,
+                OriginalPrompt: null,
+                TranscriptQuote: content,
+                Notes: notes,
+                TranscriptSource: AttachmentBlockFormatter.ExtractTranscriptSource(block));
+        }
+
         return new FollowUpAttachment(
             CommitSha: string.Empty,
             Description: description,
             OriginalPrompt: null,
             ContentBlock: block,
-            Notes: AttachmentBlockFormatter.ExtractAttachmentNotes(block));
+            Notes: notes);
     }
 
     private void AttachContextFollowUp(string description, string contentBlock)    {
@@ -60620,8 +60655,6 @@ public partial class MainWindow : Window
                     label.Inlines.Add(icon);
                     label.Inlines.Add(descRun);
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    var capturedMsgId = att.InboxMessageId;
-                    label.MouseLeftButtonUp += (_, _) => OpenOrFocusInboxMessage(capturedMsgId);
                 }
                 else if (att.ImagePath != null)
                 {
@@ -60632,26 +60665,6 @@ public partial class MainWindow : Window
                     label.Inlines.Add(icon);
                     label.Inlines.Add(descRun);
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    var capturedImg    = capturedAtt;
-                    var capturedItemId = _activeTabId ?? "";
-                    label.MouseLeftButtonUp += (_, _) =>
-                    {
-                        var annotJsonPath = capturedImg.ImagePath + ".annotation.json";
-                        var sourcePngPath = capturedImg.ImagePath + ".source.png";
-                        var annotExists  = File.Exists(annotJsonPath);
-                        var sourceExists = File.Exists(sourcePngPath);
-                        SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Chip clicked: imagePath={capturedImg.ImagePath} annotJson={annotExists} sourcePng={sourceExists}");
-                        if (annotExists && sourceExists)
-                        {
-                            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Opening editor (sidecar present)");
-                            ReopenImageForEditing(capturedImg, capturedItemId);
-                        }
-                        else
-                        {
-                            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Opening plain viewer (no sidecar) annotJson={annotJsonPath} sourcePng={sourcePngPath}");
-                            PromptAttachmentViewerWindow.Show(new[] { capturedImg }, CanShowOwnedWindow() ? this : null);
-                        }
-                    };
                     if (File.Exists(att.ImagePath))
                     {
                         var bmp = new BitmapImage();
@@ -60701,8 +60714,6 @@ public partial class MainWindow : Window
                         label.Inlines.Add(descRun);
                         label.ToolTip = MakeThemedToolTip($"Plan: {resolvedPlan.Title ?? System.IO.Path.GetFileNameWithoutExtension(att.FileReferencePath)}");
                         label.Cursor = System.Windows.Input.Cursors.Hand;
-                        var capturedPlan = resolvedPlan;
-                        label.MouseLeftButtonUp += (_, _) => OpenPlanFromStore(capturedPlan);
                     }
                     else
                     {
@@ -60715,9 +60726,6 @@ public partial class MainWindow : Window
                         label.Inlines.Add(descRun);
                         label.ToolTip = MakeThemedToolTip(att.FileReferencePath);
                         label.Cursor  = System.Windows.Input.Cursors.Hand;
-                        var capturedPath = att.FileReferencePath;
-                        label.MouseLeftButtonUp += (_, _) =>
-                            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{capturedPath}\"");
                     }
                 }
                 else if (att.ContentBlock != null)
@@ -60754,27 +60762,6 @@ public partial class MainWindow : Window
                         label.Inlines.Add(descRun);
                     }
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    if (isInboxExcerpt)
-                    {
-                        // For inbox-excerpt: open the message window and select the excerpt
-                        SquadDashTrace.Write(TraceCategory.Inbox,
-                            $"FollowUpStrip.BuildItem: registering inbox-excerpt click handler for msgId={att.InboxMessageId}");
-                        label.MouseLeftButtonUp += (_, _) =>
-                        {
-                            SquadDashTrace.Write(TraceCategory.Inbox,
-                                $"FollowUpStrip.ExcerptChip.Click: clicked — inboxMessageId={capturedAtt.InboxMessageId}");
-                            var excerptText = ExtractExcerptTextFromAttachment(capturedAtt.ContentBlock!);
-                            SquadDashTrace.Write(TraceCategory.Inbox,
-                                $"FollowUpStrip.ExcerptChip.Click: extracted excerptText len={excerptText.Length} text='{excerptText[..Math.Min(80, excerptText.Length)]}'");
-                            OpenOrFocusInboxMessageAndSelectText(capturedAtt.InboxMessageId!, excerptText);
-                        };
-                    }
-                    else
-                    {
-                        // For other content blocks: show the viewer window
-                        label.MouseLeftButtonUp += (_, _) =>
-                            PromptAttachmentViewerWindow.Show(new[] { capturedAtt }, CanShowOwnedWindow() ? this : null, msgId => OpenOrFocusInboxMessage(msgId));
-                    }
                 }
                 else if (att.TranscriptQuote != null)
                 {
@@ -60785,41 +60772,36 @@ public partial class MainWindow : Window
                     label.Inlines.Add(prefix);
                     label.Inlines.Add(quoteRun);
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    label.MouseLeftButtonUp += (_, _) =>
-                        PromptAttachmentViewerWindow.Show(new[] { capturedAtt }, CanShowOwnedWindow() ? this : null);
                 }
                 else
                 {
                     AppendCommitFollowUpInlines(label, att);
                 }
 
-                var attachmentKey = _activeTabId ?? "";
-                var notesPanel = AttachmentNotesEditor.Create(att, notes =>
-                {
-                    var index = list.FindIndex(candidate => ReferenceEquals(candidate, capturedAtt));
-                    if (index < 0)
-                    {
-                        SquadDashTrace.Write(TraceCategory.UI, "Attachment notes edit ignored: attachment was removed.");
-                        return;
-                    }
-                    capturedAtt = capturedAtt with { Notes = notes };
-                    list[index] = capturedAtt;
-                    if (attachmentKey.Length == 0)
-                        PersistDraftFollowUp();
-                    else
-                        SyncQueuePanel();
-                });
-                if (notesPanel is null)
-                {
-                    row.Children.Add(label);
-                }
-                else
-                {
-                    var content = new StackPanel();
-                    content.Children.Add(label);
-                    content.Children.Add(notesPanel);
-                    row.Children.Add(content);
-                }
+                AttachmentStripRow.Populate(row, label, att, _ =>
+                    PromptAttachmentViewerWindow.Show(
+                        new[] { capturedAtt }, CanShowOwnedWindow() ? this : null,
+                        msgId => OpenOrFocusInboxMessage(msgId),
+                        notesChanged: (current, notes) =>
+                        {
+                            // Queueing moves the draft list to a new key while this viewer can remain open.
+                            var owner = _followUpAttachments.FirstOrDefault(entry => ReferenceEquals(entry.Value, list));
+                            var index = owner.Value?.FindIndex(candidate => ReferenceEquals(candidate, current)) ?? -1;
+                            if (index < 0)
+                            {
+                                SquadDashTrace.Write(TraceCategory.UI, "Attachment notes edit ignored: attachment was removed.");
+                                return current;
+                            }
+                            capturedAtt = current with { Notes = notes };
+                            owner.Value![index] = capturedAtt;
+                            if (owner.Key.Length == 0)
+                                PersistDraftFollowUp();
+                            else
+                                SyncQueuePanel();
+                            UpdateFollowUpStrip();
+                            return capturedAtt;
+                        },
+                        focusNotes: true));
                 FollowUpItemsPanel.Children.Add(row);
                 _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentRow{i}"]     = row;
                 _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentDismiss{i}"] = dismissBtn;
@@ -60905,12 +60887,8 @@ public partial class MainWindow : Window
         var prefix = new Run("↩ ");
         prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
 
-        var shaRun = new Run(shaDisplay)
-        {
-            TextDecorations = TextDecorations.Underline,
-            Cursor          = System.Windows.Input.Cursors.Hand,
-        };
-        shaRun.SetResourceReference(Run.ForegroundProperty, "DocumentLinkText");
+        var shaRun = new Run(shaDisplay);
+        shaRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
 
         var suffix = new Run($" — \"{att.Description}\"");
         suffix.SetResourceReference(Run.ForegroundProperty, "LabelText");
@@ -60919,18 +60897,6 @@ public partial class MainWindow : Window
             label.Inlines.Add(prefix);
         label.Inlines.Add(shaRun);
         label.Inlines.Add(suffix);
-
-        // Clicking the underlined SHA opens the commit on GitHub.
-        var capturedSha = att.CommitSha;
-        shaRun.MouseLeftButtonUp += (_, e) =>
-        {
-            e.Handled = true;
-            var commitUrl = _workspaceGitHubUrl is not null
-                ? $"{_workspaceGitHubUrl}/commit/{capturedSha}"
-                : null;
-            if (commitUrl is not null)
-                _ = OpenExternalLinkWithCommitCheckAsync(commitUrl);
-        };
     }
 
     // Clicking anywhere on the follow-up strip (not the dismiss buttons) scrolls the
@@ -61513,6 +61479,7 @@ public partial class MainWindow : Window
                 RequiresRemovalConfirmation = a.RequiresRemovalConfirmation,
                 RemovalWarning = a.RemovalWarning,
                 Notes = a.Notes,
+                TranscriptSource = a.TranscriptSource,
             }).ToList();
             _docsPanelState = state with
             {

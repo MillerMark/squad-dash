@@ -1868,6 +1868,7 @@ internal sealed class TranscriptConversationManager {
                             RequiresRemovalConfirmation = a.RequiresRemovalConfirmation,
                             RemovalWarning = a.RemovalWarning,
                             Notes = a.Notes,
+                            TranscriptSource = a.TranscriptSource,
                         })
                         .ToList();
                 }
@@ -1973,7 +1974,8 @@ internal sealed class TranscriptConversationManager {
                 a.ContentBlock     != b.ContentBlock ||
                 a.Notes            != b.Notes ||
                 a.ImagePath        != b.ImagePath ||
-                a.ImageSubmittedAt != b.ImageSubmittedAt)
+                a.ImageSubmittedAt != b.ImageSubmittedAt ||
+                !Equals(a.TranscriptSource, b.TranscriptSource))
                 return false;
         }
 

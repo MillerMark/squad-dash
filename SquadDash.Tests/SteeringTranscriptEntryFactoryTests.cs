@@ -158,6 +158,32 @@ internal sealed class SteeringTranscriptEntryFactoryTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void PersistedProviderPrompt_ReconstructsTranscriptSourceMetadata()
+    {
+        var source = new TranscriptAttachmentSource(
+            TurnIndex: 3,
+            Timestamp: "2026-06-17T10:00:00.0000000Z",
+            ConversationHint: "Queue investigation");
+        var transcriptBlock = AttachmentBlockFormatter.BuildTranscriptAttachmentBlock(
+            "Transcript",
+            "selected quote",
+            source);
+        var providerPrompt =
+            "The user has attached the following context items. Please refer to them as needed.\n" +
+            transcriptBlock + "\n\n" +
+            "Continue.";
+
+        var display = SteeringTranscriptEntryFactory.ParsePersistedPrompt(providerPrompt);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(display.Attachments, Has.Count.EqualTo(1));
+            Assert.That(display.Attachments[0].TranscriptQuote, Is.EqualTo("selected quote"));
+            Assert.That(display.Attachments[0].TranscriptSource, Is.EqualTo(source));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void ResolveInsertionIndex_NestedSteeringParagraph_SortsByDocumentOrder()
     {
         var thread = new TranscriptThreadState("doc-order", TranscriptThreadKind.Agent, "Agent", Now);

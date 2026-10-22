@@ -40,14 +40,12 @@ internal static class AttachmentNotesEditor
             Padding = new Thickness(0, 2, 6, 0),
             VerticalAlignment = VerticalAlignment.Top,
         };
-        label.SetResourceReference(Control.FontSizeProperty, "FontSizeBody");
+        label.SetResourceReference(Control.FontSizeProperty, "FontSizeSmall");
         label.SetResourceReference(Control.ForegroundProperty, "LabelText");
         DockPanel.SetDock(label, Dock.Left);
         var panel = new DockPanel { Margin = new Thickness(0, 3, 0, 3), Cursor = Cursors.Arrow };
         panel.Children.Add(label);
         panel.Children.Add(editor);
-        // Do not let notes clicks trigger the attachment strip's approval navigation.
-        panel.MouseLeftButtonUp += (_, e) => e.Handled = true;
         return panel;
     }
 }
