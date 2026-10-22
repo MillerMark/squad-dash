@@ -85,8 +85,160 @@ internal sealed class ProviderFailurePresentationTests
             Assert.That(throttled.Guidance, Does.Contain("rate window"));
             Assert.That(quota.Category, Is.EqualTo(ProviderFailureCategory.RateLimitOrQuota));
             Assert.That(quota.Title, Does.Contain("requires action"));
-            Assert.That(quota.Explanation, Does.Contain("Waiting alone is not expected"));
+            Assert.That(quota.Explanation, Does.Contain("allowance is exhausted"));
+            Assert.That(quota.Guidance, Does.Not.Contain("retry").IgnoreCase);
         });
+    }
+
+    [TestCase("copilot")]
+    [TestCase("openai")]
+    public void Analyze_QuotaWithDifferentModelAlternate_GuidesProviderSwitch(string alternateProviderType)
+    {
+        var result = AnalyzeQuotaWithAlternate("claude-sonnet-4.6", alternateProviderType: alternateProviderType);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Category, Is.EqualTo(ProviderFailureCategory.RateLimitOrQuota));
+            Assert.That(result.IsQuotaEntitlementFailure, Is.True);
+            Assert.That(result.Guidance, Is.EqualTo(
+                "OpenAI quota is exhausted. You can disable this provider to try an alternate. " +
+                "To re-enable OpenAI, increase quota/spend settings or wait for the quota reset."));
+            Assert.That(result.BuildCopyText("Agent"), Does.Not.Contain("retry").IgnoreCase);
+        });
+    }
+
+    [TestCase(null, true)]
+    [TestCase("", true)]
+    [TestCase("   ", true)]
+    [TestCase("auto", true)]
+    [TestCase("gpt-5.4", true)]
+    [TestCase(" GPT-5.4 ", true)]
+    [TestCase("claude-sonnet-4.6", false)]
+    public void Analyze_QuotaWithoutViableAlternate_GuidesSettings(string? alternateModel, bool enabled)
+    {
+        var result = AnalyzeQuotaWithAlternate(alternateModel, enabled);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Guidance, Is.EqualTo(
+                "OpenAI quota is exhausted. You can add an alternate provider in Settings. " +
+                "You can also increase quota/spend settings (or wait for quota reset) to continue."));
+            Assert.That(result.Guidance, Does.Not.Contain("retry").IgnoreCase);
+        });
+    }
+
+    [TestCase("insufficient_quota")]
+    [TestCase("HTTP 402 Payment Required")]
+    [TestCase("HTTP 403 account quota exhausted")]
+    [TestCase("HTTP 429 quota entitlement exhausted")]
+    [TestCase("HTTP 429 quota is exhausted")]
+    [TestCase("monthly usage limit exceeded")]
+    [TestCase("billing_hard_limit_reached")]
+    public void Analyze_QuotaEntitlement_DoesNotDependOn429(string message)
+    {
+        var result = ProviderFailurePresentation.Analyze(
+            message, new ProviderFailureContext(ProviderType: "copilot"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Category, Is.EqualTo(ProviderFailureCategory.RateLimitOrQuota));
+            Assert.That(result.IsQuotaEntitlementFailure, Is.True);
+            Assert.That(result.Guidance, Does.StartWith("GitHub Copilot quota is exhausted."));
+            Assert.That(result.Guidance, Does.Contain("add an alternate provider in Settings"));
+            Assert.That(result.Guidance, Does.Not.Contain("retry").IgnoreCase);
+        });
+    }
+
+    [Test]
+    public void Context_UsesFailedProfileAndActualSessionModel_NotCoordinatorOrRequestedModel()
+    {
+        var coordinator = new ModelProfile("coordinator", "Coordinator provider", "copilot", null, "gpt-5.4", null);
+        var failed = new ModelProfile("failed", "Failed provider", "openai", null, "auto", null);
+        var context = ProviderFailureContext.FromEvent(
+            new SquadSdkEvent
+            {
+                ProfileId = failed.Id,
+                SessionModel = "gpt-5.4",
+                Model = "auto",
+                RequestedModel = "auto"
+            },
+            coordinator,
+            [coordinator, failed]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(context.ProfileAlias, Is.EqualTo(failed.Alias));
+            Assert.That(context.Model, Is.EqualTo("gpt-5.4"));
+            Assert.That(context.HasDifferentModelAlternate, Is.False);
+        });
+    }
+
+    [Test]
+    public void Context_DoesNotCountFailedProfileAsAlternate_WhenSessionModelDiffers()
+    {
+        var failed = new ModelProfile("failed", "OpenAI", "openai", null, "gpt-5.4-mini", null);
+        var context = ProviderFailureContext.FromEvent(
+            new SquadSdkEvent { SessionModel = "gpt-5.4" }, failed, [failed]);
+
+        Assert.That(context.HasDifferentModelAlternate, Is.False);
+    }
+
+    [TestCase(null)]
+    [TestCase("auto")]
+    public void Context_UnknownFailedModel_DoesNotClaimDifferentModelAlternate(string? model)
+    {
+        var context = new ProviderFailureContext(
+            Model: model,
+            AvailableProfiles: [new ModelProfile("alternate", "Other", "openai", null, "gpt-5.4", null)]);
+
+        Assert.That(context.HasDifferentModelAlternate, Is.False);
+    }
+
+    [Test]
+    public void Context_UnrecognizedFailedProfile_DoesNotUseCoordinatorName()
+    {
+        var coordinator = new ModelProfile("coordinator", "Coordinator provider", "copilot", null, "gpt-5.4", null);
+        var context = ProviderFailureContext.FromEvent(
+            new SquadSdkEvent { ProfileId = "removed-profile", ProviderType = "openai" },
+            coordinator,
+            [coordinator]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(context.ProfileAlias, Is.Null);
+            Assert.That(context.Model, Is.Null);
+            Assert.That(context.ProviderType, Is.EqualTo("openai"));
+            Assert.That(context.HasDifferentModelAlternate, Is.False);
+        });
+    }
+
+    [TestCase("HTTP 429 tokens per minute rate limit exceeded", ProviderFailureCategory.RateLimitOrQuota,
+        "Wait for the provider's rate window to reset, reduce concurrent model work, or review the deployment's rate allocation before retrying.")]
+    [TestCase("HTTP 503 Service Unavailable", ProviderFailureCategory.ProviderService,
+        "Retry after a short delay and check the provider status page if the failure continues.")]
+    [TestCase("HTTP 403 permission denied for billing settings", ProviderFailureCategory.Authentication,
+        "Update the profile's API key or token and confirm that it can access the selected model or deployment.")]
+    public void Analyze_NonQuotaGuidanceIsUnchanged(
+        string message, ProviderFailureCategory category, string guidance)
+    {
+        var result = ProviderFailurePresentation.Analyze(message);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Category, Is.EqualTo(category));
+            Assert.That(result.IsQuotaEntitlementFailure, Is.False);
+            Assert.That(result.Guidance, Is.EqualTo(guidance));
+        });
+    }
+
+    private static ProviderFailurePresentation AnalyzeQuotaWithAlternate(
+        string? alternateModel, bool enabled = true, string alternateProviderType = "copilot")
+    {
+        var failed = new ModelProfile("failed", "OpenAI", "openai", null, "gpt-5.4", null);
+        var alternate = new ModelProfile("alternate", "Another provider", alternateProviderType, null, alternateModel, null, IsEnabled: enabled);
+        var context = ProviderFailureContext.FromEvent(
+            new SquadSdkEvent { ProfileId = failed.Id }, failed, [failed, alternate]);
+        return ProviderFailurePresentation.Analyze("HTTP 429 insufficient_quota", context);
     }
 
     [Test]

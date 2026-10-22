@@ -1014,7 +1014,7 @@ public sealed class RegionHighlightingTests
     [TestCase("   at SquadDash.MainWindow.<.cctor>b__0_0()", "<.cctor>b__0_0")]
     [TestCase("   at Example.Worker..ctor()", "ctor")]
     [TestCase("   at System.IO.__Error.WinIOError(Int32 errorCode, String maybeFullPath)", "WinIOError")]
-    [TestCase("    at java.base/java.lang.Double.parseDouble(Double.java:651)", "parseDouble")]
+    [TestCase("    at java.base/java.lang.Double.parseDouble(Unknown Source)", "parseDouble")]
     [TestCase("    at module/com.example.Worker.run(Unknown Source)", "run")]
     [TestCase("    at loader/java.base/java.lang.Double.parseDouble(Double.java:651)", null)]
     [TestCase("    at java.base//java.lang.Double.parseDouble(Double.java:651)", null)]
@@ -1045,6 +1045,35 @@ public sealed class RegionHighlightingTests
         AssertErrorSections("   at Example.Worker.Run(String value) in " + path + ":line 214",
             ("at", "Subtle"), ("Run", "Method"), ("(", "Subtle"), (")", "Subtle"),
             ("in", "Subtle"), (fileName, "FileName"), (":line", "Subtle"), ("214", "LineNumber"));
+    }
+
+    [TestCase("com.example.shop.PaymentService.processPayment", "processPayment", "PaymentService.java", "76")]
+    [TestCase("java.base/jdk.internal.math.FloatingDecimal.readJavaFormatString", "readJavaFormatString", "FloatingDecimal.java", "2054")]
+    [TestCase("java.base/java.lang.Double.parseDouble", "parseDouble", "Double.java", "651")]
+    public void ErrorMessage_JavaSourceColorsOnlyFileNameAndLineDigits(
+        string qualifiedMethod, string method, string fileName, string lineNumber)
+    {
+        foreach (var indent in new[] { "", "    ", "\t" })
+        {
+            AssertErrorSections($"{indent}at {qualifiedMethod}({fileName}:{lineNumber})",
+                ("at", "Subtle"), (method, "Method"), ("(", "Subtle"),
+                (fileName, "FileName"), (":", "Subtle"), (lineNumber, "LineNumber"), (")", "Subtle"));
+        }
+    }
+
+    [TestCase("Unknown Source")]
+    [TestCase("Native Method")]
+    [TestCase("PaymentService.java")]
+    [TestCase("PaymentService.java:nope")]
+    [TestCase("PaymentService.java:76x")]
+    [TestCase("PaymentService.java:76 extra")]
+    [TestCase("PaymentService.cs:76")]
+    [TestCase("String value, Int32 count")]
+    [TestCase("String value = \"PaymentService.java:76\"")]
+    public void ErrorMessage_JavaSourceDoesNotColorOtherParenthesizedContent(string content)
+    {
+        AssertErrorSections($"   at com.example.shop.PaymentService.processPayment({content})",
+            ("at", "Subtle"), ("processPayment", "Method"), ("(", "Subtle"), (")", "Subtle"));
     }
 
     [TestCase("Occurred: 2026-10-19T15:16:39.096-04:00", ".096-04:00")]
@@ -1112,7 +1141,8 @@ public sealed class RegionHighlightingTests
             "    at java.base/java.lang.NumberFormatException.ThrowException(NumberFormatException.java:42)",
             ("at", "Subtle"), ("ThrowException", "Method"), ("(", "Subtle"), (")", "Subtle"),
             ("in", "Subtle"), ("AggregateException.cs", "FileName"), (":line", "Subtle"), ("123", "LineNumber"),
-            ("at", "Subtle"), ("ThrowException", "Method"), ("(", "Subtle"), (")", "Subtle"));
+            ("at", "Subtle"), ("ThrowException", "Method"), ("(", "Subtle"),
+            ("NumberFormatException.java", "FileName"), (":", "Subtle"), ("42", "LineNumber"), (")", "Subtle"));
     }
 
     [TestCase("\n")]
@@ -1134,15 +1164,23 @@ public sealed class RegionHighlightingTests
 
         AssertErrorSections(content.Replace("\r\n", "\n").Replace("\n", newline),
             ("IllegalArgumentException", "ExceptionType"), ("Failed to process payment for order 1042", "Message"),
-            ("at", "Subtle"), ("processPayment", "Method"), ("(", "Subtle"), (")", "Subtle"),
-            ("at", "Subtle"), ("checkout", "Method"), ("(", "Subtle"), (")", "Subtle"),
-            ("at", "Subtle"), ("main", "Method"), ("(", "Subtle"), (")", "Subtle"),
+            ("at", "Subtle"), ("processPayment", "Method"), ("(", "Subtle"),
+            ("PaymentService.java", "FileName"), (":", "Subtle"), ("76", "LineNumber"), (")", "Subtle"),
+            ("at", "Subtle"), ("checkout", "Method"), ("(", "Subtle"),
+            ("OrderController.java", "FileName"), (":", "Subtle"), ("42", "LineNumber"), (")", "Subtle"),
+            ("at", "Subtle"), ("main", "Method"), ("(", "Subtle"),
+            ("Application.java", "FileName"), (":", "Subtle"), ("18", "LineNumber"), (")", "Subtle"),
             ("NumberFormatException", "ExceptionType"), ("For input string: \"12.5x\"", "Message"),
-            ("at", "Subtle"), ("readJavaFormatString", "Method"), ("(", "Subtle"), (")", "Subtle"),
-            ("at", "Subtle"), ("parseDouble", "Method"), ("(", "Subtle"), (")", "Subtle"),
-            ("at", "Subtle"), ("parseDouble", "Method"), ("(", "Subtle"), (")", "Subtle"),
-            ("at", "Subtle"), ("parseAmount", "Method"), ("(", "Subtle"), (")", "Subtle"),
-            ("at", "Subtle"), ("processPayment", "Method"), ("(", "Subtle"), (")", "Subtle"));
+            ("at", "Subtle"), ("readJavaFormatString", "Method"), ("(", "Subtle"),
+            ("FloatingDecimal.java", "FileName"), (":", "Subtle"), ("2054", "LineNumber"), (")", "Subtle"),
+            ("at", "Subtle"), ("parseDouble", "Method"), ("(", "Subtle"),
+            ("FloatingDecimal.java", "FileName"), (":", "Subtle"), ("110", "LineNumber"), (")", "Subtle"),
+            ("at", "Subtle"), ("parseDouble", "Method"), ("(", "Subtle"),
+            ("Double.java", "FileName"), (":", "Subtle"), ("651", "LineNumber"), (")", "Subtle"),
+            ("at", "Subtle"), ("parseAmount", "Method"), ("(", "Subtle"),
+            ("PaymentService.java", "FileName"), (":", "Subtle"), ("91", "LineNumber"), (")", "Subtle"),
+            ("at", "Subtle"), ("processPayment", "Method"), ("(", "Subtle"),
+            ("PaymentService.java", "FileName"), (":", "Subtle"), ("72", "LineNumber"), (")", "Subtle"));
     }
 
     [TestCase("Run() 2026-10-19T15:16:39 214 Worker.cs")]
@@ -1150,6 +1188,12 @@ public sealed class RegionHighlightingTests
     [TestCase("Occurred: 2026-10-19T15:16:39garbage")]
     [TestCase("   at Example.Worker.Run() in C:\\Worker.cs:line nope")]
     [TestCase("   at Example.Worker.Run(\nString value)")]
+    [TestCase("See (PaymentService.java:76) for details.")]
+    [TestCase("PaymentService.java:76")]
+    [TestCase("   com.example.shop.PaymentService.processPayment(PaymentService.java:76)")]
+    [TestCase("Look at com.example.shop.PaymentService.processPayment(PaymentService.java:76)")]
+    [TestCase("at com.example.shop.PaymentService.processPayment(PaymentService.java:76) is an example")]
+    [TestCase("   at com.example.shop.PaymentService.processPayment(PaymentService.java:\n76)")]
     public void ErrorMessage_ContextDoesNotLeakToUnrelatedText(string content)
     {
         AssertErrorSections(content);

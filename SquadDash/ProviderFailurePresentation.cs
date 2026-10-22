@@ -24,7 +24,44 @@ internal sealed record ProviderFailureContext(
     string? ProviderBaseUrl = null,
     string? ProviderType = null,
     string? WireApi = null,
-    string? RequestedModel = null);
+    string? RequestedModel = null,
+    string? ProfileId = null,
+    IReadOnlyList<ModelProfile>? AvailableProfiles = null)
+{
+    internal bool HasDifferentModelAlternate =>
+        IsConcreteModel(Model) &&
+        AvailableProfiles?.Any(profile =>
+            profile.IsEnabled &&
+            !string.Equals(profile.Id, ProfileId, StringComparison.OrdinalIgnoreCase) &&
+            IsConcreteModel(profile.Model) &&
+            !string.Equals(profile.Model?.Trim(), Model?.Trim(), StringComparison.OrdinalIgnoreCase)) == true;
+
+    internal static ProviderFailureContext FromEvent(
+        SquadSdkEvent evt,
+        ModelProfile? activeProfile,
+        IReadOnlyList<ModelProfile>? profiles)
+    {
+        var profile = profiles?.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, evt.ProfileId, StringComparison.OrdinalIgnoreCase));
+        if (profile is null &&
+            (string.IsNullOrWhiteSpace(evt.ProfileId) ||
+             string.Equals(evt.ProfileId, activeProfile?.Id, StringComparison.OrdinalIgnoreCase)))
+            profile = activeProfile;
+        return new ProviderFailureContext(
+            evt.SessionModel ?? evt.Model ?? profile?.Model,
+            evt.ProfileAlias ?? profile?.Alias,
+            evt.ProviderBaseUrl ?? profile?.ProviderUrl,
+            evt.ProviderType ?? profile?.ProviderType,
+            evt.WireApi ?? profile?.WireApi,
+            evt.RequestedModel,
+            evt.ProfileId ?? profile?.Id,
+            profiles);
+    }
+
+    private static bool IsConcreteModel(string? model) =>
+        !string.IsNullOrWhiteSpace(model) &&
+        !string.Equals(model.Trim(), "auto", StringComparison.OrdinalIgnoreCase);
+}
 
 internal sealed record ProviderFailurePresentation(
     ProviderFailureCategory Category,
@@ -34,6 +71,8 @@ internal sealed record ProviderFailurePresentation(
     string RawError,
     string? ContextLine)
 {
+    internal bool IsQuotaEntitlementFailure { get; init; }
+
     private static readonly Regex SecretAssignmentPattern = new(
         @"(?i)(api[_-]?key|authorization|token|secret|password|bearer)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+",
         RegexOptions.Compiled);
@@ -53,8 +92,11 @@ internal sealed record ProviderFailurePresentation(
         var normalized = raw.ToLowerInvariant();
         var isTerminalAccountQuota = ContainsAny(
             normalized,
-            "insufficient_quota", "billing", "payment required", "credits exhausted",
-            "credit exhausted", "account quota", "hard limit", "monthly usage limit");
+            "insufficient_quota", "payment required", "credits exhausted",
+            "credit exhausted", "account quota", "hard limit", "monthly usage limit",
+            "billing_hard_limit", "billing_not_active", "quota exhausted", "quota is exhausted",
+            "quota entitlement") ||
+            (HasHttpStatus(normalized, 429) && normalized.Contains("billing", StringComparison.Ordinal));
         var isAzure = ContainsAny(
             (context.ProviderBaseUrl ?? string.Empty).ToLowerInvariant(),
             "azure.com", "azure.net", "services.ai.azure.com") ||
@@ -93,6 +135,13 @@ internal sealed record ProviderFailurePresentation(
             explanation = "The request ended before the provider returned a response.";
             guidance = "Retry the operation. If cancellation repeats, check whether a restart, timeout, or user cancellation is interrupting the request.";
         }
+        else if (isTerminalAccountQuota)
+        {
+            category = ProviderFailureCategory.RateLimitOrQuota;
+            title = "Provider quota or billing requires action";
+            explanation = "The provider rejected the request because the account's usable quota or billing allowance is exhausted.";
+            guidance = BuildQuotaGuidance(context);
+        }
         else if (HasHttpStatus(normalized, 401) || HasHttpStatus(normalized, 403) ||
                  ContainsAny(normalized, "unauthorized", "forbidden", "invalid api key", "incorrect api key", "authentication failed", "permission denied"))
         {
@@ -105,15 +154,9 @@ internal sealed record ProviderFailurePresentation(
                  ContainsAny(normalized, "rate limit", "ratelimit", "too many requests", "insufficient_quota", "quota exceeded", "capacity exceeded"))
         {
             category = ProviderFailureCategory.RateLimitOrQuota;
-            title = isTerminalAccountQuota
-                ? "Provider quota or billing requires action"
-                : "Provider rate limit persisted after retries";
-            explanation = isTerminalAccountQuota
-                ? "The provider rejected the request because the account's usable quota or billing allowance is exhausted. Waiting alone is not expected to resolve it."
-                : "The provider continued throttling the request after SquadDash used its bounded wait-and-resume recovery.";
-            guidance = isTerminalAccountQuota
-                ? "Review the provider account's quota, credits, billing, and deployment access before retrying."
-                : "Wait for the provider's rate window to reset, reduce concurrent model work, or review the deployment's rate allocation before retrying.";
+            title = "Provider rate limit persisted after retries";
+            explanation = "The provider continued throttling the request after SquadDash used its bounded wait-and-resume recovery.";
+            guidance = "Wait for the provider's rate window to reset, reduce concurrent model work, or review the deployment's rate allocation before retrying.";
         }
         else if (isTransientManagedDeploymentFailure)
         {
@@ -199,7 +242,10 @@ internal sealed record ProviderFailurePresentation(
             explanation,
             guidance,
             raw,
-            BuildContextLine(context));
+            BuildContextLine(context))
+        {
+            IsQuotaEntitlementFailure = category == ProviderFailureCategory.RateLimitOrQuota && isTerminalAccountQuota
+        };
     }
 
     internal string BuildThreadSummary(string agentLabel) =>
@@ -218,6 +264,24 @@ internal sealed record ProviderFailurePresentation(
         lines.Add(RawError);
         lines.Add("How to fix: " + Guidance);
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string BuildQuotaGuidance(ProviderFailureContext context)
+    {
+        var providerName = !string.IsNullOrWhiteSpace(context.ProfileAlias)
+            ? context.ProfileAlias.Trim()
+            : context.ProviderType?.Trim().ToLowerInvariant() switch
+            {
+                "copilot" => "GitHub Copilot",
+                "openai" => "OpenAI",
+                "azure" => "Azure OpenAI",
+                "anthropic" => "Anthropic",
+                _ => string.IsNullOrWhiteSpace(context.ProviderType) ? "The provider" : context.ProviderType.Trim()
+            };
+        providerName = RedactSecrets(providerName);
+        return context.HasDifferentModelAlternate
+            ? $"{providerName} quota is exhausted. You can disable this provider to try an alternate. To re-enable {providerName}, increase quota/spend settings or wait for the quota reset."
+            : $"{providerName} quota is exhausted. You can add an alternate provider in Settings. You can also increase quota/spend settings (or wait for quota reset) to continue.";
     }
 
     private static string BuildDeploymentExplanation(ProviderFailureContext context)

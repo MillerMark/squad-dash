@@ -8041,10 +8041,11 @@ public partial class MainWindow : Window
 
     private void HandlePromptFailure(SquadSdkEvent evt)
     {
-        if (TryHandleActivePlanValidationProviderFailure(evt.Message, confirmedProviderEvent: true))
+        var context = BuildProviderFailureContext(evt);
+        if (TryHandleActivePlanValidationProviderFailure(evt.Message, confirmedProviderEvent: true, context))
             return;
 
-        var failure = ProviderFailurePresentation.Analyze(evt.Message, BuildProviderFailureContext(evt));
+        var failure = ProviderFailurePresentation.Analyze(evt.Message, context);
         ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, "Coordinator", _transcriptFontSize);
         ScrollToEndIfAtBottom(CoordinatorThread);
         UpdateLeadAgent("Error", string.Empty, failure.BuildThreadSummary("Coordinator"));
@@ -8055,14 +8056,16 @@ public partial class MainWindow : Window
 
     private bool TryHandleActivePlanValidationProviderFailure(
         string? rawError,
-        bool confirmedProviderEvent)
+        bool confirmedProviderEvent,
+        ProviderFailureContext? context = null)
     {
         var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
         if (activeExecution?.IsExecutingPlan != true ||
             string.IsNullOrWhiteSpace(activeExecution.ActiveValidationId))
             return false;
 
-        var failure = ProviderFailurePresentation.Analyze(rawError);
+        context ??= BuildProviderFailureContext(new SquadSdkEvent());
+        var failure = ProviderFailurePresentation.Analyze(rawError, context);
         if (!confirmedProviderEvent && failure.Category == ProviderFailureCategory.Unknown)
             return false;
 
@@ -8089,24 +8092,16 @@ public partial class MainWindow : Window
             PlanValidationProviderFailurePresentation.BuildAttemptMessage(
                 title,
                 failure.RawError,
-                willRetry: retryCount <= 1));
+                willRetry: retryCount <= 1,
+                context));
         SquadDashTrace.Write(
             "PlanValidation",
             $"Provider failure registered validation={activeExecution.ActiveValidationId} retry={retryCount} error={failure.RawError}");
         return true;
     }
 
-    private ProviderFailureContext BuildProviderFailureContext(SquadSdkEvent evt)
-    {
-        var activeProfile = _bridge.ActiveProfile;
-        return new ProviderFailureContext(
-            evt.SessionModel ?? evt.Model ?? activeProfile?.Model,
-            evt.ProfileAlias ?? activeProfile?.Alias,
-            evt.ProviderBaseUrl ?? activeProfile?.ProviderUrl,
-            evt.ProviderType ?? activeProfile?.ProviderType,
-            evt.WireApi ?? activeProfile?.WireApi,
-            evt.RequestedModel);
-    }
+    private ProviderFailureContext BuildProviderFailureContext(SquadSdkEvent evt) =>
+        ProviderFailureContext.FromEvent(evt, _bridge.ActiveProfile, _modelProfileStore.GetProfiles());
 
     private void HandleSubagentCancelled(SquadSdkEvent evt)
     {
@@ -17559,7 +17554,8 @@ public partial class MainWindow : Window
                 activeExecution,
                 PlanValidationProviderFailurePresentation.BuildRecoveryReason(
                     activeExecution.ValidationProviderFailureReason,
-                    activeExecution.ValidationProviderRetryCount),
+                    activeExecution.ValidationProviderRetryCount,
+                    BuildProviderFailureContext(new SquadSdkEvent())),
                 validatedCommit: null);
             return;
         }
