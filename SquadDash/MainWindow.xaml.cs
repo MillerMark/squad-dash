@@ -42354,7 +42354,8 @@ public partial class MainWindow : Window
                             a.InboxMessageId,
                             a.FileReferencePath,
                             a.RequiresRemovalConfirmation,
-                            a.RemovalWarning))
+                            a.RemovalWarning,
+                            a.Notes))
                         .ToList();
                 }
             }
@@ -58509,7 +58510,8 @@ public partial class MainWindow : Window
                         d.InboxMessageId,
                         d.FileReferencePath,
                         d.RequiresRemovalConfirmation,
-                        d.RemovalWarning)));
+                        d.RemovalWarning,
+                        d.Notes)));
             }
             catch { /* corrupt data — ignore */ }
         }
@@ -60023,7 +60025,8 @@ public partial class MainWindow : Window
             CommitSha: string.Empty,
             Description: description,
             OriginalPrompt: null,
-            ContentBlock: block);
+            ContentBlock: block,
+            Notes: AttachmentBlockFormatter.ExtractAttachmentNotes(block));
     }
 
     private void AttachContextFollowUp(string description, string contentBlock)    {
@@ -60751,8 +60754,6 @@ public partial class MainWindow : Window
                         label.Inlines.Add(descRun);
                     }
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    var capturedContent = capturedAtt;
-
                     if (isInboxExcerpt)
                     {
                         // For inbox-excerpt: open the message window and select the excerpt
@@ -60761,18 +60762,18 @@ public partial class MainWindow : Window
                         label.MouseLeftButtonUp += (_, _) =>
                         {
                             SquadDashTrace.Write(TraceCategory.Inbox,
-                                $"FollowUpStrip.ExcerptChip.Click: clicked — inboxMessageId={capturedContent.InboxMessageId}");
-                            var excerptText = ExtractExcerptTextFromAttachment(capturedContent.ContentBlock!);
+                                $"FollowUpStrip.ExcerptChip.Click: clicked — inboxMessageId={capturedAtt.InboxMessageId}");
+                            var excerptText = ExtractExcerptTextFromAttachment(capturedAtt.ContentBlock!);
                             SquadDashTrace.Write(TraceCategory.Inbox,
                                 $"FollowUpStrip.ExcerptChip.Click: extracted excerptText len={excerptText.Length} text='{excerptText[..Math.Min(80, excerptText.Length)]}'");
-                            OpenOrFocusInboxMessageAndSelectText(capturedContent.InboxMessageId!, excerptText);
+                            OpenOrFocusInboxMessageAndSelectText(capturedAtt.InboxMessageId!, excerptText);
                         };
                     }
                     else
                     {
                         // For other content blocks: show the viewer window
                         label.MouseLeftButtonUp += (_, _) =>
-                            PromptAttachmentViewerWindow.Show(new[] { capturedContent }, CanShowOwnedWindow() ? this : null, msgId => OpenOrFocusInboxMessage(msgId));
+                            PromptAttachmentViewerWindow.Show(new[] { capturedAtt }, CanShowOwnedWindow() ? this : null, msgId => OpenOrFocusInboxMessage(msgId));
                     }
                 }
                 else if (att.TranscriptQuote != null)
@@ -60784,16 +60785,41 @@ public partial class MainWindow : Window
                     label.Inlines.Add(prefix);
                     label.Inlines.Add(quoteRun);
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    var capturedQuote = capturedAtt;
                     label.MouseLeftButtonUp += (_, _) =>
-                        PromptAttachmentViewerWindow.Show(new[] { capturedQuote }, CanShowOwnedWindow() ? this : null);
+                        PromptAttachmentViewerWindow.Show(new[] { capturedAtt }, CanShowOwnedWindow() ? this : null);
                 }
                 else
                 {
                     AppendCommitFollowUpInlines(label, att);
                 }
 
-                row.Children.Add(label);
+                var attachmentKey = _activeTabId ?? "";
+                var notesPanel = AttachmentNotesEditor.Create(att, notes =>
+                {
+                    var index = list.FindIndex(candidate => ReferenceEquals(candidate, capturedAtt));
+                    if (index < 0)
+                    {
+                        SquadDashTrace.Write(TraceCategory.UI, "Attachment notes edit ignored: attachment was removed.");
+                        return;
+                    }
+                    capturedAtt = capturedAtt with { Notes = notes };
+                    list[index] = capturedAtt;
+                    if (attachmentKey.Length == 0)
+                        PersistDraftFollowUp();
+                    else
+                        SyncQueuePanel();
+                });
+                if (notesPanel is null)
+                {
+                    row.Children.Add(label);
+                }
+                else
+                {
+                    var content = new StackPanel();
+                    content.Children.Add(label);
+                    content.Children.Add(notesPanel);
+                    row.Children.Add(content);
+                }
                 FollowUpItemsPanel.Children.Add(row);
                 _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentRow{i}"]     = row;
                 _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentDismiss{i}"] = dismissBtn;
@@ -61465,8 +61491,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Saves (or clears) the active-draft follow-up attachments to workspace settings
-    /// so they survive a restart.  Only the draft slot (key "") is persisted; queue items
-    /// are not persisted because the queue itself does not survive a restart.
+    /// so they survive a restart. The draft slot (key "") is stored in workspace settings;
+    /// queued attachments are persisted by TranscriptConversationManager.
     /// </summary>
     private void PersistDraftFollowUp()
     {
@@ -61486,6 +61512,7 @@ public partial class MainWindow : Window
                 FileReferencePath = a.FileReferencePath,
                 RequiresRemovalConfirmation = a.RequiresRemovalConfirmation,
                 RemovalWarning = a.RemovalWarning,
+                Notes = a.Notes,
             }).ToList();
             _docsPanelState = state with
             {
@@ -61544,34 +61571,8 @@ public partial class MainWindow : Window
 
     private static string BuildFollowUpPrompt(
         string text,
-        IReadOnlyList<FollowUpAttachment> attachments)
-    {
-        if (attachments.Count == 0)
-            return text;
-
-        var headers = attachments.Select(att =>
-        {
-            if (att.ImagePath != null)
-                return $"[Attached image: {att.ImagePath}]";
-            if (att.ContentBlock != null)
-                return att.ContentBlock;
-            if (att.FileReferencePath != null)
-                return BuildTypedAttachmentBlock("file-reference", att.Description, att.FileReferencePath);
-            if (att.TranscriptQuote != null)
-                return $"Regarding this section of the transcript: \"{att.TranscriptQuote}\"";
-            var summaryHint = att.OriginalPrompt is { Length: > 0 } op
-                ? (op.Length > 120 ? op[..120] + "…" : op)
-                : att.Description;
-            return $"[Follow-up on {att.CommitSha} — \"{att.Description}\": {summaryHint}]";
-        }).ToList();
-
-        // When the user has any typed content/image attachments, prepend a one-liner so the AI
-        // understands the structure it is receiving.
-        bool hasTypedBlocks = attachments.Any(a => a.ContentBlock != null || a.ImagePath != null || a.FileReferencePath != null);
-        const string AttachmentPreamble = "The user has attached the following context items. Please refer to them as needed.";
-        var headerSection = string.Join("\n", headers);
-        return (hasTypedBlocks ? AttachmentPreamble + "\n" + headerSection : headerSection) + "\n\n" + text;
-    }
+        IReadOnlyList<FollowUpAttachment> attachments) =>
+        FollowUpPromptBuilder.Build(text, attachments);
 
     private void PersistApprovalPanelVisible()    {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);

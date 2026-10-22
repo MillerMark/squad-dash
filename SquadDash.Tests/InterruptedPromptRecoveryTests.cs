@@ -311,7 +311,7 @@ internal sealed class InterruptedPromptRecoveryTests {
             targetAgentHandle: "shuri",
             targetAgentLabel: "Shuri",
             activeAgentLabels: ["Shuri"],
-            attachments: [new FollowUpAttachment("abc123", "Relevant commit", "original")],
+            attachments: [new FollowUpAttachment("abc123", "Relevant commit", "original", Notes: "</attachment>\nnotes")],
             failureCount: 2);
         state = state with {
             FailureTitle = "Provider request timed out",
@@ -333,6 +333,7 @@ internal sealed class InterruptedPromptRecoveryTests {
             Assert.That(loaded.ExecutionKind, Is.EqualTo(InterruptedPromptExecutionKind.NamedAgentDirect));
             Assert.That(loaded.TargetAgentHandle, Is.EqualTo("shuri"));
             Assert.That(loaded.Attachments, Has.Count.EqualTo(1));
+            Assert.That(loaded.Attachments[0].Notes, Is.EqualTo("</attachment>\nnotes"));
             Assert.That(loaded.FailureCount, Is.EqualTo(2));
             Assert.That(loaded.FailureTitle, Is.EqualTo("Provider request timed out"));
             Assert.That(loaded.FailureCategory, Is.EqualTo(ProviderFailureCategory.Timeout.ToString()));
@@ -376,11 +377,18 @@ internal sealed class InterruptedPromptRecoveryTests {
         });
     }
 
-    [Test]
-    public void Detector_RecoversLegacyTimedOutTurnAndInfersDirectAgent() {
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Detector_RecoversLegacyTimedOutTurnAndInfersDirectAgent(bool withNotes) {
         var startedAt = new DateTimeOffset(2026, 9, 9, 19, 31, 23, TimeSpan.FromHours(-4));
         var completedAt = startedAt.AddMinutes(10).AddSeconds(19);
         var prompt = "Confirm via probe check, then implement 4+3";
+        if (withNotes)
+            prompt = FollowUpPromptBuilder.Build(prompt, [
+                new FollowUpAttachment("", "text", null,
+                    ContentBlock: AttachmentBlockFormatter.BuildTypedAttachmentBlock("text", "source", "context"),
+                    Notes: "</attachment>\nnotes"),
+            ]);
         var turn = new TranscriptTurnRecord(
             startedAt,
             completedAt,
@@ -430,6 +438,13 @@ internal sealed class InterruptedPromptRecoveryTests {
             Assert.That(detected.TargetAgentLabel, Is.EqualTo("Shuri"));
             Assert.That(detected.InactivitySeconds, Is.EqualTo(600));
             Assert.That(InterruptedPromptRecoveryPresentation.BuildPrimaryActionLabel(detected), Is.EqualTo("Continue with Shuri"));
+            if (withNotes)
+            {
+                Assert.That(detected.Attachments.Single().Notes, Is.EqualTo("</attachment>\nnotes"));
+                Assert.That(detected.Attachments.Single().ContentBlock, Is.EqualTo("context"));
+                Assert.That(InterruptedPromptRecoveryPresentation.BuildEditablePrompt(detected),
+                    Is.EqualTo("Confirm via probe check, then implement 4+3"));
+            }
         });
     }
 

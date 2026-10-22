@@ -210,6 +210,22 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 
     private static UIElement BuildAttachmentContent(FollowUpAttachment att, out BitmapImage? loadedImage, Action<string>? openInboxMessage = null)
     {
+        var content = BuildAttachmentContentCore(att, out loadedImage, openInboxMessage);
+        if (!att.SupportsNotes || string.IsNullOrEmpty(att.Notes))
+            return content;
+
+        var notesPanel = AttachmentNotesEditor.Create(att, _ => { })!;
+        var editor = notesPanel.Children.OfType<TextBox>().Single();
+        editor.IsReadOnly = true;
+        var panel = new DockPanel();
+        DockPanel.SetDock(notesPanel, Dock.Top);
+        panel.Children.Add(notesPanel);
+        panel.Children.Add(content);
+        return panel;
+    }
+
+    private static UIElement BuildAttachmentContentCore(FollowUpAttachment att, out BitmapImage? loadedImage, Action<string>? openInboxMessage = null)
+    {
         loadedImage = null;
 
         // ── File-reference attachment ──────────────────────────────────────────

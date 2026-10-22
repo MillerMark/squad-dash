@@ -1867,6 +1867,7 @@ internal sealed class TranscriptConversationManager {
                             FileReferencePath = a.FileReferencePath,
                             RequiresRemovalConfirmation = a.RequiresRemovalConfirmation,
                             RemovalWarning = a.RemovalWarning,
+                            Notes = a.Notes,
                         })
                         .ToList();
                 }
@@ -1970,6 +1971,7 @@ internal sealed class TranscriptConversationManager {
                 a.OriginalPrompt   != b.OriginalPrompt ||
                 a.TranscriptQuote  != b.TranscriptQuote ||
                 a.ContentBlock     != b.ContentBlock ||
+                a.Notes            != b.Notes ||
                 a.ImagePath        != b.ImagePath ||
                 a.ImageSubmittedAt != b.ImageSubmittedAt)
                 return false;

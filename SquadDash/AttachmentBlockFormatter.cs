@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace SquadDash;
 
 /// <summary>
@@ -10,6 +12,56 @@ internal static class AttachmentBlockFormatter
     // sees a premature </attachment>.
     private const string EscapedCloseTag = "&lt;/attachment&gt;";
     private const string LiteralCloseTag = "</attachment>";
+    private const string NotesEncoding = "json-notes-v1";
+
+    /// <summary>
+    /// Notes-bearing blocks have an explicitly versioned JSON body with separate Content
+    /// and Notes fields. The default JSON encoder escapes all angle brackets, including
+    /// those in nested content, so neither field can inject an attachment delimiter.
+    /// Unannotated blocks retain their original representation.
+    /// </summary>
+    internal static string WithNotes(string context, string? notes)
+    {
+        if (string.IsNullOrEmpty(notes))
+            return context;
+
+        var (type, title) = ExtractAttachmentMetadata(context);
+        var content = ExtractAttachmentContent(context);
+        var titleAttribute = title is null ? "" : $" title=\"{EncodeAttribute(title)}\"";
+        var payload = JsonSerializer.Serialize(new NotesPayload(content, notes));
+        return $"<attachment type=\"{EncodeAttribute(type ?? "text")}\"{titleAttribute} encoding=\"{NotesEncoding}\">\n{payload}\n{LiteralCloseTag}";
+    }
+
+    internal static string? ExtractAttachmentNotes(string block) =>
+        IsNotesBlock(block) ? DecodeNotesPayload(block).Notes : null;
+
+    private sealed record NotesPayload(string Content, string Notes);
+
+    private static bool IsNotesBlock(string block)
+    {
+        if (!block.StartsWith("<attachment ", StringComparison.Ordinal))
+            return false;
+        var end = block.IndexOf('>');
+        return end >= 0 && ExtractAttribute(block[..end], "encoding") == NotesEncoding;
+    }
+
+    private static NotesPayload DecodeNotesPayload(string block)
+    {
+        var start = block.IndexOf('>') + 1;
+        var end = block.LastIndexOf(LiteralCloseTag, StringComparison.Ordinal);
+        if (end < start)
+            throw new JsonException("Notes attachment is missing its closing delimiter.");
+        var payload = JsonSerializer.Deserialize<NotesPayload>(block[start..end]);
+        if (payload?.Content is null || payload.Notes is null)
+            throw new JsonException("Notes attachment requires Content and Notes strings.");
+        return payload;
+    }
+
+    private static string EncodeAttribute(string value) =>
+        value.Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal)
+            .Replace("\"", "&quot;", StringComparison.Ordinal);
 
     /// <summary>
     /// Builds a typed XML-style attachment block.
@@ -200,7 +252,11 @@ internal static class AttachmentBlockFormatter
             return (null, null);
 
         var openTag = block[..closeAngle];
-        return (ExtractAttribute(openTag, "type"), ExtractAttribute(openTag, "title"));
+        var type = ExtractAttribute(openTag, "type");
+        var title = ExtractAttribute(openTag, "title");
+        return IsNotesBlock(block)
+            ? (System.Net.WebUtility.HtmlDecode(type), System.Net.WebUtility.HtmlDecode(title))
+            : (type, title);
     }
 
     /// <summary>
@@ -211,6 +267,8 @@ internal static class AttachmentBlockFormatter
     /// </summary>
     internal static string ExtractAttachmentContent(string block)
     {
+        if (IsNotesBlock(block))
+            return DecodeNotesPayload(block).Content;
         if (!block.StartsWith("<attachment ", StringComparison.Ordinal))
             return block;
         var closeAngle = block.IndexOf('>', StringComparison.Ordinal);

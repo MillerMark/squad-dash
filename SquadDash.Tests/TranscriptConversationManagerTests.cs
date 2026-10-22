@@ -967,7 +967,11 @@ internal sealed class TranscriptConversationManagerTests {
             SelectionStart = 7,
             SelectionLength = 5,
         };
-        manager.UpdateQueuedPromptsState([item], activeTabIndex: 0);
+        var attachments = new Dictionary<string, List<FollowUpAttachment>>
+        {
+            [item.Id] = [new FollowUpAttachment("", "text", null, ContentBlock: "source", Notes: "</attachment>\nnotes")],
+        };
+        manager.UpdateQueuedPromptsState([item], attachments, activeTabIndex: 0);
 
         var saved = manager.TrySaveWorkspaceStateForTransition("test");
         var reloaded = new WorkspaceConversationStore().Load(workspacePath);
@@ -981,6 +985,7 @@ internal sealed class TranscriptConversationManagerTests {
             Assert.That(reloaded.QueuedPromptEntries[0].CaretIndex, Is.EqualTo(12));
             Assert.That(reloaded.QueuedPromptEntries[0].SelectionStart, Is.EqualTo(7));
             Assert.That(reloaded.QueuedPromptEntries[0].SelectionLength, Is.EqualTo(5));
+            Assert.That(reloaded.QueuedPromptEntries[0].Attachments![0].Notes, Is.EqualTo("</attachment>\nnotes"));
         });
     }
 
@@ -1111,6 +1116,26 @@ internal sealed class TranscriptConversationManagerTests {
             Assert.That(dto.ImageSubmittedAt, Is.EqualTo("2026-05-01T12:00:00.0000000Z"));
             Assert.That(dto.RequiresRemovalConfirmation, Is.True);
             Assert.That(dto.RemovalWarning, Is.EqualTo("Required plan context"));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void UpdateQueuedPromptsState_PreservesNotesAndDetectsNotesOnlyChanges()
+    {
+        var manager = MakeManager();
+        var item = new PromptQueueItem { Text = "prompt", SequenceNumber = 1 };
+        var attachment = new FollowUpAttachment("", "text", null, ContentBlock: "content", Notes: "first");
+        var attachments = new Dictionary<string, List<FollowUpAttachment>> { [item.Id] = [attachment] };
+        manager.UpdateQueuedPromptsState([item], attachments);
+        var previous = manager.ConversationState;
+        attachments[item.Id][0] = attachment with { Notes = "</attachment>\nsecond" };
+        manager.UpdateQueuedPromptsState([item], attachments);
+        Assert.Multiple(() =>
+        {
+            Assert.That(previous.QueuedPromptEntries![0].Attachments![0].Notes, Is.EqualTo("first"));
+            Assert.That(manager.ConversationState.QueuedPromptEntries![0].Attachments![0].Notes,
+                Is.EqualTo("</attachment>\nsecond"));
+            Assert.That(manager.ConversationState.QueueLastChangedAt, Is.GreaterThan(previous.QueueLastChangedAt!.Value));
         });
     }
 

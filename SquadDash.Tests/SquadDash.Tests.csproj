@@ -380,6 +380,8 @@
     <Compile Include="..\SquadDash\WorkspaceOwnershipLease.cs" Link="Source\WorkspaceOwnershipLease.cs" />
     <Compile Include="..\SquadDash\WorkspaceOpenCoordinator.cs" Link="Source\WorkspaceOpenCoordinator.cs" />
     <Compile Include="..\SquadDash\FollowUpAttachment.cs" Link="Source\FollowUpAttachment.cs" />
+    <Compile Include="..\SquadDash\FollowUpPromptBuilder.cs" Link="Source\FollowUpPromptBuilder.cs" />
+    <Compile Include="..\SquadDash\AttachmentNotesEditor.cs" Link="Source\AttachmentNotesEditor.cs" />
     <Compile Include="..\SquadDash\WorkspaceConversationStore.cs" Link="Source\WorkspaceConversationStore.cs" />
     <Compile Include="..\SquadDash\PendingPlanContinuationState.cs" Link="Source\PendingPlanContinuationState.cs" />
     <Compile Include="..\SquadDash\QueueRecoveryHoldState.cs" Link="Source\QueueRecoveryHoldState.cs" />
