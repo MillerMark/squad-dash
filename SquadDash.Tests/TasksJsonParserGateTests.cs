@@ -39,6 +39,44 @@ internal sealed class TasksJsonParserGateTests
     }
 
     [Test]
+    public void GateDependency_ParsesAsExplicitReviewSequence()
+    {
+        var json = ValidGateJson.Replace(
+            "\"message\": \"Review before third\"",
+            "\"message\": \"Review before third\", \"dependsOnGateIds\": []",
+            StringComparison.Ordinal);
+
+        Assert.That(TasksJsonParser.TryParse(json, out var group, out var diagnostic),
+            Is.True, diagnostic?.Message);
+        Assert.That(group!.ApprovalGates![0].DependsOnGateIds, Is.Empty);
+    }
+
+    [Test]
+    public void GateDependency_UnknownGateFailsWithSpecificDiagnostic()
+    {
+        var json = ValidGateJson.Replace(
+            "\"message\": \"Review before third\"",
+            "\"message\": \"Review before third\", \"dependsOnGateIds\": [\"PLANS-20260101-GATE-999\"]",
+            StringComparison.Ordinal);
+
+        Assert.That(TasksJsonParser.TryParse(json, out _, out var diagnostic), Is.False);
+        Assert.That(diagnostic?.Code, Is.EqualTo("invalid-gate-dependency"));
+    }
+
+    [Test]
+    public void GateDependency_CycleFailsWithSpecificDiagnostic()
+    {
+        var json = ValidGateJson.Replace(
+            "{ \"gateId\": \"PLANS-20260101-GATE-001\", \"message\": \"Review before third\", \"question\": \"Does the completed work meet the stated contract before task three begins?\", \"afterTaskIds\": [\"PLANS-20260101-002\"], \"beforeTaskIds\": [\"PLANS-20260101-003\"] }",
+            "{ \"gateId\": \"PLANS-20260101-GATE-001\", \"message\": \"First review\", \"question\": \"Does the first review pass?\", \"afterTaskIds\": [\"PLANS-20260101-002\"], \"beforeTaskIds\": [\"PLANS-20260101-003\"], \"dependsOnGateIds\": [\"PLANS-20260101-GATE-002\"] },\n" +
+            "            { \"gateId\": \"PLANS-20260101-GATE-002\", \"message\": \"Second review\", \"question\": \"Does the second review pass?\", \"afterTaskIds\": [\"PLANS-20260101-002\"], \"beforeTaskIds\": [\"PLANS-20260101-003\"], \"dependsOnGateIds\": [\"PLANS-20260101-GATE-001\"] }",
+            StringComparison.Ordinal);
+
+        Assert.That(TasksJsonParser.TryParse(json, out _, out var diagnostic), Is.False);
+        Assert.That(diagnostic?.Code, Is.EqualTo("gate-dependency-cycle"));
+    }
+
+    [Test]
     public void PlanSchema_AllowsTrailingCommasAndCommentsWithoutRelaxingRequiredFields()
     {
         var json = """

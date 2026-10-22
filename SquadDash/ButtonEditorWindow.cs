@@ -18,6 +18,7 @@ internal sealed class ButtonEditorWindow : ChromedWindow {
     private readonly TextBox _tooltip;
     private readonly TextBox _command;
     private readonly TextBox _directory;
+    private readonly CheckBox _runAsAdministrator;
     private readonly RadioButton[] _commandTypes;
     private readonly Dictionary<string, (Control Control, TextBlock Error)> _fieldErrors = [];
     private readonly PttTextBoxAttachment _dictation;
@@ -88,6 +89,16 @@ internal sealed class ButtonEditorWindow : ChromedWindow {
         AddField("Command or URL (type { for tokens)", _command, nameof(ButtonContent.CommandText));
         _directory = Input(content?.WorkingDirectory ?? string.Empty);
         AddField("Working directory (optional; defaults to workspace root)", _directory, nameof(ButtonContent.WorkingDirectory));
+        _runAsAdministrator = new CheckBox {
+            Content = "Run as Administrator (UAC prompt; not available for URL buttons)",
+            IsChecked = content?.RunAsAdministrator ?? false,
+            Margin = new Thickness(0, 4, 0, 4)
+        };
+        _runAsAdministrator.SetResourceReference(Control.ForegroundProperty, "LabelText");
+        fields.Children.Add(_runAsAdministrator);
+        foreach (var radio in _commandTypes)
+            radio.Checked += (_, _) => UpdateElevationAvailability();
+        UpdateElevationAvailability();
         fields.Children.Add(Label("Tokens resolve when you run the saved button, in its originating workspace.\n" +
             ButtonPlaceholders.SubstitutionRule));
         foreach (var placeholder in ButtonPlaceholders.Catalog) {
@@ -198,6 +209,12 @@ internal sealed class ButtonEditorWindow : ChromedWindow {
         }
     }
 
+    private void UpdateElevationAvailability() {
+        var isUrl = (ButtonCommandType)_commandTypes.Single(radio => radio.IsChecked == true).Tag == ButtonCommandType.Url;
+        _runAsAdministrator.IsEnabled = !isUrl;
+        if (isUrl) _runAsAdministrator.IsChecked = false;
+    }
+
     internal void InvalidateWorkspace() {
         _session.Invalidate();
         Close();
@@ -208,7 +225,8 @@ internal sealed class ButtonEditorWindow : ChromedWindow {
         foreach (var field in _fieldErrors.Values) field.Error.Visibility = Visibility.Collapsed;
         var type = (ButtonCommandType)_commandTypes.Single(radio => radio.IsChecked == true).Tag;
         var content = new ButtonContent(_caption.Text, _tooltip.Text, _command.Text, type,
-            string.IsNullOrWhiteSpace(_directory.Text) ? null : _directory.Text);
+            string.IsNullOrWhiteSpace(_directory.Text) ? null : _directory.Text,
+            type == ButtonCommandType.Url ? false : _runAsAdministrator.IsChecked == true);
         var errors = ButtonEditorSession.ValidateFields(content);
         if (errors.Count > 0) {
             foreach (var (field, message) in errors) ShowFieldError(field, message);

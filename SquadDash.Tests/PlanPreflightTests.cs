@@ -57,6 +57,48 @@ internal sealed class PlanPreflightTests
     }
 
     [Test]
+    public void WaitingForCleanWorktreeVerification_ExplainsPreservedHandoffAndAutomaticResume()
+    {
+        var exception = new PlanPreflightBlockedException(
+            "Uncommitted changes", ["SquadDash/PlanViewerLiveSyncHandler.cs"], targetBranch: null);
+
+        var content = PlanPreflightRecoveryContent.FromWaitingForCleanWorktree(
+            exception,
+            "AvalonEdit Region Editor & Language Picker",
+            "Bundle custom grammars");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(content.Title, Is.EqualTo("Verification paused — workspace changes detected"));
+            Assert.That(content.Summary, Does.Contain("Bundle custom grammars"));
+            Assert.That(content.Summary, Does.Contain("implementation work is preserved").IgnoreCase);
+            Assert.That(content.ChangedFilesSummary, Does.Contain("PlanViewerLiveSyncHandler.cs"));
+            Assert.That(content.RecoveryGuidance, Does.Contain("resume automatically"));
+        });
+    }
+
+    [Test]
+    public void RestoredCleanVerificationHandoff_DoesNotShowZeroFileWarning()
+    {
+        var exception = new PlanPreflightBlockedException(
+            "Uncommitted changes", [], targetBranch: null);
+
+        var content = PlanPreflightRecoveryContent.FromWaitingForCleanWorktree(
+            exception,
+            "AvalonEdit Region Editor & Language Picker",
+            "Bundle custom grammars");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(content.Title, Is.EqualTo("Verification ready to resume"));
+            Assert.That(content.Summary, Does.Contain("after restart"));
+            Assert.That(content.Summary, Does.Not.Contain("0 uncommitted"));
+            Assert.That(content.ChangedFilesSummary, Is.Empty);
+            Assert.That(content.RecoveryGuidance, Does.Contain("resume").And.Contain("automatically"));
+        });
+    }
+
+    [Test]
     public void RecoveryContent_CapsVisiblePathsButCopiesEveryPath()
     {
         var paths = new[]

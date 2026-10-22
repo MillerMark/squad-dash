@@ -12,7 +12,13 @@ internal sealed record PlanHumanReviewCardPresentation(
     string Title,
     string? Question,
     IReadOnlyList<PlanHumanReviewAnalysisItem> AnalysisBullets,
-    PlanPreviousReviewPresentation? PreviousReview = null);
+    PlanPreviousReviewPresentation? PreviousReview = null,
+    string? Situation = null,
+    string? Impact = null,
+    string? Recommendation = null,
+    string? AlternativeGuidance = null,
+    string? RecommendedAction = null,
+    string? InstructionProblem = null);
 
 internal sealed record PlanPreviousReviewPresentation(
     string EvaluatedCommit,
@@ -71,14 +77,24 @@ internal static class PlanAttentionCardPresentationBuilder
                 ShowDiagnosticsActions: false);
         }
 
-        var hasHumanQuestion = !string.IsNullOrWhiteSpace(humanReview?.Question);
-        if (humanReview is not null && (hasHumanChecklist || hasHumanQuestion))
+        if (!string.IsNullOrWhiteSpace(humanReview?.InstructionProblem))
+        {
+            return new PlanAttentionCardPresentation(
+                PlanAttentionCategory.UnexpectedState,
+                "Review Instructions Are Not Ready",
+                "SquadDash has a real human-review checkpoint, but its actionable procedure is incomplete. No approval has been recorded.",
+                humanReview.InstructionProblem,
+                ShowDiagnosticsActions: false);
+        }
+
+        if (humanReview is not null && hasHumanChecklist)
         {
             return new PlanAttentionCardPresentation(
                 PlanAttentionCategory.HumanVerificationRequired,
                 "Human Verification Is Required",
+                humanReview.Situation ??
                 "Automated verification is complete. This step requires a specific observation or judgment that SquadDash cannot perform.",
-                humanReview.Question?.Trim() ?? "Complete the verification checklist below.",
+                humanReview.Impact ?? humanReview.Question?.Trim() ?? "Complete the verification checklist below.",
                 ShowDiagnosticsActions: false);
         }
 
@@ -103,7 +119,7 @@ internal static class PlanAttentionCardPresentationBuilder
                     category,
                     "Step Needs Verification",
                     "SquadDash preserved the latest work but could not confirm this step as complete.",
-                    $"Current work is preserved in commit {currentEvidence.Commit}. " +
+                    $"Current work is preserved in commit {ShortSha(currentEvidence.Commit)}. " +
                     (PlanRecoveryPresentationBuilder.BuildReviewProvenanceNotice(plan, taskId) is null
                         ? "No independent review is recorded for this commit, so it still needs verification."
                         : "The available independent review applies to earlier evidence, so this commit still needs verification."),
@@ -113,6 +129,13 @@ internal static class PlanAttentionCardPresentationBuilder
                 "Automatic Work Is Exhausted",
                 "SquadDash stopped automatic work after the permitted attempts to avoid repeating the same unsuccessful work.",
                 friendlyReason,
+                ShowDiagnosticsActions: false),
+            PlanAttentionCategory.RecoveryDecisionRequired => new PlanAttentionCardPresentation(
+                category,
+                humanReview?.Title ?? "Choose How Engineering Should Continue",
+                humanReview?.Situation ??
+                "Automated verification stopped at a decision that requires human judgment. Existing work and plan state are preserved.",
+                humanReview?.Impact ?? friendlyReason,
                 ShowDiagnosticsActions: false),
             PlanAttentionCategory.HumanVerificationRequired => new PlanAttentionCardPresentation(
                 PlanAttentionCategory.UnexpectedState,
@@ -134,6 +157,11 @@ internal static class PlanAttentionCardPresentationBuilder
                 ShowDiagnosticsActions: true),
         };
     }
+
+    private static string ShortSha(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? "unknown"
+            : value.Length > 7 ? value[..7] : value;
 
     internal static string BuildCopyText(
         PlanAttentionCardPresentation presentation,
@@ -185,6 +213,7 @@ internal enum PlanRecoverySurfaceActionKind
     ResumePlan,
     ResumeVerification,
     ContinueWorking,
+    RepairReviewInstructions,
     ReviseRemainingPlan,
     EndPlan,
 }
@@ -254,6 +283,28 @@ internal static class PlanRecoveryActionSetBuilder
             task?.Title ?? task?.Description ?? taskId);
         var actions = new List<PlanRecoverySurfaceActionPresentation>();
 
+        var reviewWorkflow = PlanHumanReviewWorkflowResolver.Resolve(plan, taskId);
+        if (reviewWorkflow is { HasActionableInstructions: false })
+        {
+            actions.Add(new PlanRecoverySurfaceActionPresentation(
+                PlanRecoverySurfaceActionKind.RepairReviewInstructions,
+                "Repair Review Instructions…",
+                "Ask the planning AI to add the missing actionable procedure while preserving completed work and the current review boundary.",
+                "replan-failed-task"));
+            if (includeEndPlan && PlanRecoveryControlPolicy.HasActionableInterruption(plan))
+            {
+                actions.Add(new PlanRecoverySurfaceActionPresentation(
+                    PlanRecoverySurfaceActionKind.EndPlan,
+                    "End Plan",
+                    "Stop this incomplete plan without discarding its history or repository work.",
+                    "end-plan",
+                    QuickReplyTone.Destructive));
+            }
+            return new PlanRecoveryActionSetPresentation(
+                "The review procedure must be repaired before this checkpoint can be approved.",
+                actions);
+        }
+
         if (PlanRecoveryResumePolicy.IsSafelyResumable(plan))
         {
             actions.Add(new PlanRecoverySurfaceActionPresentation(
@@ -278,9 +329,14 @@ internal static class PlanRecoveryActionSetBuilder
         if (correctionActivity != PlanTaskCorrectionActivityState.None)
         {
             return new PlanRecoveryActionSetPresentation(
-                correctionActivity == PlanTaskCorrectionActivityState.Running
-                    ? $"SquadDash is continuing the preserved repair for {stepLabel}."
-                    : $"A correction for {stepLabel} is ready to run.",
+                correctionActivity switch
+                {
+                    PlanTaskCorrectionActivityState.Running =>
+                        $"SquadDash is continuing the preserved repair for {stepLabel}.",
+                    PlanTaskCorrectionActivityState.Submitted =>
+                        $"A correction for {stepLabel} has been submitted and is waiting to run.",
+                    _ => $"A correction for {stepLabel} is ready to run.",
+                },
                 actions);
         }
 
@@ -504,8 +560,8 @@ internal static class PlanRecoveryActionPresentationBuilder
                 PlanRecoveryPrimaryActionKind.AcceptUnattributedStep,
                 plan.IsPaused ? $"{stepLabel} Is Complete" : $"{stepLabel} Is Complete & Continue",
                 plan.IsPaused
-                    ? $"After reviewing the repository changes, explicitly mark {stepLabel} complete while keeping the plan paused. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result. Refresh the card before accepting."
-                    : $"After reviewing the repository changes, explicitly mark {stepLabel} complete and continue. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result. Refresh the card before accepting.",
+                    ? $"After reviewing the repository changes, explicitly mark {stepLabel} complete while keeping the plan paused. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result."
+                    : $"After reviewing the repository changes, explicitly mark {stepLabel} complete and continue. Commit attribution remains marked as uncertain. Newer commits are on this branch since the recorded task result.",
                 "accept-step-complete");
         }
 
@@ -629,13 +685,40 @@ internal static class PlanRecoveryAcceptancePolicy
 /// </summary>
 internal static class PlanHumanReviewGatePolicy
 {
-    internal static PlanApprovalGate? FindCombinableGate(
+    internal static IReadOnlyList<PlanApprovalGate> FindWorkflowGates(
         Plan plan, string taskId, bool allowPendingReviewSiblings = false)
+    {
+        var candidates = FindWorkflowCandidates(
+            plan, taskId, allowPendingReviewSiblings);
+        if (candidates.Count == 0) return [];
+
+        return candidates.Where(gate => (gate.DependsOnGateIds ?? []).All(dependencyId =>
+            plan.ApprovalGates.Any(candidate =>
+                string.Equals(candidate.GateId, dependencyId, StringComparison.Ordinal) &&
+                candidate.Status is PlanGateStatus.Approved or PlanGateStatus.Skipped))).ToArray();
+    }
+
+    internal static IReadOnlyList<PlanApprovalGate> FindCombinableGates(
+        Plan plan, string taskId, bool allowPendingReviewSiblings = false)
+    {
+        var candidates = FindWorkflowCandidates(
+            plan, taskId, allowPendingReviewSiblings);
+        var currentPhase = FindWorkflowGates(plan, taskId, allowPendingReviewSiblings);
+        // Completing the reviewed task may absorb the current checkpoints only when no later
+        // checkpoint for that task remains. Earlier phases approve their gates but leave the task
+        // in human-review-required state for the next phase.
+        return candidates.Count > 0 && currentPhase.Count == candidates.Count
+            ? currentPhase
+            : [];
+    }
+
+    internal static IReadOnlyList<PlanApprovalGate> FindWorkflowCandidates(
+        Plan plan, string taskId, bool allowPendingReviewSiblings)
     {
         var task = plan.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
         if (task?.Status != PlanTaskStatus.HumanReviewRequired)
-            return null;
+            return [];
 
         var candidates = plan.ApprovalGates.Where(gate =>
             gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
@@ -649,11 +732,13 @@ internal static class PlanHumanReviewGatePolicy
             gate.BeforeTaskIds.All(beforeTaskId => plan.Tasks.Any(candidate =>
                 string.Equals(candidate.TaskId, beforeTaskId, StringComparison.Ordinal) &&
                 candidate.Status == PlanTaskStatus.Pending)) &&
-            gate.ProofRequirements is { Count: > 0 } &&
-            gate.ProofRequirements.All(requirement =>
-                PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType))).ToArray();
+            ((gate.ProofRequirements is { Count: > 0 } &&
+              gate.ProofRequirements.All(requirement =>
+                  PlanProofCapabilityPolicy.IsHumanOnly(requirement.ProofType))) ||
+             (gate.ProofRequirements is not { Count: > 0 } &&
+              !string.IsNullOrWhiteSpace(PlanProofCapabilityPolicy.ResolveHumanQuestion(gate))))).ToArray();
 
-        return candidates.Length == 1 ? candidates[0] : null;
+        return candidates;
     }
 }
 
@@ -803,12 +888,13 @@ internal static class PlanRecoveryPresentationBuilder
             previousReport is null)
             return null;
 
-        var gate = plan.ApprovalGates
-            .Where(candidate => candidate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
-                                candidate.AfterTaskIds.Contains(taskId, StringComparer.Ordinal))
-            .OrderByDescending(candidate => candidate.ProofRequirements?.Count ?? 0)
-            .FirstOrDefault();
-        var question = gate is null ? null : PlanProofCapabilityPolicy.ResolveHumanQuestion(gate);
+        var workflow = PlanHumanReviewWorkflowResolver.Resolve(plan, taskId);
+        var matchingGates = plan.ApprovalGates.Where(candidate =>
+            candidate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval &&
+            candidate.AfterTaskIds.Contains(taskId, StringComparer.Ordinal)).ToArray();
+        var question = workflow?.Question ?? (matchingGates.Length == 1
+            ? PlanProofCapabilityPolicy.ResolveHumanQuestion(matchingGates[0])
+            : null);
         var bullets = new List<PlanHumanReviewAnalysisItem>();
         if (report is not null)
         {
@@ -858,11 +944,29 @@ internal static class PlanRecoveryPresentationBuilder
                 previousItems);
         }
 
+        var brief = report?.HumanReview;
+        var fallbackRecommendation = report?.ReworkInstructions is { Count: > 0 }
+            ? string.Join(" ", report.ReworkInstructions)
+            : null;
         return new PlanHumanReviewCardPresentation(
-            "Review Required",
+            brief?.Headline ?? (workflow is { TotalPhases: > 1 }
+                ? workflow.Title
+                : "Review Required"),
             question,
             distinct,
-            previousReview);
+            previousReview,
+            brief?.Situation ?? (report?.Verdict == PlanTaskVerificationVerdict.ReworkRequired
+                ? report.Summary
+                : null),
+            brief?.Impact ?? (report?.Verdict == PlanTaskVerificationVerdict.ReworkRequired
+                ? report.TestAssessment
+                : null),
+            brief?.Recommendation ?? fallbackRecommendation,
+            brief?.AlternativeGuidance,
+            brief?.RecommendedAction,
+            workflow is { HasActionableInstructions: false }
+                ? workflow.InstructionProblem
+                : null);
     }
 
     internal static string? BuildReviewProvenanceNotice(Plan plan, string taskId)

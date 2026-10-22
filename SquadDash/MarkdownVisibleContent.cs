@@ -44,9 +44,10 @@ internal static class MarkdownVisibleContent
                 return;
             if (Part.Control is TextBox code)
             {
-                code.Focus();
+                var surface = TranscriptCodeBlockPreview.Find(code)?.Surface ?? code;
+                surface.Focus();
                 code.Select(Offset, Length);
-                code.BringIntoView();
+                surface.BringIntoView();
             }
             else if (Part.Control is Expander header)
             {
@@ -122,6 +123,11 @@ internal static class MarkdownVisibleContent
                 if (detail.Expander.IsExpanded)
                     foreach (var part in Project(detail.Viewer.Document))
                         yield return part;
+            }
+            else if (block is BlockUIContainer { Tag: TranscriptCodeBlockPreview preview } transcriptCode)
+            {
+                var code = preview.PlainTextBox;
+                yield return new(code.Text, document, transcriptCode.ElementStart, transcriptCode.ElementEnd, code);
             }
             else if (block is BlockUIContainer ui)
             {
@@ -375,7 +381,9 @@ internal static class MarkdownVisibleContent
 
     private static IEnumerable<TextBox> CodeBoxes(DependencyObject? element)
     {
-        if (element is TextBox { Tag: "codeblock" } code)
+        if (element is Grid { Tag: TranscriptCodeBlockPreview preview })
+            yield return preview.PlainTextBox;
+        else if (element is TextBox { Tag: "codeblock" } code)
             yield return code;
         else if (element is Panel panel)
             foreach (UIElement child in panel.Children)

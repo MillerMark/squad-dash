@@ -155,13 +155,50 @@ internal sealed class PlanViewerLiveSyncHandler
     {
         if (_currentPlan is null) return false;
         // A newer approved definition may intentionally reopen completed work. Its lower count
-        // is authoritative and must refresh an already-open visualizer. An older display revision
-        // is always stale; within the same revision, completion regression identifies a late event.
+        // is authoritative and must refresh an already-open visualizer. A human-review rework can
+        // also reopen accepted work without changing the plan revision. Its newly appended attempt
+        // history is the monotonic evidence that distinguishes that transition from a late event.
+        // An older display revision is always stale; within the same revision, an unexplained
+        // completion regression still identifies a late event.
         if (incoming.RevisionNumber > _currentPlan.RevisionNumber)
             return false;
         if (incoming.RevisionNumber < _currentPlan.RevisionNumber)
             return true;
-        return incoming.Progress.CompletedCount < _currentPlan.Progress.CompletedCount;
+        if (incoming.Progress.CompletedCount >= _currentPlan.Progress.CompletedCount)
+            return false;
+        return !HasAuthoritativeTaskReopen(_currentPlan, incoming);
+    }
+
+    private static bool HasAuthoritativeTaskReopen(Plan current, Plan incoming)
+    {
+        var currentTasks = current.Tasks.ToDictionary(task => task.TaskId, StringComparer.Ordinal);
+        var reopenedCount = 0;
+
+        foreach (var incomingTask in incoming.Tasks)
+        {
+            if (!currentTasks.TryGetValue(incomingTask.TaskId, out var currentTask) ||
+                currentTask.Status is not (PlanTaskStatus.Complete or PlanTaskStatus.Superseded) ||
+                incomingTask.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)
+                continue;
+
+            var currentAttemptCount = currentTask.AttemptHistory?.Count ?? 0;
+            var incomingAttempts = incomingTask.AttemptHistory ?? [];
+            if (incomingAttempts.Count <= currentAttemptCount)
+                continue;
+
+            // Gate rework archives the accepted result before clearing the current result fields.
+            // Requiring that new audit entry prevents a genuinely late, lower-count snapshot from
+            // reviving old UI state after the replacement attempt has completed.
+            var archivedAttempt = incomingAttempts[currentAttemptCount];
+            if (!string.Equals(archivedAttempt.Status, currentTask.Status, StringComparison.Ordinal) ||
+                !string.Equals(archivedAttempt.Commit, currentTask.Commit, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(archivedAttempt.Disposition, "changes-requested", StringComparison.Ordinal))
+                continue;
+
+            reopenedCount++;
+        }
+
+        return reopenedCount >= current.Progress.CompletedCount - incoming.Progress.CompletedCount;
     }
 
     /// <summary>

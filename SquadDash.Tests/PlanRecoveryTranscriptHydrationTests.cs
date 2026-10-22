@@ -7,13 +7,14 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     public void WorkspaceLoad_RestoresInterruptedPlanActionsAfterTranscriptHydrationAndRepair()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
-        const string loadCall = "await _conversationManager.LoadWorkspaceConversationAsync();";
-        const string repairCall = "RepairStalePlanExecutingState();";
-        const string restoreCall = "RestoreInterruptedPlanRecoverySurfaces();";
+        var loadBlock = WorkspaceLoadBlock(source);
+        const string loadCall = "\"conversation-manager\"";
+        const string repairCall = "\"stale-plan-repair\"";
+        const string restoreCall = "\"interrupted-plan-recovery-surfaces\"";
 
-        var loadIndex = source.IndexOf(loadCall, StringComparison.Ordinal);
-        var repairIndex = source.IndexOf(repairCall, loadIndex, StringComparison.Ordinal);
-        var restoreIndex = source.IndexOf(restoreCall, repairIndex, StringComparison.Ordinal);
+        var loadIndex = loadBlock.IndexOf(loadCall, StringComparison.Ordinal);
+        var repairIndex = loadBlock.IndexOf(repairCall, loadIndex, StringComparison.Ordinal);
+        var restoreIndex = loadBlock.IndexOf(restoreCall, repairIndex, StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {
@@ -25,24 +26,152 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     }
 
     [Test]
+    public void WorkspaceLoad_RestoresCleanWorktreePauseAndPendingVerificationAfterHydration()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var loadBlock = WorkspaceLoadBlock(source);
+        const string loadCall = "\"conversation-manager\"";
+        const string restoreCall = "\"waiting-for-clean-worktree-recovery\"";
+
+        var loadIndex = loadBlock.IndexOf(loadCall, StringComparison.Ordinal);
+        var restoreIndex = loadBlock.IndexOf(restoreCall, loadIndex, StringComparison.Ordinal);
+        var restoreStart = source.IndexOf(
+            "private async Task RestoreWaitingForCleanWorktreeRecoverySurfaceAsync()",
+            StringComparison.Ordinal);
+        var restoreEnd = source.IndexOf(
+            "private void RestoreFailedPlanValidationRecoverySurface()",
+            restoreStart,
+            StringComparison.Ordinal);
+        var restoreMethod = source[restoreStart..restoreEnd];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restoreIndex, Is.GreaterThan(loadIndex),
+                "Clean-worktree recovery must be reconstructed after transcript hydration.");
+            Assert.That(loadBlock, Does.Contain("await TraceWorkspaceLoadPhaseAsync("));
+            Assert.That(restoreMethod, Does.Contain("PlanLifecycleStatus.WaitingForCleanWorktree"));
+            Assert.That(restoreMethod, Does.Contain("GetPlanPreflightDirtyPathsAsync(plan.PlanId)"));
+            Assert.That(restoreMethod, Does.Contain("SelectSinglePendingVerificationTask(plan)"));
+            Assert.That(restoreMethod, Does.Contain("ResumeWaitingForCleanWorktreePlanAsync(plan.PlanId)"));
+            Assert.That(restoreMethod, Does.Contain("ShowTranscriptPlanPreflightRecovery("));
+        });
+    }
+
+    [Test]
     public void WorkspaceLoad_AwaitsHydrationBeforeRestoringPendingPlanActions()
     {
         var mainWindowSource = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
         var managerSource = File.ReadAllText(FindRepoFile("SquadDash", "TranscriptConversationManager.cs"));
-        const string loadCall = "await _conversationManager.LoadWorkspaceConversationAsync();";
-        const string restoreCall = "RestorePendingDecomposeApprovalSurfaces(promoteUnaddressedToInbox: true);";
+        var loadBlock = WorkspaceLoadBlock(mainWindowSource);
+        const string loadCall = "\"conversation-manager\"";
+        const string restoreCall = "\"pending-decompose-approval-surfaces\"";
 
-        var loadIndex = mainWindowSource.IndexOf(loadCall, StringComparison.Ordinal);
-        var restoreIndex = mainWindowSource.IndexOf(restoreCall, loadIndex, StringComparison.Ordinal);
+        var loadIndex = loadBlock.IndexOf(loadCall, StringComparison.Ordinal);
+        var restoreIndex = loadBlock.IndexOf(restoreCall, loadIndex, StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {
             Assert.That(loadIndex, Is.GreaterThanOrEqualTo(0));
             Assert.That(restoreIndex, Is.GreaterThan(loadIndex),
                 "Pending-plan actions must be reconciled after transcript hydration.");
+            Assert.That(mainWindowSource, Does.Contain("await TraceWorkspaceLoadPhaseAsync("),
+                "Workspace load timing should still await conversation hydration.");
             Assert.That(managerSource, Does.Contain("await RenderAllSequentiallyAsync(agentRenders, turns, dataLoadMs);"),
                 "LoadWorkspaceConversationAsync must not return while its document render is still queued.");
             Assert.That(managerSource, Does.Not.Contain("_ = RenderAllSequentiallyAsync(agentRenders, turns, dataLoadMs);"));
+        });
+    }
+
+    private static string WorkspaceLoadBlock(string source)
+    {
+        var loadStart = source.IndexOf("LOAD_CONVERSATION_START", StringComparison.Ordinal);
+        var loadEnd = source.IndexOf("LOAD_CONVERSATION_END", loadStart, StringComparison.Ordinal);
+        Assert.That(loadStart, Is.GreaterThanOrEqualTo(0), "Workspace load start trace was not found.");
+        Assert.That(loadEnd, Is.GreaterThan(loadStart), "Workspace load end trace was not found.");
+        return source[loadStart..loadEnd];
+    }
+
+    [Test]
+    public void WorkspaceLoad_LogsHydrationAndRestorePhaseTimings()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var loadBlock = WorkspaceLoadBlock(source);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(loadBlock, Does.Contain("TraceWorkspaceLoadPhaseAsync"));
+            Assert.That(loadBlock, Does.Contain("TraceWorkspaceLoadPhase"));
+            Assert.That(loadBlock, Does.Contain("\"conversation-manager\""));
+            Assert.That(loadBlock, Does.Contain("\"interrupted-plan-recovery-surfaces\""));
+            Assert.That(loadBlock, Does.Contain("\"human-proof-coverage-review\""));
+            Assert.That(source, Does.Contain("PERSISTED_TURN_RENDER_SLOW"));
+            Assert.That(source, Does.Contain("RESPONSE_RENDER_SLOW"));
+        });
+    }
+
+    [Test]
+    public void WorkspaceLoad_UsesSmallInitialCoordinatorRenderWindow()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "TranscriptConversationManager.cs"));
+
+        Assert.That(source, Does.Contain("private const int InitialTurnWindow = 6;"),
+            "Startup should render only the transcript tail; older coordinator turns are virtual-prepended on scroll.");
+    }
+
+    [Test]
+    public void PersistedToolRendering_DefersDetailTextUntilToolExpanderOpens()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("expander.Expanded += (_, _) => EnsureToolDetailText(entry);"));
+            Assert.That(source, Does.Contain("if (entry.Expander.IsExpanded)")
+                .And.Contain("EnsureToolDetailText(entry);"));
+            Assert.That(source, Does.Contain("private static string BuildToolDetailText(ToolTranscriptEntry entry)"));
+            Assert.That(source, Does.Not.Contain(
+                "entry.DetailTextBox.Text = entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent"));
+        });
+    }
+
+    [Test]
+    public void PersistedToolRendering_DefersCapturedEditExtractionUntilNeeded()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("private static IReadOnlyList<CapturedFileEdit> EnsureCapturedEdits(ToolTranscriptEntry entry)"));
+            Assert.That(source, Does.Contain("ReferenceEquals(entry.Turn.OwnerThread.CurrentTurn, entry.Turn)"));
+            Assert.That(source, Does.Contain("entry.CapturedEdits = tool.CapturedEdits is { Count: > 0 }")
+                .And.Contain(": null;"));
+            Assert.That(source, Does.Not.Contain(
+                "entry.CapturedEdits = tool.CapturedEdits is { Count: > 0 }\r\n            ? tool.CapturedEdits\r\n            : ToolTranscriptFormatter.TryExtractCapturedEdits"));
+        });
+    }
+
+    [Test]
+    public void ResponseRendering_DisablesFusionDiagnosticsDuringNormalHydration()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("private static readonly bool EnableFusionPatternTrace = false;"));
+            Assert.That(source, Does.Contain("if (EnableFusionPatternTrace)\r\n            TraceFusionPatternsInRawText"));
+        });
+    }
+
+    [Test]
+    public void TranscriptHydration_DefersPromptNavGeometryDuringBulkRender()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("private bool IsBulkTranscriptDocumentLoadActive(TranscriptThreadState thread)"));
+            Assert.That(source, Does.Contain("SyncPromptNavButtons(allowGeometry: !IsBulkTranscriptDocumentLoadActive(thread));"));
+            Assert.That(source, Does.Contain("box.EndChange();\r\n        if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))\r\n            SchedulePromptNavGeometryRefresh();"));
         });
     }
 
@@ -92,6 +221,52 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
             Assert.That(callout, Does.Contain("PlanInboxAttentionText"));
             Assert.That(callout, Does.Contain("_deferredApprovalCallout is not null"),
                 "Approval attention must retain priority over the plan reminder cue.");
+        });
+    }
+
+    [Test]
+    public void AwaitingApprovalRestore_UsesPauseSuppressionBeforeCallout()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var restoreStart = source.IndexOf(
+            "private async Task RestoreAwaitingApprovalGateUIAsync(string? onlyPlanId = null)",
+            StringComparison.Ordinal);
+        var restoreEnd = source.IndexOf(
+            "private void SuppressCheckpointApprovalCardsForPendingRevision(",
+            restoreStart,
+            StringComparison.Ordinal);
+        var calloutStart = source.IndexOf(
+            "private async Task TryShowApprovalCalloutAsync(",
+            StringComparison.Ordinal);
+        var calloutEnd = source.IndexOf(
+            "private async Task TryShowDeferredApprovalCalloutAsync()",
+            calloutStart,
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(restoreStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(restoreEnd, Is.GreaterThan(restoreStart));
+            Assert.That(calloutStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(calloutEnd, Is.GreaterThan(calloutStart));
+        });
+
+        var restoreMethod = source[restoreStart..restoreEnd];
+        var calloutMethod = source[calloutStart..calloutEnd];
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain(
+                "await TraceWorkspaceLoadPhaseAsync(\"awaiting-approval-gates\", () => RestoreAwaitingApprovalGateUIAsync());"),
+                "Workspace load must await token restoration before expecting the transcript card to exist.");
+            Assert.That(restoreMethod, Does.Contain("ShouldSuppressApprovalCardForPausedPlan(plan.PlanId)"),
+                "Startup restore must not pick a paused awaiting-approval plan as the attention target.");
+            Assert.That(restoreMethod, Does.Contain("await _planApprovalRuntime.RestoreAsync(eligiblePlans);"),
+                "A repaired awaiting-approval gate needs its runtime click token rebound before appending the card.");
+            Assert.That(restoreMethod.IndexOf("await _planApprovalRuntime.RestoreAsync(eligiblePlans);", StringComparison.Ordinal),
+                Is.LessThan(restoreMethod.IndexOf("_planApprovalRuntime.Actions.GetCurrentToken(plan.PlanId)", StringComparison.Ordinal)),
+                "The transcript card restore must not check for a token until after runtime restoration.");
+            Assert.That(calloutMethod, Does.Contain("if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId))"),
+                "Callout display must share the paused-plan suppression gate used by transcript cards.");
         });
     }
 

@@ -239,6 +239,31 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
     }
 
     [Test]
+    public void PlanViewerPauseResume_RestoresAwaitingApprovalSurface()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var resumeCallback = Method(
+            main,
+            "Action<Plan>? onResumePlan =",
+            "Action<Plan>? onPausePlan =");
+        var pauseCallback = Method(
+            main,
+            "Action<Plan>? onPausePlan =",
+            "Func<Plan, Task<bool>>? onAdoptVerifiedCommitRange =");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(resumeCallback, Does.Contain("TrySetPlanPauseState(current, pause: false, out var resumed")
+                .And.Contain("RemovePlanPauseRequestedEntries(resumed.PlanId)")
+                .And.Contain("resumed.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval")
+                .And.Contain("gate.Status == PlanGateStatus.AwaitingApproval")
+                .And.Contain("RestoreAwaitingApprovalGateUI(resumed.PlanId)"));
+            Assert.That(pauseCallback, Does.Contain("TrySetPlanPauseState(current, pause: true")
+                .And.Contain("RemoveApprovalCardsForPausedPlan(current.PlanId)"));
+        });
+    }
+
+    [Test]
     public void RecoveryDeveloperPreview_BypassesOnlyTheDurableInterruptionRequirement()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
@@ -324,6 +349,71 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
     }
 
     [Test]
+    public void ValidatedPlanCommit_WaitsForCleanWorktreeInsteadOfFailingTheStep()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var finalize = Method(
+            main,
+            "private async Task FinalizeExecutingPlanIterationAsync()",
+            "private async Task FinalizeTaskVerificationTurnAsync(");
+        var validation = Method(
+            main,
+            "private sealed record DecomposeStepCommitValidation(",
+            "private void StopAndOfferDecomposeRecovery(");
+        var cleanPause = Method(
+            main,
+            "private void PausePlanForCleanWorktree(",
+            "private void OnNativeLoopIterationCompleted(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(validation, Does.Contain("PlanPreflightBlockedException? WorktreeBlock")
+                .And.Contain("EnsurePlanWorktreeReadyAsync(workspace, result.GroupId)")
+                .And.Contain("catch (PlanPreflightBlockedException blocked)")
+                .And.Contain("return new(null, verificationOnly ? head : resolved, commits, anomalies, changedPaths, worktreeBlock)"));
+            Assert.That(finalize, Does.Contain("postCommitWorktreeBlock = commitValidation.WorktreeBlock")
+                .And.Contain("PlanStoreUpdater.ApplyTaskVerificationPending(")
+                .And.Contain("PausePlanForCleanWorktree(postCommitWorktreeBlock, groupId)")
+                .And.Contain("completedAfterAcceptance")
+                .And.Contain("postCommitWorktreeBlock is not null && !completedAfterAcceptance")
+                .And.Contain("TryPublishPlanStepAccepted("));
+            Assert.That(cleanPause, Does.Contain("SelectSinglePendingVerificationTask(latest)")
+                .And.Contain("ResumeInterruptedTaskVerificationAsync(latest, verificationTask.TaskId)"));
+        });
+    }
+
+    [Test]
+    public void VerificationHumanReview_RestoresApprovalCardInsteadOfRecoveryCard()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var finalize = Method(
+            main,
+            "private async Task FinalizeTaskVerificationTurnAsync(",
+            "private async Task AcceptVerifiedTaskAsync(");
+        var humanReviewStart = finalize.IndexOf(
+            "if (combinableHumanReview is not null)",
+            StringComparison.Ordinal);
+        var humanReviewEnd = finalize.IndexOf(
+            "var discrepancies = verification.MissingOrOverstatedWork.Count == 0",
+            humanReviewStart,
+            StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(humanReviewStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(humanReviewEnd, Is.GreaterThan(humanReviewStart));
+        });
+
+        var humanReview = finalize[humanReviewStart..humanReviewEnd];
+        Assert.Multiple(() =>
+        {
+            Assert.That(humanReview, Does.Contain("PlanStoreUpdater.ApplyGateReady("));
+            Assert.That(humanReview, Does.Contain("await RestoreAwaitingApprovalGateUIAsync(groupId);"));
+            Assert.That(humanReview, Does.Not.Contain("AppendDecomposeRecoveryActions("));
+        });
+    }
+
+    [Test]
     public void RecoveryTranscript_UsesPlanAndStepLabelsInsteadOfInternalIds()
     {
         var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
@@ -387,6 +477,31 @@ internal sealed class PlanContinuationReliabilityArchitectureTests
                 .And.Contain("active worker remains pending"));
             Assert.That(subagentStarted, Does.Contain("PersistAgentThreadSnapshot(thread)")
                 .And.Not.Contain("SaveCurrentTurnToConversation("));
+        });
+    }
+
+    [Test]
+    public void ApprovedReviewNotes_AreQueuedFromCommonCompletionPublish()
+    {
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var publish = Method(
+            main,
+            "private bool TryPublishPlanProgress(Plan plan, out string? error)",
+            "private bool TryPublishPlanRecoveryProgress(");
+        var recoveryPublish = Method(
+            main,
+            "private bool TryPublishPlanRecoveryProgress(",
+            "private Plan? TryLoadPlanForCompletionTransition(");
+        var finalApprovalCompletion = Method(
+            main,
+            "if (PlanExecutionBoundaryPolicy.IsReadyToComplete(resolution.UpdatedPlan))",
+            "if (resolution.ShouldResume && !completedAtApproval");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(publish, Does.Contain("QueueApprovedReviewNotesFollowUpOnCompletionTransition(previousPlan, plan)"));
+            Assert.That(recoveryPublish, Does.Contain("QueueApprovedReviewNotesFollowUpOnCompletionTransition(expected, persistedPlan)"));
+            Assert.That(finalApprovalCompletion, Does.Not.Contain("QueueApprovedReviewNotesFollowUp(completedPlan)"));
         });
     }
 

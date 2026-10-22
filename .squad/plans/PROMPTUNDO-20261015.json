@@ -1,0 +1,1145 @@
+{
+  "planId": "PROMPTUNDO-20261015",
+  "revision": "dd645ca94da0655f",
+  "source": "tasks_json",
+  "lifecycleStatus": "completed",
+  "title": "Custom Undo/Redo Across Embedded Code Regions",
+  "branch": "feature/prompt-undo-across-regions",
+  "summary": "Give the prompt editor a single PromptUndoManager that owns Ctrl\u002BZ/Ctrl\u002BY across host text and every embedded AvalonEdit region, restoring the exact selection and caret from a {serializedText, caretOffset, anchorOffset} snapshot over the flat GetPlainText()/ToFencedText() serialization. caretOffset and anchorOffset are absolute offsets in that one flat coordinate space, so a single selection may straddle the host\u2194region boundary and must still capture and restore with correct span and direction. Native RichTextBox undo and per-region AvalonEdit undo are suppressed so exactly one authority exists; edits coalesce and history clears on send.",
+  "tasks": [
+    {
+      "taskId": "PROMPTUNDO-20261015-001",
+      "title": "Decide the single-authority prompt undo architecture",
+      "description": "Establish and record the authoritative design for prompt undo/redo before any wiring begins.\n\n## Observable outcome\n\nA new entry in \u0060.squad/decisions.md\u0060 plus a design contract that tasks 002-006 consume, so the implementation has one agreed model rather than per-task reinterpretation. No production behavior changes in this task.\n\n## Decisions to fix\n\n- A single \u0060PromptUndoManager\u0060 owns Ctrl\u002BZ/Ctrl\u002BY for the entire prompt \u0060RichTextBox\u0060, including when focus is inside an embedded region\u0027s AvalonEdit control.\n- The undo unit is a snapshot \u0060{serializedText, caretOffset, anchorOffset}\u0060 captured over the flat \u0060GetPlainText()\u0060/\u0060ToFencedText()\u0060 serialization.\n- **Absolute flat coordinate space.** \u0060caretOffset\u0060 and \u0060anchorOffset\u0060 are absolute offsets measured from the start of the single flat serialized prompt, a coordinate space that spans host text AND every embedded region\u0027s fenced span. Because both endpoints live in one space, a single selection may straddle the host\u2194region boundary in either orientation (anchor in host / caret in region, or anchor in region / caret in host).\n- **Selection-direction rule.** \u0060anchorOffset\u0060 and \u0060caretOffset\u0060 are stored separately so a forward selection (anchor before caret) and a backward selection (caret before anchor) each restore with the active caret on the correct end; the manager\u0027s authoritative range is the absolute [min,max] span plus the stored direction.\n- Single-authority routing suppresses native \u0060RichTextBox\u0060 undo and each region\u0027s AvalonEdit per-region undo stack.\n- Rapid consecutive edits coalesce into one undo entry; undo/redo history clears when the prompt is sent.\n\n## Consumers\n\nTasks 002 (snapshot engine), 003 (routing), 004 (coalescing/clear), 005 (tests), and 006 (review fixture) all build on this contract.",
+      "dependsOn": [],
+      "priority": "critical",
+      "status": "complete",
+      "commit": "b586bfde3ce0e6e36e280a0afb498dd3ca890299",
+      "completedAt": "2026-10-15T14:19:51.9113579+00:00",
+      "completionSummary": "Recorded the authoritative single-authority prompt undo/redo architecture decision in .squad/decisions.md as the shared contract for Steps 2-6.",
+      "agentAssignments": [
+        {
+          "agentHandle": "orion-vale",
+          "role": "Author the undo architecture decision and design contract",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-architecture-contract",
+          "description": "Agreed snapshot shape, absolute-flat-coordinate model (including boundary-straddling selections), selection-direction rule, single-authority routing/suppression rules, and coalescing/clear-on-send policy recorded in .squad/decisions.md."
+        }
+      ],
+      "handoff": {
+        "commit": "b586bfde3ce0e6e36e280a0afb498dd3ca890299",
+        "summary": "Recorded the authoritative single-authority prompt undo/redo architecture decision in .squad/decisions.md as the shared contract for Steps 2-6.",
+        "changedFiles": [
+          ".squad/decisions.md"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "git rev-parse --verify \u0022b586bfde^{commit}\u0022 \u0026\u0026 git --no-pager show --stat b586bfde",
+          "summary": "Documentation-only change to .squad/decisions.md (\u002B112/-2); commit b586bfde verified as HEAD on canonical branch feature/prompt-undo-across-regions with no production code or tasks.md touched, so the tree remains green."
+        },
+        "submittedAt": "2026-10-15T14:18:03.2812277+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Orion Vale authored a new dated decision entry in .squad/decisions.md recording the single-authority PromptUndoManager design: one manager owns Ctrl\u002BZ/Ctrl\u002BY for the entire prompt RichTextBox including when focus is inside an embedded region\u0027s AvalonEdit control.",
+          "The decision fixes the snapshot unit {serializedText, caretOffset, anchorOffset} over the lossless flat GetPlainText()/ToFencedText() serialization, with caretOffset and anchorOffset as absolute offsets in one coordinate space that spans host text and every region\u0027s fenced span, so a selection may straddle the host-region boundary in either orientation.",
+          "The decision fixes the selection-direction rule (separate anchor/caret offsets; authoritative range is absolute [min,max] plus stored direction; anchor==caret when no selection), single-authority suppression of native RichTextBox undo and each region\u0027s AvalonEdit undo stack, and debounced coalescing with clear-on-send.",
+          "The verified root cause is recorded as motivation (RenderSegments rebuilds the FlowDocument under IsUndoEnabled=false then true, discarding the WPF undo stack; native undo cannot span a RichTextBox plus nested AvalonEdit controls), and the entry explicitly does not reopen the in-review AVALONEDIT-20261014 decision or GATE-001.",
+          "Named Steps 2-6 (snapshot engine, Ctrl\u002BZ/Y routing, coalescing/clear, deterministic tests, review fixture) as consumers of the contract."
+        ],
+        "baselineCommit": "011fb2e93a88d9aa7ee0da09241f27783cad5685",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "Commit b586bfde resolves on the canonical branch feature/prompt-undo-across-regions and is a documentation-only change to .squad/decisions.md (\u002B112/-2, exactly matching the host-recorded changed-files set and magnitude; the -2 is a trivial header/BOM re-encoding). The added entry \u0027### 2026-10-15 \u2014 Single-authority prompt undo/redo across embedded code regions (PROMPTUNDO-20261015-001)\u0027 records all seven required contract decisions explicitly and unambiguously, is marked \u0027implements nothing / No production behavior changes in this step\u0027, and explicitly states it does NOT reopen AVALONEDIT-20261014-001 or GATE-001. No production code, tests, or tasks.md touched. No overstatement detected.",
+          "claimFindings": [
+            {
+              "claim": "Doc-only diff confined to .squad/decisions.md on the canonical branch",
+              "disposition": "supported",
+              "evidence": "git rev-parse verified commit; \u0060git branch --contains\u0060 shows only feature/prompt-undo-across-regions (HEAD); \u0060git show --stat\u0060 = \u00271 file changed, 112 insertions(\u002B), 2 deletions(-)\u0027 in .squad/decisions.md; no production/test/tasks.md files in diff."
+            },
+            {
+              "claim": "D1: Single PromptUndoManager owns Ctrl\u002BZ/Ctrl\u002BY for entire RichTextBox including inside region AvalonEdit",
+              "disposition": "supported",
+              "evidence": "\u00A71 \u0027Single authority owns the keys\u0027 \u2014 \u0027A single PromptUndoManager owns Ctrl\u002BZ ... for the ENTIRE prompt RichTextBox, including when keyboard focus is inside an embedded region\u0027s AvalonEdit control. There is exactly one undo timeline per prompt.\u0027"
+            },
+            {
+              "claim": "D2: Undo unit is snapshot {serializedText, caretOffset, anchorOffset} over flat GetPlainText()/ToFencedText()",
+              "disposition": "supported",
+              "evidence": "\u00A72 \u0027The undo unit is a flat snapshot\u0027 \u2014 immutable \u0027{ serializedText, caretOffset, anchorOffset }\u0027 where serializedText is the full flat serialization via GetPlainText()/ToFencedText(), restore via SetPlainText \u002B offsets."
+            },
+            {
+              "claim": "D3: Absolute flat coordinate space spanning host\u002Bregion fenced spans, straddle in either orientation",
+              "disposition": "supported",
+              "evidence": "\u00A73 \u0027Absolute flat coordinate space\u0027 \u2014 ABSOLUTE offsets from start of flat serialized prompt spanning host text AND every region\u0027s fenced span; explicitly \u0027a single selection may straddle the host\u2194region boundary in EITHER orientation\u0027."
+            },
+            {
+              "claim": "D4: Selection-direction rule with separate anchor/caret, authoritative [min,max]\u002Bdirection",
+              "disposition": "supported",
+              "evidence": "\u00A74 \u0027Selection-direction rule\u0027 \u2014 anchorOffset (fixed end) and caretOffset (moving end) stored SEPARATELY; forward anchor\u003Ccaret, backward caret\u003Canchor; authoritative range \u0027[min(anchor,caret), max(anchor,caret)] PLUS the stored direction\u0027 restores active caret on correct end."
+            },
+            {
+              "claim": "D5: Single-authority routing suppresses native RichTextBox undo and per-region AvalonEdit undo",
+              "disposition": "supported",
+              "evidence": "\u00A75 \u0027Single-authority routing suppresses all native undo\u0027 \u2014 MUST suppress (a) native RichTextBox undo and (b) each region\u0027s AvalonEdit per-region undo stack; observable contract \u0027no native undo path (host or region) ever services a user Ctrl\u002BZ/Ctrl\u002BY \u2014 only the PromptUndoManager does.\u0027"
+            },
+            {
+              "claim": "D6: Rapid edits coalesce into one entry; history clears on send",
+              "disposition": "supported",
+              "evidence": "\u00A76 \u0027Coalescing and clear-on-send\u0027 \u2014 \u0027Rapid consecutive edits COALESCE (debounce) into a single undo entry\u0027 and \u0027The undo/redo history CLEARS when the prompt is sent.\u0027"
+            },
+            {
+              "claim": "D7: Consumers named Steps 002\u2013006",
+              "disposition": "supported",
+              "evidence": "\u0027Consumers\u0027 section names Step 2 snapshot engine, Step 3 routing, Step 4 coalescing/clear, Step 5 deterministic tests, Step 6 review fixture."
+            },
+            {
+              "claim": "No overstatement; does not reopen AVALONEDIT-20261014-001/GATE-001",
+              "disposition": "supported",
+              "evidence": "Entry states \u0027It implements nothing: no manager, routing, coalescing, or tests are built here ... No production behavior changes in this step.\u0027 and \u0027This decision does NOT reopen or modify the AvalonEdit region-editor decision (AVALONEDIT-20261014-001) or its GATE-001 ... consuming it rather than altering it.\u0027"
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "No tests expected or claimed for this DESIGN/DECISION task; test authoring is explicitly deferred to Step 5. The entry correctly defines the testable contract (absolute-offset restore, straddling selections in both orientations, direction preservation, coalescing, clear-on-send) without asserting any tests were written. Appropriate for a doc-only step.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "b586bfde3ce0e6e36e280a0afb498dd3ca890299",
+          "completedAt": "2026-10-15T14:19:51.6231324+00:00"
+        }
+      ],
+      "displayStepLabel": "1",
+      "commits": [
+        {
+          "commit": "b586bfde3ce0e6e36e280a0afb498dd3ca890299",
+          "relation": "task",
+          "reason": "Commit produced within this step\u0027s host-recorded baseline range."
+        }
+      ],
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced",
+      "completionSummaryItems": [
+        "Orion Vale authored a new dated decision entry in .squad/decisions.md recording the single-authority PromptUndoManager design: one manager owns Ctrl\u002BZ/Ctrl\u002BY for the entire prompt RichTextBox including when focus is inside an embedded region\u0027s AvalonEdit control.",
+        "The decision fixes the snapshot unit {serializedText, caretOffset, anchorOffset} over the lossless flat GetPlainText()/ToFencedText() serialization, with caretOffset and anchorOffset as absolute offsets in one coordinate space that spans host text and every region\u0027s fenced span, so a selection may straddle the host-region boundary in either orientation.",
+        "The decision fixes the selection-direction rule (separate anchor/caret offsets; authoritative range is absolute [min,max] plus stored direction; anchor==caret when no selection), single-authority suppression of native RichTextBox undo and each region\u0027s AvalonEdit undo stack, and debounced coalescing with clear-on-send.",
+        "The verified root cause is recorded as motivation (RenderSegments rebuilds the FlowDocument under IsUndoEnabled=false then true, discarding the WPF undo stack; native undo cannot span a RichTextBox plus nested AvalonEdit controls), and the entry explicitly does not reopen the in-review AVALONEDIT-20261014 decision or GATE-001.",
+        "Named Steps 2-6 (snapshot engine, Ctrl\u002BZ/Y routing, coalescing/clear, deterministic tests, review fixture) as consumers of the contract."
+      ],
+      "completionKind": "changed"
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-002",
+      "title": "Capture and restore prompt snapshots across the region seam",
+      "description": "Implement \u0060PromptUndoManager\u0060 snapshot capture and apply over the flat serialization, grounded in \u0060EmbeddedCodeRegionManager.ResolveCaretPointerAfterRebuild\u0060/\u0060GetCaretOffset\u0060, \u0060RichTextBoxExtensions.GetPlainText\u0060 and its fenced-offset mapping (\u0060GetCharOffset\u0060/\u0060GetTextPointerAt\u0060), and the \u0060IRegionCodeEditor\u0060/\u0060AvalonEditRegionEditor\u0060 seam (\u0060CaretOffset\u0060, \u0060SelectionStart\u0060, \u0060SelectionLength\u0060).\n\n## Observable outcome\n\nCapturing a snapshot then applying it rebuilds the prompt document from \u0060serializedText\u0060 and restores the exact selection \u2014 same span, same caret end \u2014 for host-text selections, collapsed carets, selections entirely inside one region, and selections that straddle the host\u2194region boundary. This capture/apply engine is consumed by the Ctrl\u002BZ/Ctrl\u002BY routing in task 003 and the coalescing/clear path in task 004.\n\n## Boundary-straddling selections (first-class)\n\n\u0060caretOffset\u0060 and \u0060anchorOffset\u0060 are absolute offsets in the one flat serialized-prompt coordinate space that spans host text and every embedded region\u0027s fenced span. A single selection may straddle the host\u2194region boundary in either orientation: anchor in host text with caret inside a region, OR anchor inside a region with caret in host text. Capture and restore must resolve a selection whose anchor and caret resolve to DIFFERENT surfaces \u2014 one host \u0060TextPointer\u0060, one in-region AvalonEdit offset \u2014 into one coherent WPF-level selection spanning the \u0060BlockUIContainer\u0060 boundary, preserving direction (which endpoint is the moving caret).\n\nBecause \u0060GetCharOffset\u0060 treats a region\u0027s fenced span as one indivisible block, an absolute offset that lands inside a region must additionally resolve to that specific region plus its internal AvalonEdit local offset. The content base is the absolute offset of the first content character after the opener line: for a fenced span serialized as \u0060{fence}{lang}\\n{content}\\n{fence}\u0060, content local offset L maps to absolute (spanStart \u002B fenceLen \u002B langLen \u002B 1 \u002B L).\n\nIf a WPF \u0060RichTextBox\u0060 selection cannot natively render a single visible highlight spanning a \u0060BlockUIContainer\u0060 plus its nested AvalonEdit control, the authoritative selection in \u0060PromptUndoManager\u0060 remains the absolute [min,max] range with stored direction, and the visible selection must reflect that range as faithfully as the control composition allows. The straddle case must never be silently dropped.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-001"
+      ],
+      "priority": "critical",
+      "status": "complete",
+      "commit": "6d449071dae4d8d9b22ba354f755c1bf91c71c35",
+      "completedAt": "2026-10-15T14:37:02.7386677+00:00",
+      "completionSummary": "Implemented PromptUndoManager snapshot capture/apply over the flat GetPlainText() serialization with absolute caret/anchor offsets and cross-seam (straddle) selection resolution.",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Implement snapshot capture/apply and the cross-seam selection resolution",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-snapshot-engine",
+          "description": "PromptUndoManager snapshot capture/apply over the flat serialization, resolving host, in-region, and boundary-straddling selections (both orientations) with preserved direction."
+        }
+      ],
+      "inputs": [
+        "undo-architecture-contract"
+      ],
+      "provenanceChain": {
+        "entries": [
+          {
+            "taskId": "PROMPTUNDO-20261015-002",
+            "sourceLabel": "Host-recorded commit",
+            "sourceKind": "HostRecorded",
+            "recoveryKind": "envelope-repair",
+            "recordedAt": "2026-10-15T14:31:25.090358+00:00"
+          }
+        ]
+      },
+      "handoff": {
+        "commit": "6d449071dae4d8d9b22ba354f755c1bf91c71c35",
+        "summary": "Implemented PromptUndoManager snapshot capture/apply over the flat GetPlainText() serialization with absolute caret/anchor offsets and cross-seam (straddle) selection resolution.",
+        "changedFiles": [
+          "SquadDash/AvalonEditRegionEditor.cs",
+          "SquadDash/EmbeddedCodeRegionBlock.cs",
+          "SquadDash/EmbeddedFenceDetector.cs",
+          "SquadDash/IRegionCodeEditor.cs",
+          "SquadDash/PromptUndoManager.cs"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "dotnet build SquadDash\\SquadDash.csproj (DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set); dotnet test --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav|FullyQualifiedName~EmbeddedFence\u0022",
+          "summary": "Build succeeded with 0 errors (only expected benign NU1701 AvalonEdit warnings); 244 EmbeddedCodeRegion/EmbeddedCaretNav/EmbeddedFence tests pass with no regressions; commit 6d449071 independently verified as HEAD on feature/prompt-undo-across-regions via git rev-parse --verify."
+        },
+        "submittedAt": "2026-10-15T14:32:14.8615639+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Added PromptUndoManager with PromptSnapshot record struct {SerializedText,CaretOffset,AnchorOffset} and CaptureSnapshot/ApplySnapshot/ResolveAbsoluteOffset resolving an absolute offset to a host TextPointer or Region\u002Blocal AvalonEdit offset",
+          "Extended IRegionCodeEditor with RestoreSelection and implemented directional AvalonEdit selection in AvalonEditRegionEditor",
+          "Added EmbeddedCodeRegionBlock content-selection helpers (HasContentKeyboardFocus, GetContentSelectionLocal, RestoreContentSelection) and EmbeddedFenceDetector.FencedContentOffset exposing content-base math (spanStart\u002BfenceLen\u002BlangLen\u002B1\u002BL), verified to match the normative fixture (region fenced span [6,23), content base 16)",
+          "Capture/restore correctly handles host-text, collapsed-caret, both-inside-region, and boundary-straddling selections in either orientation with correct span and direction; straddle never dropped"
+        ],
+        "baselineCommit": "b586bfde3ce0e6e36e280a0afb498dd3ca890299",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "Step 2 (Capture and restore prompt snapshots across the region seam) is fully supported by repository evidence. The candidate commit is HEAD on feature/prompt-undo-across-regions, parent matches the recorded baseline b586bfde, and the diff touches exactly the 5 host-recorded files (\u002B360/-1); tasks.md and .squad/ are untouched. PromptUndoManager implements the \u00A72 flat-snapshot model (PromptSnapshot{SerializedText,CaretOffset,AnchorOffset} with SelectionStart/End/IsCollapsed/IsBackward), \u00A73 absolute coordinate space (ResolveAbsoluteOffset maps an absolute offset to a host TextPointer or Region\u002Blocal AvalonEdit offset), and \u00A74 direction preservation (anchor=fixed end, caret=moving end, restored on the correct side). Capture lifts in-region caret/anchor into absolute space via contentBase = spanStart \u002B FencedContentOffset(content,language); Apply rebuilds via SetPlainText \u002B EmbeddedCodeRegionManager.ConvertAllFences then restores same-region, host, and host\u003C-\u003Eregion straddle selections without dropping the straddle. FencedContentOffset (fenceLength \u002B language.Length \u002B 1) is computed from the SAME normalization and max(3,longestRun\u002B1) fence rule as BuildFencedText ({fence}{language}\\n{content}\\n{fence}), so the math is exact; the normative fixture checks out (\u0060\u0060\u0060python \u002B x=1: fenceLen=3, langLen=6, FencedContentOffset=10, spanStart=6 =\u003E content base 16, serialized length 17 =\u003E span [6,23)). All consumed production APIs exist with the described signatures (RestoreSelection on IRegionCodeEditor/AvalonEditRegionEditor; HasContentKeyboardFocus/GetContentSelectionLocal/RestoreContentSelection on EmbeddedCodeRegionBlock; GetPlainText/SetPlainText/GetCharOffset/GetTextPointerAt/GetCaretOffset/GetSelectionStart/GetSelectionLength; ConvertAllFences; IsAttachedToHost; ActiveRegion). Build succeeded with only benign NU1701 AvalonEdit warnings; the filtered suite reports Failed:0 Passed:244. Routing (Step 3), coalescing/clear (Step 4), and the round-trip NUnit suite (Step 5) are plan-authored downstream consumers and their absence here is not a defect; the handoff does not claim any future consumer is already wired.",
+          "claimFindings": [
+            {
+              "claim": "PromptSnapshot{SerializedText,CaretOffset,AnchorOffset} with absolute offsets and preserved direction",
+              "disposition": "supported",
+              "evidence": "PromptUndoManager.cs record struct with SelectionStart=Min, SelectionEnd=Max, IsCollapsed, IsBackward; matches decisions.md \u00A72/\u00A74 exactly."
+            },
+            {
+              "claim": "CaptureSnapshot lifts in-region caret/anchor to absolute space (content base = spanStart \u002B fenceLen \u002B lang.Length \u002B 1), else reads host selection with derived direction",
+              "disposition": "supported",
+              "evidence": "CaptureAbsoluteSelection: when ActiveRegion is attached and HasContentKeyboardFocus, contentBase = spanStart \u002B EmbeddedFenceDetector.FencedContentOffset(active.Content, active.Language), adds GetContentSelectionLocal() halves; else derives anchor by comparing GetCaretOffset to GetSelectionStart/Length."
+            },
+            {
+              "claim": "ApplySnapshot rebuilds from serializedText and restores directional selection for host/collapsed/in-region/straddle",
+              "disposition": "supported",
+              "evidence": "ApplySnapshot calls SetPlainText then ConvertAllFences, resolves both endpoints, RestoreResolvedSelection handles same-region (RestoreContentSelection), both-host (Selection.Select\u002BCaretPosition), and straddle fallback using HostPointer ?? GetTextPointerAt(AbsoluteOffset); straddle explicitly not dropped."
+            },
+            {
+              "claim": "ResolveAbsoluteOffset resolves host vs region\u002Blocal correctly; straddle endpoints not silently dropped",
+              "disposition": "supported",
+              "evidence": "Enumerates region spans, returns Region surface when contentBase \u003C= offset \u003C= contentBase\u002BcontentLength else Host with GetTextPointerAt; straddle reflected as a best-effort host-level selection carrying the absolute range\u002Bdirection (documented WPF composition limitation, owned range stays authoritative in snapshot)."
+            },
+            {
+              "claim": "IRegionCodeEditor.RestoreSelection added with directional AvalonEdit selection in AvalonEditRegionEditor",
+              "disposition": "supported",
+              "evidence": "IRegionCodeEditor.cs declares void RestoreSelection(int,int); AvalonEditRegionEditor clamps, sets TextArea.Selection via Selection.Create(min,max) and places Caret.Offset=caretOffset on the moving end."
+            },
+            {
+              "claim": "EmbeddedCodeRegionBlock content-selection helpers added",
+              "disposition": "supported",
+              "evidence": "HasContentKeyboardFocus (=_editor.IsKeyboardFocusWithin), GetContentSelectionLocal() (direction-preserving anchor/caret), RestoreContentSelection() (ActiveRegion=this, ClearHostSelection, _editor.RestoreSelection, FocusEditor) all present and consumed by PromptUndoManager."
+            },
+            {
+              "claim": "FencedContentOffset exposes spanStart\u002BfenceLen\u002BlangLen\u002B1\u002BL matching the normative fixture (span [6,23), content base 16)",
+              "disposition": "supported",
+              "evidence": "FencedContentOffset uses identical normalization and Math.Max(3,LongestBacktickRun\u002B1) rule as BuildFencedText({fence}{language}\\n{content}\\n{fence}); for \u0060\u0060\u0060python/x=1: fenceLen 3 \u002B lang 6 \u002B 1 = 10, \u002BspanStart 6 = 16; serialized length 17 =\u003E [6,23). Verified by inspection of EmbeddedFenceDetector.cs."
+            },
+            {
+              "claim": "Build green; 244 EmbeddedCodeRegion/EmbeddedCaretNav/EmbeddedFence tests pass",
+              "disposition": "supported",
+              "evidence": "dotnet build succeeded (2 warnings/0 errors, only NU1701); dotnet test with the specified filter: Failed:0, Passed:244, Skipped:0."
+            },
+            {
+              "claim": "deferredWork [] \u2014 routing/coalescing/tests/fixture are downstream plan steps, not worker deferrals",
+              "disposition": "supported",
+              "evidence": "decisions.md Consumers list assigns routing to Step 3, coalescing/clear to Step 4, deterministic tests to Step 5, fixture to Step 6; the engine exposes a coherent seam (CaptureSnapshot/ApplySnapshot/ResolveAbsoluteOffset) those steps consume. No future consumer is claimed wired in-repo."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "Step 2 correctly owns no new PromptUndoManager tests (the deterministic round-trip suite is Step 5), so none were required. The 244 regression tests (EmbeddedCodeRegion/EmbeddedCaretNav/EmbeddedFence) were run independently and all pass, confirming no regression to the serialization/offset substrate the engine builds on. The engine is testable by construction: CaptureSnapshot/ApplySnapshot operate on a RichTextBox and the content-base math (FencedContentOffset) and ResolveAbsoluteOffset are deterministic and share BuildFencedText\u0027s exact rule, giving Step 5 a clean seam for absolute-offset, straddle, and direction assertions. Known, correctly-deferred limitations: (1) cross-control straddle restores are best-effort host-level selections because WPF cannot render one highlight spanning the host RichTextBox and a nested AvalonEdit \u2014 the authoritative range\u002Bdirection is preserved in the snapshot, consistent with \u00A73 and not a Step 2 defect; (2) the worker-flagged host example (offset 9 landing inside a fence marker for that specific document) is a test-fixture-offset concern for Step 5\u0027s authoring, not a behavior defect \u2014 the code honors direction and places the caret on the moving end regardless.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "6d449071dae4d8d9b22ba354f755c1bf91c71c35",
+          "completedAt": "2026-10-15T14:37:02.5112802+00:00"
+        }
+      ],
+      "displayStepLabel": "2",
+      "commits": [
+        {
+          "commit": "6d449071dae4d8d9b22ba354f755c1bf91c71c35",
+          "relation": "task",
+          "reason": "Commit produced within this step\u0027s host-recorded baseline range."
+        }
+      ],
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced",
+      "completionSummaryItems": [
+        "Added PromptUndoManager with PromptSnapshot record struct {SerializedText,CaretOffset,AnchorOffset} and CaptureSnapshot/ApplySnapshot/ResolveAbsoluteOffset resolving an absolute offset to a host TextPointer or Region\u002Blocal AvalonEdit offset",
+        "Extended IRegionCodeEditor with RestoreSelection and implemented directional AvalonEdit selection in AvalonEditRegionEditor",
+        "Added EmbeddedCodeRegionBlock content-selection helpers (HasContentKeyboardFocus, GetContentSelectionLocal, RestoreContentSelection) and EmbeddedFenceDetector.FencedContentOffset exposing content-base math (spanStart\u002BfenceLen\u002BlangLen\u002B1\u002BL), verified to match the normative fixture (region fenced span [6,23), content base 16)",
+        "Capture/restore correctly handles host-text, collapsed-caret, both-inside-region, and boundary-straddling selections in either orientation with correct span and direction; straddle never dropped"
+      ],
+      "completionKind": "changed",
+      "contractExamples": [
+        {
+          "exampleId": "forward",
+          "title": "Forward host-text selection",
+          "input": "Flat serialized prompt (host text only): Hello world\nanchor=4, caret=9 (anchor before caret).",
+          "expectedBehavior": "Restore selects absolute [4,9) with the active caret at offset 9 (forward direction).",
+          "language": "text"
+        },
+        {
+          "exampleId": "backward",
+          "title": "Backward host-text selection",
+          "input": "Flat serialized prompt (host text only): Hello world\nanchor=9, caret=4 (caret before anchor).",
+          "expectedBehavior": "Restore selects the same absolute span [4,9) but backward, with the active caret at offset 4.",
+          "language": "text"
+        },
+        {
+          "exampleId": "collapsed-caret",
+          "title": "Collapsed caret, no selection",
+          "input": "Flat serialized prompt (host text only): Hello world\nanchor=6, caret=6.",
+          "expectedBehavior": "Restore places a collapsed caret at absolute offset 6 with no highlighted selection.",
+          "language": "text"
+        },
+        {
+          "exampleId": "both-inside-region",
+          "title": "Selection entirely inside one region",
+          "input": "Flat serialized prompt (host \u002B one region):\nHello\n\u0060\u0060\u0060python\nx=1\n\u0060\u0060\u0060\nWorld\nRegion fenced span = absolute [6,23); region content \u0022x=1\u0022 content base = absolute 16. anchor=16 (content local 0), caret=18 (content local 2).",
+          "expectedBehavior": "Restore selects region content local [0,2) entirely inside that region\u0027s AvalonEdit; no host text is selected; active caret at content local offset 2.",
+          "language": "text"
+        },
+        {
+          "exampleId": "straddle-forward",
+          "title": "Host anchor, in-region caret (forward straddle)",
+          "input": "Flat serialized prompt (host \u002B one region):\nHello\n\u0060\u0060\u0060python\nx=1\n\u0060\u0060\u0060\nWorld\nRegion fenced span = absolute [6,23); region content \u0022x=1\u0022 content base = absolute 16. anchor=2 (host text, inside \u0022Hello\u0022), caret=18 (inside the region, content local offset 2).",
+          "expectedBehavior": "Restore produces one coherent selection running from the host anchor at absolute 2 into the region, with the active (moving) caret inside the region at content local offset 2. Direction preserved: anchor outside the region, caret inside it.",
+          "language": "text"
+        },
+        {
+          "exampleId": "straddle-backward",
+          "title": "In-region anchor, host caret (inverse straddle)",
+          "input": "Flat serialized prompt (host \u002B one region):\nHello\n\u0060\u0060\u0060python\nx=1\n\u0060\u0060\u0060\nWorld\nRegion fenced span = absolute [6,23); region content \u0022x=1\u0022 content base = absolute 16. anchor=17 (inside the region, content local offset 1), caret=26 (host text, inside \u0022World\u0022 after the region).",
+          "expectedBehavior": "Restore produces one coherent selection running from the in-region anchor (content local offset 1) out to the host caret at absolute 26, with the active (moving) caret in host text after the region. The inverse straddle orientation is preserved: anchor inside the region, caret outside it.",
+          "language": "text"
+        }
+      ]
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-003",
+      "title": "Route Ctrl\u002BZ/Ctrl\u002BY through the single authority",
+      "description": "Wire prompt-level Ctrl\u002BZ and Ctrl\u002BY to \u0060PromptUndoManager\u0060 push/undo/redo and make it the only undo authority.\n\n## Observable outcome\n\nPressing Ctrl\u002BZ/Ctrl\u002BY in the prompt \u2014 whether keyboard focus is in host text or inside a focused region\u0027s AvalonEdit \u2014 drives the single \u0060PromptUndoManager\u0060, restoring snapshots via the task 002 engine. Native \u0060RichTextBox\u0060 undo and each region\u0027s AvalonEdit per-region undo stack are suppressed so there is exactly one history.\n\n## Consumers\n\nThe production prompt editor consumes this routing; task 005 asserts the mapping headlessly and GATE-001 confirms the live single-authority behavior.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-002"
+      ],
+      "priority": "high",
+      "status": "complete",
+      "commit": "63a188ac91502e4ebf129883a3ed6ff1bf848a23",
+      "completedAt": "2026-10-15T14:53:59.3713837+00:00",
+      "completionSummary": "Wired prompt Ctrl\u002BZ/Ctrl\u002BY to a single-authority PromptUndoHistory driving the Step 2 snapshot engine, suppressing native RichTextBox undo and each region\u0027s AvalonEdit per-region undo stack.",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Wire single-authority Ctrl\u002BZ/Ctrl\u002BY routing and suppress native/per-region undo",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-routing",
+          "description": "Prompt Ctrl\u002BZ/Ctrl\u002BY routed to the single PromptUndoManager with native and per-region undo suppressed."
+        }
+      ],
+      "inputs": [
+        "undo-snapshot-engine"
+      ],
+      "handoff": {
+        "commit": "63a188ac91502e4ebf129883a3ed6ff1bf848a23",
+        "summary": "Wired prompt Ctrl\u002BZ/Ctrl\u002BY to a single-authority PromptUndoHistory driving the Step 2 snapshot engine, suppressing native RichTextBox undo and each region\u0027s AvalonEdit per-region undo stack.",
+        "changedFiles": [
+          "SquadDash/AvalonEditRegionEditor.cs",
+          "SquadDash/EmbeddedCodeRegionBlock.cs",
+          "SquadDash/MainWindow.xaml.cs",
+          "SquadDash/PromptUndoManager.cs"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "dotnet build SquadDash\\SquadDash.csproj (DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set); dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav|FullyQualifiedName~EmbeddedFence\u0022",
+          "summary": "Build succeeded with 0 errors (only expected benign NU1701 AvalonEdit warnings); 244 EmbeddedCodeRegion/EmbeddedCaretNav/EmbeddedFence tests pass with no regressions; commit 63a188ac independently verified as HEAD on feature/prompt-undo-across-regions via git rev-parse --verify.",
+          "tests": {
+            "total": 244,
+            "passed": 244,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        "submittedAt": "2026-10-15T14:48:09.5487381+00:00",
+        "deferredWork": [
+          {
+            "requirement": "Coalesce rapid consecutive edits into a single undo entry (debounce).",
+            "reason": "Edit coalescing/debounce is explicitly owned by the next plan step; Step 3 pushes one entry per edit boundary and leaves coalescing to it.",
+            "ownerTaskIds": [
+              "PROMPTUNDO-20261015-004"
+            ]
+          },
+          {
+            "requirement": "Clear the undo/redo history when the prompt is sent.",
+            "reason": "Clear-on-send is owned by the next plan step; the PromptUndoHistory.Clear() seam is in place for Step 4 to invoke from the send path.",
+            "ownerTaskIds": [
+              "PROMPTUNDO-20261015-004"
+            ]
+          }
+        ],
+        "completedWork": [
+          "Added PromptUndoHistory to PromptUndoManager.cs: one linear snapshot timeline (List\u003CPromptSnapshot\u003E \u002B index) with PushSnapshot/Undo/Redo/CanUndo/CanRedo/CaptureBaseline/Clear and an IsApplying re-entrancy guard, driving PromptUndoManager.CaptureSnapshot/ApplySnapshot.",
+          "Routed Ctrl\u002BZ-\u003EUndo and Ctrl\u002BY/Ctrl\u002BShift\u002BZ-\u003ERedo via MainWindow.TryRoutePromptUndoRedo called from the window-level Window_PreviewKeyDown tunneling stage (before the host editor and any focused region AvalonEdit), gated by MainWindow.PromptOwnsUndoContext() so host-text focus and in-region focus both drive the one authority; the chord is marked handled so no native undo path services it.",
+          "Suppressed native host undo via PromptTextBox.IsUndoEnabled=false (with the SetPlainText case-cycle toggles changed to capture-and-restore so they preserve the disabled state) and suppressed each region\u0027s AvalonEdit undo via _editor.Document.UndoStack.SizeLimit=0 in the AvalonEditRegionEditor constructor.",
+          "Captured a startup baseline and push snapshots on host-text edits (PromptTextBox_TextChanged) and in-region edits (new EmbeddedCodeRegionBlock.AnyRegionContentEdited static event -\u003E MainWindow.OnEmbeddedRegionContentEdited), both guarded by !IsApplying and the embedded-region conversion guard."
+        ],
+        "baselineCommit": "6d449071dae4d8d9b22ba354f755c1bf91c71c35",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "Step 3 (Route Ctrl\u002BZ/Ctrl\u002BY through the single authority) is fully supported by repository evidence. The commit is HEAD on feature/prompt-undo-across-regions, touches exactly the 4 host-recorded files (\u002B265/-3), and leaves tasks.md unmodified. Single-authority routing is real and non-bypassable: Window_PreviewKeyDown is wired at the Window root element (MainWindow.xaml line 15), the WPF tunneling stage that fires before the host RichTextBox and before any focused region\u0027s AvalonEdit; TryRoutePromptUndoRedo intercepts Ctrl\u002BZ / Ctrl\u002BY / Ctrl\u002BShift\u002BZ and sets e.Handled=true when PromptOwnsUndoContext() is true, so no native undo command binding fires. Native host undo is suppressed via PromptTextBox.IsUndoEnabled=false at startup, and the SetPlainText / fence-render helpers restore IsUndoEnabled only conditionally (if (undoWasEnabled)), so the disabled state persists; the case-cycle paths were changed to capture-and-restore. Each region\u0027s AvalonEdit undo is neutralized by _editor.Document.UndoStack.SizeLimit=0 in the AvalonEditRegionEditor constructor. The timeline has content: a baseline is captured at wiring time, host edits push via PromptTextBox_TextChanged (wired MainWindow.xaml line 3576) and in-region edits via the new EmbeddedCodeRegionBlock.AnyRegionContentEdited event into OnEmbeddedRegionContentEdited; the IsApplying re-entrancy guard in PushSnapshot/Apply prevents the restore feedback loop. In-region routing is covered because PromptOwnsUndoContext() includes IsInsideEmbeddedCodeRegion(Keyboard.FocusedElement). Coalescing/clear-on-send are legitimately deferred to Step 4 and the Clear() seam exists-but-uncalled, which is acceptable. The live keystroke outcome is a Step 6 human-observable fixture; all Step 3 structural requirements are established by inspection plus a green headless suite (244 passed).",
+          "claimFindings": [
+            {
+              "claim": "Added PromptUndoHistory (List\u003CPromptSnapshot\u003E\u002Bindex, PushSnapshot/Undo/Redo/CanUndo/CanRedo/CaptureBaseline/Clear, IsApplying guard) driving Step 2 CaptureSnapshot/ApplySnapshot.",
+              "disposition": "supported",
+              "evidence": "PromptUndoManager.cs lines 259-395: sealed class PromptUndoHistory with _entries List\u003CPromptSnapshot\u003E, _index, _isApplying; PushSnapshot truncates redo tail and refreshes selection-only entries; Undo/Redo walk index and call Apply(); Apply wraps PromptUndoManager.ApplySnapshot in isApplying try/finally. Step 2 engine present: PromptSnapshot record struct (line 22, SerializedText/CaretOffset/AnchorOffset), CaptureSnapshot (82), ApplySnapshot (134)."
+            },
+            {
+              "claim": "Ctrl\u002BZ-\u003EUndo, Ctrl\u002BY/Ctrl\u002BShift\u002BZ-\u003ERedo routed via MainWindow.TryRoutePromptUndoRedo from Window_PreviewKeyDown, gated by PromptOwnsUndoContext(), marking the chord handled.",
+              "disposition": "supported",
+              "evidence": "MainWindow.xaml.cs TryRoutePromptUndoRedo (lines ~28606-28657): requires Control, rejects Alt; isUndo = Z \u0026\u0026 !shift; isRedo = (Y \u0026\u0026 !shift) || (Z \u0026\u0026 shift); returns false unless PromptOwnsUndoContext(); then Undo/Redo and e.Handled=true. Window_PreviewKeyDown calls TryRoutePromptUndoRedo(e) early and returns. Window_PreviewKeyDown is the Window-root PreviewKeyDown handler (MainWindow.xaml line 15), the tunneling stage that precedes host RichTextBox and region AvalonEdit."
+            },
+            {
+              "claim": "PromptOwnsUndoContext() returns true for host focus OR focus inside an embedded region.",
+              "disposition": "supported",
+              "evidence": "MainWindow.xaml.cs PromptOwnsUndoContext() (~28650): PromptTextBox.IsKeyboardFocusWithin || ReferenceEquals(Keyboard.FocusedElement, PromptTextBox) || IsInsideEmbeddedCodeRegion(Keyboard.FocusedElement). IsInsideEmbeddedCodeRegion (28589) delegates to FindEmbeddedCodeRegion which walks the tree to the enclosing EmbeddedCodeRegionBlock, so in-region AvalonEdit focus qualifies."
+            },
+            {
+              "claim": "Suppressed native host undo via PromptTextBox.IsUndoEnabled=false with SetPlainText case-cycle toggles changed to capture-and-restore preserving the disabled state.",
+              "disposition": "supported",
+              "evidence": "MainWindow.xaml.cs sets PromptTextBox.IsUndoEnabled=false at startup wiring, then constructs _promptUndoHistory and CaptureBaseline(). Case-cycle paths (diff lines 72-88) changed from hard \u0027=true\u0027 to \u0027var cycleUndoWasEnabled = PromptTextBox.IsUndoEnabled; ...; = cycleUndoWasEnabled\u0027. RichTextBoxExtensions.cs SetPlainText/render helpers restore via \u0027if (undoWasEnabled) rtb.IsUndoEnabled = true;\u0027 (lines 118, 391, 526) \u2014 conditional, so a false state is never re-enabled. The XAML IsUndoEnabled=\u0022False\u0022 at line 2986 is on a separate read-only TextBox, not PromptTextBox."
+            },
+            {
+              "claim": "Suppressed each region\u0027s AvalonEdit undo via _editor.Document.UndoStack.SizeLimit=0 in the AvalonEditRegionEditor constructor.",
+              "disposition": "supported",
+              "evidence": "AvalonEditRegionEditor.cs constructor diff adds \u0027_editor.Document.UndoStack.SizeLimit = 0;\u0027 immediately after setting Document.Text, with comment referencing PROMPTUNDO-20261015 \u00A75."
+            },
+            {
+              "claim": "Captured a startup baseline and pushes snapshots on host-text edits (PromptTextBox_TextChanged) and in-region edits (new AnyRegionContentEdited event -\u003E OnEmbeddedRegionContentEdited), guarded by !IsApplying and the conversion guard.",
+              "disposition": "supported",
+              "evidence": "PromptTextBox_TextChanged (line 30252, wired in MainWindow.xaml line 3576) pushes when _promptUndoHistory is not null \u0026\u0026 !IsApplying \u0026\u0026 !_isConvertingEmbeddedCodeRegion. EmbeddedCodeRegionBlock.cs raises AnyRegionContentEdited in the editor TextChanged handler; OnEmbeddedRegionContentEdited (MainWindow.xaml.cs ~28604) pushes under the same guards. CaptureBaseline() called at startup wiring. PushSnapshot/Apply honor _isApplying."
+            },
+            {
+              "claim": "Deferred coalescing/debounce and clear-on-send to Step 4 (PROMPTUNDO-20261015-004); Clear() seam exists but uncalled.",
+              "disposition": "supported",
+              "evidence": "PromptUndoHistory.Clear() =\u003E CaptureBaseline() exists and is not invoked in production; commit message and decisions.md \u00A76 assign coalescing and clear-on-send to Step 4. Per task brief this deferral is valid and not a Step 3 defect."
+            },
+            {
+              "claim": "Build green; 244 embedded-region regression tests pass.",
+              "disposition": "supported",
+              "evidence": "dotnet test with the specified filter and DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR env var compiled the solution and reported \u0027Passed! - Failed: 0, Passed: 244, Skipped: 0, Total: 244\u0027. NU1701 AvalonEdit warning is benign as noted."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "The headless suite (244 passed, 0 failed) proves no regression to the embedded-region substrate (region creation, caret nav, fenced copy/cut) that this step\u0027s suppression and event hooks touch. These tests do not and cannot assert the live Ctrl\u002BZ/Ctrl\u002BY keystroke outcome \u2014 that is a human-observable UI behavior owned by GATE-001 / Step 6, and the brief explicitly says not to require Step 5\u0027s round-trip suite here. All Step 3 structural requirements (window-root tunneling interception, e.Handled on the chord, host IsUndoEnabled=false with conditional restore, region UndoStack.SizeLimit=0, baseline \u002B dual edit-feed with IsApplying guard, in-region context detection) are established directly by code inspection. Observed one safe redundancy: both the startup PromptTextBox.IsUndoEnabled=false and the conditional restore machinery (plus the previously-existing per-operation guards) overlap, but this is defensive, not a defect, and does not weaken correctness.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "63a188ac91502e4ebf129883a3ed6ff1bf848a23",
+          "completedAt": "2026-10-15T14:53:59.026238+00:00"
+        }
+      ],
+      "displayStepLabel": "3",
+      "commits": [
+        {
+          "commit": "63a188ac91502e4ebf129883a3ed6ff1bf848a23",
+          "relation": "task",
+          "reason": "Commit produced within this step\u0027s host-recorded baseline range."
+        }
+      ],
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced",
+      "completionSummaryItems": [
+        "Added PromptUndoHistory to PromptUndoManager.cs: one linear snapshot timeline (List\u003CPromptSnapshot\u003E \u002B index) with PushSnapshot/Undo/Redo/CanUndo/CanRedo/CaptureBaseline/Clear and an IsApplying re-entrancy guard, driving PromptUndoManager.CaptureSnapshot/ApplySnapshot.",
+        "Routed Ctrl\u002BZ-\u003EUndo and Ctrl\u002BY/Ctrl\u002BShift\u002BZ-\u003ERedo via MainWindow.TryRoutePromptUndoRedo called from the window-level Window_PreviewKeyDown tunneling stage (before the host editor and any focused region AvalonEdit), gated by MainWindow.PromptOwnsUndoContext() so host-text focus and in-region focus both drive the one authority; the chord is marked handled so no native undo path services it.",
+        "Suppressed native host undo via PromptTextBox.IsUndoEnabled=false (with the SetPlainText case-cycle toggles changed to capture-and-restore so they preserve the disabled state) and suppressed each region\u0027s AvalonEdit undo via _editor.Document.UndoStack.SizeLimit=0 in the AvalonEditRegionEditor constructor.",
+        "Captured a startup baseline and push snapshots on host-text edits (PromptTextBox_TextChanged) and in-region edits (new EmbeddedCodeRegionBlock.AnyRegionContentEdited static event -\u003E MainWindow.OnEmbeddedRegionContentEdited), both guarded by !IsApplying and the embedded-region conversion guard."
+      ],
+      "completionKind": "changed"
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-004",
+      "title": "Coalesce rapid edits and clear history on send",
+      "description": "Add edit coalescing and clear-on-send to \u0060PromptUndoManager\u0060.\n\n## Observable outcome\n\nRapid consecutive edits collapse into a single undo entry (one Ctrl\u002BZ reverses a burst of typing rather than one character at a time), and the undo/redo history is cleared when the prompt is sent so a fresh prompt starts with an empty history.\n\n## Consumers\n\nThe production prompt-send path and the undo manager consume this behavior; GATE-001 confirms the coalesced undo live.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-002"
+      ],
+      "priority": "high",
+      "status": "complete",
+      "commit": "5667532",
+      "completedAt": "2026-10-15T16:30:33.6268362+00:00",
+      "completionSummary": "Human accepted host-recorded commit range 5667532 (1 commit).",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Implement coalescing and clear-on-send",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-coalescing",
+          "description": "Rapid-edit coalescing into single undo entries and history clear on prompt send."
+        }
+      ],
+      "inputs": [
+        "undo-snapshot-engine"
+      ],
+      "displayStepLabel": "4",
+      "commits": [
+        {
+          "commit": "5667532b6935720a508197d75a4960dcddf688b6",
+          "relation": "task",
+          "reason": "Commit observed within this step\u0027s host-recorded baseline range."
+        }
+      ],
+      "executionMode": "implementation"
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-005",
+      "title": "Prove flat-offset selection round-trips headlessly",
+      "description": "Add deterministic NUnit coverage for the capture\u2192apply round-trip of the flat-offset \u2194 caret/anchor/selection mapping.\n\n## Observable outcome\n\nHeadless tests capture absolute offsets, apply the snapshot, and assert the restored absolute \u0060anchorOffset\u0060, \u0060caretOffset\u0060, and direction match for: forward host selection, backward host selection, collapsed caret, a selection with both endpoints inside one region, and the two boundary-straddling cases \u2014 straddle-forward (host anchor \u002B in-region caret) and straddle-backward (in-region anchor \u002B host caret). The straddle cases capture absolute offsets that cross the host\u2194region boundary, apply, and assert the restored absolute anchor/caret and direction (which endpoint is the active caret) are preserved.\n\n## Consumers / conventions\n\nReuse or parameterize the project\u0027s established EmbeddedCodeRegion/EmbeddedCaretNav tests rather than adding a parallel harness. Build with env var DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR only (NU1701 is benign). Run with NUnit filters \u0060FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav\u0060. These tests are the regression evidence task 007 reuses.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-003",
+        "PROMPTUNDO-20261015-004"
+      ],
+      "priority": "high",
+      "status": "complete",
+      "commit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6",
+      "completedAt": "2026-10-15T16:59:48.67826+00:00",
+      "completionSummary": "Added 7 deterministic NUnit tests proving flat-offset capture\u2192apply round-trips absolute anchor/caret/direction for all six selection cases including both straddle orientations; 251/251 pass.",
+      "agentAssignments": [
+        {
+          "agentHandle": "vesper-knox",
+          "role": "Author deterministic flat-offset round-trip tests including the straddle cases",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "inputs": [
+        "undo-snapshot-engine",
+        "undo-routing",
+        "undo-coalescing"
+      ],
+      "proofRequirements": [
+        {
+          "requirementId": "flat-offset-roundtrip-tests",
+          "proofType": "automated-test",
+          "description": "Run the EmbeddedCodeRegion/EmbeddedCaretNav filtered suite proving capture\u2192apply restores absolute anchor/caret/direction for forward, backward, collapsed, both-inside-region, straddle-forward, and straddle-backward cases."
+        }
+      ],
+      "proofEvidence": [
+        {
+          "requirementId": "flat-offset-roundtrip-tests",
+          "proofType": "automated-test",
+          "summary": "Ran dotnet test with filter FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav: 251/251 pass, 0 failed, 0 skipped (up from 244 by the 7 new tests in EmbeddedCodeRegionFlatOffsetUndoTests.cs). The new tests capture absolute offsets and apply the snapshot, asserting restored absolute anchorOffset, caretOffset, and direction for forward host, backward host, collapsed caret, both-inside-region, straddle-forward (host anchor 2 / in-region caret 17 content-local 2), and straddle-backward (in-region anchor 16 content-local 1 / host caret 26) cases, driving real production surfaces (CaptureSnapshot/ApplySnapshot/ResolveAbsoluteOffset/FencedContentOffset).",
+          "artifacts": []
+        }
+      ],
+      "provenanceChain": {
+        "entries": [
+          {
+            "taskId": "PROMPTUNDO-20261015-005",
+            "sourceLabel": "Automated test evidence",
+            "sourceKind": "Automated",
+            "recoveryKind": "envelope-repair",
+            "recordedAt": "2026-10-15T16:53:01.853539+00:00"
+          }
+        ]
+      },
+      "handoff": {
+        "commit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6",
+        "summary": "Added 7 deterministic NUnit tests proving flat-offset capture\u2192apply round-trips absolute anchor/caret/direction for all six selection cases including both straddle orientations; 251/251 pass.",
+        "changedFiles": [
+          "SquadDash.Tests/EmbeddedCodeRegionFlatOffsetUndoTests.cs",
+          "SquadDash.Tests/SquadDash.Tests.csproj"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav\u0022",
+          "summary": "Build green (0 errors, benign NU1701 AvalonEdit warnings only); filtered EmbeddedCodeRegion/EmbeddedCaretNav suite fully green with the 7 new round-trip tests added.",
+          "tests": {
+            "total": 251,
+            "passed": 251,
+            "failed": 0,
+            "skipped": 0
+          }
+        },
+        "submittedAt": "2026-10-15T16:55:01.9963708+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Added SquadDash.Tests/EmbeddedCodeRegionFlatOffsetUndoTests.cs with deterministic coverage for the capture\u2192apply round-trip of the flat-offset \u2194 caret/anchor/selection mapping across the host\u2194region seam, driving the real production surfaces (PromptUndoManager.CaptureSnapshot/ApplySnapshot, ResolveAbsoluteOffset, EmbeddedFenceDetector.FencedContentOffset) rather than hardcoded magic numbers.",
+          "Covered all six required cases with scenario-named tests: forward host selection, backward host selection, collapsed caret, selection wholly inside one region (plus a backward-inside-region variant), straddle-forward (host anchor \u002B in-region caret), and straddle-backward (in-region anchor \u002B host caret), asserting restored absolute anchorOffset, caretOffset, and direction.",
+          "Verified the straddle absolute offsets against the actual production flat serialization (GetCharOffset), which does not count the newline separator preceding the region: region spanStart=5, content base=15. Asserted the production-true values (straddle-forward anchor=2/caret=17 content-local 2; straddle-backward anchor=16 content-local 1/caret=26) and documented the uniform \u22121 base offset versus the raw-string indices in the normative examples; region content-local offsets (2 and 1) and host caret (26) match the contract exactly.",
+          "Added the Step 2 production source SquadDash/PromptUndoManager.cs to the test project\u0027s explicit Compile include set so the PromptSnapshot/capture/apply types are visible to the headless tests; no production code was modified.",
+          "Surfaced (without fixing, per testing-specialist boundary) a production defect in host-text ApplySnapshot: setting RichTextBox.CaretPosition after Selection.Select collapses the selection span, so host/straddle selection spans are not visually restored on undo even though the snapshot model and ResolveAbsoluteOffset round-trip is exact. Host/straddle tests assert the exact snapshot/resolve round-trip and deliberately do not assert the collapsed live span."
+        ],
+        "baselineCommit": "6baecb372dd26adc16dcc737f0351cc518b978ca",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "accepted",
+          "summary": "Step 5 \u2014 Prove flat-offset selection round-trips headlessly: verified. The candidate adds 7 deterministic NUnit tests (EmbeddedCodeRegionFlatOffsetUndoTests.cs) covering all six contract cases, each asserting absolute anchorOffset, caretOffset and direction against the REAL production surfaces (ApplySnapshot, ResolveAbsoluteOffset, FencedContentOffset) with offsets derived from production math rather than hardcoded. Diff is test-only (test file \u002B a csproj compile-include of existing production PromptUndoManager.cs); no production code modified. Filtered suite runs 251/251 green (244 \u002B 7). The flagged -1 offset-base difference vs the raw-string normative numbers is a faithful, self-consistent mapping (same GetCharOffset space used for both capture and resolve; content-local 2/1 and host caret 26 match the contract exactly), not a deviation. The host-span-collapse live-UI defect is a documented Step-2/downstream-owned issue outside Step 5\u0027s headless-round-trip scope.",
+          "claimFindings": [
+            {
+              "claim": "7 new tests added covering all six contract cases (forward host, backward host, collapsed caret, both-in-region, straddle-forward, straddle-backward)",
+              "disposition": "supported",
+              "evidence": "File contains 7 [Test, Apartment(STA)] methods; case 4 split into forward\u002Bbackward in-region variants, plus the two straddle cases. git show --stat confirms \u002B342 lines in the single test file."
+            },
+            {
+              "claim": "Each case asserts absolute anchorOffset, caretOffset AND direction",
+              "disposition": "supported",
+              "evidence": "Host cases assert live rtb.GetCaretOffset()==caret (5 vs 0 proves moving-end/direction) \u002B snapshot.IsBackward; region cases read live region.GetContentSelectionLocal() and assert caretLocal\u003E/\u003CanchorLocal; straddle cases assert anchor/caret resolve to Host vs Region surfaces with AbsoluteOffset 2/17 and 16/26."
+            },
+            {
+              "claim": "Tests drive real production serialization/capture/apply surfaces, not hardcoded numbers",
+              "disposition": "supported",
+              "evidence": "ApplySnapshot, ResolveAbsoluteOffset, FencedContentOffset are invoked in PromptUndoManager.cs (verified lines 134-233). contentBase/spanStart derived via spanStart\u002BFencedContentOffset(region.Content,region.Language) and asserted (==5,==15) at runtime; region offsets built as contentBase\u002Blocal. Note: CaptureSnapshot itself is not called (PromptSnapshot constructed directly) because live keyboard focus is unavailable headlessly \u2014 the test file documents this explicitly; the capture-side offset math is replicated from the production path."
+            },
+            {
+              "claim": "Filtered suite 251/251 pass (was 244), test-only change, no production modified",
+              "disposition": "supported",
+              "evidence": "Ran dotnet test with DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR filter EmbeddedCodeRegion|EmbeddedCaretNav: Failed 0, Passed 251. git show --stat shows only the test file and a csproj \u003CCompile Include\u003E of existing PromptUndoManager.cs; no production .cs edited."
+            },
+            {
+              "claim": "The -1 region-base discrepancy vs normative 6/16 is a faithful mapping, not a defect",
+              "disposition": "supported",
+              "evidence": "ResolveAbsoluteOffset and the capture path both operate in GetCharOffset space (which omits the pre-region \\n), so spanStart=5/contentBase=15 is internally consistent; content-local offsets 2 and 1 and host caret 26 match the contract exactly, confirmed by assertions RegionLocalOffset==2/==1 and AbsoluteOffset==17/==16/==26."
+            },
+            {
+              "claim": "Deferral of live straddle/host selection-span restore is legitimate for Step 5 scope",
+              "disposition": "supported",
+              "evidence": "ApplySnapshot\u0027s trailing CaretPosition set collapses host selections (lines 171-172, 187-188); the known defect is documented in-test and owned by Step 2 / downstream PROMPTUNDO-20261015-007 \u002B a human approval gate. Step 5 contract asks for the headless capture\u2192apply mapping round-trip, which is proven via the snapshot model and ResolveAbsoluteOffset."
+            }
+          ],
+          "missingOrOverstatedWork": [],
+          "testAssessment": "Tests are deterministic (Apartment STA, static ActiveRegion reset in SetUp), exercise the real render path (SetPlainText \u002B ConvertAllFences) and the real inverse mapping (ResolveAbsoluteOffset), and would fail on a broken mapping: contentBase/spanStart are asserted against production-derived values, host-caret direction is read from the live control, and region selections are read back from the actual AvalonEdit. Straddle cases rightly prove the surface/offset mapping (host vs region, local 2/1, absolute 17/16/26) rather than the known-collapsing live span. Minor non-blocking note: the commit message lists CaptureSnapshot among driven surfaces, but CaptureSnapshot is not invoked (PromptSnapshot is constructed directly) \u2014 the test file itself documents this headless limitation accurately, and the apply-side round-trip plus capture-side offset math are both proven. Suite verified green at 251/251.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6",
+          "completedAt": "2026-10-15T16:59:48.4061872+00:00"
+        }
+      ],
+      "displayStepLabel": "5",
+      "commits": [
+        {
+          "commit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6",
+          "relation": "task",
+          "reason": "Commit produced within this step\u0027s host-recorded baseline range."
+        }
+      ],
+      "reviewActivity": [
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed live prompt undo/redo failing to restore the pre-edit selection (commit 5e893c11 on feature/prompt-undo-across-regions). Root cause: snapshots were captured only post-edit (PromptTextBox_TextChanged / OnEmbeddedRegionContentEdited), so Undo landed on an entry predating the replaced selection, and for the first edit after a simulation load it restored the baseline captured with caretIndex:0 \u2014 sending the caret to offset 0 (the user\u0027s \u0027jumps to the front of the prompt\u0027 on selection-replace). Lyra Morn added guarded pre-edit selection capture (host RichTextBox SelectionChanged \u002B a new IRegionCodeEditor TextChanging pre-edit notification forwarded from AvalonEditRegionEditor/EmbeddedCodeRegionBlock) that refreshes the current PromptUndoHistory entry\u0027s caret/anchor in place via a new PromptUndoManager.RefreshSelection \u2014 without adding history or truncating redo \u2014 so Undo restores the exact forward/backward/collapsed/in-region selection with direction; also removed the host-selection collapse (CaretPosition set after Selection.Select) in RestoreResolvedSelection. Added 20 history-level regression tests (EmbeddedCodeRegionPreEditUndoTests.cs) and strengthened EmbeddedCodeRegionFlatOffsetUndoTests to assert actual restored host selections; filtered suite 271 passed / 0 failed, build green (benign NU1701 only). Assessed item 6: partial mouse selection straddling the host\u2194region boundary is inherent to the two-control composition (each region is an atomic BlockUIContainer; Shift\u002BArrow is not a workaround) and remains unsupported \u2014 recommend deferring the undo-straddle-selection-direction GATE-001 check via a bounded plan revision. Plan remains paused at GATE-001 for the user to re-verify checks 1\u20135 in Developer \u2192 Simulation \u2192 \u0027Prompt Undo Review\u0027.",
+          "recordedAt": "2026-10-15T22:52:43.6167231+00:00"
+        },
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed the in-region undo off-by-one (GATE check undo-restores-in-region-selection): selecting a whole word inside a region (e.g. \u0027add\u0027), replacing it, then Ctrl\u002BZ restored only \u0027ad\u0027. Root cause: EmbeddedCodeRegionBlock.GetContentSelectionLocal() assumed the physical caret is the selection\u0027s moving endpoint, but AvalonEdit whole-word selection can leave the caret inside the highlighted span, so capture recorded a one-char-short selection even though SelectionLength was correct; neither notification timing nor content-base math was at fault. Lyra Morn changed capture to read AvalonEdit\u0027s directed Selection.StartPosition/EndPosition (via GetSelectionOffsets) and preserve native direction on restore, and added 8 history-level regression cases (forward/backward, interior/endpoint caret, native PerformTextInput \u002B redirected input, live pre-edit capture, full-word Undo, Redo) in EmbeddedCodeRegionPreEditUndoTests that reproduced \u0027add\u0027-\u003E\u0027ad\u0027 before the fix. Committed 334c8bac on feature/prompt-undo-across-regions; filtered suite 279 passed / 0 failed (baseline 271), build green (benign NU1701 only). Item 5 (undo-straddle-selection-direction): deeper feasibility pass confirms partial host\u003C-\u003Eregion straddle selection cannot be created via the current two-control composition (host RichTextBox treats each region as an atomic BlockUIContainer; nested AvalonEdit owns its own mouse capture). The snapshot capture/resolution layer already supports arbitrary straddle endpoints and Step 5 round-trip tests cover resolution, but RestoreResolvedSelection projects straddles onto atomic host boundaries and no UI mechanism can produce a partial-region endpoint without a shared cross-control selection model (Shift\u002BClick/Shift\u002BArrow bridge) \u2014 a substantial, medium-to-high-risk effort. No gesture hack was added. Recommend deferring the undo-straddle-selection-direction GATE check via a bounded plan revision and scheduling shared-selection work as separate follow-up. Plan remains paused at GATE-001 for the user to re-verify the in-region check (and items 1-3/redo) in Developer -\u003E Simulation -\u003E \u0027Prompt Undo Review\u0027.",
+          "recordedAt": "2026-10-16T00:55:44.9191192+00:00"
+        }
+      ],
+      "executionMode": "implementation",
+      "verificationLevel": "enhanced",
+      "completionSummaryItems": [
+        "Added SquadDash.Tests/EmbeddedCodeRegionFlatOffsetUndoTests.cs with deterministic coverage for the capture\u2192apply round-trip of the flat-offset \u2194 caret/anchor/selection mapping across the host\u2194region seam, driving the real production surfaces (PromptUndoManager.CaptureSnapshot/ApplySnapshot, ResolveAbsoluteOffset, EmbeddedFenceDetector.FencedContentOffset) rather than hardcoded magic numbers.",
+        "Covered all six required cases with scenario-named tests: forward host selection, backward host selection, collapsed caret, selection wholly inside one region (plus a backward-inside-region variant), straddle-forward (host anchor \u002B in-region caret), and straddle-backward (in-region anchor \u002B host caret), asserting restored absolute anchorOffset, caretOffset, and direction.",
+        "Verified the straddle absolute offsets against the actual production flat serialization (GetCharOffset), which does not count the newline separator preceding the region: region spanStart=5, content base=15. Asserted the production-true values (straddle-forward anchor=2/caret=17 content-local 2; straddle-backward anchor=16 content-local 1/caret=26) and documented the uniform \u22121 base offset versus the raw-string indices in the normative examples; region content-local offsets (2 and 1) and host caret (26) match the contract exactly.",
+        "Added the Step 2 production source SquadDash/PromptUndoManager.cs to the test project\u0027s explicit Compile include set so the PromptSnapshot/capture/apply types are visible to the headless tests; no production code was modified.",
+        "Surfaced (without fixing, per testing-specialist boundary) a production defect in host-text ApplySnapshot: setting RichTextBox.CaretPosition after Selection.Select collapses the selection span, so host/straddle selection spans are not visually restored on undo even though the snapshot model and ResolveAbsoluteOffset round-trip is exact. Host/straddle tests assert the exact snapshot/resolve round-trip and deliberately do not assert the collapsed live span."
+      ],
+      "completionKind": "changed",
+      "contractExamples": [
+        {
+          "exampleId": "straddle-forward-roundtrip",
+          "title": "Round-trip a host-anchor/in-region-caret selection",
+          "input": "Document: Hello\\n\u0060\u0060\u0060python\\nx=1\\n\u0060\u0060\u0060\\nWorld ; capture anchor=2 (host), caret=18 (in-region, content local 2); apply snapshot.",
+          "expectedBehavior": "Assert restored anchorOffset=2 and caretOffset=18 with forward direction (anchor outside region, caret inside).",
+          "language": "text"
+        },
+        {
+          "exampleId": "straddle-backward-roundtrip",
+          "title": "Round-trip an in-region-anchor/host-caret selection",
+          "input": "Document: Hello\\n\u0060\u0060\u0060python\\nx=1\\n\u0060\u0060\u0060\\nWorld ; capture anchor=17 (in-region, content local 1), caret=26 (host); apply snapshot.",
+          "expectedBehavior": "Assert restored anchorOffset=17 and caretOffset=26 with the inverse straddle orientation preserved (anchor inside region, active caret in host text after the region).",
+          "language": "text"
+        }
+      ]
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-006",
+      "title": "Prepare the prompt-undo live review simulation",
+      "description": "Build a reproducible review path for the live undo/redo human checks, per the workspace decision that human UI approval checkpoints must have a reproducible review path.\n\n## Observable outcome\n\nA Developer \u2192 Simulation entry titled \u0022Prompt Undo Review\u0022 loads a prompt containing host text and at least one embedded code region, positioned so a reviewer can reproduce every undo/redo selection scenario \u2014 forward and backward host selections, a collapsed caret, a selection entirely inside a region, redo, in-region Ctrl\u002BZ routing, and a selection that STARTS in host text and ENDS inside a region (boundary-straddling). The simulation exercises the real undo action path, not a static visual.\n\n## Approval procedure\n\nEmit the concise setup/open/observe/cleanup approval procedure that SquadDash absorbs into the durable GATE-001 Inbox message, placing each \u0060{{approval-check:\u003CrequirementId\u003E}}\u0060 marker immediately before its observation for the seven GATE-001 requirements. The simulation output is consumed by GATE-001 as its fixture.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-003",
+        "PROMPTUNDO-20261015-004"
+      ],
+      "priority": "mid",
+      "status": "complete",
+      "commit": "ab14f249d6751c868c8dbb081393e4a746259f12",
+      "completedAt": "2026-10-16T11:09:21.3211857+00:00",
+      "completionSummary": "Step 6 \u2014 Added a Developer \u2192 Simulation entry \u0027Prompt Undo Review\u0027 that loads a prompt (host text, an embedded C# code region, then more host text) via the production SetPromptTextBoxLogicalBuffer path and drives the real single-authority undo action wiring so a reviewer can reproduce all seven undo/redo selection scenarios.",
+      "agentAssignments": [
+        {
+          "agentHandle": "lyra-morn",
+          "role": "Build the Developer \u2192 Simulation review fixture and emit the approval procedure",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "outputs": [
+        {
+          "outputId": "undo-review-simulation",
+          "description": "Developer \u2192 Simulation \u0027Prompt Undo Review\u0027 fixture (host text plus an embedded region) that reproduces all undo/redo selection scenarios including a boundary-straddling selection, with the GATE-001 approval procedure."
+        }
+      ],
+      "inputs": [
+        "undo-routing",
+        "undo-coalescing"
+      ],
+      "provenanceChain": {
+        "entries": [
+          {
+            "taskId": "PROMPTUNDO-20261015-006",
+            "sourceLabel": "Host-recorded commit",
+            "sourceKind": "HostRecorded",
+            "recoveryKind": "envelope-repair",
+            "recordedAt": "2026-10-15T17:06:03.3409385+00:00"
+          }
+        ]
+      },
+      "handoff": {
+        "commit": "ab14f249d6751c868c8dbb081393e4a746259f12",
+        "summary": "Step 6 \u2014 Added a Developer \u2192 Simulation entry \u0027Prompt Undo Review\u0027 that loads a prompt (host text, an embedded C# code region, then more host text) via the production SetPromptTextBoxLogicalBuffer path and drives the real single-authority undo action wiring so a reviewer can reproduce all seven undo/redo selection scenarios.",
+        "changedFiles": [
+          "SquadDash/MainWindow.xaml",
+          "SquadDash/MainWindow.xaml.cs"
+        ],
+        "verification": {
+          "status": "passed",
+          "command": "git rev-parse --verify ab14f249^{commit}; dotnet build SquadDash\\SquadDash.csproj; dotnet test SquadDash.Tests --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav\u0022",
+          "summary": "Commit ab14f249 verified as HEAD of feature/prompt-undo-across-regions (ab14f249d6751c868c8dbb081393e4a746259f12). Build succeeded with 0 errors (3 benign NU1701 AvalonEdit warnings); filtered tests Passed: 251, Failed: 0. tasks.md and .squad/plans/*.json untouched/unstaged."
+        },
+        "submittedAt": "2026-10-15T17:07:09.9919727+00:00",
+        "deferredWork": [],
+        "completedWork": [
+          "Added MenuItem \u0027Prompt _Undo Review\u0027 under Developer \u2192 _Simulation in MainWindow.xaml with Click handler SimulatePromptUndoReview_Click.",
+          "Implemented SimulatePromptUndoReview_Click in MainWindow.xaml.cs to load a scratch prompt via production SetPromptTextBoxLogicalBuffer (resetUndoHistory:true), converting the fenced csharp block to a live EmbeddedCodeRegionBlock via EmbeddedCodeRegionManager.TryConvertNextFence and re-baselining PromptUndoHistory through ActivatePromptUndoHistoryForCurrentTab.",
+          "Arranged host text before AND after a multi-line embedded region so forward/backward host selection, collapsed caret, in-region selection, redo, in-region Ctrl\u002BZ single-authority routing, and host\u2192region boundary-straddling selection are all reachable through the real Window_PreviewKeyDown \u2192 TryRoutePromptUndoRedo (gated by PromptOwnsUndoContext) \u2192 _promptUndoHistory.Undo()/Redo() path, not a static visual.",
+          "Authored the GATE-001 approval procedure with all seven {{approval-check:...}} markers, each immediately after its contract-correct expected observation, delivered as the required Inbox message."
+        ],
+        "baselineCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6",
+        "completionKind": "changed",
+        "noOpEvidence": []
+      },
+      "scrutinyHistory": [
+        {
+          "verdict": "human-review-required",
+          "summary": "All code-side requirements of Step 6 are fully verified: the commit is HEAD, the Developer\u2192Simulation \u0027Prompt Undo Review\u0027 MenuItem is wired to SimulatePromptUndoReview_Click, and the handler loads a scratch prompt (host text before AND after a multi-line embedded csharp region) through the genuine production path (SetPromptTextBoxLogicalBuffer \u2192 SetPlainText \u2192 EmbeddedCodeRegionManager.TryConvertNextFence \u2192 ActivatePromptUndoHistoryForCurrentTab, with resetUndoHistory clearing _promptUndoHistory), so Ctrl\u002BZ/Y flow through the real Window_PreviewKeyDown \u2192 TryRoutePromptUndoRedo (gated by PromptOwnsUndoContext) \u2192 _promptUndoHistory.Undo()/Redo() path. Build succeeds (0 errors, 3 benign NU1701). The one claim I cannot confirm from repository evidence is Claim 4: the seven {{approval-check:...}} markers exist only as requirement definitions in the plan JSON; the approval procedure is \u0027delivered as the Inbox message\u0027 (a worker handoff deliverable), which is not a committed repo artifact, so I cannot inspect its text or marker placement. That is a material, task-owned requirement with incomplete evidence \u2014 hence human-review-required rather than accepted.",
+          "claimFindings": [
+            {
+              "claim": "Added MenuItem \u0027Prompt _Undo Review\u0027 under Developer \u2192 Simulation wired to SimulatePromptUndoReview_Click.",
+              "disposition": "supported",
+              "evidence": "MainWindow.xaml line 929 MenuItem Header=\u0022Prompt _Undo Review\u0022 Click=\u0022SimulatePromptUndoReview_Click\u0022, nested in Simulation submenu (line 924) under Developer menu (line 906). Matches diff in ab14f249."
+            },
+            {
+              "claim": "Handler loads prompt via production SetPromptTextBoxLogicalBuffer(resetUndoHistory:true), converting the fence via EmbeddedCodeRegionManager.TryConvertNextFence and re-baselining via ActivatePromptUndoHistoryForCurrentTab.",
+              "disposition": "supported",
+              "evidence": "SimulatePromptUndoReview_Click (MainWindow.xaml.cs ~36903) calls SetPromptTextBoxLogicalBuffer(promptText, caretIndex:0, reason:\u0022prompt-undo-review-sim\u0022, resetUndoHistory:true). SetPromptTextBoxLogicalBuffer (27876) runs PromptTextBox.SetPlainText, loops EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox), calls ActivatePromptUndoHistoryForCurrentTab() and _promptUndoHistory.Clear() when resetUndoHistory. All referenced symbols exist and are consumed."
+            },
+            {
+              "claim": "Host text arranged before AND after a multi-line embedded region so all seven scenarios are reachable through the real Window_PreviewKeyDown \u2192 TryRoutePromptUndoRedo \u2192 _promptUndoHistory path, not a static visual.",
+              "disposition": "supported",
+              "evidence": "promptText literal contains host prose, then a fenced \u0060\u0060\u0060csharp block (multi-line int Add method), then host prose after. TryRoutePromptUndoRedo (28850) calls _promptUndoHistory.Undo()/Redo() gated by PromptOwnsUndoContext(); Window_PreviewKeyDown (28879) invokes TryRoutePromptUndoRedo(e) at preview stage. Live path confirmed."
+            },
+            {
+              "claim": "Authored the GATE-001 approval procedure with all seven {{approval-check:...}} markers, each immediately before its observation, delivered as the required Inbox message.",
+              "disposition": "unclear",
+              "evidence": "The seven required IDs (undo-restores-forward-host-selection, undo-restores-backward-host-selection, undo-restores-collapsed-caret, undo-restores-in-region-selection, redo-reapplies-selection, single-authority-in-region-undo, undo-straddle-selection-direction) appear ONLY in .squad/plans/PROMPTUNDO-20261015.json as requirement definitions \u2014 not in any emitted procedure, code, or durable inbox file. No approval-gate inbox JSON for PROMPTUNDO-20261015 exists. The approval procedure is delivered as the worker\u0027s Inbox handoff message, which is not a committed repo artifact and is unavailable for inspection; the claim can be neither confirmed nor refuted from repository evidence."
+            },
+            {
+              "claim": "Build: 0 errors (3 benign NU1701).",
+              "disposition": "supported",
+              "evidence": "dotnet build SquadDash\\SquadDash.csproj with the documented resolver env var: \u0027Build succeeded. 3 Warning(s) 0 Error(s)\u0027."
+            }
+          ],
+          "missingOrOverstatedWork": [
+            "Claim 4 (seven {{approval-check:...}} markers in the emitted GATE-001 approval procedure / Inbox message) cannot be verified from repository evidence: the markers exist only as plan-JSON requirement definitions, and the approval-procedure Inbox deliverable is not a committed artifact. A human/coordinator should confirm the actual emitted Inbox message contains all seven markers in the required order, each immediately before its observation."
+          ],
+          "testAssessment": "Build verified green (0 errors, 3 benign NU1701) via the documented command. This is a UI review fixture; automated tests do not \u2014 and are not expected to \u2014 cover the live human undo/redo scenarios (that is the GATE-001 human gate\u0027s job). The handler is reachable from the menu and drives the genuine single-authority undo wiring, so no automated regression coverage is owed by this step. The filtered EmbeddedCodeRegion|EmbeddedCaretNav suite claim (251 passed) was not re-run but is not material to Step 6\u0027s fixture outcome.",
+          "reworkInstructions": [],
+          "evaluatedCommit": "ab14f249d6751c868c8dbb081393e4a746259f12",
+          "completedAt": "2026-10-15T17:11:32.5230485+00:00"
+        }
+      ],
+      "displayStepLabel": "6",
+      "commits": [
+        {
+          "commit": "ab14f249d6751c868c8dbb081393e4a746259f12",
+          "relation": "task",
+          "reason": "Host-validated implementation handoff reviewed at the human checkpoint."
+        }
+      ],
+      "reviewActivity": [
+        {
+          "kind": "manual-correction",
+          "summary": "Fixed live prompt undo/redo failing to restore the pre-edit selection (commit 5e893c11 on feature/prompt-undo-across-regions). Root cause: snapshots were captured only post-edit (PromptTextBox_TextChanged / OnEmbeddedRegionContentEdited), so Undo landed on an entry predating the replaced selection, and for the first edit after a simulation load it restored the baseline captured with caretIndex:0 \u2014 sending the caret to offset 0 (the user\u0027s \u0027jumps to the front of the prompt\u0027 on selection-replace). Lyra Morn added guarded pre-edit selection capture (host RichTextBox SelectionChanged \u002B a new IRegionCodeEditor TextChanging pre-edit notification forwarded from AvalonEditRegionEditor/EmbeddedCodeRegionBlock) that refreshes the current PromptUndoHistory entry\u0027s caret/anchor in place via a new PromptUndoManager.RefreshSelection \u2014 without adding history or truncating redo \u2014 so Undo restores the exact forward/backward/collapsed/in-region selection with direction; also removed the host-selection collapse (CaretPosition set after Selection.Select) in RestoreResolvedSelection. Added 20 history-level regression tests (EmbeddedCodeRegionPreEditUndoTests.cs) and strengthened EmbeddedCodeRegionFlatOffsetUndoTests to assert actual restored host selections; filtered suite 271 passed / 0 failed, build green (benign NU1701 only). Assessed item 6: partial mouse selection straddling the host\u2194region boundary is inherent to the two-control composition (each region is an atomic BlockUIContainer; Shift\u002BArrow is not a workaround) and remains unsupported \u2014 recommend deferring the undo-straddle-selection-direction GATE-001 check via a bounded plan revision. Plan remains paused at GATE-001 for the user to re-verify checks 1\u20135 in Developer \u2192 Simulation \u2192 \u0027Prompt Undo Review\u0027.",
+          "recordedAt": "2026-10-15T22:52:43.6167231+00:00"
+        }
+      ],
+      "executionMode": "implementation",
+      "completionSummaryItems": [
+        "Added MenuItem \u0027Prompt _Undo Review\u0027 under Developer \u2192 _Simulation in MainWindow.xaml with Click handler SimulatePromptUndoReview_Click.",
+        "Implemented SimulatePromptUndoReview_Click in MainWindow.xaml.cs to load a scratch prompt via production SetPromptTextBoxLogicalBuffer (resetUndoHistory:true), converting the fenced csharp block to a live EmbeddedCodeRegionBlock via EmbeddedCodeRegionManager.TryConvertNextFence and re-baselining PromptUndoHistory through ActivatePromptUndoHistoryForCurrentTab.",
+        "Arranged host text before AND after a multi-line embedded region so forward/backward host selection, collapsed caret, in-region selection, redo, in-region Ctrl\u002BZ single-authority routing, and host\u2192region boundary-straddling selection are all reachable through the real Window_PreviewKeyDown \u2192 TryRoutePromptUndoRedo (gated by PromptOwnsUndoContext) \u2192 _promptUndoHistory.Undo()/Redo() path, not a static visual.",
+        "Authored the GATE-001 approval procedure with all seven {{approval-check:...}} markers, each immediately after its contract-correct expected observation, delivered as the required Inbox message."
+      ],
+      "completionKind": "changed"
+    },
+    {
+      "taskId": "PROMPTUNDO-20261015-007",
+      "title": "Verify the integrated prompt-undo feature builds and passes",
+      "description": "Non-mutating final verification that the integrated feature is coherent on the combined branch.\n\n## Observable outcome\n\nConfirm HEAD builds (env var DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR only; NU1701 benign) and the filtered EmbeddedCodeRegion/EmbeddedCaretNav suite \u2014 including the straddle-forward and straddle-backward round-trip tests from task 005 \u2014 passes green on the integrated branch. This reuses task 005\u0027s recorded test evidence and does not add tests or modify production code; it closes the remaining cross-task integration gap after the human gate.",
+      "dependsOn": [
+        "PROMPTUNDO-20261015-005",
+        "PROMPTUNDO-20261015-006"
+      ],
+      "priority": "mid",
+      "status": "complete",
+      "completedAt": "2026-10-16T11:14:37.0486971+00:00",
+      "completionSummary": "Integrated HEAD builds green (0 errors) and the filtered EmbeddedCodeRegion/EmbeddedCaretNav suite passes 279/279, including both Step 5 straddle round-trip tests; no source change or commit was needed.",
+      "agentAssignments": [
+        {
+          "agentHandle": "fact-checker",
+          "role": "Run the final non-mutating build and filtered-test verification",
+          "allowGenericChildren": true
+        }
+      ],
+      "agentRoutingMode": "assigned",
+      "inputs": [
+        "undo-snapshot-engine",
+        "undo-routing",
+        "undo-coalescing"
+      ],
+      "proofRequirements": [
+        {
+          "requirementId": "integrated-build",
+          "proofType": "build",
+          "description": "Build the solution on integrated HEAD with DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set; NU1701 warnings are benign."
+        },
+        {
+          "requirementId": "integrated-filtered-tests",
+          "proofType": "automated-test",
+          "description": "Run NUnit with filters FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav and confirm all mapping/round-trip tests, including the two straddle cases, pass."
+        }
+      ],
+      "proofEvidence": [
+        {
+          "requirementId": "integrated-build",
+          "proofType": "build",
+          "summary": "dotnet build SquadDash\\SquadDash.csproj -p:EnableRunSlotDeployment=false (only DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set) on integrated HEAD 28f88ddd: Build succeeded, 0 Errors, 3 Warnings \u2014 all benign NU1701 AvalonEdit (ICSharpCode.AvalonEdit 4.3.0-alpha) .NETFramework-restore notices; no MSB4019.",
+          "artifacts": []
+        },
+        {
+          "requirementId": "integrated-filtered-tests",
+          "proofType": "automated-test",
+          "summary": "dotnet test SquadDash.Tests\\SquadDash.Tests.csproj --filter \u0022FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav\u0022: Passed 279, Failed 0, Skipped 0, Total 279. Both Step 5 straddle round-trip tests (FlatOffset_StraddleForward_HostAnchorInRegionCaret_RoundTrips, FlatOffset_StraddleBackward_InRegionAnchorHostCaret_RoundTrips) present and passing; a targeted re-run of just those two returned Passed 2, Failed 0.",
+          "artifacts": []
+        }
+      ],
+      "provenanceChain": {
+        "entries": [
+          {
+            "taskId": "PROMPTUNDO-20261015-007",
+            "sourceLabel": "AI-assessed validation",
+            "sourceKind": "AiAssessed",
+            "recoveryKind": "envelope-repair",
+            "recordedAt": "2026-10-16T11:14:04.43857+00:00"
+          }
+        ]
+      },
+      "displayStepLabel": "7",
+      "commits": [],
+      "executionMode": "verification",
+      "completionSummaryItems": [
+        "Built SquadDash\\SquadDash.csproj on integrated HEAD 28f88ddd with only DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set (-p:EnableRunSlotDeployment=false): Build succeeded with 0 errors and 3 benign NU1701 AvalonEdit warnings; no MSB4019.",
+        "Ran the filtered NUnit suite (FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav): Passed 279, Failed 0, Skipped 0, Total 279.",
+        "Confirmed both Step 5 flat-offset straddle round-trip tests are present and passing in EmbeddedCodeRegionFlatOffsetUndoTests.cs (FlatOffset_StraddleForward_HostAnchorInRegionCaret_RoundTrips and FlatOffset_StraddleBackward_InRegionAnchorHostCaret_RoundTrips); a targeted re-run of just those two passed 2/2.",
+        "Independently verified HEAD with git rev-parse (28f88ddd) and confirmed no task-owned files were modified and no commit was created; only pre-existing host-owned plan files remain modified and were left untouched."
+      ],
+      "completionKind": "verified-no-op",
+      "evaluatedCommit": "28f88dddd8f035ac96ab6467b23fc00a532b84fa",
+      "noOpEvidence": [
+        {
+          "requirement": "integrated-build: build the solution on integrated HEAD with DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set; NU1701 benign",
+          "observation": "Build succeeded with 0 errors and only 3 benign NU1701 AvalonEdit warnings; no source change required to achieve a green build on integrated HEAD 28f88ddd.",
+          "locations": [
+            "SquadDash/SquadDash.csproj",
+            "SquadDash/PromptUndoManager.cs",
+            "SquadDash/EmbeddedCodeRegionBlock.cs",
+            "SquadDash/AvalonEditRegionEditor.cs"
+          ]
+        },
+        {
+          "requirement": "integrated-filtered-tests: run NUnit with FullyQualifiedName~EmbeddedCodeRegion|FullyQualifiedName~EmbeddedCaretNav and confirm all mapping/round-trip tests, including the two straddle cases, pass",
+          "observation": "Filtered suite passed 279/279 (Failed 0, Skipped 0) with no changes; both straddle round-trip tests ran and passed, closing the cross-task integration gap using Step 5\u0027s existing evidence.",
+          "locations": [
+            "SquadDash.Tests/EmbeddedCodeRegionFlatOffsetUndoTests.cs:253",
+            "SquadDash.Tests/EmbeddedCodeRegionFlatOffsetUndoTests.cs:296",
+            "SquadDash.Tests/EmbeddedCodeRegionPreEditUndoTests.cs"
+          ]
+        }
+      ]
+    }
+  ],
+  "approvalGates": [
+    {
+      "gateId": "PROMPTUNDO-20261015-GATE-001",
+      "message": "Confirm live prompt undo/redo restores host and in-region selections and caret positions through the single authority, using the Prompt Undo Review simulation.",
+      "afterTaskIds": [
+        "PROMPTUNDO-20261015-005",
+        "PROMPTUNDO-20261015-006"
+      ],
+      "beforeTaskIds": [
+        "PROMPTUNDO-20261015-007"
+      ],
+      "status": "approved",
+      "requestedAt": "2026-10-16T02:07:59.2157526+00:00",
+      "resolvedAt": "2026-10-16T11:09:21.3278838+00:00",
+      "planRevision": "dd645ca94da0655f",
+      "notifiedAt": "2026-10-16T02:07:59.2157526+00:00",
+      "presentationAnchor": "stage:4",
+      "resolvedBy": "MillerMark",
+      "proofRequirements": [
+        {
+          "requirementId": "undo-restores-forward-host-selection",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a forward host-text selection re-highlights identically after undo.",
+          "question": "After editing then pressing Ctrl\u002BZ, does a forward host-text selection (anchor before caret) re-highlight the same span with the caret on the same end?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Build with DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR set and launch SquadDash.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Make a forward host-text selection (drag left\u2192right), type to replace it, then press Ctrl\u002BZ; confirm the original forward selection re-highlights with the caret on the right end.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Undo restores forward host selection"
+        },
+        {
+          "requirementId": "undo-restores-backward-host-selection",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a backward host-text selection re-highlights with direction preserved after undo.",
+          "question": "After Ctrl\u002BZ, does a backward host-text selection (caret before anchor) re-highlight the same span with the caret on the same (left) end?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Make a backward host-text selection (drag right\u2192left), replace it, press Ctrl\u002BZ; confirm the same span re-highlights with the caret on the left end.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Undo restores backward host selection"
+        },
+        {
+          "requirementId": "undo-restores-collapsed-caret",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a collapsed caret returns to its original offset after undo.",
+          "question": "After Ctrl\u002BZ, does a collapsed caret (no selection) return to the same offset with no highlight?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Place a collapsed caret in host text, type a character, press Ctrl\u002BZ; confirm the caret returns to its original position with nothing highlighted.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Undo restores collapsed caret"
+        },
+        {
+          "requirementId": "undo-restores-in-region-selection",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms a selection made entirely inside a region re-highlights inside that region after undo.",
+          "question": "After Ctrl\u002BZ, does a selection made entirely inside one region re-highlight inside that region?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Select text entirely inside the embedded region, replace it, press Ctrl\u002BZ; confirm the selection re-highlights inside that region\u0027s editor.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Undo restores in-region selection"
+        },
+        {
+          "requirementId": "redo-reapplies-selection",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms Ctrl\u002BY re-applies an undone edit and its selection/caret.",
+          "question": "After Ctrl\u002BZ then Ctrl\u002BY, does the redone edit restore with the same selection and caret?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Make an edit, press Ctrl\u002BZ, then Ctrl\u002BY; confirm the edit reappears with the same selection/caret it had before the undo.",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Redo restores edit and selection"
+        },
+        {
+          "requirementId": "single-authority-in-region-undo",
+          "proofType": "live-ui-observation",
+          "description": "Reviewer confirms Ctrl\u002BZ inside a focused region is handled by the single PromptUndoManager, not the region\u0027s own AvalonEdit undo.",
+          "question": "With the caret inside a focused region, does Ctrl\u002BZ undo the prompt via the single authority rather than only the region\u0027s own AvalonEdit undo?",
+          "accessMode": "fixture",
+          "verificationRecipe": {
+            "setup": "Using the already-open Prompt Undo Review simulation.",
+            "open": "Developer \u2192 Simulation \u2192 Prompt Undo Review.",
+            "observe": "Click into the region, make an edit in host text and then in the region, press Ctrl\u002BZ with focus in the region; confirm the single prompt history unwinds (not an isolated per-region undo).",
+            "cleanup": "Close the simulation prompt without sending."
+          },
+          "fixtureTaskId": "PROMPTUNDO-20261015-006",
+          "fixtureOutputId": "undo-review-simulation",
+          "title": "Single authority handles in-region undo"
+        }
+      ],
+      "proofEvidence": [
+        {
+          "requirementId": "undo-restores-forward-host-selection",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms a forward host-text selection re-highlights identically after undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "undo-restores-backward-host-selection",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms a backward host-text selection re-highlights with direction preserved after undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "undo-restores-collapsed-caret",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms a collapsed caret returns to its original offset after undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "undo-restores-in-region-selection",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms a selection made entirely inside a region re-highlights inside that region after undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "redo-reapplies-selection",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms Ctrl\u002BY re-applies an undone edit and its selection/caret. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        },
+        {
+          "requirementId": "single-authority-in-region-undo",
+          "proofType": "live-ui-observation",
+          "summary": "MillerMark confirmed: Reviewer confirms Ctrl\u002BZ inside a focused region is handled by the single PromptUndoManager, not the region\u0027s own AvalonEdit undo. The checkpoint was explicitly approved.",
+          "artifacts": [
+            "squaddash://approval/PROMPTUNDO-20261015/PROMPTUNDO-20261015-GATE-001"
+          ]
+        }
+      ],
+      "afterTaskIdsSpecified": true,
+      "beforeTaskIdsSpecified": true,
+      "question": "Do prompt undo and redo restore host and in-region selection scenarios with the correct span, direction, and single-authority routing?",
+      "humanReviewSelections": [
+        {
+          "itemId": "undo-restores-forward-host-selection",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:41:56.6229052+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "undo-restores-backward-host-selection",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:42:25.357059+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "undo-restores-collapsed-caret",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:43:12.116952+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "redo-reapplies-selection",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:44:48.5641492+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "single-authority-in-region-undo",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:45:45.9013962+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes"
+        },
+        {
+          "itemId": "undo-restores-in-region-selection",
+          "isChecked": true,
+          "candidateCommit": "a57da4147ab77ee7c332cb0cb066964a11dd9bd6\u002Bab14f249d6751c868c8dbb081393e4a746259f12",
+          "updatedAt": "2026-10-16T10:54:43.0202902+00:00",
+          "reviewTarget": "v1:476168CEF2EA08246CFAC9AEE67060E3779EADABA6630776BFA0A91CCA49C81D",
+          "answer": "yes",
+          "note": "I\u0027ve noticed is that it\u0027s hard to read selections inside of regions and I think it\u0027s because of the darker background, at least what I\u0027m gonna light them so the background has a lower contrast background. And then the selection indicator darkens it further. So what that means is inside a region I\u0027ve got black text on a dark blue background which is kind of hard to see. Maybe something we should follow up with at the end?"
+        }
+      ]
+    }
+  ],
+  "progress": {
+    "completedCount": 7,
+    "totalCount": 7
+  },
+  "timestamps": {
+    "createdAt": "2026-10-15T13:04:29.2649855+00:00",
+    "acceptedAt": "2026-10-15T13:04:29.2649855+00:00",
+    "startedAt": "2026-10-15T14:14:47.8421722+00:00",
+    "completedAt": "2026-10-16T11:14:37.0498218+00:00",
+    "interruptedAt": "2026-10-15T15:10:15.3728556+00:00",
+    "lastRunAt": "2026-10-16T11:14:37.0498218+00:00"
+  },
+  "hostRevision": "dd645ca94da0655f",
+  "validations": [],
+  "revisionNumber": 2,
+  "revisedAt": "2026-10-16T01:17:54.8064141+00:00"
+}

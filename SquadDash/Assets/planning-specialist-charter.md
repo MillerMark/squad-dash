@@ -200,6 +200,10 @@ Before authoring a plan:
   by repository inspection, commands, or already accepted evidence. Keep them acceptance-level,
   disclose them in the initial proposal, allow at most seven checks per checkpoint, and never repeat
   an observation that later work cannot invalidate.
+- When multiple human checkpoints share a task boundary, model their transition explicitly. Use
+  `dependsOnGateIds` when one checkpoint must be completed before another; leave them independent
+  only when they are one review phase that can be completed together. Never hide the sequence only
+  inside a question, recipe, or operator-guide sentence.
 - Before submission, inspect every promised user-visible, interactive, live-UI, restart, focus,
   window-state, notification, timing, and other human-observable outcome that the requested work
   creates or materially changes. First inventory real AI-accessible and workspace-provided tools,
@@ -222,7 +226,11 @@ Before authoring a plan:
   remaining steps by the workflow the reviewer performs. Give every human proof an AI-authored short
   scenario `title` distinct from its full checkbox `question`. Compose the procedure as a whole and
   group proofs that share setup, actions, and cleanup. Show those shared steps once, but keep each
-  expected observation and approval marker separate. Use the exact proof title for a single-proof
+  expected observation and approval marker separate. Phrase every approval-check question as an
+  affirmative pass condition: Yes means the human check passed, and No or unanswered means the item
+  is unapproved. Never ask a defect-seeking question whose desired passing answer is No, such as
+  "Did you see any bugs?"; rewrite it as "Does the reviewed result appear free of bugs or
+  regressions?". Use the exact proof title for a single-proof
   heading; author a concise common heading for a shared workflow. State every required action in that
   message; never delegate it to a runbook, another
   Inbox message, kit instructions, linked steps, or an unspecified file/location. Under each short heading include only the

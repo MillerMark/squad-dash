@@ -8,9 +8,9 @@ namespace SquadDash;
 internal static class SteeringPromptBuilder
 {
     internal const string VisibleAcknowledgementInstruction =
-        "At your next model opportunity, write a brief visible response to the user—not internal reasoning—" +
-        "acknowledging this steering and explaining in one or two sentences how it will affect your approach, " +
-        "then continue working. If the steering does not change your approach, briefly explain why in that visible response.";
+        "Before any further tool call or delegation, produce a user-facing assistant message in the normal conversation transcript, not hidden reasoning/thinking. " +
+        "In that message, acknowledge this steering and explain in one or two sentences how it will affect your approach, " +
+        "then continue working. If the steering does not change your approach, say that briefly in the same user-facing message.";
 
     internal static string AddVisibleAcknowledgementInstruction(string providerPrompt)
     {
@@ -110,6 +110,7 @@ internal static class SteeringTranscriptEntryFactory
         var hasDictation = prompt.EndsWith(VoiceAnnotation, StringComparison.Ordinal);
         var promptBody = hasDictation ? prompt[..^VoiceAnnotation.Length] : prompt;
         var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 8) };
+        TranscriptAttachmentSourceFactory.SetRole(paragraph, isSystem ? "system" : "user");
 
         var prefix = new Run((isSystem ? SystemMarkerText : MarkerText) + ": ") { FontWeight = FontWeights.SemiBold };
         prefix.SetResourceReference(TextElement.ForegroundProperty, "UserPromptPrefixText");
@@ -295,6 +296,8 @@ internal static class SteeringTranscriptEntryFactory
     private static FollowUpAttachment BuildHistoricalTypedAttachment(string block)
     {
         var (type, title) = AttachmentBlockFormatter.ExtractAttachmentMetadata(block);
+        var notes = AttachmentBlockFormatter.ExtractAttachmentNotes(block);
+        var content = AttachmentBlockFormatter.ExtractAttachmentContent(block);
         var description = !string.IsNullOrWhiteSpace(title)
             ? title!
             : type switch
@@ -308,10 +311,21 @@ internal static class SteeringTranscriptEntryFactory
                 "transcript" => "Transcript",
                 _ => "Attachment",
             };
+        if (string.Equals(type, "transcript", StringComparison.Ordinal))
+        {
+            return new FollowUpAttachment(
+                string.Empty,
+                description,
+                null,
+                TranscriptQuote: content,
+                Notes: notes,
+                TranscriptSource: AttachmentBlockFormatter.ExtractTranscriptSource(block));
+        }
         return new FollowUpAttachment(
             string.Empty,
             description,
             null,
-            ContentBlock: block);
+            ContentBlock: block,
+            Notes: notes);
     }
 }

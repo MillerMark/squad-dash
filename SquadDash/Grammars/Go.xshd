@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SyntaxDefinition name="Go"
+                  extensions=".go"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Keyword" foreground="#174EA6" />
+  <Color name="Comment" foreground="#426536" />
+  <Color name="String" foreground="#8F3520" />
+  <Color name="Number" foreground="#6841A5" />
+  <Color name="Type" foreground="#00695C" />
+  <Color name="Method" foreground="#795B00" />
+  <Color name="Punctuation" foreground="#493827" />
+
+  <RuleSet>
+    <Span color="Comment" begin="//" />
+    <Span color="Comment" begin="/\*" end="\*/" multiline="true" />
+
+    <Span color="String" begin="&quot;" end="&quot;">
+      <RuleSet>
+        <Span color="Punctuation" begin="\\" end="." />
+      </RuleSet>
+    </Span>
+    <Span color="String" begin="'" end="'">
+      <RuleSet>
+        <Span color="Punctuation" begin="\\" end="." />
+      </RuleSet>
+    </Span>
+    <Span color="String" begin="`" end="`" multiline="true" />
+
+    <Rule color="Number">\b(?:0[xX][0-9A-Fa-f_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+\-]?\d[\d_]*)?)i?\b</Rule>
+    <Rule color="Punctuation">:=|\.{3}|[{}\[\]().,;:+\-*/%&amp;|^!&lt;&gt;=]</Rule>
+
+    <Keywords color="Keyword">
+      <Word>break</Word><Word>case</Word><Word>chan</Word><Word>const</Word><Word>continue</Word>
+      <Word>default</Word><Word>defer</Word><Word>else</Word><Word>fallthrough</Word><Word>for</Word>
+      <Word>func</Word><Word>go</Word><Word>goto</Word><Word>if</Word><Word>import</Word>
+      <Word>interface</Word><Word>map</Word><Word>package</Word><Word>range</Word><Word>return</Word>
+      <Word>select</Word><Word>struct</Word><Word>switch</Word><Word>type</Word><Word>var</Word>
+      <Word>true</Word><Word>false</Word><Word>nil</Word><Word>iota</Word>
+    </Keywords>
+
+    <Keywords color="Type">
+      <Word>any</Word><Word>bool</Word><Word>byte</Word><Word>comparable</Word><Word>complex64</Word>
+      <Word>complex128</Word><Word>error</Word><Word>float32</Word><Word>float64</Word><Word>int</Word>
+      <Word>int8</Word><Word>int16</Word><Word>int32</Word><Word>int64</Word><Word>rune</Word>
+      <Word>string</Word><Word>uint</Word><Word>uint8</Word><Word>uint16</Word><Word>uint32</Word>
+      <Word>uint64</Word><Word>uintptr</Word>
+    </Keywords>
+
+    <Rule color="Method">\b[A-Za-z_][A-Za-z0-9_]*\b(?=\s*\()</Rule>
+  </RuleSet>
+</SyntaxDefinition>

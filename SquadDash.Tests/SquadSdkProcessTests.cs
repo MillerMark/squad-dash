@@ -1578,6 +1578,21 @@ internal sealed class SquadSdkProcessTests {
     }
 
     [Test]
+    public async Task RunPromptAsync_BridgeDiagnosticStderr_IsSuppressed() {
+        var errors = new List<string>();
+
+        await using var sut = new SquadSdkProcess(() => BuildPowerShellScriptStartInfo("""
+            [Console]::Error.WriteLine('[SquadDash bridge diagnostic] {"source":"test"}')
+            [Console]::Out.WriteLine('{"type":"done","message":""}')
+            """));
+        sut.ErrorReceived += (_, msg) => errors.Add(msg);
+
+        await sut.RunPromptAsync("hello", _workspace.RootPath);
+
+        Assert.That(errors, Is.Empty);
+    }
+
+    [Test]
     public async Task RunPromptAsync_NodePtyAttachConsoleStderr_IsSuppressed() {
         var errors = new List<string>();
 

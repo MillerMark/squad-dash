@@ -189,6 +189,13 @@ internal sealed class TranscriptScrollController
     /// </summary>
     private bool _forceScrollPending;
 
+    /// <summary>
+    /// True while a near-top virtual-prepend request has been queued but not yet
+    /// delivered. Scroll and layout can fire many near-top events in one gesture;
+    /// coalescing keeps the expensive FlowDocument prepend out of that burst.
+    /// </summary>
+    private bool _prependRequestQueued;
+
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
@@ -1232,13 +1239,41 @@ internal sealed class TranscriptScrollController
 
         // Near-top detection: when the user has scrolled within 400 px of the very
         // top of the transcript, trigger a virtual prepend of the next batch of older
-        // turns.  The callback (_conversationManager.PrependOlderTurnsAsync) is
-        // fire-and-forget safe and guards against re-entrancy internally.
+        // turns after input/layout settles. The callback is fire-and-forget safe and
+        // guards against re-entrancy internally.
         if (sv.VerticalOffset < 400 && RequestPrependOlderTurns is { } prepend)
         {
-            ScrollTrace("NEAR TOP", $"VerticalOffset={sv.VerticalOffset:0.#}px — requesting prepend of older turns");
-            prepend();
+            QueuePrependOlderTurns(prepend, sv.VerticalOffset);
         }
+    }
+
+    private void QueuePrependOlderTurns(Action prepend, double verticalOffset)
+    {
+        if (_prependRequestQueued)
+        {
+            ScrollTrace("NEAR TOP", $"VerticalOffset={verticalOffset:0.#}px — prepend already queued");
+            return;
+        }
+
+        _prependRequestQueued = true;
+        ScrollTrace("NEAR TOP", $"VerticalOffset={verticalOffset:0.#}px — queueing prepend of older turns");
+
+        _ = _dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
+        {
+            _prependRequestQueued = false;
+
+            var sv = EnsureScrollViewer();
+            if (sv is null)
+                return;
+
+            if (sv.VerticalOffset >= 400)
+            {
+                ScrollTrace("NEAR TOP", $"prepend skipped after settle; VerticalOffset={sv.VerticalOffset:0.#}px");
+                return;
+            }
+
+            prepend();
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -1260,17 +1295,23 @@ internal sealed class TranscriptScrollController
         }
 
         ScrollTrace("BUTTON SHOWN", "scroll-to-bottom button made visible");
-        SquadDashTrace.Write(TraceCategory.Scroll, "ShowScrollButton: fading button in.");
+        var shouldAnimate = _scrollToBottomButton.Visibility != Visibility.Visible ||
+                            _scrollToBottomButton.Opacity < 0.99;
+        SquadDashTrace.Write(TraceCategory.Scroll,
+            shouldAnimate ? "ShowScrollButton: fading button in." : "ShowScrollButton: refreshing auto-hide timer.");
         _autoHideTimer.Stop();
 
         var btn = _scrollToBottomButton;
         btn.Visibility = Visibility.Visible;
 
-        var fadeIn = new DoubleAnimation(1.0, TimeSpan.FromMilliseconds(250))
+        if (shouldAnimate)
         {
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-        };
-        btn.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+            var fadeIn = new DoubleAnimation(1.0, TimeSpan.FromMilliseconds(250))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
+            btn.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+        }
 
         _autoHideTimer.Start();
     }

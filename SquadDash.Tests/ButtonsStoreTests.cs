@@ -47,6 +47,47 @@ internal sealed class ButtonsStoreTests {
         });
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Create_Reload_RoundTripsRunAsAdministrator(bool runAsAdministrator) {
+        var content = new ButtonContent("Restart service", "tip", "restart-service audiosrv",
+            ButtonCommandType.PowerShell, WorkingDirectory: null, RunAsAdministrator: runAsAdministrator);
+        _store.Create(content);
+        var loaded = new ButtonsStore(_stateDirectory).Load().Single();
+
+        Assert.That(loaded.Content.RunAsAdministrator, Is.EqualTo(runAsAdministrator));
+    }
+
+    [Test]
+    public void Load_LegacyJsonMissingRunAsAdministrator_DefaultsToFalse() {
+        var id = Guid.NewGuid();
+        Directory.CreateDirectory(Path.GetDirectoryName(_store.FilePath)!);
+        var payload = $$"""
+                        {
+                          "SchemaVersion": 1,
+                          "Items": [
+                            {
+                              "Id": "{{id}}",
+                              "SortOrder": 0,
+                              "ContentRevision": 1,
+                              "Content": {
+                                "Caption": "Test",
+                                "Tooltip": "tip",
+                                "CommandText": "echo hello",
+                                "CommandType": 0,
+                                "WorkingDirectory": null
+                              }
+                            }
+                          ]
+                        }
+                        """;
+        File.WriteAllText(_store.FilePath, payload);
+
+        var loaded = _store.Load().Single();
+
+        Assert.That(loaded.Content.RunAsAdministrator, Is.False);
+    }
+
     [Test]
     public void DifferentWorkspaceDirectories_DoNotShareButtons() {
         using var otherWorkspace = new TestWorkspace();

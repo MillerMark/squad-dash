@@ -28,8 +28,7 @@ internal sealed class CodeHealthPanelController {
     private readonly Action               _showInboxPanel;
     private readonly Action<string>       _runTask;
     private readonly Action               _simulateIdle;
-    private readonly Action<RichTextBox, string>?            _onReviseWithAi;
-    private readonly Action<RichTextBox, string, string>?    _onDirectRevise;
+    private readonly Action<AvalonEditMarkdownEditor>? _configureMarkdownEditor;
 
     private readonly CodeHealthPanelViewModel _viewModel = new();
     internal CodeHealthPanelViewModel ViewModel => _viewModel;
@@ -55,8 +54,7 @@ internal sealed class CodeHealthPanelController {
         Action               showInboxPanel,
         Action<string>       runTask,
         Action               simulateIdle,
-        Action<RichTextBox, string>?            onReviseWithAi = null,
-        Action<RichTextBox, string, string>?    onDirectRevise = null) {
+        Action<AvalonEditMarkdownEditor>? configureMarkdownEditor = null) {
 
         _listPanel              = listPanel;
         _statusLabel            = statusLabel;
@@ -68,8 +66,7 @@ internal sealed class CodeHealthPanelController {
         _showInboxPanel         = showInboxPanel;
         _runTask                = runTask;
         _simulateIdle           = simulateIdle;
-        _onReviseWithAi         = onReviseWithAi;
-        _onDirectRevise         = onDirectRevise;
+        _configureMarkdownEditor = configureMarkdownEditor;
 
         _enabledOnIdlePicker = new CompactPickerButton(
             headerText:     "Code Health Tasks:",
@@ -133,8 +130,7 @@ internal sealed class CodeHealthPanelController {
                 () => new ApplicationSettingsStore().Load(),
                 _reloadPanel,
                 _reloadPanel,
-                onReviseWithAi: _onReviseWithAi,
-                onDirectRevise: _onDirectRevise,
+                configureMarkdownEditor: _configureMarkdownEditor,
                 stateStore: _viewModel.StateStore,
                 workspacePath: _getWorkspacePath?.Invoke());
             editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("CodeHealthTaskEditor", editor);
@@ -873,8 +869,7 @@ internal sealed class CodeHealthPanelController {
                 () => new ApplicationSettingsStore().Load(),
                 _reloadPanel,
                 _reloadPanel,
-                onReviseWithAi: _onReviseWithAi,
-                onDirectRevise: _onDirectRevise,
+                configureMarkdownEditor: _configureMarkdownEditor,
                 stateStore: _viewModel.StateStore,
                 workspacePath: _getWorkspacePath?.Invoke());
             editor.Closed += (_, _) => FloatingWindowPositionStore.Shared.Save("CodeHealthTaskEditor", editor);

@@ -199,11 +199,11 @@ internal sealed class PlanHumanReviewStepAcceptanceTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(PlanHumanReviewGatePolicy.FindCombinableGate(plan, "TASK-1"),
-                Is.EqualTo(defaultCombines ? gate : null));
-            Assert.That(PlanHumanReviewGatePolicy.FindCombinableGate(
+            Assert.That(PlanHumanReviewGatePolicy.FindCombinableGates(plan, "TASK-1"),
+                Is.EqualTo(defaultCombines ? new[] { gate } : []));
+            Assert.That(PlanHumanReviewGatePolicy.FindCombinableGates(
                     plan, "TASK-1", allowPendingReviewSiblings: true),
-                Is.EqualTo(attentionCombines ? gate : null));
+                Is.EqualTo(attentionCombines ? new[] { gate } : []));
             Assert.That(PlanReviewAttentionPresentationResolver.Resolve(plan, "TASK-1")?.Gate,
                 Is.EqualTo(attentionCombines ? gate : null));
         });

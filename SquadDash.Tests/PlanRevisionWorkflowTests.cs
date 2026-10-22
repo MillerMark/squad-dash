@@ -51,6 +51,75 @@ internal sealed class PlanRevisionWorkflowTests
     }
 
     [Test]
+    public void ApprovalPresentation_CombinesInterruptedRecoveryWithCurrentSavedRevision()
+    {
+        var plan = MakePlan() with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            InterruptionData = new PlanInterruptionData(
+                "The step result was invalid after automatic repair.",
+                PlanRecoveryState.PendingRecovery,
+                3,
+                InterruptedTaskId: "REVISION-20260806-002",
+                AttentionCategory: PlanAttentionCategory.AutomaticWorkExhausted),
+        };
+        var pending = new PendingPlanRevisionProposal(
+            "proposal-1",
+            new DateTimeOffset(2026, 10, 12, 8, 46, 0, TimeSpan.FromHours(-4)),
+            new PlanRevisionProposalPayload(
+                plan.PlanId,
+                plan.Revision,
+                "Use the narrower supervised path.",
+                null,
+                Operations: []));
+
+        var presentation = PlanRevisionApprovalPresentationBuilder.Build(plan, pending);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.OwnsInterruptedRecovery, Is.True);
+            Assert.That(presentation.Title, Is.EqualTo("Plan stopped - saved revision ready"));
+            Assert.That(presentation.Context, Does.Contain("Build feature"));
+            Assert.That(presentation.RecordedReason, Does.Contain("invalid after automatic repair"));
+            Assert.That(presentation.Recommendation, Does.Contain("saved on Oct 12, 2026"));
+            Assert.That(presentation.Recommendation, Does.Contain("review the proposed plan, then approve it"));
+            Assert.That(presentation.Status, Does.Contain("continue from the preserved interruption"));
+        });
+    }
+
+    [Test]
+    public void ApprovalPresentation_DoesNotReplaceRecoveryForStaleProposal()
+    {
+        var plan = MakePlan() with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Interrupted,
+            InterruptionData = new PlanInterruptionData(
+                "Stopped",
+                PlanRecoveryState.PendingRecovery,
+                1,
+                InterruptedTaskId: "REVISION-20260806-002"),
+        };
+        var pending = new PendingPlanRevisionProposal(
+            "proposal-stale",
+            DateTimeOffset.UtcNow,
+            new PlanRevisionProposalPayload(
+                plan.PlanId,
+                "older-revision",
+                "Old proposal",
+                null,
+                Operations: []));
+
+        var presentation = PlanRevisionApprovalPresentationBuilder.Build(plan, pending);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(presentation.OwnsInterruptedRecovery, Is.False);
+            Assert.That(presentation.Title, Is.EqualTo("Plan Revision - Approval Required"));
+            Assert.That(presentation.Context, Is.Null);
+        });
+    }
+
+    [Test]
     public void PromptAttachment_RoundTripsPlanIdentityAndBaseRevision()
     {
         var plan = MakePlan();
@@ -136,6 +205,57 @@ internal sealed class PlanRevisionWorkflowTests
             Assert.That(revised.ResolvedAt, Is.Null);
             Assert.That(revised.ResolvedBy, Is.Null);
             Assert.That(revised.ResolutionNote, Is.Null);
+        });
+    }
+
+    [Test]
+    public void Apply_ChangedAwaitingApprovalGateDefinition_LeavesPlanAwaitingReopenedGate()
+    {
+        var basePlan = MakePlan();
+        var taskId = basePlan.Tasks[1].TaskId;
+        var gate = new PlanApprovalGate(
+            taskId + "-HUMAN-PROOF",
+            "Confirm the old editor behavior.",
+            [taskId],
+            [basePlan.Tasks[2].TaskId],
+            PlanGateStatus.AwaitingApproval,
+            RequestedAt: DateTimeOffset.UtcNow,
+            PlanRevision: basePlan.Revision,
+            Question: "Is the old editor behavior correct?");
+        var plan = basePlan with
+        {
+            LifecycleStatus = PlanLifecycleStatus.AwaitingApproval,
+            Tasks = basePlan.Tasks.Select(task => task.TaskId == taskId
+                ? task with { Status = PlanTaskStatus.Complete, Commit = "abc123" }
+                : task).ToArray(),
+            ApprovalGates = [gate],
+            Progress = new PlanProgress(1, 3),
+        };
+        var proposal = PendingDecomposePlanAdapter.FromPlan(plan).Group with
+        {
+            ApprovalGates =
+            [
+                new DecomposedGate(
+                    gate.GateId,
+                    "Confirm the revised editor behavior.",
+                    [taskId],
+                    [basePlan.Tasks[2].TaskId],
+                    null,
+                    "Is the revised editor behavior correct?"),
+            ],
+        };
+
+        var result = PlanRevisionApplier.Apply(plan, proposal, plan.Revision, DateTimeOffset.UtcNow);
+        var revisedGate = result.UpdatedPlan!.ApprovalGates.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Outcome, Is.EqualTo(PlanRevisionApplyOutcome.Applied), result.Error);
+            Assert.That(result.UpdatedPlan.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.AwaitingApproval));
+            Assert.That(revisedGate.Status, Is.EqualTo(PlanGateStatus.Pending));
+            Assert.That(revisedGate.Message, Is.EqualTo("Confirm the revised editor behavior."));
+            Assert.That(revisedGate.Question, Is.EqualTo("Is the revised editor behavior correct?"));
+            Assert.That(revisedGate.RequestedAt, Is.Null);
         });
     }
 
@@ -873,6 +993,45 @@ internal sealed class PlanRevisionWorkflowTests
         var injection = PlanRevisionPromptInjection.Build(squadFolder, includeExecutingPlan: false);
 
         Assert.That(injection, Does.Contain(plan.PlanId));
+    }
+
+    [Test]
+    public void ApprovedRevisionContinuation_ReopensAwaitingApprovalBoundaryBeforeResume()
+    {
+        var sourcePath = Path.Combine(
+            TestContext.CurrentContext.TestDirectory,
+            "..", "..", "..", "..", "SquadDash", "MainWindow.xaml.cs");
+        var source = File.ReadAllText(Path.GetFullPath(sourcePath));
+        var applyStart = source.IndexOf(
+            "private async Task ApplyPendingPlanRevisionAsync(",
+            StringComparison.Ordinal);
+        var helperStart = source.IndexOf(
+            "private async Task ContinueAfterApprovedPlanRevisionAsync(",
+            StringComparison.Ordinal);
+        var helperEnd = source.IndexOf(
+            "private void AppendPlanRevisionApprovalCard(",
+            helperStart,
+            StringComparison.Ordinal);
+        Assert.Multiple(() =>
+        {
+            Assert.That(applyStart, Is.GreaterThanOrEqualTo(0));
+            Assert.That(helperStart, Is.GreaterThan(applyStart));
+            Assert.That(helperEnd, Is.GreaterThan(helperStart));
+        });
+
+        var applyMethod = source[applyStart..helperStart];
+        var helperBlock = source[helperStart..helperEnd];
+        Assert.Multiple(() =>
+        {
+            Assert.That(applyMethod, Does.Contain("await ContinueAfterApprovedPlanRevisionAsync(current, updated);"));
+            Assert.That(helperBlock, Does.Contain("PlanLifecycleStatus.AwaitingApproval"));
+            Assert.That(helperBlock, Does.Contain("HasReadyPendingApprovalGate(active)"));
+            Assert.That(helperBlock, Does.Contain("PlanStoreUpdater.ApplyApprovalBoundaryRecovery(active)"));
+            Assert.That(helperBlock, Does.Contain("await RestoreRevisionAwaitingApprovalGateUIAsync(active);"));
+            Assert.That(helperBlock, Does.Contain("await RestoreAwaitingApprovalGateUIAsync(active.PlanId);"));
+            Assert.That(helperBlock, Does.Contain("ProcessPlanApprovalsAfterStepAsync("));
+            Assert.That(helperBlock, Does.Contain("StartOrResumeDurablePlanAsync(active)"));
+        });
     }
 
     [Test]

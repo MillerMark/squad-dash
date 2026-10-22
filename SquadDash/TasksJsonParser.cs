@@ -387,6 +387,10 @@ internal static class TasksJsonParser
                 .Select(t => t.Id)
                 .ToHashSet(StringComparer.Ordinal);
 
+            var declaredGateIds = parsed.ApprovalGates
+                .Where(gate => !string.IsNullOrWhiteSpace(gate.GateId))
+                .Select(gate => gate.GateId)
+                .ToHashSet(StringComparer.Ordinal);
             var gateIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var gate in parsed.ApprovalGates)
             {
@@ -463,6 +467,16 @@ internal static class TasksJsonParser
                     }
                 }
 
+                foreach (var dependencyId in gate.DependsOnGateIds ?? [])
+                {
+                    if (string.Equals(dependencyId, gate.GateId, StringComparison.Ordinal) ||
+                        !declaredGateIds.Contains(dependencyId))
+                    {
+                        return Fail("invalid-gate-dependency",
+                            $"gate '{gate.GateId}' dependsOnGateIds references invalid gate '{dependencyId}'");
+                    }
+                }
+
                 // Reject before-first-step: AfterTaskIds empty/null AND BeforeTaskIds contain only root tasks.
                 var hasAfter  = gate.AfterTaskIds  is { Count: > 0 };
                 var hasBefore = gate.BeforeTaskIds is { Count: > 0 };
@@ -480,6 +494,9 @@ internal static class TasksJsonParser
                         $"gate '{gate.GateId}' is an after-final-step gate; it would never block any task");
                 }
             }
+
+            if (HasGateDependencyCycle(parsed.ApprovalGates))
+                return Fail("gate-dependency-cycle", "approvalGates contains a dependsOnGateIds cycle");
         }
 
         if (parsed.Validations is { Count: > 0 })
@@ -940,6 +957,10 @@ internal static class TasksJsonParser
             .ToHashSet(StringComparer.Ordinal);
         var leafTaskIds = taskIds.Where(id => !dependedUponTaskIds.Contains(id))
             .ToHashSet(StringComparer.Ordinal);
+        var declaredGateIds = (parsed.ApprovalGates ?? [])
+            .Where(gate => !string.IsNullOrWhiteSpace(gate.GateId))
+            .Select(gate => gate.GateId)
+            .ToHashSet(StringComparer.Ordinal);
         var gateIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var gate in parsed.ApprovalGates ?? [])
         {
@@ -987,6 +1008,11 @@ internal static class TasksJsonParser
                 if (!taskIds.Contains(id))
                     Add("unknown-gate-before-task",
                         $"gate '{gateId}' beforeTaskIds references unknown task '{id}'");
+            foreach (var dependencyId in gate.DependsOnGateIds ?? [])
+                if (string.Equals(dependencyId, gate.GateId, StringComparison.Ordinal) ||
+                    !declaredGateIds.Contains(dependencyId))
+                    Add("invalid-gate-dependency",
+                        $"gate '{gateId}' dependsOnGateIds references invalid gate '{dependencyId}'");
 
             var afterIds = gate.AfterTaskIds ?? [];
             var beforeIds = gate.BeforeTaskIds ?? [];
@@ -998,6 +1024,8 @@ internal static class TasksJsonParser
                 Add("gate-after-final-task",
                     $"gate '{gateId}' is an after-final-step gate; it would never block any task");
         }
+        if (HasGateDependencyCycle(parsed.ApprovalGates ?? []))
+            Add("gate-dependency-cycle", "approvalGates contains a dependsOnGateIds cycle");
 
         if (parsed.Validations is { Count: > 16 })
             Add("too-many-validations", "validations exceeds maximum of 16");
@@ -1065,6 +1093,31 @@ internal static class TasksJsonParser
         (group.ApprovalGates ?? []).Any(gate =>
             gate.ProofRequirements is { Count: > 0 } &&
             (gate.AfterTaskIds ?? []).Contains(task.Id, StringComparer.Ordinal));
+
+    private static bool HasGateDependencyCycle(IReadOnlyList<DecomposedGate> gates)
+    {
+        var byId = gates
+            .Where(gate => !string.IsNullOrWhiteSpace(gate.GateId))
+            .GroupBy(gate => gate.GateId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+
+        bool Visit(string gateId)
+        {
+            if (visited.Contains(gateId)) return false;
+            if (!visiting.Add(gateId)) return true;
+            if (byId.TryGetValue(gateId, out var gate))
+                foreach (var dependencyId in gate.DependsOnGateIds ?? [])
+                    if (byId.ContainsKey(dependencyId) && Visit(dependencyId))
+                        return true;
+            visiting.Remove(gateId);
+            visited.Add(gateId);
+            return false;
+        }
+
+        return byId.Keys.Any(Visit);
+    }
 
     private static bool DependsTransitivelyOn(
         IReadOnlyDictionary<string, DecomposedSubTask> tasksById,

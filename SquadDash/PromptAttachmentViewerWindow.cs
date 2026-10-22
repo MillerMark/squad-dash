@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -8,6 +9,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 
 namespace SquadDash;
 
@@ -23,9 +25,17 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     // while clicks on different attachments correctly open separate windows.
     private static readonly List<WeakReference<PromptAttachmentViewerWindow>> s_openViewers = [];
 
-    private readonly IReadOnlyList<FollowUpAttachment> _attachments;
+    private readonly FollowUpAttachment[] _attachments;
+    private readonly Func<FollowUpAttachment, string, FollowUpAttachment>? _notesChanged;
+    private readonly List<TextBox?> _notesEditors = [];
+    private readonly PttTextBoxAttachment _notesDictation;
+    private readonly Func<DateTimeOffset> _nowProvider;
+    private readonly List<(int Index, TextBlock Line)> _originLines = [];
+    private readonly DispatcherTimer _originRefreshTimer;
+    private TabControl? _tabs;
 
-    internal static void Show(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null)
+    internal static void Show(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null,
+        Func<FollowUpAttachment, string, FollowUpAttachment>? notesChanged = null, bool focusNotes = false)
     {
         if (attachments.Count == 0) return;
 
@@ -35,20 +45,25 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         foreach (var wr in s_openViewers)
         {
             if (!wr.TryGetTarget(out var existing)) continue;
-            if (SameAttachments(existing._attachments, attachments))
+            if (SameAttachments(existing._attachments, attachments) &&
+                (existing._notesChanged is null) == (notesChanged is null))
             {
                 if (existing.WindowState == WindowState.Minimized)
                     existing.WindowState = WindowState.Normal;
                 existing.Activate();
+                if (focusNotes)
+                    existing.FocusNotes();
                 return;
             }
         }
 
-        var win = new PromptAttachmentViewerWindow(attachments, owner, openInboxMessage);
+        var win = new PromptAttachmentViewerWindow(attachments, owner, openInboxMessage, notesChanged);
         if (owner is not null)
             win.Owner = owner;
         s_openViewers.Add(new WeakReference<PromptAttachmentViewerWindow>(win));
         win.Show();
+        if (focusNotes)
+            win.FocusNotes();
     }
 
     private static bool SameAttachments(IReadOnlyList<FollowUpAttachment> a, IReadOnlyList<FollowUpAttachment> b)
@@ -67,11 +82,47 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 
     private readonly Action<string>? _openInboxMessage;
 
-    private PromptAttachmentViewerWindow(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null)
+    internal PromptAttachmentViewerWindow(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null,
+        Func<FollowUpAttachment, string, FollowUpAttachment>? notesChanged = null,
+        Func<ApplicationSettingsSnapshot>? settingsProvider = null,
+        Func<DateTimeOffset>? nowProvider = null)
         : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.CanResize)
     {
-        _attachments      = attachments;
+        _attachments      = attachments.ToArray();
+        _notesChanged     = notesChanged;
         _openInboxMessage = openInboxMessage;
+        _nowProvider = nowProvider ?? (() => DateTimeOffset.Now);
+        _originRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = TimeSpan.FromMinutes(1)
+        };
+        _originRefreshTimer.Tick += RefreshOriginLines;
+        Loaded += (_, _) =>
+        {
+            RefreshOriginLines(this, EventArgs.Empty);
+            if (_attachments.Any(att => TryGetSourceTimestamp(att.TranscriptSource, out _)))
+                _originRefreshTimer.Start();
+        };
+        _notesDictation = new PttTextBoxAttachment(
+            settingsProvider ?? (() => new ApplicationSettingsStore().Load()), this, Dispatcher);
+        PreviewKeyDown += (_, e) =>
+        {
+            var editor = _notesEditors.FirstOrDefault(editor =>
+                editor is { IsKeyboardFocusWithin: true, IsReadOnly: false });
+            if (_notesDictation.HandlePreviewKeyDown(e, editor))
+                e.Handled = true;
+        };
+        PreviewKeyUp += (_, e) =>
+        {
+            if (_notesDictation.HandlePreviewKeyUp(e))
+                e.Handled = true;
+        };
+        Closed += (_, _) =>
+        {
+            _originRefreshTimer.Stop();
+            _originRefreshTimer.Tick -= RefreshOriginLines;
+            _notesDictation.Dispose();
+        };
         Title         = attachments.Count == 1
             ? (attachments[0].ImagePath is not null ? "Image Attachment" : "Text Attachment")
             : (attachments.All(a => a.ImagePath is not null) ? "Image Attachments"
@@ -80,10 +131,14 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         MinWidth      = 320;
         MinHeight     = 200;
         ShowInTaskbar = false;
+        ShowActivated = true;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         KeyDown += (_, e) =>
         {
+            if (e.Key is Key.Return or Key.Enter &&
+                _notesEditors.Any(editor => editor is { IsKeyboardFocusWithin: true, IsReadOnly: false }))
+                return;
             if (e.Key is Key.Escape or Key.Return or Key.Enter)
             {
                 Close();
@@ -96,15 +151,16 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 
         if (attachments.Count == 1)
         {
-            content = WrapInMargin(BuildAttachmentContent(attachments[0], out singleImage, openInboxMessage));
+            content = WrapInMargin(BuildAttachmentContent(0, out singleImage, openInboxMessage));
         }
         else
         {
             var tabs = new TabControl { Margin = new Thickness(4) };
+            _tabs = tabs;
             tabs.SetResourceReference(Control.StyleProperty, "ThemedTabControlStyle");
-            foreach (var att in attachments)
+            for (var i = 0; i < attachments.Count; i++)
             {
-                var tab = BuildTab(att, openInboxMessage);
+                var tab = BuildTab(i, openInboxMessage);
                 tab.SetResourceReference(Control.StyleProperty, "ThemedTabItemStyle");
                 tabs.Items.Add(tab);
             }
@@ -187,8 +243,9 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     private static UIElement WrapInMargin(UIElement inner) =>
         new Border { Padding = new Thickness(4), Child = inner };
 
-    private static TabItem BuildTab(FollowUpAttachment att, Action<string>? openInboxMessage = null)
+    private TabItem BuildTab(int index, Action<string>? openInboxMessage = null)
     {
+        var att = _attachments[index];
         string label;
         if (att.FileReferencePath is not null)
             label = "📁 " + TruncateLabel(att.Description, 30);
@@ -204,11 +261,92 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         return new TabItem
         {
             Header  = label,
-            Content = WrapInMargin(BuildAttachmentContent(att, out _, openInboxMessage))
+            Content = WrapInMargin(BuildAttachmentContent(index, out _, openInboxMessage))
         };
     }
 
-    private static UIElement BuildAttachmentContent(FollowUpAttachment att, out BitmapImage? loadedImage, Action<string>? openInboxMessage = null)
+    private UIElement BuildAttachmentContent(int index, out BitmapImage? loadedImage, Action<string>? openInboxMessage = null)
+    {
+        var att = _attachments[index];
+        var content = BuildAttachmentContentCore(att, out loadedImage, openInboxMessage);
+        if (att.TranscriptSource is not null || att.TranscriptQuote is not null)
+        {
+            var origin = new TextBlock
+            {
+                Text = FormatTranscriptOrigin(att.TranscriptSource, _nowProvider()),
+                Margin = new Thickness(0, 0, 0, 6),
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            origin.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+            origin.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+            _originLines.Add((index, origin));
+            var originPanel = new DockPanel();
+            DockPanel.SetDock(origin, Dock.Top);
+            originPanel.Children.Add(origin);
+            originPanel.Children.Add(content);
+            content = originPanel;
+        }
+        if (!att.SupportsNotes || (_notesChanged is null && string.IsNullOrEmpty(att.Notes)))
+        {
+            _notesEditors.Add(null);
+            return content;
+        }
+
+        var notesPanel = AttachmentNotesEditor.Create(att, notes =>
+        {
+            if (_notesChanged is not null)
+                _attachments[index] = _notesChanged(_attachments[index], notes);
+        })!;
+        var editor = notesPanel.Children.OfType<TextBox>().Single();
+        editor.IsReadOnly = _notesChanged is null;
+        _notesEditors.Add(editor);
+        var panel = new DockPanel();
+        DockPanel.SetDock(notesPanel, Dock.Bottom);
+        panel.Children.Add(notesPanel);
+        panel.Children.Add(content);
+        return panel;
+    }
+
+    internal static string FormatTranscriptOrigin(TranscriptAttachmentSource? source, DateTimeOffset now)
+    {
+        var role = string.IsNullOrWhiteSpace(source?.Role) ? "transcript" : source.Role.Trim();
+        var origin = $"From {role}";
+        return TryGetSourceTimestamp(source, out var timestamp)
+            ? $"{origin} \u2022 {StatusTimingPresentation.FormatAgo(now - timestamp)}"
+            : origin;
+    }
+
+    private static bool TryGetSourceTimestamp(TranscriptAttachmentSource? source, out DateTimeOffset timestamp) =>
+        DateTimeOffset.TryParse(source?.Timestamp, CultureInfo.InvariantCulture, DateTimeStyles.None, out timestamp);
+
+    private void RefreshOriginLines(object? sender, EventArgs e)
+    {
+        var now = _nowProvider();
+        foreach (var (index, line) in _originLines)
+            line.Text = FormatTranscriptOrigin(_attachments[index].TranscriptSource, now);
+    }
+
+    internal void FocusNotes()
+    {
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+        {
+            if (!IsVisible)
+                return;
+            var index = _tabs?.SelectedIndex ?? 0;
+            if (index >= 0 && _notesEditors[index] is { } editor)
+            {
+                // The originating row/button click can restore owner focus after Show().
+                Activate();
+                FocusManager.SetFocusedElement(this, editor);
+                editor.Focus();
+                Keyboard.Focus(editor);
+                editor.Select(editor.Text.Length, 0);
+                editor.ScrollToEnd();
+            }
+        }));
+    }
+
+    private static UIElement BuildAttachmentContentCore(FollowUpAttachment att, out BitmapImage? loadedImage, Action<string>? openInboxMessage = null)
     {
         loadedImage = null;
 
@@ -395,20 +533,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             text = sb.ToString().TrimEnd();
         }
 
-        var textBox = new TextBox
-        {
-            Text                          = text,
-            IsReadOnly                    = true,
-            TextWrapping                  = TextWrapping.Wrap,
-            AcceptsReturn                 = true,
-            BorderThickness               = new Thickness(0),
-            Background                    = Brushes.Transparent,
-            FontSize = (double)Application.Current.Resources["FontSizeBody"],
-            Padding                       = new Thickness(2),
-            VerticalScrollBarVisibility   = ScrollBarVisibility.Disabled,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-        };
-        textBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
+        var textContent = BuildTextContent(text);
 
         // For inbox-excerpt attachments, add an "Open in Inbox" button when the callback is available.
         bool isInboxExcerpt = att.ContentBlock is not null
@@ -431,16 +556,62 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             var panel = new DockPanel { LastChildFill = true };
             DockPanel.SetDock(openBtn, Dock.Bottom);
             panel.Children.Add(openBtn);
-
-            var textScroll = new ScrollViewer
-            {
-                Content                       = textBox,
-                VerticalScrollBarVisibility   = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            };
-            panel.Children.Add(textScroll);
+            panel.Children.Add(textContent);
             return panel;
         }
+
+        return textContent;
+    }
+
+    internal static UIElement BuildTextContent(string text)
+    {
+        var classification = AttachmentTextClassifier.Classify(text);
+        var fontSize = (double)Application.Current.Resources["FontSizeBody"];
+        if (classification.Mode == AttachmentTextRenderMode.WholeCode)
+            return ReadOnlyHighlightedEditorFactory.Build(
+                classification.Content, classification.Grammar, classification.LanguageLabel!, fontSize);
+
+        if (classification.Mode == AttachmentTextRenderMode.MixedMarkdown)
+        {
+            var viewer = new FlowDocumentScrollViewer
+            {
+                Document = MarkdownDocumentRenderer.BuildReadOnlyDocument(text, fontSize),
+                IsToolBarVisible = false,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Background = Brushes.Transparent,
+            };
+            ReadOnlyTextInputGuard.DisableInputMethod(viewer);
+            DataObject.AddCopyingHandler(viewer, (_, e) =>
+            {
+                e.CancelCommand();
+                e.Handled = true;
+                CopyableCodeBlockBuilder.TrySetClipboard(MarkdownVisibleContent.GetSelectedText(viewer));
+            });
+            IDisposable? selectionScope = null;
+            viewer.Loaded += (_, _) => selectionScope ??= MarkdownVisibleContent.TrackSelections(viewer);
+            viewer.Unloaded += (_, _) =>
+            {
+                selectionScope?.Dispose();
+                selectionScope = null;
+            };
+            return viewer;
+        }
+
+        var textBox = new TextBox
+        {
+            Text                          = text,
+            IsReadOnly                    = true,
+            TextWrapping                  = TextWrapping.Wrap,
+            AcceptsReturn                 = true,
+            BorderThickness               = new Thickness(0),
+            Background                    = Brushes.Transparent,
+            FontSize = (double)Application.Current.Resources["FontSizeBody"],
+            Padding                       = new Thickness(2),
+            VerticalScrollBarVisibility   = ScrollBarVisibility.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+        textBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
 
         var textScroll2 = new ScrollViewer
         {

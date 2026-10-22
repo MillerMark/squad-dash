@@ -146,6 +146,42 @@ internal static class MarkdownEditorCommands
     }
 
     /// <summary>
+    /// RichTextBox overload of <see cref="ContinueListOnShiftEnter(TextBox)"/>.
+    /// </summary>
+    internal static bool ContinueListOnShiftEnter(RichTextBox box)
+    {
+        var text  = box.GetPlainText();
+        var caret = box.GetCaretOffset();
+
+        var lineStart = caret == 0 ? 0 : (text.LastIndexOf('\n', caret - 1) + 1);
+        var lineEnd   = text.IndexOf('\n', lineStart);
+        if (lineEnd < 0) lineEnd = text.Length;
+        var lineText  = text[lineStart..lineEnd];
+
+        var m = ListBulletRegex.Match(lineText);
+        if (!m.Success) return false;
+
+        // Escape: the line is nothing but the prefix — strip it and park the caret there.
+        if (lineText.Length == m.Length) {
+            box.SetPlainText(text[..lineStart] + text[(lineStart + m.Length)..]);
+            box.SetCaretOffset(lineStart);
+            return true;
+        }
+
+        var indent = m.Groups["indent"].Value;
+        string nextPrefix;
+        if (m.Groups["num"].Success && int.TryParse(m.Groups["num"].Value, out int n))
+            nextPrefix = indent + (n + 1) + ". ";
+        else
+            nextPrefix = indent + m.Groups["sym"].Value + " ";
+
+        var insertion = "\n" + nextPrefix;
+        box.SetPlainText(text[..caret] + insertion + text[caret..]);
+        box.SetCaretOffset(caret + insertion.Length);
+        return true;
+    }
+
+    /// <summary>
     /// Duplicates the current line and moves the caret to the start of the new copy.
     /// Uses <c>SelectedText</c> insertion so the operation participates in the undo stack
     /// as a single step.

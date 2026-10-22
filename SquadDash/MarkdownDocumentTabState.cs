@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -9,11 +10,13 @@ using System.Windows.Media;
 namespace SquadDash;
 
 internal sealed class MarkdownDocumentTabState {
-    private MarkdownDocumentTabState(string tabTitle, string filePath, string text) {
+    private MarkdownDocumentTabState(string tabTitle, string filePath, string text, bool useAvalonEdit = false) {
         TabTitle = tabTitle;
         FilePath = filePath;
         FileName = Path.GetFileName(filePath);
         var stripped = StripFrontMatter(text, out var frontMatter);
+        if (useAvalonEdit)
+            stripped = stripped.ReplaceLineEndings("\n");
         FrontMatter  = frontMatter;
         SavedText    = stripped;
         WorkingText  = stripped;
@@ -52,6 +55,11 @@ internal sealed class MarkdownDocumentTabState {
             }
         });
 
+        if (useAvalonEdit) {
+            AvalonEditor = new AvalonEditMarkdownEditor { Visibility = Visibility.Collapsed };
+            AvalonEditor.SetText(stripped);
+        }
+
         PreviewHost = new Grid();
         PreviewHost.Children.Add(WebBrowser);
         PreviewHost.Children.Add(FallbackViewer);
@@ -67,6 +75,28 @@ internal sealed class MarkdownDocumentTabState {
     public WebBrowser WebBrowser { get; }
     public FlowDocumentScrollViewer FallbackViewer { get; }
     public RichTextBox EditorTextBox { get; }
+    public AvalonEditMarkdownEditor? AvalonEditor { get; }
+    public FrameworkElement EditorControl => AvalonEditor is { } editor ? editor : EditorTextBox;
+    public string GetEditorText() => AvalonEditor?.GetText() ?? EditorTextBox.GetPlainText();
+
+    public void UpdateWorkingText(string text) {
+        WorkingText = text;
+        IsDirty = !string.Equals(WorkingText, SavedText, System.StringComparison.Ordinal);
+    }
+
+    public void SetEditorText(string text) {
+        if (AvalonEditor is { } editor)
+            editor.SetText(text);
+        else
+            EditorTextBox.SetPlainText(text);
+    }
+
+    public void SaveEditorChanges() {
+        WorkingText = GetEditorText();
+        File.WriteAllText(FilePath, FrontMatter + WorkingText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        SavedText = WorkingText;
+        IsDirty = false;
+    }
     public Grid PreviewHost { get; }
     public TabItem? TabItem { get; set; }
     internal double? PendingScrollFraction { get; set; }
@@ -84,9 +114,9 @@ internal sealed class MarkdownDocumentTabState {
     }
     public void RemoveRevisionLock(EditorRevisionLock revLock) => _lockedRanges.Remove(revLock);
 
-    public static MarkdownDocumentTabState Load(string tabTitle, string filePath) {
+    public static MarkdownDocumentTabState Load(string tabTitle, string filePath, bool useAvalonEdit = false) {
         var text = File.Exists(filePath) ? File.ReadAllText(filePath) : string.Empty;
-        return new MarkdownDocumentTabState(tabTitle, filePath, text);
+        return new MarkdownDocumentTabState(tabTitle, filePath, text, useAvalonEdit);
     }
 
     /// <summary>Creates a read-only tab state from an in-memory Markdown string (no backing file).</summary>

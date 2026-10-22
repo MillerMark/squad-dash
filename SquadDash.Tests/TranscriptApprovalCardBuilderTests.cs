@@ -5,8 +5,10 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
 using NUnit.Framework;
 
 namespace SquadDash.Tests;
@@ -110,6 +112,44 @@ public class TranscriptApprovalCardBuilderTests
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void ApprovalNoteSection_OnlyShowsWhenEveryReviewItemIsApproved()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { });
+        var item = PlanHumanReviewChecklist.Build(plan, plan.ApprovalGates).Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.CanApprove(), Is.False);
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.NoteTextBox.IsEnabled, Is.False);
+        });
+
+        card.SetChecklistSelection(item, true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.CanApprove(), Is.True);
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.NoteTextBox.IsEnabled, Is.True);
+        });
+
+        card.SetChecklistSelection(item, false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.CanApprove(), Is.False);
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.NoteTextBox.IsEnabled, Is.False);
+        });
+    }
+
     [Test]
     public void BuildApproveLabel_SingleGate_ReturnsCheckpointLabel()
     {
@@ -191,10 +231,37 @@ public class TranscriptApprovalCardBuilderTests
         Assert.Multiple(() =>
         {
             Assert.That(card.ActionsPanel.Visibility, Is.EqualTo(Visibility.Visible));
-            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
             Assert.That(card.ReviewSection!.IsEnabled, Is.True);
             Assert.That(card.RequestChangesButton!.IsEnabled, Is.True);
             Assert.That(card.ReworkIndicator.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void ChangeRequestSubmittedState_RemovesDuplicateActionsUntilRunning()
+    {
+        var plan = BuildTestPlan();
+        var card = TranscriptApprovalCardBuilder.Build(
+            BuildTestSnapshot(),
+            plan,
+            plan.ApprovalGates[0],
+            14,
+            _ => { },
+            onRequestChanges: () => { },
+            onAddressUncheckedItems: _ => { });
+
+        TranscriptApprovalCardBuilder.ShowChangeRequestSubmittedState(card);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.ActionsPanel.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.NoteSection.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(card.ReviewSection!.IsEnabled, Is.False);
+            Assert.That(card.RequestChangesButton!.IsEnabled, Is.False);
+            Assert.That(card.AddressUncheckedItemsButton!.IsEnabled, Is.False);
+            Assert.That(card.ReworkIndicator.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(card.ReworkIndicator.Text, Does.Contain("submitted"));
         });
     }
 
@@ -488,20 +555,137 @@ public class TranscriptApprovalCardBuilderTests
         var questionSurface = card.ContentStack.Children.OfType<Border>()
             .Single(border => border.ContextMenu is not null);
         var questionStack = (StackPanel)questionSurface.Child;
-        var checklistRow = questionStack.Children.OfType<Grid>().First();
-        var questionText = checklistRow.Children.OfType<TextBlock>().Single();
+        var itemContainer = questionStack.Children.OfType<StackPanel>()
+            .Single(panel => panel.Children.OfType<TextBlock>()
+                .Any(text => AutomationProperties.GetName(text) == "Approval question"));
+        var questionText = itemContainer.Children.OfType<TextBlock>()
+            .Single(text => AutomationProperties.GetName(text) == "Approval question");
+        var checklistRow = itemContainer.Children.OfType<Grid>().Single();
+        var choicePanel = checklistRow.Children.OfType<StackPanel>().Single();
+        var choiceBoxes = choicePanel.Children.OfType<CheckBox>().ToArray();
+        var noChoiceContent = (StackPanel)choiceBoxes[1].Content;
+        var noIconHost = noChoiceContent.Children.OfType<Border>().Single();
+        var noIconSlot = (Grid)noIconHost.Child;
+        var noIcon = noIconSlot.Children.OfType<Viewbox>().Single();
+        var noteHost = checklistRow.Children.OfType<Grid>().Single();
+        var noteBox = noteHost.Children.OfType<TextBox>().Single();
+        var notePlaceholder = noteHost.Children.OfType<TextBlock>()
+            .Single(text => text.Text == "(notes)");
         var cardBorder = (Border)card.Container.Child;
 
         Assert.Multiple(() =>
         {
             Assert.That(questionSurface.Background, Is.SameAs(fieldSurface));
             Assert.That(card.NoteTextBox.Background, Is.SameAs(fieldSurface));
-            Assert.That(Grid.GetColumn(questionText), Is.EqualTo(1),
-                "Wrapped checklist text must remain aligned with its first line, not the checkbox.");
+            Assert.That(itemContainer.Children.IndexOf(questionText), Is.EqualTo(0),
+                "Wrapped checklist text should have the full card width above the controls row.");
+            Assert.That(itemContainer.Margin.Top, Is.EqualTo(5));
+            Assert.That(checklistRow.Margin.Top, Is.EqualTo(2));
             Assert.That(checklistRow.ColumnDefinitions[1].Width.IsStar, Is.True);
+            Assert.That(choicePanel.Margin.Right, Is.EqualTo(10));
+            Assert.That(choiceBoxes[0].Margin.Right, Is.EqualTo(12));
+            Assert.That(choiceBoxes[1].Margin.Right, Is.EqualTo(10));
+            Assert.That(noIcon.Margin,
+                Is.EqualTo(TranscriptApprovalCardBuilder.GetReviewChoiceIconMargin("No", noIconHost.Width)));
+            Assert.That(noIcon.Margin.Left, Is.LessThan(2));
+            Assert.That(noteBox.Height, Is.EqualTo(noteBox.MinHeight));
+            Assert.That(noteBox.MaxHeight, Is.EqualTo(noteBox.Height));
+            Assert.That(noteBox.MinLines, Is.EqualTo(1));
+            Assert.That(noteBox.MaxLines, Is.EqualTo(1));
+            Assert.That(noteBox.VerticalScrollBarVisibility, Is.EqualTo(ScrollBarVisibility.Disabled));
+            Assert.That(noteBox.SnapsToDevicePixels, Is.True);
+            Assert.That(noteBox.UseLayoutRounding, Is.True);
+            Assert.That(TextOptions.GetTextFormattingMode(noteBox), Is.EqualTo(TextFormattingMode.Display));
+            Assert.That(((TextBlock)((ToolTip)noteBox.ToolTip).Content).Text,
+                Is.EqualTo(TranscriptApprovalCardBuilder.ReviewItemNoteToolTipText));
+            Assert.That(noteBox.Foreground, Is.Not.Null);
+            Assert.That(notePlaceholder.Visibility, Is.EqualTo(Visibility.Visible));
             Assert.That(cardBorder.HorizontalAlignment, Is.EqualTo(HorizontalAlignment.Stretch));
             Assert.That(double.IsPositiveInfinity(cardBorder.MaxWidth), Is.True);
         });
+        noteBox.Text = "Investigate after approval";
+        Assert.That(notePlaceholder.Visibility, Is.EqualTo(Visibility.Collapsed));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void Build_PreviousYesNoAnswers_ShowColoredQuestionMarkersUntilReconfirmed()
+    {
+        var application = Application.Current ?? new Application();
+        var approvalBrush = Brushes.LimeGreen;
+        var failureBrush = Brushes.IndianRed;
+        application.Resources["PlanApprovalResolved"] = approvalBrush;
+        application.Resources["TaskFailedFill"] = failureBrush;
+
+        var yesCard = BuildCardWithHistoricalSelection(new PlanHumanReviewSelection(
+            "legacy#1",
+            true,
+            "old-candidate",
+            DateTimeOffset.UtcNow.AddMinutes(-5)));
+        var yesBoxes = EnumerateFrameworkElements(yesCard.ReviewSection!)
+            .OfType<CheckBox>()
+            .ToArray();
+        var yesMarker = FindChoiceMarker(yesBoxes[0]);
+        var yesIcon = FindChoiceIcon(yesBoxes[0]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(yesBoxes[0].IsChecked, Is.True);
+            Assert.That(yesBoxes[1].IsChecked, Is.False);
+            Assert.That(yesMarker.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(yesMarker.Foreground, Is.SameAs(approvalBrush));
+            Assert.That(yesIcon.Visibility, Is.EqualTo(Visibility.Hidden));
+        });
+
+        yesBoxes[0].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(yesMarker.Visibility, Is.EqualTo(Visibility.Hidden));
+            Assert.That(yesIcon.Visibility, Is.EqualTo(Visibility.Visible));
+        });
+
+        var noCard = BuildCardWithHistoricalSelection(new PlanHumanReviewSelection(
+            "legacy#1",
+            false,
+            "old-candidate",
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            Answer: PlanHumanReviewAnswer.No));
+        var noBoxes = EnumerateFrameworkElements(noCard.ReviewSection!)
+            .OfType<CheckBox>()
+            .ToArray();
+        var noMarker = FindChoiceMarker(noBoxes[1]);
+        var noIcon = FindChoiceIcon(noBoxes[1]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(noBoxes[0].IsChecked, Is.False);
+            Assert.That(noBoxes[1].IsChecked, Is.True);
+            Assert.That(noMarker.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(noMarker.Foreground, Is.SameAs(failureBrush));
+            Assert.That(noIcon.Visibility, Is.EqualTo(Visibility.Hidden));
+        });
+
+        noBoxes[1].RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(noMarker.Visibility, Is.EqualTo(Visibility.Hidden));
+            Assert.That(noIcon.Visibility, Is.EqualTo(Visibility.Visible));
+        });
+
+        static TranscriptApprovalCardBuilder.CardResult BuildCardWithHistoricalSelection(
+            PlanHumanReviewSelection selection)
+        {
+            var plan = BuildTestPlan();
+            var gate = plan.ApprovalGates[0] with { HumanReviewSelections = [selection] };
+            var planWithSelection = plan with { ApprovalGates = [gate] };
+            return TranscriptApprovalCardBuilder.Build(
+                BuildTestSnapshot(),
+                planWithSelection,
+                gate,
+                14,
+                _ => { });
+        }
     }
 
     [Test, Apartment(ApartmentState.STA)]
@@ -695,6 +879,8 @@ public class TranscriptApprovalCardBuilderTests
         var plan = BuildTestPlan();
         var card = TranscriptApprovalCardBuilder.Build(
             BuildTestSnapshot(), plan, plan.ApprovalGates[0], 14, _ => { });
+        var item = PlanHumanReviewChecklist.Build(plan, plan.ApprovalGates).Single();
+        card.SetChecklistSelection(item, true);
 
         var shouldDefer = TranscriptApprovalCardBuilder.ShouldDeferContextMenuToEditableTextBox(
             card.NoteTextBox,
@@ -914,6 +1100,22 @@ public class TranscriptApprovalCardBuilderTests
         foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
             foreach (var descendant in EnumerateFrameworkElements(child))
                 yield return descendant;
+    }
+
+    private static Viewbox FindChoiceIcon(CheckBox choice)
+    {
+        var content = (StackPanel)choice.Content;
+        var border = content.Children.OfType<Border>().Single();
+        var slot = (Grid)border.Child;
+        return slot.Children.OfType<Viewbox>().Single();
+    }
+
+    private static TextBlock FindChoiceMarker(CheckBox choice)
+    {
+        var content = (StackPanel)choice.Content;
+        var border = content.Children.OfType<Border>().Single();
+        var slot = (Grid)border.Child;
+        return slot.Children.OfType<TextBlock>().Single();
     }
 
     [Test]

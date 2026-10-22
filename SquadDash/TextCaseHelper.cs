@@ -174,6 +174,9 @@ internal static class TextCaseHelper
             if (word.Length > 1)
                 sb.Append(word[1..].ToLower());
         }
+        // Keep one trailing space inside the Shift+F3 replacement and re-selection.
+        if (char.IsWhiteSpace(text[^1]))
+            sb.Append(' ');
         return sb.ToString();
     }
 

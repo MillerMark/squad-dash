@@ -49,7 +49,9 @@ internal sealed record ButtonContent(
     [property: JsonRequired] string Tooltip,
     [property: JsonRequired] string CommandText,
     [property: JsonRequired] ButtonCommandType CommandType,
-    string? WorkingDirectory = null);
+    string? WorkingDirectory = null,
+    // Missing in old saved JSON deserializes to false, preserving pre-elevation button behavior.
+    bool RunAsAdministrator = false);
 
 /// <summary>ContentRevision changes on edits, not on reorders.</summary>
 internal sealed record ButtonDefinition(

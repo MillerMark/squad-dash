@@ -223,7 +223,8 @@ internal static class PlanStoreUpdater
             result.TestAssessment,
             result.ReworkInstructions,
             result.EvaluatedCommit,
-            now);
+            now,
+            result.HumanReview);
         var targetStatus = result.Verdict switch
         {
             PlanTaskVerificationVerdict.Accepted => PlanTaskStatus.Executing,
@@ -2081,6 +2082,7 @@ internal static class PlanStoreUpdater
         plan = RepairInterruptedMissingTaskIdentity(plan);
         plan = RepairLegacyImplicitHumanProofApproval(plan);
         plan = RepairTasklessAcceptedWorkBoundary(plan);
+        plan = RepairAwaitingApprovalPendingBoundary(plan);
 
         // A terminal plan cannot legitimately have a recovery action. This also repairs plans
         // written by the old final-acceptance/empty-runner race even when its generic stop reason
@@ -2144,6 +2146,25 @@ internal static class PlanStoreUpdater
         }
 
         return plan;
+    }
+
+    private static Plan RepairAwaitingApprovalPendingBoundary(Plan plan)
+    {
+        if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval ||
+            plan.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
+            return plan;
+
+        var readyPendingGateIds = ApprovalGateReadinessEvaluator.EvaluateGates(plan)
+            .Where(state => state.IsReady)
+            .Select(state => state.GateId)
+            .Where(gateId => plan.ApprovalGates.Any(gate =>
+                string.Equals(gate.GateId, gateId, StringComparison.Ordinal) &&
+                gate.Status == PlanGateStatus.Pending))
+            .ToArray();
+
+        return readyPendingGateIds.Length == 0
+            ? plan
+            : ApplyFullStopAtGates(plan, readyPendingGateIds);
     }
 
     /// <summary>
@@ -2637,6 +2658,26 @@ internal static class PlanStoreUpdater
         string candidateCommit,
         string? reviewTarget = null,
         DateTimeOffset? updatedAt = null)
+        => ApplyGateHumanReviewResponse(
+            existing,
+            gateId,
+            itemId,
+            isChecked ? true : null,
+            note: null,
+            candidateCommit: candidateCommit,
+            reviewTarget: reviewTarget,
+            updatedAt: updatedAt);
+
+    /// <summary>Records one human-review answer and note without resolving or reopening the gate.</summary>
+    internal static Plan ApplyGateHumanReviewResponse(
+        Plan existing,
+        string gateId,
+        string itemId,
+        bool? isApproved,
+        string? note,
+        string candidateCommit,
+        string? reviewTarget = null,
+        DateTimeOffset? updatedAt = null)
     {
         if (string.IsNullOrWhiteSpace(itemId) || string.IsNullOrWhiteSpace(candidateCommit))
             return existing;
@@ -2645,9 +2686,15 @@ internal static class PlanStoreUpdater
         if (gate is null || gate.Status is not (PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval))
             return existing;
 
+        var normalizedNote = PlanHumanReviewItemResponse.NormalizeNote(note);
         var selection = new PlanHumanReviewSelection(
-            itemId.Trim(), isChecked, candidateCommit.Trim(), updatedAt ?? DateTimeOffset.UtcNow,
-            reviewTarget);
+            itemId.Trim(),
+            isApproved == true,
+            candidateCommit.Trim(),
+            updatedAt ?? DateTimeOffset.UtcNow,
+            reviewTarget,
+            PlanHumanReviewAnswer.FromApproval(isApproved),
+            normalizedNote);
         var selections = (gate.HumanReviewSelections ?? [])
             .Where(existingSelection =>
                 !string.Equals(existingSelection.ItemId, selection.ItemId, StringComparison.Ordinal) ||

@@ -363,6 +363,30 @@ internal sealed class TranscriptCopyServiceTests {
         });
     }
 
+    [Test, Apartment(ApartmentState.STA)]
+    public void BuildSelectionText_MarkdownDetailView_TracksCollapsedAndExpandedCopyText() {
+        var root = new FlowDocument();
+        var body = new FlowDocument(new Paragraph(new Run("Hidden body.")));
+        var detail = new MarkdownDetailView(root, body, "Why it's optional", key: null, state: null);
+        var detailBlock = new BlockUIContainer(detail.Expander) { Tag = detail };
+        var rtb = MakeRichTextBox(
+            new Paragraph(new Run("Lead.")),
+            detailBlock,
+            new Paragraph(new Run("Tail.")));
+        try {
+            Assert.That(TranscriptCopyService.BuildSelectionText(rtb),
+                Does.Contain("Lead.").And.Contain("Why it's optional").And.Contain("Tail.")
+                    .And.Not.Contain("Hidden body."));
+
+            detail.Expander.IsExpanded = true;
+
+            Assert.That(TranscriptCopyService.BuildSelectionText(rtb), Does.Contain("Hidden body."));
+        }
+        finally {
+            MarkdownVisibleContent.Detach(rtb.Document);
+        }
+    }
+
     [TestCase(" for more detail.")]
     [TestCase(" for more detail and instructions for performing these observations.")]
     [Apartment(ApartmentState.STA)]

@@ -54,6 +54,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Grammars\JSON.xshd;Grammars\TypeScript.xshd;Grammars\YAML.xshd;Grammars\SQL.xshd;Grammars\Go.xshd;Grammars\Rust.xshd;Grammars\Bash.xshd;Grammars\Markdown.xshd;Grammars\MarkdownDirectives.xshd;Grammars\ErrorMessage.xshd"
+                      LogicalName="SquadDash.Grammars.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="Assets\Cursors\HandOpen.png" />
     <EmbeddedResource Include="Assets\Cursors\HandClosed.png" />
     <EmbeddedResource Include="Assets\Cursors\EyedropperCursor.png" />
@@ -141,6 +146,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- AvalonEdit powers the embedded code-region editor (EmbeddedCodeRegionBlock). -->
+    <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
     <PackageReference Include="Handlebars.Net" Version="2.1.6" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.49.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />

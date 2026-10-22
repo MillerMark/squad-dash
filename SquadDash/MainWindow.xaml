@@ -926,6 +926,8 @@
                                SubmenuOpened="SimulationMenuItem_SubmenuOpened">
                          <MenuItem Header="_Bridge Disposed"
                                    Click="SimulateBridgeDisposed_Click" />
+                        <MenuItem Header="Prompt _Undo Review"
+                                  Click="SimulatePromptUndoReview_Click" />
                         <MenuItem Header="Simulate _Workspace Upgrade Panel"
                                   Click="SimulateWorkspaceUpgradePanel_Click" />
                         <MenuItem Header="Simulate Workspace Upgrade _Button Flow"
@@ -2985,6 +2987,7 @@
                                  IsReadOnly="True"
                                  IsUndoEnabled="False"
                                  IsInactiveSelectionHighlightEnabled="False"
+                                 InputMethod.IsInputMethodEnabled="False"
                                  ContextMenu="{x:Null}"
                                  FontSize="14"
                                  Foreground="{DynamicResource LabelText}"
@@ -3309,46 +3312,11 @@
                                Foreground="{DynamicResource LabelText}"
                                VerticalAlignment="Center" />
                 </DockPanel>
-                    <!-- Markdown formatting toolbar -->
-                    <Border DockPanel.Dock="Top"
-                            BorderBrush="{DynamicResource PanelBorder}"
-                            BorderThickness="0,0,0,1"
-                            Padding="6,4">
-                        <local:MarkdownEditorToolbar x:Name="DocEditorToolbar"
-                                                     ShowImageButton="True"
-                                                     ShowHrButton="False"
-                                                     ImageInsertRequested="DocEditorToolbar_ImageInsertRequested" />
-                    </Border>
-
-                    <RichTextBox x:Name="DocSourceTextBox"
-                             ScrollViewer.VerticalScrollBarVisibility="Auto"
-                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                             FontFamily="Consolas, Courier New, monospace"
-                             FontSize="{DynamicResource FontSizeBody}"
-                             Padding="10"
-                             BorderThickness="0"
-                             Background="{DynamicResource RosterPanelSurface}"
-                             Foreground="{DynamicResource LabelText}"
-                             ContextMenu="{x:Null}"
-                             SpellCheck.IsEnabled="False"
-                             SelectionBrush="{DynamicResource DocEditorSelectionBrush}"
-                             SelectionOpacity="{DynamicResource DocEditorSelectionOpacity}"
-                             PreviewKeyDown="DocSourceTextBox_PreviewKeyDown"
-                             PreviewTextInput="DocSourceTextBox_PreviewTextInput"
-                             PreviewMouseRightButtonDown="DocSourceTextBox_PreviewMouseRightButtonDown"
-                             PreviewMouseWheel="DocSourceTextBox_PreviewMouseWheel"
-                             SelectionChanged="DocSourceTextBox_SelectionChanged"
-                             TextChanged="DocSourceTextBox_TextChanged">
-                        <RichTextBox.Document>
-                            <FlowDocument PageWidth="100000">
-                                <FlowDocument.Resources>
-                                    <Style TargetType="Paragraph">
-                                        <Setter Property="Margin" Value="0"/>
-                                    </Style>
-                                </FlowDocument.Resources>
-                            </FlowDocument>
-                        </RichTextBox.Document>
-                    </RichTextBox>
+                    <local:AvalonEditMarkdownEditor x:Name="DocSourceEditor"
+                                                    ShowImageButton="True"
+                                                    ShowHrButton="False"
+                                                    ImageInsertRequested="DocSourceEditor_ImageInsertRequested"
+                                                    TextChanged="DocSourceEditor_TextChanged" />
                 </DockPanel>
                 </Grid>
             </Border>
@@ -3556,18 +3524,17 @@
                                         Orientation="Horizontal" />
                         </DockPanel>
                     </Border>
-                    <TextBox x:Name="PromptTextBox"
+                    <RichTextBox x:Name="PromptTextBox"
                              Panel.ZIndex="1"
                              MinHeight="96"
                              MaxHeight="260"
                              Padding="10"
-                             AcceptsReturn="True"
-                             TextWrapping="Wrap"
                              VerticalScrollBarVisibility="Auto"
                              HorizontalScrollBarVisibility="Disabled"
                              SpellCheck.IsEnabled="False"
                              UndoLimit="256"
                              TextOptions.TextFormattingMode="Display"
+                             IsDocumentEnabled="True"
                              IsInactiveSelectionHighlightEnabled="True"
                              Foreground="{DynamicResource LabelText}"
                              Background="{DynamicResource TextBoxBackground}"
@@ -3724,6 +3691,7 @@
                                  MinHeight="92"
                                  MaxHeight="180"
                                  IsReadOnly="True"
+                                  InputMethod.IsInputMethodEnabled="False"
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"

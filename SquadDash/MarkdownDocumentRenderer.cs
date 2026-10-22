@@ -169,6 +169,32 @@ internal sealed class MarkdownDocumentRenderer {
 
     // ── Response block builder ─────────────────────────────────────────────
 
+    internal static FlowDocument BuildReadOnlyDocument(string text, double fontSize)
+    {
+        // Attachment documents have no transcript actions or navigation.
+        static void Unsupported() => throw new InvalidOperationException("This renderer has no transcript host.");
+        var renderer = new MarkdownDocumentRenderer(
+            () => fontSize, () => null, _ => Unsupported(),
+            (operation, exception) => SquadDashTrace.Write(TraceCategory.UI, $"{operation}: {exception}"),
+            _ => throw new InvalidOperationException("This renderer has no transcript host."),
+            (_, _) => Unsupported(), (_, _, _) => Unsupported(), _ => Unsupported(),
+            () => throw new InvalidOperationException("This renderer has no transcript host."));
+        var document = new FlowDocument
+        {
+            FontFamily = SystemFonts.MessageFontFamily,
+            FontSize = fontSize,
+            PagePadding = new Thickness(2),
+        };
+        document.SetResourceReference(FlowDocument.ForegroundProperty, "LabelText");
+        var linkStyle = new Style(typeof(Hyperlink));
+        linkStyle.Setters.Add(new Setter(Hyperlink.IsEnabledProperty, false));
+        linkStyle.Setters.Add(new Setter(Hyperlink.TextDecorationsProperty, null));
+        linkStyle.Setters.Add(new Setter(TextElement.ForegroundProperty, new DynamicResourceExtension("LabelText")));
+        document.Resources.Add(typeof(Hyperlink), linkStyle);
+        document.Blocks.AddRange(renderer.BuildDocumentBlocks(text));
+        return document;
+    }
+
     internal IEnumerable<Block> BuildResponseBlocks(
         TranscriptResponseEntry entry,
         string responseText,
@@ -180,6 +206,23 @@ internal sealed class MarkdownDocumentRenderer {
                 quickReplyOptions = extractedOptions;
         }
 
+        foreach (var block in BuildDocumentBlocks(responseText))
+            yield return block;
+
+        if (quickReplyOptions.Length > 0) {
+            yield return BuildQuickReplyBlock(entry, quickReplyOptions);
+            var hintParagraph = CreateTranscriptParagraph(bottomMargin: 6);
+            var hintRun = new Run("Press \u201c[\u201d to respond with the keyboard.") {
+                FontSize = (double)Application.Current.Resources["FontSizeSmall"]
+            };
+            hintRun.SetResourceReference(TextElement.ForegroundProperty, "KeyboardHintText");
+            hintParagraph.Inlines.Add(hintRun);
+            _currentHintRun = hintRun;
+            yield return hintParagraph;
+        }
+    }
+
+    private IEnumerable<Block> BuildDocumentBlocks(string responseText) {
         var normalized = responseText.Replace("\r\n", "\n").Replace('\r', '\n');
         var lines = normalized.Split('\n');
         var paragraphLines = new List<string>();
@@ -189,7 +232,7 @@ internal sealed class MarkdownDocumentRenderer {
             var trimmed = line.TrimStart();
 
             // Code fence
-            if (TryReadFenceStart(trimmed, out var fenceLength)) {
+            if (TryReadFenceStart(trimmed, out var fenceLength, out var language)) {
                 foreach (var block in BuildParagraphBlocks(paragraphLines))
                     yield return block;
                 paragraphLines.Clear();
@@ -201,7 +244,7 @@ internal sealed class MarkdownDocumentRenderer {
                     index++;
                 }
 
-                yield return BuildCodeBlock(string.Join("\n", codeLines));
+                yield return BuildCodeBlock(string.Join("\n", codeLines), language);
                 continue;
             }
 
@@ -221,17 +264,6 @@ internal sealed class MarkdownDocumentRenderer {
         foreach (var block in BuildParagraphBlocks(paragraphLines))
             yield return block;
 
-        if (quickReplyOptions.Length > 0) {
-            yield return BuildQuickReplyBlock(entry, quickReplyOptions);
-            var hintParagraph = CreateTranscriptParagraph(bottomMargin: 6);
-            var hintRun = new Run("Press \u201c[\u201d to respond with the keyboard.") {
-                FontSize = (double)Application.Current.Resources["FontSizeSmall"]
-            };
-            hintRun.SetResourceReference(TextElement.ForegroundProperty, "KeyboardHintText");
-            hintParagraph.Inlines.Add(hintRun);
-            _currentHintRun = hintRun;
-            yield return hintParagraph;
-        }
     }
 
     // ── Paragraph block builder ────────────────────────────────────────────
@@ -381,8 +413,19 @@ internal sealed class MarkdownDocumentRenderer {
 
     // ── Code block ─────────────────────────────────────────────────────────
 
-    internal static bool TryReadFenceStart(string trimmedLine, out int fenceLength) {
+    internal static bool TryReadFenceStart(string trimmedLine, out int fenceLength) =>
+        TryReadFenceStart(trimmedLine, out fenceLength, out _);
+
+    internal static bool TryReadFenceStart(string trimmedLine, out int fenceLength, out string language) {
         fenceLength = CountLeadingBackticks(trimmedLine);
+        language = "";
+        if (fenceLength >= 3) {
+            var info = trimmedLine.AsSpan(fenceLength).Trim();
+            var end = 0;
+            while (end < info.Length && !char.IsWhiteSpace(info[end]))
+                end++;
+            language = info[..end].ToString();
+        }
         return fenceLength >= 3;
     }
 
@@ -401,8 +444,8 @@ internal sealed class MarkdownDocumentRenderer {
         return count;
     }
 
-    private Block BuildCodeBlock(string code) {
-        return CopyableCodeBlockBuilder.Build(code, _getFontSize());
+    private Block BuildCodeBlock(string code, string language) {
+        return CopyableCodeBlockBuilder.Build(code, _getFontSize(), transcript: true, language: language);
     }
 
     // ── Quick-reply block ──────────────────────────────────────────────────

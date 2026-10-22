@@ -115,7 +115,8 @@ internal static class PendingDecomposePlanAdapter
                         requirement.FixtureOutputId,
                         requirement.Title)).ToArray(),
                 AfterTaskIdsSpecified: g.AfterTaskIds is not null,
-                BeforeTaskIdsSpecified: g.BeforeTaskIds is not null)).ToArray()
+                BeforeTaskIdsSpecified: g.BeforeTaskIds is not null,
+                DependsOnGateIds: g.DependsOnGateIds)).ToArray()
             : [];
 
     internal static IReadOnlyList<PlanValidationNode> MapValidations(DecomposedTaskGroup group) =>
@@ -191,6 +192,7 @@ internal static class PendingDecomposePlanAdapter
                     BeforeTaskIds: RestoreOptionalIds(g.BeforeTaskIds, g.BeforeTaskIdsSpecified),
                     Question:     g.Question,
                     PresentationAnchor: g.PresentationAnchor,
+                    DependsOnGateIds: g.DependsOnGateIds,
                     ProofRequirements: g.ProofRequirements?.Select(requirement =>
                         new DecomposedTaskProofRequirement(
                             requirement.RequirementId,

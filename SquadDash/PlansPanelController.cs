@@ -25,6 +25,7 @@ internal sealed class PlansPanelController
     private readonly Action<Plan>? _approveGate;
     private readonly Action<Plan>? _archivePlan;
     private readonly Func<Plan, bool>? _pausePlan;
+    private readonly Action<Plan>? _togglePlanPause;
     private readonly Action<Plan>? _abortPlan;
     private readonly Action<Plan>? _attachFollowUp;
     private readonly Action<Plan>? _addToNewChat;
@@ -72,6 +73,7 @@ internal sealed class PlansPanelController
         Action<Plan>? approveGate          = null,
         Action<Plan>? archivePlan          = null,
         Func<Plan, bool>? pausePlan        = null,
+        Action<Plan>? togglePlanPause      = null,
         Action<Plan>? abortPlan            = null,
         Action<Plan>? attachFollowUp       = null,
         Action<Plan>? addToNewChat         = null,
@@ -93,6 +95,7 @@ internal sealed class PlansPanelController
         _approveGate          = approveGate;
         _archivePlan          = archivePlan;
         _pausePlan            = pausePlan;
+        _togglePlanPause      = togglePlanPause;
         _abortPlan            = abortPlan;
         _attachFollowUp       = attachFollowUp;
         _addToNewChat         = addToNewChat;
@@ -576,6 +579,25 @@ internal sealed class PlansPanelController
         // ── Context menu ──────────────────────────────────────────────────
         var menu = new ContextMenu();
         menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
+
+        // ── Pause / Resume toggle (very top) ──────────────────────────────
+        // Shown only for a plan that has started but is not yet terminal. A pure toggle on
+        // IsPaused: pausing guarantees no approval card re-posts until the user resumes.
+        if (!isSimulationOverlay &&
+            _togglePlanPause is not null &&
+            PlanPauseMenuPolicy.IsPauseResumeAvailable(plan))
+        {
+            var pauseToggleItem = new MenuItem { Header = PlanPauseMenuPolicy.ToggleLabel(plan) };
+            pauseToggleItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            pauseToggleItem.Click += (_, _) => _togglePlanPause(plan);
+            menu.Items.Add(pauseToggleItem);
+
+            var pauseToggleSeparator = new Separator();
+            pauseToggleSeparator.SetResourceReference(
+                Separator.StyleProperty, "ThemedMenuSeparatorLowContrastStyle");
+            menu.Items.Add(pauseToggleSeparator);
+        }
+
         var openItem = new MenuItem { Header = "Open Plan" };
         openItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
         openItem.Click += (_, _) =>

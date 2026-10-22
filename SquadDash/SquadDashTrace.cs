@@ -44,6 +44,9 @@ internal static class SquadDashTrace {
     internal static void Write(TraceCategory category, string message) {
         var windowTarget = TraceTarget;   // capture before lock — prevents dispatcher
                                           // callbacks from holding the file-write mutex
+        if (ShouldSkipFileOnlyVerboseTrace(category, message, windowTarget))
+            return;
+
         message = TrimMessageForTrace(message);
         try {
             var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} [{category}] {message}";
@@ -63,6 +66,10 @@ internal static class SquadDashTrace {
     /// </summary>
     public static void Write(string source, string message) {
         var windowTarget = TraceTarget;   // capture before lock
+        var category = MapSourceToCategory(source);
+        if (ShouldSkipFileOnlyVerboseTrace(category, message, windowTarget))
+            return;
+
         message = TrimMessageForTrace(message);
         try {
             var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff zzz} [{source}] {message}";
@@ -72,8 +79,16 @@ internal static class SquadDashTrace {
         }
         catch {
         }
-        windowTarget?.AddEntry(MapSourceToCategory(source), message);   // outside lock
+        windowTarget?.AddEntry(category, message);   // outside lock
     }
+
+    private static bool ShouldSkipFileOnlyVerboseTrace(
+        TraceCategory category,
+        string message,
+        ILiveTraceTarget? windowTarget) =>
+        windowTarget is null &&
+        (category == TraceCategory.Callouts ||
+         category == TraceCategory.UI && message.StartsWith("[Callout]", StringComparison.Ordinal));
 
     private static string TrimMessageForTrace(string message) {
         if (message.Length <= MaxMessageChars)
@@ -99,6 +114,7 @@ internal static class SquadDashTrace {
         "Sound"             => TraceCategory.Sound,
         "Docking"           => TraceCategory.Docking,
         "ImageEditor"       => TraceCategory.ImageEditor,
+        "Avalon"            => TraceCategory.Avalon,
         "Transcript"        => TraceCategory.UI,
         _              => TraceCategory.General,
     };

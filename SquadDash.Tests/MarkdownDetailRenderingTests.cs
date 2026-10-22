@@ -475,7 +475,7 @@ internal sealed class MarkdownDetailRenderingTests
                 var rendered = window.GetRenderedMessageText();
                 Assert.That(rendered, Is.EqualTo(
                     InboxMessageWindow.BuildStoredMessageVisibleText(message, folder, _ => plan, store)));
-                Assert.That(rendered, Does.Contain("[ ] Does it appear?").And.Contain("Cell")
+                Assert.That(rendered, Does.Contain("[Unanswered] Does it appear?").And.Contain("Cell")
                     .And.Not.Contain("utc-time:").And.Not.Contain("approval-check:"));
                 Assert.That(window.SelectAndScrollToText("Does it appear?"), Is.True);
                 Assert.That(MarkdownVisibleContent.Find(viewer.Document, "Cell"), Is.Not.Null);
@@ -496,12 +496,13 @@ internal sealed class MarkdownDetailRenderingTests
 
                 var checkbox = MarkdownVisibleContent.Blocks(body.Blocks).OfType<Paragraph>()
                     .SelectMany(paragraph => paragraph.Inlines.OfType<InlineUIContainer>())
-                    .Select(inline => inline.Child).OfType<CheckBox>().Single();
+                    .SelectMany(inline => FindCheckBoxes(inline.Child))
+                    .First();
                 var savedDisclosureState = File.ReadAllText(store.FilePath);
-                checkbox.IsChecked = true;
+                checkbox.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
                 Assert.That(approvalSelection, Is.True);
                 Assert.That(File.ReadAllText(store.FilePath), Is.EqualTo(savedDisclosureState));
-                Assert.That(window.GetRenderedMessageText(), Does.Contain("[x] Does it appear?"));
+                Assert.That(window.GetRenderedMessageText(), Does.Contain("[Yes] Does it appear?"));
                 detail.Expander.IsExpanded = false;
                 Assert.That(window.GetRenderedMessageText(), Does.Not.Contain("Does it appear?").And.Not.Contain("Cell"));
                 Assert.That(message.Body, Is.EqualTo(source));
@@ -543,5 +544,14 @@ internal sealed class MarkdownDetailRenderingTests
                 foreach (var nested in Hyperlinks(span.Inlines))
                     yield return nested;
         }
+    }
+
+    private static IEnumerable<CheckBox> FindCheckBoxes(DependencyObject root)
+    {
+        if (root is CheckBox checkBox)
+            yield return checkBox;
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        foreach (var nested in FindCheckBoxes(child))
+            yield return nested;
     }
 }

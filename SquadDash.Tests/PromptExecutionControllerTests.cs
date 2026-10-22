@@ -148,6 +148,52 @@ internal sealed class PromptExecutionControllerTests {
     }
 
     [Test]
+    public void SilentCompletionWatchdog_InjectsFollowUp_WhenOnlyHiddenProtocolResponseArrives() {
+        var enqueued = new List<(string Prompt, bool IsSystemInjected)>();
+        var controller = BuildPromptExecutionControllerForLocalCommandTests(
+            showCastAgentWindow: () => null,
+            transcriptLines: [],
+            getIsPromptRunning: () => true,
+            enqueuePrompt: (prompt, isSystemInjected) => enqueued.Add((prompt, isSystemInjected)),
+            getVisibleCoordinatorResponseLength: () => 0);
+        var thread = BuildCompletedBackgroundAgentThread();
+
+        controller.NotifySubagentCompletedDuringTurn(thread, "Cassian Rook");
+        controller.MarkActivity(new SquadSdkEvent {
+            Type = "response_delta",
+            Chunk = "<system_notification>{\"notification\":\"Done.\"}</system_notification>"
+        });
+        controller.StopPromptHealthMonitoringForTests("completed");
+
+        Assert.Multiple(() => {
+            Assert.That(enqueued, Has.Count.EqualTo(1));
+            Assert.That(enqueued[0].IsSystemInjected, Is.True);
+            Assert.That(enqueued[0].Prompt, Does.Contain("Cassian Rook"));
+            Assert.That(enqueued[0].Prompt, Does.Contain("agent-1"));
+            Assert.That(enqueued[0].Prompt, Does.Contain("Committed responsiveness changes."));
+        });
+    }
+
+    [Test]
+    public void SilentCompletionWatchdog_DoesNotInject_WhenVisibleCoordinatorResponseAppearsAfterAgentReport() {
+        var visibleResponseChars = 0;
+        var enqueued = new List<(string Prompt, bool IsSystemInjected)>();
+        var controller = BuildPromptExecutionControllerForLocalCommandTests(
+            showCastAgentWindow: () => null,
+            transcriptLines: [],
+            getIsPromptRunning: () => true,
+            enqueuePrompt: (prompt, isSystemInjected) => enqueued.Add((prompt, isSystemInjected)),
+            getVisibleCoordinatorResponseLength: () => visibleResponseChars);
+        var thread = BuildCompletedBackgroundAgentThread();
+
+        controller.NotifySubagentCompletedDuringTurn(thread, "Cassian Rook");
+        visibleResponseChars = "I reviewed Cassian Rook's completed work.".Length;
+        controller.StopPromptHealthMonitoringForTests("completed");
+
+        Assert.That(enqueued, Is.Empty);
+    }
+
+    [Test]
     public void FormatCharsPerSecond_ReturnsExpectedRate_WhenThinkingWindowIsKnown() {
         var first = new DateTimeOffset(2026, 4, 21, 12, 0, 0, TimeSpan.FromHours(-4));
         var last = first.AddSeconds(10);
@@ -604,7 +650,10 @@ internal sealed class PromptExecutionControllerTests {
 
     private static PromptExecutionController BuildPromptExecutionControllerForLocalCommandTests(
         Func<CastAgentWindow.CastAgentSubmission?> showCastAgentWindow,
-        List<string> transcriptLines) {
+        List<string> transcriptLines,
+        Func<bool>? getIsPromptRunning = null,
+        Action<string, bool>? enqueuePrompt = null,
+        Func<int>? getVisibleCoordinatorResponseLength = null) {
         IWorkspaceContext workspaceContext = new StubWorkspaceContext();
         IPromptBoxState promptBoxState = new StubPromptBoxState();
 
@@ -648,7 +697,7 @@ internal sealed class PromptExecutionControllerTests {
             conversationManager: conversationManager,
             backgroundTaskPresenter: backgroundTaskPresenter,
             squadCliAdapter: squadCliAdapter,
-            getIsPromptRunning: () => false,
+            getIsPromptRunning: getIsPromptRunning ?? (() => false),
             setIsPromptRunning: _ => { },
             getIsClosing: () => false,
             getRestartPending: () => false,
@@ -675,7 +724,7 @@ internal sealed class PromptExecutionControllerTests {
             showScreenshotHealthWindow: () => { },
             runDoctor: () => { },
             showCastAgentWindow: showCastAgentWindow,
-            enqueuePrompt: (_, _) => { },
+            enqueuePrompt: enqueuePrompt ?? ((_, _) => { }),
             showScreenshotOverlay: () => { },
             triggerCodeHealthCycle: () => { },
             showRuntimeIssue: _ => new WorkspaceIssuePresentation("test", "test"),
@@ -685,7 +734,25 @@ internal sealed class PromptExecutionControllerTests {
             promptHealthTimer: new DispatcherTimer(),
             waitForBridgeUiEventsAppliedAsync: () => Task.CompletedTask,
             getModelObservedThisSession: () => false,
-            workspacePaths: new FakeWorkspacePaths());
+            workspacePaths: new FakeWorkspacePaths(),
+            getVisibleCoordinatorResponseLength: getVisibleCoordinatorResponseLength);
+    }
+
+    private static TranscriptThreadState BuildCompletedBackgroundAgentThread() {
+        var thread = new TranscriptThreadState(
+            "agent-1",
+            TranscriptThreadKind.Agent,
+            "Cassian Rook",
+            new DateTimeOffset(2026, 10, 15, 20, 0, 0, TimeSpan.FromHours(-4))) {
+            WasObservedAsBackgroundTask = true,
+            StatusText = "Completed",
+            CompletedAt = new DateTimeOffset(2026, 10, 15, 20, 49, 17, TimeSpan.FromHours(-4)),
+            Prompt = "Fix the audio-start slowdown.",
+            LatestResponse = "Committed responsiveness changes.",
+            LastCoordinatorAnnouncedResponse = "Committed responsiveness changes."
+        };
+
+        return thread;
     }
 
     private static TranscriptConversationManager MakeConversationManager(TranscriptThreadState coordinatorThread) {

@@ -192,7 +192,10 @@ internal sealed class PlanTaskVerificationTests
             {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
              "verdict":"rework-required","summary":"missing wiring","claimFindings":[],
              "missingOrOverstatedWork":["missing wiring"],"testAssessment":"inadequate",
-             "reworkInstructions":null}
+             "reworkInstructions":null,
+             "humanReview":{"headline":"Choose how to repair wiring","situation":"Production wiring is missing.",
+             "impact":"The feature is not connected.","recommendedAction":"continue-working",
+             "recommendation":"Continue the step and add the missing production wiring."}}
             """;
 
         var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
@@ -454,7 +457,10 @@ internal sealed class PlanTaskVerificationTests
             {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
              "verdict":"accepted","summary":"not actually complete","claimFindings":[],
              "missingOrOverstatedWork":["consumer is not wired"],
-             "testAssessment":"tests cover only helper","reworkInstructions":[]}
+             "testAssessment":"tests cover only helper","reworkInstructions":[],
+             "humanReview":{"headline":"Choose how to handle missing wiring","situation":"The consumer is not wired.",
+             "impact":"Only the helper is covered.","recommendedAction":"continue-working",
+             "recommendation":"Continue the step and connect the production consumer."}}
             """;
 
         var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
@@ -523,7 +529,10 @@ internal sealed class PlanTaskVerificationTests
              "claimFindings":[{"claim":"future consumer","disposition":"possibly-missing","evidence":"ownership is uncertain"}],
              "missingOrOverstatedWork":["future consumer may be absent"],
              "testAssessment":"current contract tests pass",
-             "reworkInstructions":["wire the possible consumer"]}
+             "reworkInstructions":["wire the possible consumer"],
+             "humanReview":{"headline":"Confirm downstream ownership","situation":"Ownership of the future consumer is unclear.",
+             "impact":"Current contract tests pass, but future wiring may be absent.","recommendedAction":"revise-plan",
+             "recommendation":"Revise the remaining plan so the production consumer has an explicit owner."}}
             """;
 
         var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
@@ -590,6 +599,36 @@ internal sealed class PlanTaskVerificationTests
         Assert.That(updated.Tasks[1].Status, Is.EqualTo(PlanTaskStatus.HumanReviewRequired));
         Assert.That(updated.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.AwaitingApproval));
         Assert.That(updated.Tasks[1].VerificationHistory, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public void Parser_PersistsAiAuthoredHumanReviewBriefWithoutHostSynthesis()
+    {
+        var json = """
+            PLAN_TASK_VERIFICATION_JSON:
+            {"planId":"P","taskId":"P-2","revision":"rev","evaluatedCommit":"abcdef1",
+             "verdict":"human-review-required","summary":"source defect needs plan ownership","claimFindings":[],
+             "missingOrOverstatedWork":["commissioning response handling is defective"],
+             "testAssessment":"tests expose the defect","reworkInstructions":[],
+             "humanReview":{"headline":"Repair commissioning before approval",
+             "situation":"Verification found a source-owned commissioning defect.",
+             "impact":"Physical commissioning must remain blocked.","recommendedAction":"revise-plan",
+             "recommendation":"Revise the remaining plan to add an owner for the repair, then rerun verification.",
+             "alternativeGuidance":"End the plan if commissioning should not continue."}}
+            """;
+
+        var parsed = PlanTaskVerificationResultParser.TryParse(json, out var result, out var error);
+        var updated = PlanStoreUpdater.ApplyTaskVerificationResult(
+            MakePlan(), "P-2", result!, automaticReworkAvailable: false);
+        var brief = updated.Tasks[1].VerificationHistory!.Single().HumanReview;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(parsed, Is.True, error);
+            Assert.That(brief, Is.Not.Null);
+            Assert.That(brief!.RecommendedAction, Is.EqualTo(PlanTaskHumanReviewRecommendedAction.RevisePlan));
+            Assert.That(brief.Recommendation, Does.Contain("rerun verification"));
+        });
     }
 
     [Test]

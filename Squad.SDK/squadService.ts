@@ -838,6 +838,34 @@ export function normalizeAssistantResponseContent(content: string | undefined): 
         : content;
 }
 
+const SystemNotificationRegex = /<system_notification>\s*[\s\S]*?<\/system_notification>/gi;
+
+function stripSystemNotifications(content: string | undefined): string {
+    if (!content)
+        return "";
+
+    return content
+        .replace(SystemNotificationRegex, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trimEnd();
+}
+
+function hasVisibleAssistantResponseContent(content: string | undefined): boolean {
+    return stripSystemNotifications(content).trim().length > 0;
+}
+
+function combineCachedVisibleResponseWithHiddenFinal(
+    cachedContent: string | undefined,
+    finalContent: string | undefined
+): string | undefined {
+    if (!cachedContent)
+        return finalContent || undefined;
+    if (!finalContent)
+        return cachedContent;
+
+    return `${cachedContent}\n\n${finalContent}`;
+}
+
 /**
  * Reconciles incremental message text with the authoritative message returned by
  * sendAndWait. Compaction and multi-turn provider flows can leave the streamed
@@ -890,14 +918,76 @@ function consumePendingReasoningText(pendingByText: Map<string, number>, text: s
     return true;
 }
 
+function isOverlapWhitespace(ch: string): boolean {
+    return ch === " " || ch === "\t" || ch === "\n" || ch === "\r" || ch === "\f" || ch === "\v";
+}
+
+/**
+ * Collapses runs of whitespace (including newlines) to a single space and
+ * trims the result, purely for the purpose of comparing two strings for
+ * content overlap irrespective of incidental formatting differences.
+ * Returns a parallel index map so a position in the normalized string can be
+ * mapped back to the matching offset in the original, untouched text.
+ */
+function normalizeForOverlapComparison(text: string): { normalized: string; indexMap: number[] } {
+    let normalized = "";
+    const indexMap: number[] = [];
+    let i = 0;
+    const length = text.length;
+    while (i < length) {
+        const ch = text[i];
+        if (isOverlapWhitespace(ch)) {
+            const runStart = i;
+            while (i < length && isOverlapWhitespace(text[i]))
+                i++;
+            normalized += " ";
+            indexMap.push(runStart);
+        }
+        else {
+            normalized += ch;
+            indexMap.push(i);
+            i++;
+        }
+    }
+
+    let start = 0;
+    let end = normalized.length;
+    while (start < end && normalized[start] === " ")
+        start++;
+    while (end > start && normalized[end - 1] === " ")
+        end--;
+
+    return {
+        normalized: normalized.slice(start, end),
+        indexMap: indexMap.slice(start, end)
+    };
+}
+
+/** Finds the longest run where a suffix of `left` equals a prefix of `right`. */
+function findSuffixPrefixOverlap(left: string, right: string): number {
+    const max = Math.min(left.length, right.length);
+    for (let length = max; length > 0; length--) {
+        if (left.slice(left.length - length) === right.slice(0, length))
+            return length;
+    }
+
+    return 0;
+}
+
 /**
  * Reconciles reasoning already sent to the UI with an authoritative final
  * reasoning block. Providers commonly emit the same reasoning first as
- * deltas and then again as a final event. When the final block contains new
- * text, preserve and emit that suffix; when the representations do not share
- * an exact overlap, retain the final block rather than silently dropping it.
+ * deltas and then again as a final event, and the final event's text often
+ * carries different whitespace/line-break structure than what was streamed
+ * (e.g. paragraph breaks only materialize in the final block). Comparisons
+ * are made on whitespace-normalized copies of the text so formatting
+ * differences alone don't cause the full final block to be treated as new;
+ * the genuinely new suffix is then sliced from the original, correctly
+ * formatted final text. When the final block contains new text, preserve and
+ * emit only that suffix; when the representations do not share a reliable
+ * overlap, retain the final block rather than silently dropping it.
  */
-function reconcileEmittedAndFinalReasoning(
+export function reconcileEmittedAndFinalReasoning(
     emittedContent: string | undefined,
     finalContent: string | undefined
 ): ReasoningReconciliation {
@@ -907,10 +997,46 @@ function reconcileEmittedAndFinalReasoning(
         return { mergedContent: emitted };
     if (!emitted)
         return { mergedContent: final, unstreamedContent: final };
-    if (emitted.endsWith(final))
+    if (emitted === final)
         return { mergedContent: emitted };
-    if (final.startsWith(emitted)) {
-        const suffix = final.slice(emitted.length);
+
+    const { normalized: normEmitted } = normalizeForOverlapComparison(emitted);
+    const { normalized: normFinal, indexMap: finalIndexMap } = normalizeForOverlapComparison(final);
+
+    if (!normFinal)
+        return { mergedContent: emitted };
+    if (!normEmitted)
+        return { mergedContent: final, unstreamedContent: final };
+
+    // Same content modulo whitespace/line-break formatting: nothing genuinely
+    // new, but prefer the final block's (correct) formatting over the
+    // run-together streamed accumulation.
+    if (normEmitted === normFinal || normEmitted.endsWith(normFinal))
+        return { mergedContent: final };
+
+    // If emitted already ends with whitespace, that whitespace already acted
+    // as the separator for whatever comes next; don't let the final text's
+    // (possibly differently-formatted) leading whitespace for the same gap
+    // get re-emitted on top of it.
+    const trimLeadingSeparatorWhitespace = (suffix: string): string =>
+        /\s$/.test(emitted) ? suffix.replace(/^\s+/, "") : suffix;
+
+    if (normFinal.startsWith(normEmitted)) {
+        const suffixStart = normEmitted.length < finalIndexMap.length
+            ? finalIndexMap[normEmitted.length]
+            : final.length;
+        const suffix = trimLeadingSeparatorWhitespace(final.slice(suffixStart));
+        return {
+            mergedContent: final,
+            unstreamedContent: suffix.length > 0 ? suffix : undefined
+        };
+    }
+
+    const overlap = findSuffixPrefixOverlap(normEmitted, normFinal);
+    const minOverlap = Math.min(32, Math.floor(normEmitted.length / 2));
+    if (overlap > 0 && overlap >= minOverlap && overlap < normFinal.length) {
+        const suffixStart = overlap < finalIndexMap.length ? finalIndexMap[overlap] : final.length;
+        const suffix = trimLeadingSeparatorWhitespace(final.slice(suffixStart));
         return {
             mergedContent: final,
             unstreamedContent: suffix.length > 0 ? suffix : undefined
@@ -2840,10 +2966,13 @@ export class SquadBridgeService {
                 return "";
             }
 
-            const finalContent =
-                extractAssistantMessageContent(finalMessage) ||
+            const returnedFinalContent = extractAssistantMessageContent(finalMessage);
+            const cachedVisibleContent =
                 requestContext.lastAssistantMessageContent ||
                 state.lastAssistantMessageContent;
+            const finalContent = hasVisibleAssistantResponseContent(returnedFinalContent)
+                ? returnedFinalContent
+                : combineCachedVisibleResponseWithHiddenFinal(cachedVisibleContent, returnedFinalContent);
             const finalSplit = splitLocalThinkFinalContent(finalContent ?? "");
             this.emitFallbackFinalRequestReasoning(
                 requestContext,
@@ -4494,9 +4623,12 @@ export class SquadBridgeService {
                 getEventStringValue(event, "messageId"));
 
             if (content) {
-                state.lastAssistantMessageContent = responseContent;
-                if (request)
-                    request.lastAssistantMessageContent = responseContent;
+                const visibleResponseContent = stripSystemNotifications(responseContent);
+                if (visibleResponseContent.trim().length > 0) {
+                    state.lastAssistantMessageContent = visibleResponseContent;
+                    if (request)
+                        request.lastAssistantMessageContent = visibleResponseContent;
+                }
             }
         });
 

@@ -46,6 +46,52 @@ internal sealed class TranscriptScrollControllerTests
     }
 
     [Test]
+    public void NearTopScroll_CoalescesPrependRequestsUntilContextIdle()
+    {
+        WpfTestContext.Run(() =>
+        {
+            using var host = BuildHostWithTranscript();
+            var sv = host.ScrollViewer;
+            var controller = new TranscriptScrollController(host.RichTextBox, Dispatcher.CurrentDispatcher);
+            var requestCount = 0;
+            controller.RequestPrependOlderTurns = () => requestCount++;
+
+            controller.ScrollToBottom();
+            PumpDispatcher();
+
+            sv.ScrollToVerticalOffset(120);
+            PumpDispatcherThroughBackground();
+            sv.ScrollToVerticalOffset(80);
+            PumpDispatcherThroughBackground();
+            sv.ScrollToVerticalOffset(40);
+            PumpDispatcherThroughBackground();
+
+            Assert.That(requestCount, Is.Zero,
+                "Prepend should wait until input/layout has had a chance to settle.");
+
+            PumpDispatcher();
+
+            Assert.That(requestCount, Is.EqualTo(1),
+                "Multiple near-top scroll events in one dispatcher burst should coalesce to one prepend.");
+        });
+    }
+
+    [Test]
+    public void ThrottledScrollRichTextBox_DisablesInputMethodForReadOnlyTranscriptViewer()
+    {
+        WpfTestContext.Run(() =>
+        {
+            var richTextBox = new ThrottledScrollRichTextBox();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(InputMethod.GetIsInputMethodEnabled(richTextBox), Is.False);
+                Assert.That(InputMethod.GetPreferredImeState(richTextBox), Is.EqualTo(InputMethodState.Off));
+            });
+        });
+    }
+
+    [Test]
     public void PreserveViewportThroughLayout_BottomAnchor_StillRestoresBottom()
     {
         WpfTestContext.Run(() =>

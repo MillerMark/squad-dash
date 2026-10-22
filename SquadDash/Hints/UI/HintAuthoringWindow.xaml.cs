@@ -32,7 +32,14 @@ internal partial class HintAuthoringWindow : Window
         _debounceTimer.Tick += DebounceTimer_Tick;
 
         _pttAttachment = new PttTextBoxAttachment(() => new ApplicationSettingsStore().Load(), this, Dispatcher);
-        Closed += (_, _) => { _previewCallout?.Close(); _previewCallout = null; _pttAttachment.Dispose(); };
+        Closed += (_, _) =>
+        {
+            _debounceTimer.Stop();
+            _previewCallout?.Close();
+            _previewCallout = null;
+            _pttAttachment.Dispose();
+            MarkdownEditor.Dispose();
+        };
 
         PreviewKeyDown += (_, e) => {
             var focused = GetFocusedPttTextBox();
@@ -44,14 +51,17 @@ internal partial class HintAuthoringWindow : Window
                 e.Handled = true;
         };
 
-        MarkdownEditor.PreviewKeyDown += MarkdownEditor_PreviewKeyDown;
+        MarkdownEditor.TextChanged += MarkdownEditor_TextChanged;
         TestButton.IsEnabled = false;
     }
 
     private TextBox? GetFocusedPttTextBox()
     {
+        // Markdown dictation belongs to AvalonEdit, not the window's TextBox attachment.
+        if (MarkdownEditor.IsKeyboardFocusWithin)
+            return null;
         var focused = Keyboard.FocusedElement as TextBox;
-        if (focused == MarkdownEditor || focused == TriggerNotesBox || focused == ActionIdBox)
+        if (focused == TriggerNotesBox || focused == ActionIdBox)
             return focused;
         return null;
     }
@@ -68,7 +78,7 @@ internal partial class HintAuthoringWindow : Window
         if (existing is not null)
         {
             _editingHint = existing;
-            MarkdownEditor.Text = existing.MarkdownText;
+            MarkdownEditor.SetText(existing.MarkdownText);
             PriorityBox.Text = existing.Priority.ToString();
             MaxShowCountBox.Text = existing.MaxShowCount.ToString();
 
@@ -95,11 +105,11 @@ internal partial class HintAuthoringWindow : Window
         }
         else
         {
-            MarkdownEditor.Text = DefaultMarkdown;
+            MarkdownEditor.SetText(DefaultMarkdown);
             TriggerNotesBox.Text = string.Empty;
         }
 
-        MarkdownPreview.Markdown = MarkdownEditor.Text;
+        MarkdownPreview.Markdown = MarkdownEditor.GetText();
         ShowPreviewCallout(target);
     }
 
@@ -116,7 +126,7 @@ internal partial class HintAuthoringWindow : Window
             : 13.0;
 
         _previewCallout = FrmUltimateCallout.ShowCalloutBesideTarget(
-            MarkdownEditor.Text, target, theme: theme, fontSize: fontSize);
+            MarkdownEditor.GetText(), target, theme: theme, fontSize: fontSize);
         if (_previewCallout is null) return;
         _previewCallout.IsSticky = true;
         _previewCalloutClosedByUser = false;
@@ -134,20 +144,6 @@ internal partial class HintAuthoringWindow : Window
         TestButton.IsEnabled = _previewCallout is null || !_previewCallout.IsVisible;
     }
 
-    private void MarkdownEditor_PreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.B && Keyboard.Modifiers == ModifierKeys.Control)
-        {
-            MarkdownEditorCommands.ApplyBold(MarkdownEditor);
-            e.Handled = true;
-        }
-        else if (e.Key == Key.I && Keyboard.Modifiers == ModifierKeys.Control)
-        {
-            MarkdownEditorCommands.ApplyItalic(MarkdownEditor);
-            e.Handled = true;
-        }
-    }
-
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ClickCount == 2)
@@ -158,7 +154,7 @@ internal partial class HintAuthoringWindow : Window
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
-    private void MarkdownEditor_TextChanged(object sender, TextChangedEventArgs e)
+    private void MarkdownEditor_TextChanged(object? sender, string text)
     {
         _debounceTimer.Stop();
         _debounceTimer.Start();
@@ -167,10 +163,11 @@ internal partial class HintAuthoringWindow : Window
     private void DebounceTimer_Tick(object? sender, EventArgs e)
     {
         _debounceTimer.Stop();
-        MarkdownPreview.Markdown = MarkdownEditor.Text;
+        var markdown = MarkdownEditor.GetText();
+        MarkdownPreview.Markdown = markdown;
 
         if (_previewCallout is { IsLoaded: true } callout && callout.IsVisible)
-            callout.UpdateMarkdown(MarkdownEditor.Text);
+            callout.UpdateMarkdown(markdown);
     }
 
     private void TriggerComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -190,7 +187,7 @@ internal partial class HintAuthoringWindow : Window
         var hint = _editingHint ?? new HintDefinition();
 
         hint.TargetControlId = TargetBox.Text.Trim();
-        hint.MarkdownText    = MarkdownEditor.Text;
+        hint.MarkdownText    = MarkdownEditor.GetText();
 
         if (string.IsNullOrWhiteSpace(hint.HintId))
         {

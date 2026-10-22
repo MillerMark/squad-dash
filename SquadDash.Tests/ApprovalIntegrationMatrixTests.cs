@@ -346,12 +346,13 @@ internal sealed class ApprovalIntegrationMatrixTests
     // ═══════════════════════════════════════════════════════════════════════
 
     [Test]
-    public void BuildActions_MultipleUncheckedGates_UsesInlineReviewSurface()
+    public void BuildActions_MultipleUncheckedGates_ExposeAddressUnapprovedAction()
     {
         var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-A", "GATE-B", "GATE-C"]);
 
-        Assert.That(actions, Is.Empty);
+        Assert.That(actions.Single().RouteMode,
+            Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
     }
 
     [Test]

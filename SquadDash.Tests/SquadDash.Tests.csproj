@@ -26,6 +26,9 @@
     <Compile Include="..\SquadDash\ButtonPlaceholders.cs" Link="Source\ButtonPlaceholders.cs" />
     <Compile Include="..\SquadDash\ButtonCommandExecutionService.cs" Link="Source\ButtonCommandExecutionService.cs" />
     <Compile Include="..\SquadDash\SquadCommandOutputWindow.cs" Link="Source\SquadCommandOutputWindow.cs" />
+    <Compile Include="..\SquadDash\AnsiTextParser.cs" Link="Source\AnsiTextParser.cs" />
+    <Compile Include="..\SquadDash\ReadOnlyTextInputGuard.cs" Link="Source\ReadOnlyTextInputGuard.cs" />
+    <Compile Include="..\SquadDash\ThrottledScrollRichTextBox.cs" Link="Source\ThrottledScrollRichTextBox.cs" />
     <Compile Include="..\SquadDash\ButtonCaptionPresentation.cs" Link="Source\ButtonCaptionPresentation.cs" />
     <Compile Include="..\SquadDash\ButtonTokenCompletion.cs" Link="Source\ButtonTokenCompletion.cs" />
     <Compile Include="..\SquadDash\ButtonEditorSession.cs" Link="Source\ButtonEditorSession.cs" />
@@ -60,6 +63,7 @@
     <Compile Include="..\SquadDash\PendingPlanGateEditor.cs" Link="Source\PendingPlanGateEditor.cs" />
     <Compile Include="..\SquadDash\PlanExecutionTransitionService.cs" Link="Source\PlanExecutionTransitionService.cs" />
     <Compile Include="..\SquadDash\PlanPauseTransitionCoordinator.cs" Link="Source\PlanPauseTransitionCoordinator.cs" />
+    <Compile Include="..\SquadDash\PlanPauseMenuPolicy.cs" Link="Source\PlanPauseMenuPolicy.cs" />
     <Compile Include="..\SquadDash\PlanApprovalControlLockPolicy.cs" Link="Source\PlanApprovalControlLockPolicy.cs" />
     <Compile Include="..\SquadDash\PlanApprovalHistoricalPresentationPolicy.cs" Link="Source\PlanApprovalHistoricalPresentationPolicy.cs" />
     <Compile Include="..\SquadDash\PlanConnectorAnchorDistributor.cs" Link="Source\PlanConnectorAnchorDistributor.cs" />
@@ -119,6 +123,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.1.120" />
     <PackageReference Include="Handlebars.Net" Version="2.1.6" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.49.0" />
     <PackageReference Include="NAudio" Version="2.3.0" />
@@ -194,6 +199,25 @@
     <Compile Include="..\SquadDash\TraceWindow.cs" Link="Source\TraceWindow.cs" />
     <Compile Include="..\SquadDash\CopyButton.cs" Link="Source\CopyButton.cs" />
     <Compile Include="..\SquadDash\CopyableCodeBlockBuilder.cs" Link="Source\CopyableCodeBlockBuilder.cs" />
+    <Compile Include="..\SquadDash\TranscriptCodeBlockPreview.cs" Link="Source\TranscriptCodeBlockPreview.cs" />
+    <Compile Include="..\SquadDash\ReadOnlyHighlightedEditorFactory.cs" Link="Source\ReadOnlyHighlightedEditorFactory.cs" />
+    <Compile Include="..\SquadDash\AttachmentTextClassifier.cs" Link="Source\AttachmentTextClassifier.cs" />
+    <Compile Include="..\SquadDash\EmbeddedCodeRegionBlock.cs" Link="Source\EmbeddedCodeRegionBlock.cs" />
+    <Compile Include="..\SquadDash\RegionLanguagePicker.cs" Link="Source\RegionLanguagePicker.cs" />
+    <Compile Include="..\SquadDash\RegionGrammarResolver.cs" Link="Source\RegionGrammarResolver.cs" />
+    <Compile Include="..\SquadDash\RegionHighlightingEngine.cs" Link="Source\RegionHighlightingEngine.cs" />
+    <Compile Include="..\SquadDash\RegionBundledGrammars.cs" Link="Source\RegionBundledGrammars.cs" />
+    <Compile Include="..\SquadDash\RegionHighlightingPalettes.cs" Link="Source\RegionHighlightingPalettes.cs" />
+    <Compile Include="..\SquadDash\IRegionCodeEditor.cs" Link="Source\IRegionCodeEditor.cs" />
+    <Compile Include="..\SquadDash\AvalonEditRegionEditor.cs" Link="Source\AvalonEditRegionEditor.cs" />
+    <Compile Include="..\SquadDash\AvalonEditClipboardGuard.cs" Link="Source\AvalonEditClipboardGuard.cs" />
+    <Compile Include="..\SquadDash\EmbeddedCaretNavMath.cs" Link="Source\EmbeddedCaretNavMath.cs" />
+    <Compile Include="..\SquadDash\EmbeddedCodeRegionManager.cs" Link="Source\EmbeddedCodeRegionManager.cs" />
+    <Compile Include="..\SquadDash\EmbeddedFenceDetector.cs" Link="Source\EmbeddedFenceDetector.cs" />
+    <Compile Include="..\SquadDash\PromptUndoManager.cs" Link="Source\PromptUndoManager.cs" />
+    <Compile Include="..\SquadDash\EmbeddedRegionInputRouter.cs" Link="Source\EmbeddedRegionInputRouter.cs" />
+    <Compile Include="..\SquadDash\EmbeddedRegionSpaceRouter.cs" Link="Source\EmbeddedRegionSpaceRouter.cs" />
+    <Compile Include="..\SquadDash\EmbeddedRegionBackspaceRouter.cs" Link="Source\EmbeddedRegionBackspaceRouter.cs" />
     <Compile Include="..\SquadDash\StickyCodeBlockBehavior.cs" Link="Source\StickyCodeBlockBehavior.cs" />
     <Compile Include="..\SquadDash\SquadDashTrace.cs" Link="Source\SquadDashTrace.cs" />
     <Compile Include="..\SquadDash\SquadDashRuntimeStamp.cs" Link="Source\SquadDashRuntimeStamp.cs" />
@@ -356,6 +380,11 @@
     <Compile Include="..\SquadDash\WorkspaceOwnershipLease.cs" Link="Source\WorkspaceOwnershipLease.cs" />
     <Compile Include="..\SquadDash\WorkspaceOpenCoordinator.cs" Link="Source\WorkspaceOpenCoordinator.cs" />
     <Compile Include="..\SquadDash\FollowUpAttachment.cs" Link="Source\FollowUpAttachment.cs" />
+    <Compile Include="..\SquadDash\TranscriptAttachmentSourceFactory.cs" Link="Source\TranscriptAttachmentSourceFactory.cs" />
+    <Compile Include="..\SquadDash\FollowUpPromptBuilder.cs" Link="Source\FollowUpPromptBuilder.cs" />
+    <Compile Include="..\SquadDash\AttachmentNotesEditor.cs" Link="Source\AttachmentNotesEditor.cs" />
+    <Compile Include="..\SquadDash\AttachmentStripRow.cs" Link="Source\AttachmentStripRow.cs" />
+    <Compile Include="..\SquadDash\PromptAttachmentViewerWindow.cs" Link="Source\PromptAttachmentViewerWindow.cs" />
     <Compile Include="..\SquadDash\WorkspaceConversationStore.cs" Link="Source\WorkspaceConversationStore.cs" />
     <Compile Include="..\SquadDash\PendingPlanContinuationState.cs" Link="Source\PendingPlanContinuationState.cs" />
     <Compile Include="..\SquadDash\QueueRecoveryHoldState.cs" Link="Source\QueueRecoveryHoldState.cs" />
@@ -474,6 +503,18 @@
     <Compile Include="..\SquadDash\CodeHealthStubStateStore.cs" Link="Source\CodeHealthStubStateStore.cs" />
     <Compile Include="..\SquadDash\CodeHealthTaskEditorWindow.cs" Link="Source\CodeHealthTaskEditorWindow.cs" />
     <Compile Include="..\SquadDash\MarkdownEditorPanel.cs" Link="Source\MarkdownEditorPanel.cs" />
+    <Compile Include="..\SquadDash\AvalonEditMarkdownEditor.cs" Link="Source\AvalonEditMarkdownEditor.cs" />
+    <Compile Include="..\SquadDash\AvalonEditMarkdownEditor.Dictation.cs" Link="Source\AvalonEditMarkdownEditor.Dictation.cs" />
+    <Compile Include="..\SquadDash\AvalonEditMarkdownEditor.Presentation.cs" Link="Source\AvalonEditMarkdownEditor.Presentation.cs" />
+    <Compile Include="..\SquadDash\AvalonEditMarkdownEditor.Revision.cs" Link="Source\AvalonEditMarkdownEditor.Revision.cs" />
+    <Compile Include="..\SquadDash\AvalonEditRevisionSelection.cs" Link="Source\AvalonEditRevisionSelection.cs" />
+    <Compile Include="..\SquadDash\CamelCaseAvalonEditAttachment.cs" Link="Source\CamelCaseAvalonEditAttachment.cs" />
+    <Compile Include="..\SquadDash\DocRevisePopup.cs" Link="Source\DocRevisePopup.cs" />
+    <Compile Include="..\SquadDash\MarkdownRevisionExecutor.cs" Link="Source\MarkdownRevisionExecutor.cs" />
+    <Compile Include="..\SquadDash\RevisionResultWindow.cs" Link="Source\RevisionResultWindow.cs" />
+    <Compile Include="..\SquadDash\RevisionWorkingOverlay.cs" Link="Source\RevisionWorkingOverlay.cs" />
+    <Compile Include="..\SquadDash\RevisionHighlightAdorner.cs" Link="Source\RevisionHighlightAdorner.cs" />
+    <Compile Include="..\SquadDash\WindowPlacementHelper.cs" Link="Source\WindowPlacementHelper.cs" />
     <Page Include="..\SquadDash\MarkdownEditorToolbar.xaml" Link="Source\MarkdownEditorToolbar.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -535,6 +576,7 @@
     <Compile Include="..\SquadDash\Plan.cs" Link="Source\Plan.cs" />
     <Compile Include="..\SquadDash\PlanRecoveryPresentation.cs" Link="Source\PlanRecoveryPresentation.cs" />
     <Compile Include="..\SquadDash\PlanReviewAttentionPresentation.cs" Link="Source\PlanReviewAttentionPresentation.cs" />
+    <Compile Include="..\SquadDash\PlanReviewBannerPresentation.cs" Link="Source\PlanReviewBannerPresentation.cs" />
     <Compile Include="..\SquadDash\CommitViewerLayout.cs" Link="Source\CommitViewerLayout.cs" />
     <Compile Include="..\SquadDash\CommitViewerGit.cs" Link="Source\CommitViewerGit.cs" />
     <Compile Include="..\SquadDash\PlanTaskFileDiffResolver.cs" Link="Source\PlanTaskFileDiffResolver.cs" />
@@ -585,6 +627,8 @@
     <Compile Include="..\SquadDash\PlanIntentDetector.cs" Link="Source\PlanIntentDetector.cs" />
     <Compile Include="..\SquadDash\PlanGateApprovalParser.cs" Link="Source\PlanGateApprovalParser.cs" />
     <Compile Include="..\SquadDash\PlanGateResponse.cs" Link="Source\PlanGateResponse.cs" />
+    <Compile Include="..\SquadDash\PlanReviewActionPresentation.cs" Link="Source\PlanReviewActionPresentation.cs" />
+    <Compile Include="..\SquadDash\PlanApprovedReviewNotesFollowUp.cs" Link="Source\PlanApprovedReviewNotesFollowUp.cs" />
     <Compile Include="..\SquadDash\PlanReviewActivityResponse.cs" Link="Source\PlanReviewActivityResponse.cs" />
     <Compile Include="..\SquadDash\PlanHumanReviewClarificationResponse.cs" Link="Source\PlanHumanReviewClarificationResponse.cs" />
     <Compile Include="..\SquadDash\HumanReviewResponseContractPolicy.cs" Link="Source\HumanReviewResponseContractPolicy.cs" />
@@ -711,6 +755,9 @@
 
   <!-- Embedded resources shared from the main project (single source of truth — no copy) -->
   <ItemGroup>
+    <EmbeddedResource Include="..\SquadDash\Grammars\JSON.xshd;..\SquadDash\Grammars\TypeScript.xshd;..\SquadDash\Grammars\YAML.xshd;..\SquadDash\Grammars\SQL.xshd;..\SquadDash\Grammars\Go.xshd;..\SquadDash\Grammars\Rust.xshd;..\SquadDash\Grammars\Bash.xshd;..\SquadDash\Grammars\Markdown.xshd;..\SquadDash\Grammars\MarkdownDirectives.xshd;..\SquadDash\Grammars\ErrorMessage.xshd"
+                      Link="Grammars\%(Filename)%(Extension)"
+                      LogicalName="SquadDash.Grammars.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\SquadDash\Assets\squaddash.md" Link="Assets\squaddash.md" />
     <EmbeddedResource Include="..\SquadDash\Assets\squaddash-profiles.md" Link="Assets\squaddash-profiles.md" />
     <EmbeddedResource Include="..\SquadDash\Assets\decompose-planning.md" Link="Assets\decompose-planning.md" />

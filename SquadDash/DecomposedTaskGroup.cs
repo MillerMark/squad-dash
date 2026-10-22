@@ -20,7 +20,10 @@ internal sealed record DecomposedGate(
                                                   string? Question = null,
     [property: JsonPropertyName("presentationAnchor")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-                                                  string? PresentationAnchor = null);
+                                                  string? PresentationAnchor = null,
+    [property: JsonPropertyName("dependsOnGateIds")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                  IReadOnlyList<string>? DependsOnGateIds = null);
 
 /// <summary>
 /// A first-class, non-mutating validation node in a decomposed plan. It becomes eligible after

@@ -1286,12 +1286,13 @@ internal sealed class ApprovalIntegrationTests
     // ═══════════════════════════════════════════════════════════════════════
 
     [Test]
-    public void BuildActions_UncheckedActiveGates_UsesInlineReviewSurface()
+    public void BuildActions_UncheckedActiveGates_ExposeAddressUnapprovedAction()
     {
         var plan = MakePlan(t1Status: PlanTaskStatus.Complete, t2Status: PlanTaskStatus.Complete);
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-A", "GATE-B"]);
 
-        Assert.That(actions, Is.Empty);
+        Assert.That(actions.Single().RouteMode,
+            Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
     }
 
     [Test]
@@ -1353,7 +1354,7 @@ internal sealed class ApprovalIntegrationTests
         var msg = _inbox.GetById("approval-gate-PLAN-001");
         Assert.That(msg!.Read, Is.True, "An acted-on approval request should be marked read even while another gate remains");
         Assert.That(msg.Actions, Is.Empty,
-            "Unchecked active gates are completed directly in the Inbox body");
+            "The remaining unchecked gate stays on the inline Inbox review surface without the legacy fallback action.");
     }
 
     // ═══════════════════════════════════════════════════════════════════════

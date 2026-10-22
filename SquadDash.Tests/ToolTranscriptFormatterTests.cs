@@ -184,6 +184,8 @@ internal sealed class ToolTranscriptFormatterTests {
     [TestCase("Get-Content a -Wait >> b")]
     [TestCase("Get-Content a; Add-Content b 'text'")]
     [TestCase("Set-Content b 'text'; Get-Content a")]
+    [TestCase("Get-Process 2>&1 > out.txt")]
+    [TestCase("Get-Process > out.txt 2>&1")]
     public void ClassifyPowerShellFileIconKey_WritesTakePrecedence(string command) {
         Assert.That(ToolTranscriptFormatter.ClassifyPowerShellFileIconKey(command),
             Is.EqualTo("ToolIcon_edit"));
@@ -213,6 +215,13 @@ internal sealed class ToolTranscriptFormatterTests {
     [TestCase("Get-TypeData")]
     [TestCase("sc query service")]
     [TestCase("ac x")]
+    [TestCase("Get-Service audiosrv -ErrorAction SilentlyContinue 2>&1")]
+    [TestCase("Get-Process 2>&1")]
+    [TestCase("Get-Process *>&1")]
+    [TestCase("Get-Process 1>&2")]
+    [TestCase("Get-Process 2>$null")]
+    [TestCase("Get-Process 2> $null")]
+    [TestCase("if (2 -gt 1) { Write-Output 'yes' } 2>&1")]
     public void ClassifyPowerShellFileIconKey_UnmatchedCommandsKeepShellIcon(string? command) {
         Assert.Multiple(() => {
             Assert.That(ToolTranscriptFormatter.ClassifyPowerShellFileIconKey(command), Is.Null);
@@ -453,6 +462,95 @@ internal sealed class ToolTranscriptFormatterTests {
                 Is.EqualTo(new ToolEditDiffSummary("SnapshotLinks.cs", 2, 2, true, false)));
             Assert.That(deletedSummary,
                 Is.EqualTo(new ToolEditDiffSummary("Viewer.razor", 2, 2, false, true)));
+        });
+    }
+
+    [Test]
+    public void BuildSimulatedEdit_WrapsLooseDiffLinesIntoParseableUnifiedDiff() {
+        var output = "- var result = context.Items.FirstOrDefault().Value;\n" +
+                     "+ var result = context.Items.FirstOrDefault()?.Value ?? string.Empty;";
+
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit("Fix SchedulerService.cs", output);
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(edit!.Path, Is.EqualTo("SchedulerService.cs"));
+            Assert.That(edit.DisplayName, Is.EqualTo("SchedulerService.cs"));
+            Assert.That(edit.AddedLineCount, Is.EqualTo(1));
+            Assert.That(edit.RemovedLineCount, Is.EqualTo(1));
+            Assert.That(edit.IsNewFile, Is.False);
+            Assert.That(edit.IsDeletedFile, Is.False);
+            Assert.That(edit.UnifiedDiff, Does.Contain("@@ -1,1 +1,1 @@"));
+            Assert.That(edit.UnifiedDiff, Does.Contain("+++ b/SchedulerService.cs"));
+        });
+
+        // The simulated diff must round-trip through the real extractor so the diff viewer renders it identically.
+        var reparsed = ToolTranscriptFormatter.TryExtractCapturedEdits(
+            new ToolTranscriptDescriptor("edit", DisplayText: "SchedulerService.cs"), edit!.UnifiedDiff);
+        Assert.That(reparsed.Count, Is.EqualTo(1));
+        Assert.That((reparsed[0].AddedLineCount, reparsed[0].RemovedLineCount), Is.EqualTo((1, 1)));
+    }
+
+    [TestCase("Fix SchedulerService.cs", "SchedulerService.cs")]
+    [TestCase("Update TaskRunner.cs", "TaskRunner.cs")]
+    [TestCase("Rewrite src/Deeply/Nested/File.cs now", "src/Deeply/Nested/File.cs")]
+    public void BuildSimulatedEdit_ExtractsFileTokenFromDescription(string description, string expectedPath) {
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit(description, "+added line");
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.That(edit!.Path, Is.EqualTo(expectedPath));
+    }
+
+    [TestCase(null, "+added")]
+    [TestCase("", "+added")]
+    [TestCase("No filename here", "+added")]
+    [TestCase("Fix SchedulerService.cs", "")]
+    [TestCase("Fix SchedulerService.cs", null)]
+    [TestCase("Fix SchedulerService.cs", "\n\n")]
+    public void BuildSimulatedEdit_ReturnsNullWhenPathOrBodyMissing(string? description, string? output) =>
+        Assert.That(ToolTranscriptFormatter.BuildSimulatedEdit(description, output), Is.Null);
+
+    [Test]
+    public void BuildSimulatedEdit_PicksLastFilenameTokenWhenMultiplePresent() {
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit("Sync Foo.cs with Bar.cs", "+line");
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.That(edit!.Path, Is.EqualTo("Bar.cs"));
+    }
+
+    [TestCase("Fix Parser.cs.", "Parser.cs")]
+    [TestCase("Update (Scheduler.cs)", "Scheduler.cs")]
+    [TestCase("Rewrite `Runner.cs`,", "Runner.cs")]
+    public void BuildSimulatedEdit_StripsSurroundingPunctuationFromPath(string description, string expectedPath) {
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit(description, "+line");
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.That(edit!.Path, Is.EqualTo(expectedPath));
+    }
+
+    [Test]
+    public void BuildSimulatedEdit_NormalizesCrlfLooseLines() {
+        var output = "- old line\r\n+ new line";
+
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit("Fix Worker.cs", output);
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(edit!.AddedLineCount, Is.EqualTo(1));
+            Assert.That(edit.RemovedLineCount, Is.EqualTo(1));
+            Assert.That(edit.UnifiedDiff, Does.Not.Contain("\r"));
+        });
+    }
+
+    [Test]
+    public void BuildSimulatedEdit_TreatsUnmarkedLinesAsContextYieldingNoChangeCounts() {
+        var edit = ToolTranscriptFormatter.BuildSimulatedEdit("Touch Config.cs", "untouched line");
+
+        Assert.That(edit, Is.Not.Null);
+        Assert.Multiple(() => {
+            Assert.That(edit!.AddedLineCount, Is.EqualTo(0));
+            Assert.That(edit.RemovedLineCount, Is.EqualTo(0));
+            Assert.That(edit.UnifiedDiff, Does.Contain(" untouched line"));
         });
     }
 

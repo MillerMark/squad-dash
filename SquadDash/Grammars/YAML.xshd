@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SyntaxDefinition name="YAML"
+                  extensions=".yml;.yaml"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Keyword" foreground="#174EA6" />
+  <Color name="Comment" foreground="#426536" />
+  <Color name="String" foreground="#8F3520" />
+  <Color name="Number" foreground="#6841A5" />
+  <Color name="Tag" foreground="#174EA6" />
+  <Color name="Attribute" foreground="#245B80" />
+  <Color name="Punctuation" foreground="#493827" />
+
+  <RuleSet ignoreCase="true">
+    <Rule color="Comment">(?&lt;!\S)\#[^\r\n]*</Rule>
+    <Rule color="Punctuation">^\s*(?:---|\.\.\.)(?=\s|$)</Rule>
+    <Rule color="Attribute">(?&lt;![\w.-])(?:[A-Za-z_][\w.-]*(?:[ ]+[\w.-]+)*|&quot;(?:\\.|[^&quot;\\])*&quot;|'(?:''|[^'])*')(?=\s*:(?:\s|$))</Rule>
+    <Rule color="Punctuation">^\s*-\s+(?=\S)</Rule>
+    <Rule color="Punctuation">[:\[\]\{\},|&gt;]</Rule>
+    <Rule color="Tag">[&amp;*][A-Za-z0-9_.-]+</Rule>
+    <Rule color="Tag">![A-Za-z0-9_:/.\-]+</Rule>
+
+    <Rule color="String">&quot;(?:\\.|[^&quot;\\])*&quot;</Rule>
+    <Rule color="String">'(?:''|[^'])*'</Rule>
+
+    <Rule color="Number">(?&lt;![\w.-])-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+\-]?\d+)?\b</Rule>
+
+    <Keywords color="Keyword">
+      <Word>true</Word><Word>false</Word><Word>null</Word><Word>~</Word>
+      <Word>yes</Word><Word>no</Word><Word>on</Word><Word>off</Word>
+    </Keywords>
+  </RuleSet>
+</SyntaxDefinition>

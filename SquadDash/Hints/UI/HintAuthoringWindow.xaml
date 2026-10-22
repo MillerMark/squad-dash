@@ -106,25 +106,13 @@
                            FontSize="{DynamicResource FontSizeBody}"
                            Foreground="{DynamicResource LabelText}"
                            Margin="0,0,0,4" />
-                <local:MarkdownEditorToolbar x:Name="SourceToolbar"
-                                             DockPanel.Dock="Top"
-                                             ShowImageButton="False"
-                                             ShowHrButton="False"
-                                             Margin="0,0,0,4"
-                                             TargetTextBox="{Binding ElementName=MarkdownEditor}" />
-                <TextBox x:Name="MarkdownEditor"
-                         AcceptsReturn="True"
-                         VerticalScrollBarVisibility="Auto"
-                         HorizontalScrollBarVisibility="Disabled"
-                         TextWrapping="Wrap"
-                         Background="{DynamicResource InputSurface}"
-                         Foreground="{DynamicResource LabelText}"
-                         BorderBrush="{DynamicResource InputBorder}"
-                         BorderThickness="1"
-                         Padding="6"
-                         FontFamily="Consolas"
-                         FontSize="{DynamicResource FontSizeBody}"
-                         TextChanged="MarkdownEditor_TextChanged" />
+                <Border Background="{DynamicResource InputSurface}"
+                        BorderBrush="{DynamicResource InputBorder}"
+                        BorderThickness="1"
+                        Padding="6">
+                    <local:AvalonEditMarkdownEditor x:Name="MarkdownEditor"
+                                                   ShowHrButton="False" />
+                </Border>
             </DockPanel>
         </Grid>
 

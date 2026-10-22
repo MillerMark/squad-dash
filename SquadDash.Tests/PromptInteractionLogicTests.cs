@@ -1140,3 +1140,167 @@ internal sealed class SlashCommandParameterPolicyTests {
         Assert.That(SlashCommandParameterPolicy.RequiresParameter(command), Is.True);
     }
 }
+
+
+// ── PromptScrollNavMath tests ─────────────────────────────────────────────────
+
+[TestFixture]
+internal sealed class PromptScrollNavMathTests {
+
+    // The exact live-trace regression: viewport well below the document bottom, with
+    // prompts both above and below the viewport top. Before the fix, viewportTop was
+    // read from a stale ScrollViewer pinned at scrollableMax, making this interval empty
+    // and permanently disabling ↓. With correct geometry, ↓ must be enabled.
+    [Test]
+    public void Compute_RegressionScenario_EnablesDownWhenViewportBelowBottom() {
+        var promptAbsYs = new[] { 120.0, 900.0, 1800.0, 3399.0, 3525.0, 3970.0 };
+        var state = PromptScrollNavMath.Compute(
+            promptAbsYs, viewportTop: 3399.0, scrollableMax: 4052.0);
+
+        Assert.Multiple(() => {
+            Assert.That(state.CanGoDown, Is.True, "↓ must be enabled with prompts below the viewport top.");
+            // 3525 is the nearest prompt below 3399 + deadZone (3449).
+            Assert.That(state.NearestBelowIdx, Is.EqualTo(4));
+            Assert.That(state.CanGoUp, Is.True);
+            // 1800 is the nearest prompt above 3399 − deadZone (3349).
+            Assert.That(state.NearestAboveIdx, Is.EqualTo(2));
+        });
+    }
+
+    // A prompt in the final viewport-height (absY > scrollableMax) is still a legitimate
+    // ↓ target as long as we are not already pinned at the bottom — scrolling clamps to
+    // the document bottom but still moves downward.
+    [Test]
+    public void Compute_PromptInFinalViewportHeight_IsStillADownTarget() {
+        var promptAbsYs = new[] { 100.0, 4000.0 };
+        var state = PromptScrollNavMath.Compute(
+            promptAbsYs, viewportTop: 1000.0, scrollableMax: 3500.0);
+
+        Assert.Multiple(() => {
+            Assert.That(state.CanGoDown, Is.True,
+                "A prompt beyond scrollableMax is reachable by scrolling to the bottom.");
+            Assert.That(state.NearestBelowIdx, Is.EqualTo(1));
+        });
+    }
+
+    // When truly pinned at the bottom, no downward movement is possible, so ↓ is disabled.
+    [Test]
+    public void Compute_PinnedAtBottom_DisablesDown() {
+        var promptAbsYs = new[] { 100.0, 4000.0, 4050.0 };
+        var state = PromptScrollNavMath.Compute(
+            promptAbsYs, viewportTop: 4052.0, scrollableMax: 4052.0);
+
+        Assert.Multiple(() => {
+            Assert.That(state.CanGoDown, Is.False,
+                "No downward movement is possible when already at the document bottom.");
+            Assert.That(state.NearestBelowIdx, Is.EqualTo(-1));
+            Assert.That(state.CanGoUp, Is.True, "Earlier prompts remain ↑ targets.");
+        });
+    }
+
+    [Test]
+    public void Compute_AtTop_NoPromptsAbove_DownEnabledUpDisabled() {
+        var promptAbsYs = new[] { 0.0, 500.0, 1200.0 };
+        var state = PromptScrollNavMath.Compute(
+            promptAbsYs, viewportTop: 0.0, scrollableMax: 2000.0);
+
+        Assert.Multiple(() => {
+            Assert.That(state.CanGoUp, Is.False);
+            Assert.That(state.NearestAboveIdx, Is.EqualTo(-1));
+            Assert.That(state.CanGoDown, Is.True);
+            Assert.That(state.NearestBelowIdx, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public void Compute_SelectsNearestNeighboursOnBothSides() {
+        var promptAbsYs = new[] { 100.0, 800.0, 1500.0, 2600.0, 3400.0 };
+        var state = PromptScrollNavMath.Compute(
+            promptAbsYs, viewportTop: 1500.0, scrollableMax: 4000.0);
+
+        Assert.Multiple(() => {
+            // nearest above 1500 − 50 = 1450 → 800 (idx 1)
+            Assert.That(state.NearestAboveIdx, Is.EqualTo(1));
+            // nearest below 1500 + 50 = 1550 → 2600 (idx 3)
+            Assert.That(state.NearestBelowIdx, Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public void Compute_PromptsWithinDeadZone_AreNeitherTarget() {
+        var promptAbsYs = new[] { 1480.0, 1500.0, 1540.0 };
+        var state = PromptScrollNavMath.Compute(
+            promptAbsYs, viewportTop: 1500.0, scrollableMax: 4000.0);
+
+        Assert.Multiple(() => {
+            Assert.That(state.CanGoUp, Is.False);
+            Assert.That(state.CanGoDown, Is.False);
+        });
+    }
+
+    [Test]
+    public void Compute_SkipsUnmeasurablePrompts() {
+        var promptAbsYs = new[] { double.NaN, 2500.0, double.NaN };
+        var state = PromptScrollNavMath.Compute(
+            promptAbsYs, viewportTop: 1000.0, scrollableMax: 4000.0);
+
+        Assert.Multiple(() => {
+            Assert.That(state.NearestBelowIdx, Is.EqualTo(1));
+            Assert.That(state.CanGoUp, Is.False);
+        });
+    }
+
+    [Test]
+    public void Compute_EmptyPromptList_DisablesBothButtons() {
+        var state = PromptScrollNavMath.Compute(
+            System.Array.Empty<double>(), viewportTop: 0.0, scrollableMax: 0.0);
+
+        Assert.Multiple(() => {
+            Assert.That(state.CanGoUp, Is.False);
+            Assert.That(state.CanGoDown, Is.False);
+        });
+    }
+}
+
+// ── PromptRegistrationMath tests ──────────────────────────────────────────────
+
+[TestFixture]
+internal sealed class PromptRegistrationMathTests {
+
+    // A steering entry that occurs after every existing prompt appends at the end so
+    // Shift+click "latest" (PromptParagraphs[Count-1]) still lands on it.
+    [Test]
+    public void ResolveInsertionIndex_SteeringAfterLastPrompt_AppendsAtEnd() {
+        var existing = new[] { 10, 40, 90 };
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(existing, 150), Is.EqualTo(3));
+    }
+
+    // A steering entry mid-conversation sorts by its real document position, not at the end.
+    [Test]
+    public void ResolveInsertionIndex_SteeringMidConversation_InsertsInDocumentOrder() {
+        var existing = new[] { 10, 40, 90, 200 };
+        // Steering nested in the turn started by the prompt at offset 40 but before the
+        // next prompt at offset 90.
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(existing, 55), Is.EqualTo(2));
+    }
+
+    [Test]
+    public void ResolveInsertionIndex_EmptyList_InsertsAtZero() {
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(System.Array.Empty<int>(), 42),
+            Is.EqualTo(0));
+    }
+
+    [Test]
+    public void ResolveInsertionIndex_SteeringBeforeFirstPrompt_InsertsAtZero() {
+        var existing = new[] { 100, 200 };
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(existing, 50), Is.EqualTo(0));
+    }
+
+    // Among entries at an equal document position the steering entry is placed last, matching
+    // "a steering entry occurs after the prompt that started its turn".
+    [Test]
+    public void ResolveInsertionIndex_EqualPosition_PlacedAfterExisting() {
+        var existing = new[] { 10, 40, 90 };
+        Assert.That(PromptRegistrationMath.ResolveInsertionIndex(existing, 40), Is.EqualTo(2));
+    }
+}

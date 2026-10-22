@@ -1,0 +1,315 @@
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Threading;
+
+namespace SquadDash;
+
+/// <summary>
+/// Detects completed triple-backtick fences in a plain-text <see cref="RichTextBox"/> (e.g.
+/// <c>PromptTextBox</c>) and converts them in place into collapsible
+/// <see cref="EmbeddedCodeRegionBlock"/> regions, hosted via <see cref="BlockUIContainer"/>.
+/// <para>
+/// Operates on a segment model (alternating plain-text runs and existing/new region blocks)
+/// rather than raw character offsets, so pre-existing regions are preserved by reference
+/// (same control instance, same collapse state) across a conversion, and only the segment
+/// containing the newly-completed fence is rebuilt.
+/// </para>
+/// </summary>
+internal static class EmbeddedCodeRegionManager
+{
+    private abstract class Segment { }
+
+    private sealed class TextSegment : Segment
+    {
+        public required string Text;
+    }
+
+    private sealed class RegionSegment : Segment
+    {
+        /// Non-null when preserving an already-converted region unchanged.
+        public BlockUIContainer? ExistingContainer;
+        /// Non-null (together with NewLanguage) when building a brand-new region.
+        public string? NewContent;
+        public string? NewLanguage;
+        /// When true, the region's content box should receive keyboard focus (with the
+        /// caret placed in its — necessarily empty — content) immediately after render.
+        /// Used only by the instant-open-fence path (<see cref="TryConvertOpenFence"/>);
+        /// the complete-fence path never sets this.
+        public bool FocusContentAfterRender;
+    }
+
+    /// <summary>
+    /// Converts all complete triple-backtick fences in the RichTextBox into embedded code
+    /// regions. Used during document initialization or restoration to ensure fences that
+    /// were previously saved as plain text are immediately rendered as interactive regions.
+    /// Returns the number of fences converted.
+    /// </summary>
+    internal static int ConvertAllFences(RichTextBox rtb)
+    {
+        int count = 0;
+        while (TryConvertNextFence(rtb))
+            count++;
+        return count;
+    }
+
+    /// <summary>
+    /// Attempts a single fence-to-region conversion. Returns <see langword="true"/> if a
+    /// fence was found and converted (caller should loop until this returns
+    /// <see langword="false"/> to catch multiple fences, e.g. from a multi-block paste).
+    /// </summary>
+    internal static bool TryConvertNextFence(RichTextBox rtb)
+    {
+        var segments = ExtractSegments(rtb);
+
+        for (var s = 0; s < segments.Count; s++)
+        {
+            if (segments[s] is not TextSegment textSeg) continue;
+
+            var lines = NormalizeNewlines(textSeg.Text).Split('\n');
+            var fence = EmbeddedFenceDetector.FindFirstFence(lines);
+            if (fence is null) continue;
+
+            var span = fence.Value;
+            var before = string.Join("\n", lines.Take(span.OpenLineIndex));
+            var after = string.Join("\n", lines.Skip(span.CloseLineIndex + 1));
+            var content = span.ExtractContent(lines);
+
+            var replacement = new List<Segment>();
+            if (before.Length > 0) replacement.Add(new TextSegment { Text = before });
+            replacement.Add(new RegionSegment { NewContent = content, NewLanguage = span.Language });
+            if (after.Length > 0) replacement.Add(new TextSegment { Text = after });
+
+            segments.RemoveAt(s);
+            segments.InsertRange(s, replacement);
+
+            RenderSegments(rtb, segments);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Attempts to convert a bare, just-completed *opening* fence marker (``` or
+    /// ```&lt;language&gt; on its own line, with no closing ``` yet anywhere after it) into an
+    /// empty, expanded <see cref="EmbeddedCodeRegionBlock"/> whose content box immediately
+    /// receives keyboard focus — so the user never sees raw "```" sitting in the prompt
+    /// waiting for a close; they type straight into the region instead. Unlike
+    /// <see cref="TryConvertNextFence"/> this does not require (or wait for) a closing fence.
+    /// Returns <see langword="false"/> if no such bare opening marker is present.
+    /// </summary>
+    internal static bool TryConvertOpenFence(RichTextBox rtb)
+    {
+        var segments = ExtractSegments(rtb);
+
+        for (var s = 0; s < segments.Count; s++)
+        {
+            if (segments[s] is not TextSegment textSeg) continue;
+
+            var lines = NormalizeNewlines(textSeg.Text).Split('\n');
+            var openFence = EmbeddedFenceDetector.FindOpenFenceWithNoClose(lines);
+            if (openFence is null) continue;
+
+            var span = openFence.Value;
+            var before = string.Join("\n", lines.Take(span.LineIndex));
+
+            // Unterminated opener: grab everything from the line after the opener through the
+            // end of input as region content so no typed/pasted content is ever silently lost.
+            // When nothing follows the opener (the user just typed "```" / "```<lang>"), this is
+            // the empty string — preserving the instant-empty-region UX.
+            var content = string.Join("\n", lines.Skip(span.LineIndex + 1)).Replace("\r", string.Empty);
+
+            var replacement = new List<Segment>();
+            if (before.Length > 0) replacement.Add(new TextSegment { Text = before });
+            replacement.Add(new RegionSegment
+            {
+                NewContent = content,
+                NewLanguage = span.Language,
+                FocusContentAfterRender = true,
+            });
+
+            segments.RemoveAt(s);
+            segments.InsertRange(s, replacement);
+
+            RenderSegments(rtb, segments);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// Collapses CRLF and lone CR into LF so fence detection, content extraction, and the
+    /// before/after plain-text segments never carry stray '\r' from pasted (e.g. Windows
+    /// clipboard) text.
+    private static string NormalizeNewlines(string text)
+        => text.Replace("\r\n", "\n").Replace("\r", "\n");
+
+    private static List<Segment> ExtractSegments(RichTextBox rtb)
+    {
+        var segments = new List<Segment>();
+        StringBuilder? currentText = null;
+
+        void FlushText()
+        {
+            if (currentText is not null)
+            {
+                segments.Add(new TextSegment { Text = currentText.ToString() });
+                currentText = null;
+            }
+        }
+
+        foreach (var block in rtb.Document.Blocks.ToList())
+        {
+            if (RichTextBoxExtensions.IsEmptyEmbeddedCodeRegionCaretLandingParagraph(block))
+                continue;
+
+            if (block is Paragraph para)
+            {
+                currentText ??= new StringBuilder();
+                if (currentText.Length > 0) currentText.Append('\n');
+                currentText.Append(RichTextBoxExtensions.GetParagraphText(para));
+            }
+            else if (block is BlockUIContainer { Child: EmbeddedCodeRegionBlock } buc)
+            {
+                FlushText();
+                segments.Add(new RegionSegment { ExistingContainer = buc });
+            }
+            else
+            {
+                FlushText();
+            }
+        }
+        FlushText();
+
+        return segments;
+    }
+
+    private static void RenderSegments(RichTextBox rtb, List<Segment> segments)
+    {
+        // Capture the caret's plain-text offset before rebuilding. Conversion never changes
+        // the overall plain-text content (GetPlainText() before/after is identical — a raw
+        // fence becomes a region that serializes back to the exact same fenced text), so the
+        // same offset maps back to the equivalent position after rebuild: e.g. right after
+        // the newly-created region if that's where the user's caret actually was (immediately
+        // after typing/pasting the closing fence), rather than always jumping to document end.
+        var caretOffset = rtb.GetCaretOffset();
+        var regionCount = segments.OfType<RegionSegment>().Count();
+        SquadDashTrace.Write("UI", $"EMBEDDED_CODE_RENDER begin segments={segments.Count} regions={regionCount} caretOffset={caretOffset} blocksBefore={rtb.Document.Blocks.Count}");
+
+        var undoWasEnabled = rtb.IsUndoEnabled;
+        if (undoWasEnabled)
+            rtb.IsUndoEnabled = false;
+
+        EmbeddedCodeRegionBlock? regionToFocus = null;
+
+        try
+        {
+            rtb.Document.Blocks.Clear();
+            for (var segmentIndex = 0; segmentIndex < segments.Count; segmentIndex++)
+            {
+                var segment = segments[segmentIndex];
+                switch (segment)
+                {
+                    case TextSegment textSeg:
+                        foreach (var line in textSeg.Text.Split('\n'))
+                            rtb.Document.Blocks.Add(new Paragraph(new Run(line)) { Margin = new Thickness(0) });
+                        break;
+
+                    case RegionSegment { ExistingContainer: { } existing }:
+                        if (existing.Child is EmbeddedCodeRegionBlock existingRegion)
+                            existingRegion.AttachHost(rtb);
+                        rtb.Document.Blocks.Add(existing);
+                        AddCaretLandingAfterRegionIfNeeded(rtb, segments, segmentIndex);
+                        break;
+
+                    case RegionSegment regionSeg:
+                        var region = EmbeddedCodeRegionBlock.Build(regionSeg.NewContent ?? "", regionSeg.NewLanguage ?? "");
+                        region.AttachHost(rtb);
+                        rtb.Document.Blocks.Add(new BlockUIContainer(region) { Margin = new Thickness(0) });
+                        AddCaretLandingAfterRegionIfNeeded(rtb, segments, segmentIndex);
+                        if (regionSeg.FocusContentAfterRender)
+                            regionToFocus = region;
+                        break;
+                }
+            }
+
+            rtb.CaretPosition = ResolveCaretPointerAfterRebuild(rtb, caretOffset);
+            SquadDashTrace.Write("UI", $"EMBEDDED_CODE_RENDER assigned-caret caretOffset={rtb.GetCaretOffset()} blocksAfter={rtb.Document.Blocks.Count} focusRegion={regionToFocus != null}");
+        }
+        finally
+        {
+            if (undoWasEnabled)
+                rtb.IsUndoEnabled = true;
+        }
+
+        // Done after the undo-state finally block (and outside the try) so a focus-transfer
+        // failure (e.g. no live visual tree in a headless test) can't leave IsUndoEnabled
+        // incorrectly restored.
+        if (regionToFocus is { } focusRegion)
+        {
+            focusRegion.FocusContent();
+            rtb.Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+            {
+                SquadDashTrace.Write("UI", "EMBEDDED_CODE_RENDER deferred-focus begin");
+                focusRegion.FocusContent();
+            });
+        }
+    }
+
+    /// <summary>
+    /// Decides whether a document rebuild should synthesize a trailing empty caret-landing
+    /// paragraph immediately after a region. Per the region-editor contract the blank line is
+    /// only legitimate when the region is the LAST block in the document (so the caret has a
+    /// landing spot below the final region); whenever ANY real content follows the region, that
+    /// following content IS the landing spot and no blank line may be synthesized. Keeping this a
+    /// pure predicate makes the "no stray blank line on rebuild / rehydration / serialization
+    /// round-trip" rule unit-testable headlessly.
+    /// </summary>
+    internal static bool ShouldSynthesizeTrailingLandingParagraph(int regionSegmentIndex, int segmentCount)
+        => regionSegmentIndex == segmentCount - 1;
+
+    private static void AddCaretLandingAfterRegionIfNeeded(RichTextBox rtb, List<Segment> segments, int regionSegmentIndex)
+    {
+        if (!ShouldSynthesizeTrailingLandingParagraph(regionSegmentIndex, segments.Count))
+        {
+            SquadDashTrace.Write("UI", $"EMBEDDED_CODE_LANDING skipped reason=content-follows-region regionSegmentIndex={regionSegmentIndex} segments={segments.Count}");
+            return;
+        }
+
+        rtb.Document.Blocks.Add(RichTextBoxExtensions.CreateEmbeddedCodeRegionCaretLandingParagraph());
+        SquadDashTrace.Write("UI", $"EMBEDDED_CODE_LANDING added regionSegmentIndex={regionSegmentIndex} blocks={rtb.Document.Blocks.Count}");
+    }
+
+    /// Resolves the <see cref="TextPointer"/> to assign to <c>RichTextBox.CaretPosition</c>
+    /// for a given plain-text offset, nudging a pointer that lands exactly at a region's
+    /// own ElementStart/ElementEnd boundary onto the neighboring Paragraph's
+    /// ContentStart/ContentEnd instead. WPF does not reliably keep the caret at a
+    /// BlockUIContainer's own element boundary when that container hosts a focusable child
+    /// control (the region's content TextBox) — assigning there can cause the caret to
+    /// normalize elsewhere (e.g. document start), which is what made the caret look like it
+    /// landed on the wrong line around a region. This nudge is local to caret *assignment*
+    /// here; it intentionally does not change <see cref="RichTextBoxExtensions.GetTextPointerAt"/>
+    /// or <see cref="RichTextBoxExtensions.GetCharOffset"/>, which must stay symmetric with
+    /// each other for offset math elsewhere (selection, etc.) to remain correct.
+    private static TextPointer ResolveCaretPointerAfterRebuild(RichTextBox rtb, int caretOffset)
+    {
+        var pointer = rtb.GetTextPointerAt(caretOffset);
+        var blocks = rtb.Document.Blocks.ToList();
+
+        for (var i = 0; i < blocks.Count; i++)
+        {
+            if (blocks[i] is not BlockUIContainer { Child: EmbeddedCodeRegionBlock } region) continue;
+
+            if (pointer.CompareTo(region.ElementStart) == 0 && i > 0 && blocks[i - 1] is Paragraph prev)
+                return prev.ContentEnd;
+            if (pointer.CompareTo(region.ElementEnd) == 0 && i + 1 < blocks.Count && blocks[i + 1] is Paragraph next)
+                return next.ContentStart;
+        }
+
+        return pointer;
+    }
+}

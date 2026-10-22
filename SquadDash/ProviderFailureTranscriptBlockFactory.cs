@@ -130,6 +130,7 @@ internal static class ProviderFailureTranscriptBlockFactory
             Tag = CodeBlockTag,
             IsTabStop = true
         };
+        ReadOnlyTextInputGuard.DisableInputMethod(codeBlock);
         codeBlock.SetResourceReference(Control.BackgroundProperty, BackgroundResourceKey);
         codeBlock.SetResourceReference(Control.ForegroundProperty, ForegroundResourceKey);
         codeBlock.SetResourceReference(Control.BorderBrushProperty, ForegroundResourceKey);
@@ -249,6 +250,7 @@ internal static class ProviderFailureTranscriptBlockFactory
             Tag = CodeBlockTag,
             IsTabStop = true
         };
+        ReadOnlyTextInputGuard.DisableInputMethod(codeBlock);
         codeBlock.SetResourceReference(Control.BackgroundProperty, BackgroundResourceKey);
         codeBlock.SetResourceReference(Control.ForegroundProperty, ForegroundResourceKey);
         codeBlock.SetResourceReference(Control.BorderBrushProperty, ForegroundResourceKey);

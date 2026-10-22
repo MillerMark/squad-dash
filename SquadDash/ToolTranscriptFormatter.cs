@@ -25,6 +25,12 @@ internal static class ToolTranscriptFormatter {
     private static readonly Regex PowerShellFileReadRegex = new(
         @"(?<![\w-])(?:Get-Content|gc|cat|type|ReadAllText|ReadAllLines|ReadAllBytes|Import-Csv|Import-Clixml)(?![\w-])",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // Matches a true file-redirection operator (optionally prefixed with a stream number or "*"
+    // for all streams), but NOT stream-to-stream duplication (e.g. "2>&1") or a redirect to the
+    // null device (e.g. "2>$null"), neither of which write to any file on disk.
+    private static readonly Regex PowerShellFileRedirectRegex = new(
+        @"[0-9*]*>{1,2}(?!&)(?!\s*\$null\b)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public static string GetToolEmoji(ToolTranscriptDescriptor descriptor) {
         var toolName = NormalizePresentationToolName(descriptor.ToolName.Trim());
@@ -98,7 +104,7 @@ internal static class ToolTranscriptFormatter {
             return null;
 
         // A pipeline or multi-statement command that reads and writes is still a write.
-        if (command.Contains('>') || PowerShellFileWriteRegex.IsMatch(command))
+        if (PowerShellFileRedirectRegex.IsMatch(command) || PowerShellFileWriteRegex.IsMatch(command))
             return "ToolIcon_edit";
 
         return PowerShellFileReadRegex.IsMatch(command) ? "ToolIcon_view" : null;
@@ -750,6 +756,45 @@ internal static class ToolTranscriptFormatter {
         return $"--- {(isNew ? "/dev/null" : "a/" + normalizedPath)}\n+++ b/{normalizedPath}\n" +
             $"@@ -{(oldCount == 0 ? 0 : 1)},{oldCount} +{(newCount == 0 ? 0 : 1)},{newCount} @@ {label}" +
             (lines.Count == 0 ? string.Empty : "\n" + string.Join("\n", lines));
+    }
+
+    /// <summary>
+    /// Builds a synthetic <see cref="CapturedFileEdit"/> for a guided-tour "edit" tool call whose
+    /// output carries only loose <c>- old</c>/<c>+ new</c> lines (no real unified-diff headers).
+    /// The filename is pulled from the tool <paramref name="description"/> (e.g. "Fix Foo.cs"), and the
+    /// loose lines are wrapped into a proper unified diff via <see cref="BuildCapturedHunk"/> so the
+    /// resulting edit renders identically to a real capture — same +N/-N chips and same diff viewer.
+    /// </summary>
+    internal static CapturedFileEdit? BuildSimulatedEdit(string? description, string? output) {
+        var path = ExtractSimulatedEditPath(description);
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        var diffLines = new List<string>();
+        foreach (var line in (output ?? string.Empty).ReplaceLineEndings("\n").Split('\n')) {
+            if (line.Length == 0)
+                continue;
+            diffLines.Add(line[0] is '+' or '-' or ' ' ? line : " " + line);
+        }
+        if (diffLines.Count == 0)
+            return null;
+
+        var patch = BuildCapturedHunk(path, diffLines, isNew: false);
+        var edits = TryExtractCapturedEdits(new ToolTranscriptDescriptor("edit", DisplayText: path), patch);
+        return edits.Count > 0 ? edits[0] : null;
+    }
+
+    private static string? ExtractSimulatedEditPath(string? description) {
+        if (string.IsNullOrWhiteSpace(description))
+            return null;
+        var tokens = description.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        for (var index = tokens.Length - 1; index >= 0; index--) {
+            var token = tokens[index].Trim('.', ',', ':', ';', '"', '\'', '`', '(', ')');
+            if (token.Length > 0 && token.Contains('.') &&
+                !token.EndsWith('.') && !token.EndsWith('/') && !token.EndsWith('\\'))
+                return token;
+        }
+        return null;
     }
 
     internal static bool IsCapturedContentSnapshot(string? patch) =>

@@ -5,7 +5,121 @@ internal sealed record PlanReviewAttentionPresentation(
     PlanApprovalGate Gate,
     IReadOnlyList<PlanHumanReviewChecklistItem> Checklist,
     string Title,
-    string Summary);
+    string Summary,
+    IReadOnlyList<PlanApprovalGate>? RelatedGates = null)
+{
+    internal IReadOnlyList<PlanApprovalGate> Gates => RelatedGates is { Count: > 0 }
+        ? RelatedGates
+        : [Gate];
+}
+
+internal sealed record PlanHumanReviewWorkflowPresentation(
+    PlanTask Task,
+    IReadOnlyList<PlanApprovalGate> CurrentGates,
+    IReadOnlyList<PlanHumanReviewChecklistItem> Checklist,
+    int PhaseNumber,
+    int TotalPhases,
+    bool IsFinalPhase,
+    bool HasActionableInstructions,
+    string Title,
+    string Question,
+    string? InstructionProblem);
+
+/// <summary>
+/// Canonical resolver for the next human-review phase. Every recovery and approval surface consumes
+/// this result instead of independently selecting a gate.
+/// </summary>
+internal static class PlanHumanReviewWorkflowResolver
+{
+    internal static PlanHumanReviewWorkflowPresentation? Resolve(Plan plan, string? taskId = null)
+    {
+        taskId ??= plan.InterruptionData?.InterruptedTaskId ?? plan.Progress.ExecutingTaskId;
+        if (string.IsNullOrWhiteSpace(taskId))
+            taskId = plan.Tasks.FirstOrDefault(task =>
+                task.Status == PlanTaskStatus.HumanReviewRequired)?.TaskId;
+        if (string.IsNullOrWhiteSpace(taskId)) return null;
+
+        var task = plan.Tasks.FirstOrDefault(candidate =>
+            string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+        if (task is null || task.Status != PlanTaskStatus.HumanReviewRequired) return null;
+
+        var currentGates = PlanHumanReviewGatePolicy.FindWorkflowGates(
+            plan, task.TaskId, allowPendingReviewSiblings: true);
+        if (currentGates.Count == 0) return null;
+
+        var allUnresolved = PlanHumanReviewGatePolicy.FindWorkflowCandidates(
+            plan, task.TaskId, allowPendingReviewSiblings: true);
+        var phaseNumber = 1 + currentGates
+            .SelectMany(gate => gate.DependsOnGateIds ?? [])
+            .Select(dependencyId => DependencyDepth(plan, dependencyId))
+            .DefaultIfEmpty(0)
+            .Max();
+        var totalPhases = Math.Max(phaseNumber, allUnresolved
+            .Select(gate => 1 + (gate.DependsOnGateIds ?? [])
+                .Select(dependencyId => DependencyDepth(plan, dependencyId))
+                .DefaultIfEmpty(0).Max())
+            .DefaultIfEmpty(1).Max());
+        var checklist = PlanHumanReviewChecklist.Build(plan, currentGates);
+        var incomplete = currentGates.SelectMany(gate => gate.ProofRequirements ?? [])
+            .FirstOrDefault(requirement => !HasActionableInstructions(requirement));
+        var hasInstructions = checklist.Count > 0 && incomplete is null;
+        var title = totalPhases > 1
+            ? $"Human Verification — Phase {phaseNumber} of {totalPhases}"
+            : "Human Verification Is Required";
+        var question = currentGates.Count == 1
+            ? PlanProofCapabilityPolicy.ResolveHumanQuestion(currentGates[0]) ??
+              "Complete every check in this review phase before continuing."
+            : "Complete every check in this review phase before continuing.";
+        return new PlanHumanReviewWorkflowPresentation(
+            task,
+            currentGates,
+            checklist,
+            phaseNumber,
+            totalPhases,
+            currentGates.Count == allUnresolved.Count,
+            hasInstructions,
+            hasInstructions ? title : "Review Instructions Need Repair",
+            question,
+            incomplete is null
+                ? null
+                : $"The review requirement '{incomplete.RequirementId}' does not contain a complete actionable procedure.");
+    }
+
+    private static bool HasActionableInstructions(PlanTaskProofRequirement requirement)
+    {
+        // Plans written before accessMode was required used one atomic question as the complete
+        // directly-reachable review instruction. Preserve that durable contract; new plans are
+        // validated more strictly and must declare directly-reachable or recipe explicitly.
+        if (string.IsNullOrWhiteSpace(requirement.AccessMode))
+            return !string.IsNullOrWhiteSpace(requirement.Question ?? requirement.Description);
+        if (string.Equals(
+                requirement.AccessMode,
+                HumanVerificationAccessMode.DirectlyReachable,
+                StringComparison.OrdinalIgnoreCase))
+            return !string.IsNullOrWhiteSpace(requirement.Question ?? requirement.Description);
+        var recipe = requirement.VerificationRecipe;
+        return recipe is not null &&
+               !string.IsNullOrWhiteSpace(recipe.Setup) &&
+               !string.IsNullOrWhiteSpace(recipe.Open) &&
+               !string.IsNullOrWhiteSpace(recipe.Observe) &&
+               !string.IsNullOrWhiteSpace(recipe.Cleanup);
+    }
+
+    private static int DependencyDepth(Plan plan, string gateId, HashSet<string>? visited = null)
+    {
+        visited ??= new HashSet<string>(StringComparer.Ordinal);
+        if (!visited.Add(gateId)) return 0;
+        var gate = plan.ApprovalGates.FirstOrDefault(candidate =>
+            string.Equals(candidate.GateId, gateId, StringComparison.Ordinal));
+        var depth = gate is null
+            ? 0
+            : 1 + (gate.DependsOnGateIds ?? [])
+                .Select(dependencyId => DependencyDepth(plan, dependencyId, visited))
+                .DefaultIfEmpty(0).Max();
+        visited.Remove(gateId);
+        return depth;
+    }
+}
 
 internal enum PlanCheckpointPrimaryActionKind
 {
@@ -96,7 +210,8 @@ internal static class PlanCheckpointPrimaryActionPresentationResolver
         {
             var reviewAttention = PlanReviewAttentionPresentationResolver.Resolve(plan, taskId);
             return reviewAttention is not null &&
-                   string.Equals(reviewAttention.Gate.GateId, gate.GateId, StringComparison.Ordinal)
+                   reviewAttention.Gates.Any(candidate =>
+                       string.Equals(candidate.GateId, gate.GateId, StringComparison.Ordinal))
                 ? reviewAttention
                 : null;
         })).OfType<PlanReviewAttentionPresentation>().DistinctBy(attention => attention.Task.TaskId).ToArray();
@@ -239,9 +354,13 @@ internal static class PlanReviewAttentionPresentationResolver
         var task = plan.Tasks.FirstOrDefault(candidate =>
             string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
         if (task is null || task.Status != PlanTaskStatus.HumanReviewRequired) return null;
-        var gate = PlanHumanReviewGatePolicy.FindCombinableGate(
+        var workflow = PlanHumanReviewWorkflowResolver.Resolve(plan, task.TaskId);
+        if (workflow is null || !workflow.IsFinalPhase || !workflow.HasActionableInstructions)
+            return null;
+        var gates = PlanHumanReviewGatePolicy.FindCombinableGates(
             plan, task.TaskId, allowPendingReviewSiblings: true);
-        if (gate is null) return null;
+        if (gates.Count == 0) return null;
+        var gate = gates[0];
 
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
             task.DisplayStepLabel,
@@ -249,14 +368,16 @@ internal static class PlanReviewAttentionPresentationResolver
         return new PlanReviewAttentionPresentation(
             task,
             gate,
-            PlanHumanReviewChecklist.Build(plan, [gate]),
-            "Review Required",
-            $"Implementation and automated verification for {stepLabel} are complete. Human observation remains.");
+            workflow.Checklist,
+            workflow.Title,
+            $"Implementation and automated verification for {stepLabel} are complete. Human observation remains.",
+            gates);
     }
 
     internal static PlanTaskProofRequirement? FindRequirement(
         PlanReviewAttentionPresentation presentation,
         PlanHumanReviewChecklistItem item) =>
-        presentation.Gate.ProofRequirements?.FirstOrDefault(requirement =>
-            string.Equals(requirement.RequirementId, item.RequirementId, StringComparison.Ordinal));
+        presentation.Gates.SelectMany(gate => gate.ProofRequirements ?? [])
+            .FirstOrDefault(requirement =>
+                string.Equals(requirement.RequirementId, item.RequirementId, StringComparison.Ordinal));
 }

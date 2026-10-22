@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -59,20 +60,20 @@ internal sealed class SquadCommandOutputWindowTests {
                 window.AppendOutputLine($"line {i}");
             window.UpdateLayout();
             Pump(TimeSpan.FromMilliseconds(50));
-            var output = Descendants<TextBox>(window).Single();
+            var output = Descendants<RichTextBox>(window).Single();
             Assert.Multiple(() => {
-                Assert.That(output.Text, Does.StartWith("first" + Environment.NewLine));
-                Assert.That(output.Text, Does.Not.Contain("Executing command"));
-                Assert.That(output.Text, Does.EndWith("line 99" + Environment.NewLine));
+                Assert.That(GetText(output), Does.StartWith("first" + Environment.NewLine));
+                Assert.That(GetText(output), Does.Not.Contain("Executing command"));
+                Assert.That(GetText(output), Does.EndWith("line 99" + Environment.NewLine));
                 Assert.That(output.VerticalOffset, Is.GreaterThan(0));
                 Assert.That(output.VerticalOffset + output.ViewportHeight,
                     Is.GreaterThanOrEqualTo(output.ExtentHeight - 1));
             });
 
             window.SetBusy(false);
-            window.SetOutput("Exit code: 7\nExecution error: failed");
+            window.SetOutput("Exit code: 7" + Environment.NewLine + "Execution error: failed");
             window.AppendOutputLine("late notification");
-            Assert.That(output.Text, Is.EqualTo("Exit code: 7\nExecution error: failed"));
+            Assert.That(GetText(output), Is.EqualTo("Exit code: 7" + Environment.NewLine + "Execution error: failed"));
         }
         finally {
             window.Close();
@@ -126,7 +127,7 @@ internal sealed class SquadCommandOutputWindowTests {
             });
             Task.Run(() => ((IProgress<string>)progress).Report("worker output")).GetAwaiter().GetResult();
             PumpUntil(() => received);
-            Assert.That(Descendants<TextBox>(window).Single().Text, Is.EqualTo("worker output" + Environment.NewLine));
+            Assert.That(GetText(Descendants<RichTextBox>(window).Single()), Is.EqualTo("worker output" + Environment.NewLine));
         }
         finally {
             SynchronizationContext.SetSynchronizationContext(previousContext);
@@ -152,6 +153,14 @@ internal sealed class SquadCommandOutputWindowTests {
         var source = directory?.FullName ?? throw new DirectoryNotFoundException("SquadDash source not found.");
         using var stream = File.OpenRead(Path.Combine(source, "SquadDash", "Themes", theme + ".xaml"));
         return (ResourceDictionary)XamlReader.Load(stream);
+    }
+
+    // TextRange always serializes a trailing "\r\n" for the implicit paragraph/document end,
+    // regardless of what was actually appended; strip exactly that one so assertions can compare
+    // against the text that was actually written (mirroring the old TextBox.Text semantics).
+    private static string GetText(RichTextBox box) {
+        var text = new TextRange(box.Document.ContentStart, box.Document.ContentEnd).Text;
+        return text.EndsWith("\r\n", StringComparison.Ordinal) ? text[..^2] : text;
     }
 
     private static IEnumerable<T> Descendants<T>(DependencyObject parent) where T : DependencyObject {

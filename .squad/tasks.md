@@ -1,4 +1,4 @@
-﻿<!-- decompose-group: DETAIL-20261009 | branch: feature/collapsible-markdown-detail | revision: a359481df7ea52e6 -->
+<!-- decompose-group: DETAIL-20261009 | branch: feature/collapsible-markdown-detail | revision: a359481df7ea52e6 -->
 **[DETAIL-20261009] Collapsible Markdown Detail**
 > Keep rendered Markdown concise for expert readers while allowing optional explanations in themed, initially collapsed detail sections. Share rendering and durable section state across Inbox and Plan Visualizer descriptions, including the inspector, and exclude collapsed bodies from copy/export and in-document find without changing stored content schemas.
 
@@ -1873,6 +1873,34 @@ Do NOT commit tasks.md. Commit only the doc files. Build verification is not req
 ---
 
 ## 🟡 Mid Priority
+
+- [ ] **[Region editor] Lower selection highlight opacity for readability** *(Owner: Lyra Morn)*
+  Follow-up from the AvalonEdit Region Editor plan (AVALONEDIT-20261014) human review. When text is
+  selected inside an inline code region (AvalonEdit editor in `SquadDash/AvalonEditRegionEditor.cs`),
+  the selection highlight contrast is too strong — the selected text is hard to read. Reduce the
+  selection fill (and/or border) opacity on the region editor's selection rendering so selected text
+  stays legible in both light and dark themes. Tie it into the existing per-editor light/dark palette
+  hook (ApplyPalette / RegionHighlightingPalettes). Related to the earlier selection-rectangle
+  opacity concern the user raised during this feature.
+
+- [ ] **[Region editor] Backspace at region start dissolves the region into the host editor** *(Owner: Lyra Morn)*
+  Follow-up from the AvalonEdit Region Editor plan (AVALONEDIT-20261014) human review. When the caret is
+  at the very first position (line 0, column 0) of an inline code region and the user presses Backspace,
+  if the region still contains text, destroy the inline code-region container and re-insert its remaining
+  text into the host prompt editor at the caret position as plain (non-region) text. Today backspace at
+  the region's zero position does nothing / stays trapped in the region. Implement in the region's key
+  handling (`SquadDash/EmbeddedCodeRegionBlock.cs` / `AvalonEditRegionEditor.cs`), coordinating with the
+  host RichTextBox so the unwrapped text lands in the host editor, not inside another region. Add
+  round-trip/caret-nav tests.
+
+- [ ] **[Inbox] Copy/Cut intercepted in approval-note text fields** *(Owner: Lyra Morn)*
+  SquadDash bug (not AvalonEdit). Inside an Inbox message card's editable note fields on yes/no approval
+  items, Ctrl+C does not copy the selected note text (a later paste yields older clipboard content) and
+  Ctrl+X does nothing (no text is cut/deleted). The same note editing in the transcript card works
+  correctly — copy/cut/paste all function there. So Copy and Cut are being intercepted only in the Inbox
+  message note editors. Investigate the Inbox message window note-field input handling
+  (`InboxMessageWindow` / the approval-note editor controls) for a swallowed/misrouted
+  ApplicationCommands.Copy/Cut binding or PreviewKeyDown handler, and restore standard clipboard behavior.
 
 - [ ] Test and evaluate the Decompose feature
   Manually walk through decompose in a range of circumstances to verify reliability.

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SyntaxDefinition name="MarkdownDirectives"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Keyword" foreground="#174EA6" />
+  <Color name="Comment" foreground="#426536" />
+  <Color name="String" foreground="#8F3520" />
+  <Color name="Tag" foreground="#174EA6" />
+  <Color name="InlineCode" foreground="#8A176F" />
+  <Color name="Attribute" foreground="#245B80" />
+  <Color name="Punctuation" foreground="#493827" />
+  <Color name="DirectiveKeyword" />
+  <Color name="DirectiveVariable" />
+  <Color name="DirectiveString" />
+
+  <RuleSet>
+    <Span color="Comment" begin="&lt;!--" end="--&gt;" multiline="true" />
+    <Span color="String" begin="^[ ]{0,3}`{4,}[^`]*$" end="^[ ]{0,3}`{4,}[\t ]*$" multiline="true" />
+    <Span color="String" begin="^[ ]{0,3}`{3}[^`]*$" end="^[ ]{0,3}`{3,}[\t ]*$" multiline="true" />
+    <Span color="String" begin="^[ ]{0,3}~{4,}.*$" end="^[ ]{0,3}~{4,}[\t ]*$" multiline="true" />
+    <Span color="String" begin="^[ ]{0,3}~{3}(?!~).*$" end="^[ ]{0,3}~{3,}[\t ]*$" multiline="true" />
+    <Span color="InlineCode" begin="``(?!`)" end="``" />
+    <Span color="InlineCode" begin="`(?!`)" end="`" />
+    <Span>
+      <Begin color="Punctuation">\{\{</Begin>
+      <End color="Punctuation">\}\}</End>
+      <RuleSet>
+        <Span color="DirectiveString" begin="&quot;" end="&quot;">
+          <RuleSet>
+            <Span begin="\\" end="." />
+          </RuleSet>
+        </Span>
+        <Rule color="DirectiveKeyword">[#/][A-Za-z][A-Za-z0-9_-]*\b|\belse\b</Rule>
+        <Rule color="DirectiveVariable">\b[A-Za-z_][A-Za-z0-9_]*\b</Rule>
+      </RuleSet>
+    </Span>
+
+    <Rule color="Keyword">^\s{0,3}(?:\#{1,6}\s+.+|(?:=+|-+)\s*$)</Rule>
+    <Rule color="Punctuation">^\s*(?:[-+*]|\d+\.)\s+</Rule>
+    <Rule color="Tag">!\[[^\]\r\n]*\]\([^)]+\)</Rule>
+    <Rule color="Attribute">\[[^\]\r\n]+\]\([^)]+\)</Rule>
+    <Rule color="Keyword">\*\*[^*\r\n]+\*\*|(?&lt;![A-Za-z0-9])__[^_\r\n]+__(?![A-Za-z0-9])|\*[^*\r\n]+\*|(?&lt;![A-Za-z0-9])_[^_\r\n]+_(?![A-Za-z0-9])|~~[^~\r\n]+~~</Rule>
+    <Rule color="Punctuation">[\\`*_{}\[\]()#+\-.!&gt;]</Rule>
+  </RuleSet>
+</SyntaxDefinition>

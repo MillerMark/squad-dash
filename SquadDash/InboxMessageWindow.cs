@@ -57,6 +57,9 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private readonly Action<string>? _openInboxMessage;
     private readonly Func<string, Plan?>? _loadPlan;
     private readonly Action<string, PlanHumanReviewChecklistItem, bool>? _onHumanReviewSelectionChanged;
+    private readonly Action<string, PlanHumanReviewChecklistItem, PlanHumanReviewItemResponse>? _onHumanReviewResponseChanged;
+    private readonly Dictionary<string, Action<PlanHumanReviewItemResponse>> _humanReviewResponseSetters = new(StringComparer.Ordinal);
+    private readonly PttTextBoxAttachment _pttAttachment;
     private double _bodyFontSize;
     private bool _markedRead;
     private readonly string? _planGroupId;
@@ -88,6 +91,7 @@ internal sealed class InboxMessageWindow : ChromedWindow
         string? workspaceFolder = null,
         Func<string, Plan?>? loadPlan = null,
         Action<string, PlanHumanReviewChecklistItem, bool>? onHumanReviewSelectionChanged = null,
+        Action<string, PlanHumanReviewChecklistItem, PlanHumanReviewItemResponse>? onHumanReviewResponseChanged = null,
         Func<string, string?>? resolveMessageFilePath = null,
         Action<string>? openInboxMessage = null,
         MarkdownDetailStateStore? detailStateStore = null)
@@ -114,6 +118,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         _openInboxMessage       = openInboxMessage;
         _loadPlan               = loadPlan;
         _onHumanReviewSelectionChanged = onHumanReviewSelectionChanged;
+        _onHumanReviewResponseChanged = onHumanReviewResponseChanged;
+        _pttAttachment = new PttTextBoxAttachment(() => new ApplicationSettingsStore().Load(), this, Dispatcher);
         _bodyFontSize           = initialFontSize > 0 ? initialFontSize : 14;
         MessageId               = message.Id;
         _planGroupId            = message.ResolvePlanGroupId();
@@ -496,7 +502,15 @@ internal sealed class InboxMessageWindow : ChromedWindow
             {
                 ShowFind();
                 e.Handled = true;
+                return;
             }
+            if (_pttAttachment.HandlePreviewKeyDown(e, Keyboard.FocusedElement as TextBox))
+                e.Handled = true;
+        };
+        PreviewKeyUp += (_, e) =>
+        {
+            if (_pttAttachment.HandlePreviewKeyUp(e))
+                e.Handled = true;
         };
         var bodyLayout = new DockPanel();
         DockPanel.SetDock(findBar, Dock.Top);
@@ -591,6 +605,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
             _preflightPollTimer?.Stop();
             _preflightPollTimer = null;
             DisposePlanThumbnailRenderer();
+            if (_pttAttachment.IsActive) _ = _pttAttachment.StopAsync();
+            _pttAttachment.Dispose();
         };
     }
 
@@ -908,8 +924,10 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private FlowDocument BuildBodyDocument(InboxMessage message)
     {
         DetachBodyDocument();
+        _humanReviewResponseSetters.Clear();
         var document = BuildRenderedBodyDocument(message, _bodyFontSize, _workspaceFolder, _detailStateStore,
-            _loadPlan, OpenInlineBodyLink, _openCommit, _openDecomposePlan, _onHumanReviewSelectionChanged);
+            _loadPlan, OpenInlineBodyLink, _openCommit, _openDecomposePlan,
+            _onHumanReviewSelectionChanged, _onHumanReviewResponseChanged, _humanReviewResponseSetters);
         _renderedBody = document;
         MarkdownVisibleContent.State(document).VisibilityChanged += OnDetailVisibilityChanged;
         foreach (var (_, viewer) in MarkdownVisibleContent.Documents(document, visibleOnly: false))
@@ -927,7 +945,10 @@ internal sealed class InboxMessageWindow : ChromedWindow
     private static FlowDocument BuildRenderedBodyDocument(
         InboxMessage message, double fontSize, string? workspaceFolder, MarkdownDetailStateStore stateStore,
         Func<string, Plan?>? loadPlan, Action<string>? onLinkClicked, Action<string>? openCommit,
-        Action<InboxAttachment>? openPlan, Action<string, PlanHumanReviewChecklistItem, bool>? onSelectionChanged)
+        Action<InboxAttachment>? openPlan,
+        Action<string, PlanHumanReviewChecklistItem, bool>? onSelectionChanged,
+        Action<string, PlanHumanReviewChecklistItem, PlanHumanReviewItemResponse>? onResponseChanged = null,
+        IDictionary<string, Action<PlanHumanReviewItemResponse>>? responseSetters = null)
     {
         var body = message.Body ?? string.Empty;
         var binding = ManualTestKitApprovalBinding.Read(message);
@@ -953,17 +974,48 @@ internal sealed class InboxMessageWindow : ChromedWindow
         InboxCommitLinkPresenter.Attach(document, openCommit);
         InboxPlanLinkPresenter.Attach(document, message, openPlan);
 
-        if (plan is not null && onSelectionChanged is not null)
+        if (plan is not null && (onResponseChanged is not null || onSelectionChanged is not null))
         {
             InboxApprovalChecklistPresenter.Attach(
                 document,
                 checklist,
-                (item, isChecked) => onSelectionChanged(plan.PlanId, item, isChecked),
+                (item, response) =>
+                {
+                    if (onResponseChanged is not null)
+                    {
+                        onResponseChanged(plan.PlanId, item, response);
+                        return;
+                    }
+                    onSelectionChanged?.Invoke(plan.PlanId, item, response.IsApproved == true);
+                },
                 fontSize,
-                isEnabled: gates.All(gate => gate.Status == PlanGateStatus.AwaitingApproval));
+                isEnabled: gates.All(gate => gate.Status == PlanGateStatus.AwaitingApproval),
+                responseSetters);
         }
 
         return document;
+    }
+
+    internal void SetHumanReviewChecklistResponse(
+        string planId,
+        PlanHumanReviewChecklistItem item,
+        PlanHumanReviewItemResponse response)
+    {
+        if (!string.Equals(PlanGroupId, planId, StringComparison.Ordinal))
+            return;
+
+        void Apply()
+        {
+            if (_humanReviewResponseSetters.TryGetValue(
+                    InboxApprovalChecklistPresenter.BuildResponseKey(item),
+                    out var setter))
+                setter(response);
+        }
+
+        if (Dispatcher.CheckAccess())
+            Apply();
+        else
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)Apply);
     }
 
     internal string GetRenderedMessageText() => BuildMessageClipboardText(_message, _bodyViewer.Document);
@@ -992,7 +1044,8 @@ internal sealed class InboxMessageWindow : ChromedWindow
         Func<string, Plan?>? loadPlan = null, MarkdownDetailStateStore? detailStateStore = null)
     {
         var document = BuildRenderedBodyDocument(message, 14, workspaceFolder,
-            detailStateStore ?? new MarkdownDetailStateStore(), loadPlan, _ => { }, _ => { }, _ => { }, (_, _, _) => { });
+            detailStateStore ?? new MarkdownDetailStateStore(), loadPlan, _ => { }, _ => { }, _ => { },
+            (_, _, _) => { });
         DispatcherTimer? timer = null;
         try
         {

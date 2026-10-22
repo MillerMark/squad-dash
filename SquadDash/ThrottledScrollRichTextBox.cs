@@ -29,6 +29,11 @@ internal sealed class ThrottledScrollRichTextBox : RichTextBox
     /// </summary>
     private const double MaxScrollPerMovePx = 40.0;
 
+    public ThrottledScrollRichTextBox()
+    {
+        ReadOnlyTextInputGuard.DisableInputMethod(this);
+    }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed)

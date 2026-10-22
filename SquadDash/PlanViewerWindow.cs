@@ -56,7 +56,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<PlanTask, string>? _onOpenTaskFileDiff;
     private readonly Action<Plan>? _onContinueInterruptedTask;
     private readonly Action<Plan>? _onReplanRemainingWork;
-    private readonly Action<Plan, string>? _onOpenReviewCard;
     private readonly Action<PlanHumanReviewChecklistItem, bool>? _onReviewSelection;
     private readonly Action<Plan, string, IReadOnlyList<PlanHumanReviewChecklistItem>>? _onAddressUncheckedItems;
     private readonly Func<string, (ImageSource? Image, string Initial, Brush Accent)?>? _resolveAgentAvatar;
@@ -73,6 +72,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private readonly Action<Plan, string>? _onReviewValidation;
     private readonly Func<ApplicationSettingsSnapshot>? _getSettings;
     private readonly Func<IReadOnlyList<RosterAgent>>? _getAssignableAgents;
+    private readonly Func<PendingDecomposePlan, bool>? _isPendingPlanExecutionPreflightActive;
     private readonly Action<string>? _onDescriptionLinkClicked;
     private readonly Action<string, string>? _onOpenWorkMetrics;
     private PttTextBoxAttachment? _pttAttachment;
@@ -116,6 +116,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
     private FlowDocumentScrollViewer? _detailViewer;
     private PlanDescriptionPresentation? _descriptionPresentation;
     private PlanDescriptionDocumentSession? _descriptionSession;
+    private AvalonEditMarkdownEditor? _taskDescriptionEditor;
     private readonly List<FlowDocument> _descriptionPreviews = [];
     private TextBox? _descriptionFindInput;
     private double _inspectorFontScale = 1.0;
@@ -204,6 +205,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
         public bool IsActive { get; set; }
     }
     private SelectedElementIdentity? _selectedElement;
+    // Remembers, per clicked element, the inspector scroll position as a 0..1 fraction of the
+    // scrollable height. In-memory only (not persisted to the plan file) by design.
+    private readonly Dictionary<SelectedElementIdentity, double> _inspectorScrollFractions = new();
+    // The element whose content is currently rendered in the inspector; used to know whose scroll
+    // fraction to save when the inspector swaps to a different element.
+    private SelectedElementIdentity? _inspectorRenderedElement;
     private (Border border, Thickness original)? _selectionBorderState;
     private TextBlock? _selectedStageTitleBlock; // stage title whose Foreground was overridden on selection
     private FrameworkElement? _selectionGlowElement;
@@ -260,7 +267,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Action<PlanTask, string>? onOpenTaskFileDiff = null,
         Action<Plan>? onContinueInterruptedTask = null,
         Action<Plan>? onReplanRemainingWork = null,
-        Action<Plan, string>? onOpenReviewCard = null,
         Action<PlanHumanReviewChecklistItem, bool>? onReviewSelection = null,
         Action<Plan, string, IReadOnlyList<PlanHumanReviewChecklistItem>>? onAddressUncheckedItems = null,
         Func<DecomposedTaskGroup, PlanDefinitionEditResult>? saveDefinitionEdit = null,
@@ -273,6 +279,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         Func<IReadOnlyList<RosterAgent>>? getAssignableAgents = null,
         Func<Plan, PlanRecoveryActionSetPresentation?>? resolveInterruptedActionSet = null,
         Action<Plan>? onOpenInterruptedChanges = null,
+        Func<PendingDecomposePlan, bool>? isPendingPlanExecutionPreflightActive = null,
         double lineThicknessMultiplier = 1.0,
         string? squadFolderPath = null,
         Action<string>? onDescriptionLinkClicked = null,
@@ -317,7 +324,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onOpenTaskFileDiff = onOpenTaskFileDiff;
         _onContinueInterruptedTask = onContinueInterruptedTask;
         _onReplanRemainingWork = onReplanRemainingWork;
-        _onOpenReviewCard = onOpenReviewCard;
         _onReviewSelection = onReviewSelection;
         _onAddressUncheckedItems = onAddressUncheckedItems;
         _resolveAgentAvatar = resolveAgentAvatar;
@@ -334,6 +340,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         _onReviewValidation = onReviewValidation;
         _getSettings = getSettings;
         _getAssignableAgents = getAssignableAgents;
+        _isPendingPlanExecutionPreflightActive = isPendingPlanExecutionPreflightActive;
         _onDescriptionLinkClicked = onDescriptionLinkClicked;
         _onOpenWorkMetrics = onOpenWorkMetrics;
         _squadFolderPath = squadFolderPath;
@@ -606,7 +613,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
     }
 
     private static bool IsGraphTextInput(IInputElement? element) =>
-        element is TextBoxBase or PasswordBox or ComboBox { IsEditable: true };
+        element is TextBoxBase or PasswordBox or ComboBox { IsEditable: true }
+            or ICSharpCode.AvalonEdit.Editing.TextArea;
 
     private void OnGraphPanPreviewKeyUp(object sender, KeyEventArgs e)
     {
@@ -804,6 +812,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             RebuildPreservingScroll(_plan, _durablePlan);
     }
 
+    internal void NotifyPendingPlanExecutionPreflightChanged()
+    {
+        if (_plan is not null)
+            RebuildPreservingScroll(_plan, _durablePlan);
+    }
+
     private void BuildContent(PendingDecomposePlan plan, Plan? durablePlan)
     {
         DetachDescriptionDocuments();
@@ -854,7 +868,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var currentContinueAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
             action.Kind == PlanRecoverySurfaceActionKind.ContinueWorking);
         var currentReviseAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
-            action.Kind == PlanRecoverySurfaceActionKind.ReviseRemainingPlan);
+            action.Kind is PlanRecoverySurfaceActionKind.RepairReviewInstructions or
+                PlanRecoverySurfaceActionKind.ReviseRemainingPlan);
         var currentEndAction = currentInterruptedActionSet?.Actions.FirstOrDefault(action =>
             action.Kind == PlanRecoverySurfaceActionKind.EndPlan);
         var showOrdinaryLifecycleControls = PlanRecoveryLifecycleControlPolicy.ShouldShowOrdinaryControls(
@@ -1033,66 +1048,82 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (applyAction is not null)
         {
             var actionRegion = new StackPanel();
-            var actionsPanel = new WrapPanel
+            var startPreflightActive = _isPendingPlanExecutionPreflightActive?.Invoke(plan) == true;
+            if (startPreflightActive)
             {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 0, 0, 8),
-            };
-            var recoveryHost = new ContentControl
-            {
-                Visibility = Visibility.Collapsed,
-                Margin = new Thickness(0, 0, 0, 8),
-            };
-            foreach (var action in DecomposePlanInbox.BuildActionDefinitions(plan, activeBranch))
-            {
-                var capturedAction = action;
-                var button = TranscriptQuickReplyFactory.CreateButton(
-                    action.Label,
-                    quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip(action.Hint));
-                button.Focusable = false;
-                button.Click += async (_, _) =>
+                var status = new TextBlock
                 {
-                    ClearActionStatus();
-                    actionsPanel.IsEnabled = false;
-                    try
+                    Text = "Start is waiting for a clean workspace. Use the recovery card in the transcript to retry or dismiss it.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 8),
+                };
+                status.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                status.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                actionRegion.Children.Add(status);
+            }
+            else
+            {
+                var actionsPanel = new WrapPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 0, 0, 8),
+                };
+                var recoveryHost = new ContentControl
+                {
+                    Visibility = Visibility.Collapsed,
+                    Margin = new Thickness(0, 0, 0, 8),
+                };
+                foreach (var action in DecomposePlanInbox.BuildActionDefinitions(plan, activeBranch))
+                {
+                    var capturedAction = action;
+                    var button = TranscriptQuickReplyFactory.CreateButton(
+                        action.Label,
+                        quickReplyFontSize,
+                        toolTip: ToolTipHelper.MakeThemedToolTip(action.Hint));
+                    button.Focusable = false;
+                    button.Click += async (_, _) =>
                     {
-                        if (await applyAction(capturedAction))
-                            Close();
-                        else
+                        ClearActionStatus();
+                        actionsPanel.IsEnabled = false;
+                        try
+                        {
+                            if (await applyAction(capturedAction))
+                                Close();
+                            else
+                            {
+                                actionsPanel.IsEnabled = true;
+                                EnsureActionStatus("The plan action could not be completed. Review the current plan state and try again.");
+                            }
+                        }
+                        catch (PlanPreflightBlockedException blocked)
+                        {
+                            ShowPlanPreflightRecovery(
+                                blocked,
+                                actionsPanel,
+                                recoveryHost,
+                                async () =>
+                                {
+                                    if (blocked.RequiresRepositoryInitialization &&
+                                        (_initializeRepository is null || !await _initializeRepository()))
+                                        return false;
+                                    if (!await applyAction(capturedAction)) return false;
+                                    Close();
+                                    return true;
+                                });
+                        }
+                        catch (Exception ex)
                         {
                             actionsPanel.IsEnabled = true;
-                            EnsureActionStatus("The plan action could not be completed. Review the current plan state and try again.");
+                            SquadDashTrace.Write(TraceCategory.General,
+                                $"Plan viewer action '{capturedAction.Action}' failed: {ex}");
+                            ShowActionStatus("Plan action failed", ex.Message);
                         }
-                    }
-                    catch (PlanPreflightBlockedException blocked)
-                    {
-                        ShowPlanPreflightRecovery(
-                            blocked,
-                            actionsPanel,
-                            recoveryHost,
-                            async () =>
-                            {
-                                if (blocked.RequiresRepositoryInitialization &&
-                                    (_initializeRepository is null || !await _initializeRepository()))
-                                    return false;
-                                if (!await applyAction(capturedAction)) return false;
-                                Close();
-                                return true;
-                            });
-                    }
-                    catch (Exception ex)
-                    {
-                        actionsPanel.IsEnabled = true;
-                        SquadDashTrace.Write(TraceCategory.General,
-                            $"Plan viewer action '{capturedAction.Action}' failed: {ex}");
-                        ShowActionStatus("Plan action failed", ex.Message);
-                    }
-                };
-                actionsPanel.Children.Add(button);
+                    };
+                    actionsPanel.Children.Add(button);
+                }
+                actionRegion.Children.Add(actionsPanel);
+                actionRegion.Children.Add(recoveryHost);
             }
-            actionRegion.Children.Add(actionsPanel);
-            actionRegion.Children.Add(recoveryHost);
             header.Children.Add(actionRegion);
         }
 
@@ -1140,9 +1171,10 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
         if (durablePlan is not null && reviewAttention is not null)
         {
-            var reviewChangeActive = IsApprovalChangeActive(reviewAttention.Gate);
+            var reviewChangeActive = reviewAttention.Gates.Any(IsApprovalChangeActive);
             if (reviewChangeActive &&
-                !_dismissedApprovalChangeGateIds.Contains(reviewAttention.Gate.GateId))
+                reviewAttention.Gates.Any(gate =>
+                    !_dismissedApprovalChangeGateIds.Contains(gate.GateId)))
             {
                 var workingCard = new StackPanel();
                 var workingHeader = new Grid();
@@ -1173,7 +1205,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 Grid.SetColumn(dismissWorkingCard, 1);
                 dismissWorkingCard.Click += (_, _) =>
                 {
-                    _dismissedApprovalChangeGateIds.Add(reviewAttention.Gate.GateId);
+                    foreach (var gate in reviewAttention.Gates)
+                        _dismissedApprovalChangeGateIds.Add(gate.GateId);
                     if (_plan is not null && _durablePlan is not null)
                         RebuildPreservingScroll(_plan, _durablePlan);
                 };
@@ -1202,173 +1235,143 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             else if (!reviewChangeActive)
             {
-            var reviewCard = new StackPanel();
-            var reviewTitle = new TextBlock
-            {
-                Text = reviewAttention.Title,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 3),
-            };
-            reviewTitle.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
-            reviewTitle.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeLarge");
-            reviewCard.Children.Add(reviewTitle);
+                var banner = PlanReviewBannerPresentation.Create(reviewAttention);
+                var reviewCard = new Grid();
+                reviewCard.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                reviewCard.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            var reviewSummary = new TextBlock
-            {
-                Text = reviewAttention.Summary,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 7),
-            };
-            reviewSummary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
-            reviewCard.Children.Add(reviewSummary);
-
-            var verifyLabel = new TextBlock
-            {
-                Text = "Verify the Following:",
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 3),
-            };
-            verifyLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-            reviewCard.Children.Add(verifyLabel);
-
-            var currentChecks = reviewAttention.Checklist.ToDictionary(
-                item => item.ItemId, item => item.IsChecked, StringComparer.Ordinal);
-            Button? completeReviewButton = null;
-            Button? addressUncheckedButton = null;
-            void RefreshReviewActions()
-            {
-                if (completeReviewButton is not null)
-                    completeReviewButton.IsEnabled = currentChecks.Count > 0 && currentChecks.Values.All(value => value);
-                if (addressUncheckedButton is not null)
-                    addressUncheckedButton.IsEnabled = currentChecks.Values.Any(value => !value);
-            }
-
-            foreach (var item in reviewAttention.Checklist)
-            {
-                var itemStack = new StackPanel { Margin = new Thickness(4, 2, 0, 5) };
-                var checkBox = new CheckBox
+                var reviewText = new StackPanel
                 {
-                    Content = item.Text,
-                    IsChecked = item.IsChecked,
+                    Margin = new Thickness(0, 0, 12, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var reviewTitle = new TextBlock
+                {
+                    Text = banner.Title,
                     FontWeight = FontWeights.SemiBold,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        "Check this only after personally verifying the statement."),
+                    Margin = new Thickness(0, 0, 0, 2),
                 };
-                checkBox.Checked += (_, _) =>
-                {
-                    currentChecks[item.ItemId] = true;
-                    _onReviewSelection?.Invoke(item, true);
-                    RefreshReviewActions();
-                };
-                checkBox.Unchecked += (_, _) =>
-                {
-                    currentChecks[item.ItemId] = false;
-                    _onReviewSelection?.Invoke(item, false);
-                    RefreshReviewActions();
-                };
-                itemStack.Children.Add(checkBox);
+                reviewTitle.SetResourceReference(TextBlock.ForegroundProperty, "ImportantText");
+                reviewTitle.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+                reviewText.Children.Add(reviewTitle);
 
-                var requirement = PlanReviewAttentionPresentationResolver.FindRequirement(reviewAttention, item);
-                if (requirement?.VerificationRecipe is { } recipe)
+                var reviewSummary = new TextBlock
                 {
-                    var recipeText = new TextBlock
-                    {
-                        Text = $"Setup: {recipe.Setup}\nOpen: {recipe.Open}\nObserve: {recipe.Observe}\nCleanup: {recipe.Cleanup}",
-                        TextWrapping = TextWrapping.Wrap,
-                        Margin = new Thickness(22, 3, 0, 0),
-                    };
-                    recipeText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
-                    recipeText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
-                    itemStack.Children.Add(recipeText);
+                    Text = banner.Summary,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 3),
+                };
+                reviewSummary.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+                reviewSummary.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                reviewText.Children.Add(reviewSummary);
+
+                var progressText = new TextBlock
+                {
+                    Text = banner.ProgressText,
+                    TextWrapping = TextWrapping.Wrap,
+                };
+                progressText.SetResourceReference(TextBlock.ForegroundProperty,
+                    banner.AllItemsChecked ? "PriorityLow" : "SubtleText");
+                progressText.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                reviewText.Children.Add(progressText);
+
+                var transcriptNote = new TextBlock
+                {
+                    Text = durablePlan.IsPaused
+                        ? "Paused plans hide the transcript review card. Use these review controls here, or resume the plan to show the transcript card."
+                        : "The transcript also has the live review card.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 0),
+                };
+                transcriptNote.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+                transcriptNote.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+                reviewText.Children.Add(transcriptNote);
+                reviewCard.Children.Add(reviewText);
+
+                var currentChecks = reviewAttention.Checklist.ToDictionary(
+                    item => item.ItemId, item => item.IsChecked, StringComparer.Ordinal);
+                Button? completeReviewButton = null;
+                Button? addressUncheckedButton = null;
+                void RefreshReviewActions()
+                {
+                    if (completeReviewButton is not null)
+                        completeReviewButton.IsEnabled = currentChecks.Count > 0 && currentChecks.Values.All(value => value);
+                    if (addressUncheckedButton is not null)
+                        addressUncheckedButton.IsEnabled = currentChecks.Values.Any(value => !value);
                 }
-                reviewCard.Children.Add(itemStack);
-            }
 
-            var reviewActions = new WrapPanel { Margin = new Thickness(0, 5, 0, 0) };
-            if (onAdoptVerifiedCommitRange is not null)
-            {
-                var capturedPlan = durablePlan;
-                var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
-                    capturedPlan,
-                    [reviewAttention.Gate.GateId]);
-                completeReviewButton = TranscriptQuickReplyFactory.CreateButton(
-                    primaryAction.Label,
-                    quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip(
-                        $"Enabled after every review item is checked. {primaryAction.Hint}"));
-                completeReviewButton.Click += async (_, _) =>
+                var reviewActions = new WrapPanel
                 {
-                    ClearActionStatus();
-                    reviewActions.IsEnabled = false;
-                    try
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(reviewActions, 1);
+                if (onAdoptVerifiedCommitRange is not null)
+                {
+                    var capturedPlan = durablePlan;
+                    var primaryAction = PlanCheckpointPrimaryActionPresentationResolver.Resolve(
+                        capturedPlan,
+                        reviewAttention.Gates.Select(gate => gate.GateId).ToArray());
+                    completeReviewButton = TranscriptQuickReplyFactory.CreateButton(
+                        primaryAction.Label,
+                        quickReplyFontSize,
+                        toolTip: ToolTipHelper.MakeThemedToolTip(
+                            $"Enabled after every review item is checked. {primaryAction.Hint}"));
+                    completeReviewButton.Click += async (_, _) =>
                     {
-                        if (await onAdoptVerifiedCommitRange(capturedPlan)) Close();
-                        else
+                        ClearActionStatus();
+                        reviewActions.IsEnabled = false;
+                        try
+                        {
+                            if (await onAdoptVerifiedCommitRange(capturedPlan)) Close();
+                            else
+                            {
+                                reviewActions.IsEnabled = true;
+                                EnsureActionStatus("The review could not be completed. The plan remains at this checkpoint.");
+                            }
+                        }
+                        catch (Exception ex)
                         {
                             reviewActions.IsEnabled = true;
-                            EnsureActionStatus("The review could not be completed. The plan remains at this checkpoint.");
+                            SquadDashTrace.Write(TraceCategory.General, $"Complete plan review failed: {ex}");
+                            ShowActionStatus("Review could not be completed", ex.Message);
                         }
-                    }
-                    catch (Exception ex)
+                    };
+                    reviewActions.Children.Add(completeReviewButton);
+                }
+                if (_onAddressUncheckedItems is not null)
+                {
+                    addressUncheckedButton = TranscriptQuickReplyFactory.CreateButton(
+                        PlanReviewActionPresentation.AddressUnapprovedItemsLabel,
+                        quickReplyFontSize,
+                        toolTip: ToolTipHelper.MakeThemedToolTip(
+                            PlanReviewActionPresentation.AddressUnapprovedItemsToolTip));
+                    addressUncheckedButton.Click += (_, _) =>
                     {
-                        reviewActions.IsEnabled = true;
-                        SquadDashTrace.Write(TraceCategory.General, $"Complete plan review failed: {ex}");
-                        ShowActionStatus("Review could not be completed", ex.Message);
-                    }
-                };
-                reviewActions.Children.Add(completeReviewButton);
-            }
-            if (_onAddressUncheckedItems is not null)
-            {
-                addressUncheckedButton = TranscriptQuickReplyFactory.CreateButton(
-                    "✎ Address Unchecked Items…",
-                    quickReplyFontSize,
-                    toolTip: ToolTipHelper.MakeThemedToolTip(
-                        "Create an editable prompt containing the unchecked review items."));
-                addressUncheckedButton.Click += (_, _) =>
-                {
-                    var currentItems = reviewAttention.Checklist.Select(item => item with
-                    {
-                        IsChecked = currentChecks[item.ItemId],
-                    }).ToArray();
-                    _onAddressUncheckedItems(durablePlan, reviewAttention.Task.TaskId, currentItems);
-                };
-                reviewActions.Children.Add(addressUncheckedButton);
-            }
-            if (_onOpenReviewCard is not null)
-            {
-                var openCardText = new TextBlock
-                {
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(8, 4, 4, 4),
-                    FontSize = quickReplyFontSize,
-                };
-                var openCardLink = new Hyperlink(new Run("Open Review Card"))
-                {
-                    Cursor = Cursors.Hand,
-                    ToolTip = ToolTipHelper.MakeThemedToolTip(
-                        "Open, scroll to, and highlight the corresponding transcript review card."),
-                };
-                openCardLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-                openCardLink.Click += (_, _) =>
-                    _onOpenReviewCard(durablePlan, reviewAttention.Task.TaskId);
-                openCardText.Inlines.Add(openCardLink);
-                reviewActions.Children.Add(openCardText);
-            }
-            RefreshReviewActions();
-            reviewCard.Children.Add(reviewActions);
+                        var currentItems = reviewAttention.Checklist.Select(item => item with
+                        {
+                            IsChecked = currentChecks[item.ItemId],
+                        }).ToArray();
+                        _onAddressUncheckedItems(durablePlan, reviewAttention.Task.TaskId, currentItems);
+                    };
+                    reviewActions.Children.Add(addressUncheckedButton);
+                }
+                RefreshReviewActions();
+                if (reviewActions.Children.Count > 0)
+                    reviewCard.Children.Add(reviewActions);
 
-            var reviewBorder = new Border
-            {
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(10, 8, 10, 8),
-                Margin = new Thickness(0, 4, 0, 8),
-                Child = reviewCard,
-            };
-            reviewBorder.SetResourceReference(Border.BorderBrushProperty, "PriorityMid");
-            reviewBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
-            header.Children.Add(reviewBorder);
+                var reviewBorder = new Border
+                {
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(10, 7, 10, 7),
+                    Margin = new Thickness(0, 4, 0, 6),
+                    Child = reviewCard,
+                };
+                reviewBorder.SetResourceReference(Border.BorderBrushProperty, "PriorityMid");
+                reviewBorder.SetResourceReference(Border.BackgroundProperty, "CardSurface");
+                header.Children.Add(reviewBorder);
             }
         }
 
@@ -1694,9 +1697,12 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             var statusText = new TextBlock
             {
-                Text = interruptedCorrectionState == PlanTaskCorrectionActivityState.Running
-                    ? $"Correcting {correctedStep}…"
-                    : $"Correction prompt prepared for {correctedStep}.",
+                Text = interruptedCorrectionState switch
+                {
+                    PlanTaskCorrectionActivityState.Running => $"Correcting {correctedStep}…",
+                    PlanTaskCorrectionActivityState.Submitted => $"Correction submitted for {correctedStep}; waiting to run.",
+                    _ => $"Correction prompt prepared for {correctedStep}.",
+                },
                 VerticalAlignment = VerticalAlignment.Center,
             };
             statusText.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
@@ -3910,8 +3916,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             };
             if (_saveDefinitionEdit is not null)
             {
-                var capturedTaskId = task.Id;
-                var capturedVerificationLevel = verificationLevel;
                 var verMenu = CreateThemedMenu();
 
                 var levelHeader = CreateThemedMenuItem("Verification level:");
@@ -3920,25 +3924,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
                 verMenu.Items.Add(levelHeader);
                 verMenu.Items.Add(CreateThemedMenuSeparator());
 
-                foreach (var (value, label) in new[]
-                {
-                    (PlanTaskVerificationLevel.Lightweight, "Lightweight"),
-                    (PlanTaskVerificationLevel.Standard, "Standard"),
-                    (PlanTaskVerificationLevel.Enhanced, "Enhanced"),
-                })
-                {
-                    var captured = value;
-                    var item = CreateThemedMenuItem(label);
-                    item.IsCheckable = true;
-                    item.IsChecked = capturedVerificationLevel == value;
-                    item.Click += (_, _) =>
-                    {
-                        if (_plan is null || !IsTaskDefinitionEditable(capturedTaskId)) return;
-                        ApplyStagedMutation(StagedPlanEditor.UpdateTaskVerificationLevel(
-                            _plan.Group, capturedTaskId, captured), selectKind: "task", selectId: capturedTaskId);
-                    };
-                    verMenu.Items.Add(item);
-                }
+                AddVerificationLevelMenuItems(verMenu, task.Id, verificationLevel);
                 verificationIndicator.ContextMenu = verMenu;
             }
             Canvas.SetLeft(verificationIndicator, position.X + NodeWidth - Math.Round(17.6 * _scaleFactor));
@@ -5280,6 +5266,23 @@ internal sealed class PlanViewerWindow : ChromedWindow
                     "Verification level cannot be changed after this step enters execution history.")
                 : null;
 
+        AddVerificationLevelMenuItems(submenu, taskId, current);
+        return submenu;
+    }
+
+    private void AddVerificationLevelMenuItems(ItemsControl menu, string taskId, string current)
+    {
+        var items = new Dictionary<string, MenuItem>(StringComparer.Ordinal);
+
+        void RestoreChecks()
+        {
+            var task = _plan?.Group.Tasks.FirstOrDefault(candidate => candidate.Id == taskId);
+            if (task is not null)
+                current = PlanTaskVerificationLevel.Normalize(task.VerificationLevel);
+            foreach (var (level, sibling) in items)
+                sibling.IsChecked = current == level;
+        }
+
         foreach (var (value, label) in new[]
         {
             (PlanTaskVerificationLevel.Lightweight, "Lightweight"),
@@ -5291,16 +5294,19 @@ internal sealed class PlanViewerWindow : ChromedWindow
             var item = CreateThemedMenuItem(label);
             item.IsCheckable = true;
             item.IsChecked = current == value;
+            items.Add(value, item);
             item.Click += (_, _) =>
             {
+                // IsChecked is already toggled before Click fires on a checkable MenuItem.
+                RestoreChecks();
                 if (_plan is null || !IsTaskDefinitionEditable(taskId)) return;
                 ApplyStagedMutation(StagedPlanEditor.UpdateTaskVerificationLevel(
                     _plan.Group, taskId, captured), selectKind: "task", selectId: taskId);
+                // Restore on failure, or reflect the saved level while the rebuild is deferred.
+                RestoreChecks();
             };
-            submenu.Items.Add(item);
+            menu.Items.Add(item);
         }
-
-        return submenu;
     }
 
     private ContextMenu? CreateAgentChipAssignContextMenu(string taskId, string clickedAgentHandle)
@@ -6695,8 +6701,14 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_detailDocument is null)
             return;
 
+        // Before swapping to a different element, remember the outgoing element's scroll position.
+        if (_inspectorRenderedElement is not null && !Equals(_inspectorRenderedElement, _selectedElement))
+            SaveInspectorScrollFraction(_inspectorRenderedElement);
+
         _descriptionSession?.Dispose();
         _descriptionSession = null;
+        _taskDescriptionEditor?.Dispose();
+        _taskDescriptionEditor = null;
         MarkdownVisibleContent.Detach(_detailDocument);
         RestoreInspectorFontScale();
         _inspectorEditorSaveAction = null;
@@ -6706,6 +6718,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
         if (_isInspectorEditing && TryPopulateStagedEditor())
         {
             PrependInspectorToolbar();
+            // Staged editors own their scrolling rather than the FlowDocument.
+            _inspectorRenderedElement = null;
             return;
         }
 
@@ -6753,6 +6767,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
             }
             AppendActiveReviewNote();
             PrependInspectorToolbar();
+            _inspectorRenderedElement = _selectedElement;
+            RestoreInspectorScrollFraction(_selectedElement);
             return;
         }
 
@@ -6855,6 +6871,104 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         AppendActiveReviewNote();
         PrependInspectorToolbar();
+        _inspectorRenderedElement = _selectedElement;
+        RestoreInspectorScrollFraction(_selectedElement);
+    }
+
+    // Walks the FlowDocumentScrollViewer's template to its inner ScrollViewer (PART_ContentHost),
+    // which exposes VerticalOffset / ScrollableHeight / ScrollToVerticalOffset.
+    private bool TryGetInspectorScrollViewer(out ScrollViewer scrollViewer)
+    {
+        scrollViewer = null!;
+        if (_detailViewer is null)
+            return false;
+        _detailViewer.ApplyTemplate();
+        var found = FindDescendantScrollViewer(_detailViewer);
+        if (found is null)
+            return false;
+        scrollViewer = found;
+        return true;
+    }
+
+    private static ScrollViewer? FindDescendantScrollViewer(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is ScrollViewer sv)
+                return sv;
+            var nested = FindDescendantScrollViewer(child);
+            if (nested is not null)
+                return nested;
+        }
+        return null;
+    }
+
+    // Stores the outgoing element's current scroll position as a 0..1 fraction of scrollable height.
+    private void SaveInspectorScrollFraction(SelectedElementIdentity outgoing)
+    {
+        if (!TryGetInspectorScrollViewer(out var sv))
+            return;
+        var fraction = sv.ScrollableHeight > 0 ? sv.VerticalOffset / sv.ScrollableHeight : 0.0;
+        _inspectorScrollFractions[outgoing] = Math.Clamp(fraction, 0.0, 1.0);
+    }
+
+    // Restores the incoming element's remembered scroll position (or scrolls to top when none).
+    // Deferred to Loaded priority so the FlowDocument has been measured before we read ScrollableHeight.
+    private void RestoreInspectorScrollFraction(SelectedElementIdentity? incoming)
+    {
+        if (incoming is null || _detailViewer is null)
+            return;
+        var target = incoming;
+        _detailViewer.Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Loaded,
+            new Action(() => ApplyInspectorScrollRestore(target)));
+    }
+
+    private void ApplyInspectorScrollRestore(SelectedElementIdentity target)
+    {
+        if (_isViewerClosed)
+            return;
+        // The selection may have changed again before this deferred apply ran.
+        if (!Equals(_inspectorRenderedElement, target))
+            return;
+        if (!TryGetInspectorScrollViewer(out var sv))
+            return;
+
+        if (!_inspectorScrollFractions.TryGetValue(target, out var fraction))
+        {
+            // No remembered position: read this element from the beginning.
+            sv.ScrollToVerticalOffset(0);
+            return;
+        }
+
+        if (sv.ScrollableHeight > 0)
+        {
+            // Overshoot (shorter content than before) clamps to the bottom via Math.Min.
+            var offset = fraction * sv.ScrollableHeight;
+            sv.ScrollToVerticalOffset(Math.Min(offset, sv.ScrollableHeight));
+            return;
+        }
+
+        // A non-trivial fraction was saved but the document has not yet produced a scrollable
+        // extent (async FlowDocument layout). Apply once, when the extent first appears.
+        if (fraction <= 0)
+            return;
+        void OnScrollChanged(object? _, ScrollChangedEventArgs e)
+        {
+            if (!Equals(_inspectorRenderedElement, target))
+            {
+                sv.ScrollChanged -= OnScrollChanged;
+                return;
+            }
+            if (sv.ScrollableHeight <= 0)
+                return;
+            sv.ScrollChanged -= OnScrollChanged;
+            var offset = fraction * sv.ScrollableHeight;
+            sv.ScrollToVerticalOffset(Math.Min(offset, sv.ScrollableHeight));
+        }
+        sv.ScrollChanged += OnScrollChanged;
     }
 
     private void PrependInspectorToolbar()
@@ -7364,7 +7478,27 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var panel = CreateEditorPanel("Edit step", out var status);
         var title = AddEditorField(panel, "Title", task.Title, 34);
         _inspectorPrimaryEditor = title;
-        var description = AddEditorField(panel, "Description (Markdown supported)", task.Description, 170);
+        var descriptionLabel = new TextBlock
+        {
+            Text = "Description (Markdown supported)",
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 3),
+        };
+        descriptionLabel.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        descriptionLabel.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeSmall");
+        var description = new AvalonEditMarkdownEditor { MinHeight = 170 };
+        description.SetText(task.Description);
+        _taskDescriptionEditor = description;
+        var descriptionBorder = new Border
+        {
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(6, 4, 6, 4),
+            Child = description,
+        };
+        descriptionBorder.SetResourceReference(Border.BackgroundProperty, "PanelBackground");
+        descriptionBorder.SetResourceReference(Border.BorderBrushProperty, "LineColor");
+        panel.Children.Add(descriptionLabel);
+        panel.Children.Add(descriptionBorder);
         var contractExamples = CreateContractExampleEditor(panel, task.ContractExamples);
         CheckBox? parallel = null;
         // Parallel eligibility remains part of the durable plan contract. Re-enable this
@@ -7383,10 +7517,11 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
         AddEditorActions(panel, status, () =>
         {
-            if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(description.Text))
+            var descriptionText = description.GetText();
+            if (string.IsNullOrWhiteSpace(title.Text) || string.IsNullOrWhiteSpace(descriptionText))
                 return "Title and description are required.";
             var updated = StagedPlanEditor.UpdateTask(
-                _plan!.Group, taskId, title.Text, description.Text, task.Priority, task.DependsOn,
+                _plan!.Group, taskId, title.Text, descriptionText, task.Priority, task.DependsOn,
                 BuildContractExamples(contractExamples));
             if (parallel is not null)
             {
@@ -8325,6 +8460,8 @@ internal sealed class PlanViewerWindow : ChromedWindow
 
     private void DetachDescriptionDocuments()
     {
+        _taskDescriptionEditor?.Dispose();
+        _taskDescriptionEditor = null;
         _descriptionSession?.Dispose();
         _descriptionSession = null;
         if (_detailDocument is not null) MarkdownVisibleContent.Detach(_detailDocument);
@@ -9159,7 +9296,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         }
 
         // Title
-        var titlePara = new Paragraph(new Run("Human Approval Required") { FontWeight = FontWeights.Bold });
+        var titlePara = new Paragraph(new Run("Approval Required") { FontWeight = FontWeights.Bold });
         titlePara.SetResourceReference(TextElement.ForegroundProperty, "ImportantText");
         titlePara.SetResourceReference(TextElement.FontSizeProperty, "FontSizeLarge");
         titlePara.Margin = new Thickness(0, 0, 0, 4);
@@ -9174,8 +9311,6 @@ internal sealed class PlanViewerWindow : ChromedWindow
             msgPara.Margin = new Thickness(0, 0, 0, 8);
             _detailDocument.Blocks.Add(msgPara);
         }
-
-        AppendGateReviewRequirements(gate);
 
         // Status (color-coded)
         var gateStatusColor = gate.Status switch
@@ -9199,11 +9334,13 @@ internal sealed class PlanViewerWindow : ChromedWindow
         statusPara.Margin = new Thickness(0, 0, 0, 8);
         _detailDocument.Blocks.Add(statusPara);
 
+        AppendGateReviewRequirements(gate);
+
         // After Tasks
-        AddTaskIdList("Starts After These:", gate.AfterTaskIds, _durablePlan);
+        AddTaskIdList("Starts After:", gate.AfterTaskIds, _durablePlan);
 
         // Before Tasks
-        AddTaskIdList("Starts Before These:", gate.BeforeTaskIds, _durablePlan);
+        AddTaskIdList("Starts Before:", gate.BeforeTaskIds, _durablePlan);
 
         // Resolution Note
         if (!string.IsNullOrWhiteSpace(gate.ResolutionNote))
@@ -9450,7 +9587,7 @@ internal sealed class PlanViewerWindow : ChromedWindow
         var blocks = PlanGateReviewRenderer.CreateReviewBlocks(gate, approvalQuestions, hasClarifiedReview);
         if (blocks.Count > 0)
         {
-            AddSectionHeader("Verify the Following:");
+            AddSectionHeader("Verify:");
             foreach (var block in blocks)
                 _detailDocument.Blocks.Add(block);
         }

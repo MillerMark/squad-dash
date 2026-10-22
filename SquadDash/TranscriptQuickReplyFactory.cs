@@ -55,7 +55,7 @@ internal sealed class DecomposeRecoveryCardTag : ICopyable
     public string GetCopyText() => CopyTextProvider?.Invoke() ?? CopyText;
 }
 internal sealed record PlanGateApprovalTag(string PlanId, string GateId);
-internal sealed record PlanPreflightRecoveryTag(string GroupId, string Revision);
+internal sealed record PlanPreflightRecoveryTag(string GroupId, string Revision, string? Action = null);
 internal sealed record PlanPreflightRecoveryReceiptTag(string GroupId, string Revision, DateTimeOffset ResolvedAt);
 internal sealed record TranscriptProtocolJsonIndicatorTag(string Marker);
 
@@ -330,6 +330,31 @@ internal static class TranscriptQuickReplyFactory
             }
             if (block is Section section &&
                 ContainsPendingDecomposeApprovalSurface(section.Blocks, groupId, revision))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    internal static bool ContainsPlanPreflightRecovery(
+        BlockCollection blocks,
+        string groupId,
+        string revision,
+        Func<string?, bool>? actionPredicate = null)
+    {
+        foreach (var block in blocks)
+        {
+            if (block.Tag is PlanPreflightRecoveryTag tag &&
+                string.Equals(tag.GroupId, groupId, StringComparison.Ordinal) &&
+                string.Equals(tag.Revision, revision, StringComparison.Ordinal) &&
+                (actionPredicate is null || actionPredicate(tag.Action)))
+            {
+                return true;
+            }
+            if (block is Section section &&
+                ContainsPlanPreflightRecovery(section.Blocks, groupId, revision, actionPredicate))
             {
                 return true;
             }

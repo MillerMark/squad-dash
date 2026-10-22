@@ -125,7 +125,7 @@
     <SolidColorBrush x:Key="ToastSurface" Color="#2A2010"/>
     <SolidColorBrush x:Key="ChipSurface" Color="#24201A"/>
     <SolidColorBrush x:Key="ChipHoverSurface" Color="#2E2920"/>
-    <SolidColorBrush x:Key="CodeSurface" Color="#252018"/>
+    <SolidColorBrush x:Key="CodeSurface" Color="#14110D"/>
     <SolidColorBrush x:Key="QuoteSurface" Color="#272218"/>
     <SolidColorBrush x:Key="TrackSurface" Color="#3A342C"/>
     <!-- Window Chrome Tokens -->

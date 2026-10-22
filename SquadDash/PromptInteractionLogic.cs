@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Windows.Documents;
 
 namespace SquadDash;
 
@@ -61,6 +62,126 @@ internal sealed record InteractiveControlState(
     bool AbortEnabled,
     bool RunDoctorEnabled,
     bool InstallSquadEnabled);
+
+/// <summary>
+/// Result of the transcript prompt-navigation decision math. Indices are into the
+/// same prompt list that was passed to <see cref="PromptScrollNavMath.Compute"/>.
+/// </summary>
+internal readonly record struct PromptScrollNavState(int NearestAboveIdx, int NearestBelowIdx) {
+    public bool CanGoUp => NearestAboveIdx >= 0;
+    public bool CanGoDown => NearestBelowIdx >= 0;
+}
+
+/// <summary>
+/// Pure decision math for the transcript prompt-navigation (↑/↓) buttons.
+/// Separated from the live WPF <c>ScrollViewer</c> geometry in <c>MainWindow</c> so the
+/// above/below selection can be unit-tested with plain numbers.
+/// </summary>
+internal static class PromptScrollNavMath {
+    public const double DefaultDeadZone = 50.0;
+
+    // Smallest offset delta we still treat as "real" downward movement. Guards against
+    // floating-point noise when the clamped target offset essentially equals the
+    // current viewport top.
+    private const double MovementEpsilon = 0.5;
+
+    /// <summary>
+    /// Computes the nearest prompt above and below the current viewport top.
+    /// </summary>
+    /// <param name="promptAbsYs">
+    ///   Absolute document-space Y of each prompt paragraph's top. Entries that are
+    ///   <see cref="double.NaN"/> (geometry not currently measurable) are skipped.
+    /// </param>
+    /// <param name="viewportTop">Current vertical scroll offset.</param>
+    /// <param name="scrollableMax">Maximum scroll offset (ExtentHeight − ViewportHeight).</param>
+    /// <param name="deadZone">Half-height band around the viewport top treated as "here".</param>
+    public static PromptScrollNavState Compute(
+        IReadOnlyList<double> promptAbsYs,
+        double viewportTop,
+        double scrollableMax,
+        double deadZone = DefaultDeadZone) {
+        int nearestAboveIdx = -1;
+        int nearestBelowIdx = -1;
+        double bestAboveY = double.MinValue;
+        double bestBelowY = double.MaxValue;
+
+        for (int i = 0; i < promptAbsYs.Count; i++) {
+            double absY = promptAbsYs[i];
+            if (double.IsNaN(absY)) continue;
+
+            if (absY < viewportTop - deadZone) {
+                // Above the viewport top — candidate for ↑ (go back). Prefer the one
+                // closest to the viewport top (largest absolute Y).
+                if (absY > bestAboveY) {
+                    bestAboveY = absY;
+                    nearestAboveIdx = i;
+                }
+            } else if (absY > viewportTop + deadZone) {
+                // Below the viewport top — candidate for ↓ (go forward), but only when
+                // scrolling toward it actually moves the document down. The offset that
+                // brings the prompt to the viewport top equals its absolute Y clamped to
+                // the scrollable range; if that clamped offset is still greater than the
+                // current viewport top the move is meaningful. This intentionally keeps
+                // ↓ enabled for prompts in the final viewport-height (clamped to the
+                // document bottom) — scrolling to the bottom is legitimate downward
+                // navigation — while disabling it only when already pinned at the bottom.
+                double targetOffset = Math.Clamp(absY, 0.0, scrollableMax);
+                if (targetOffset > viewportTop + MovementEpsilon && absY < bestBelowY) {
+                    bestBelowY = absY;
+                    nearestBelowIdx = i;
+                }
+            }
+        }
+
+        return new PromptScrollNavState(nearestAboveIdx, nearestBelowIdx);
+    }
+}
+
+/// <summary>
+/// Pure insertion-index math for registering a steering prompt into the ordered
+/// <c>PromptParagraphs</c> list. Steering entries are rendered inside a turn's narrative
+/// <c>Section</c> (not as a top-level document block), so they must be inserted at the
+/// position that keeps the list sorted by document order rather than blindly appended —
+/// otherwise Shift+click "latest", index-based fallbacks, and the batch-reorder on reload
+/// would see the list out of visual order.
+/// </summary>
+internal static class PromptRegistrationMath {
+    /// <summary>
+    /// Returns the index at which to insert an entry whose document-order position is
+    /// <paramref name="newPosition"/> so that <paramref name="existingPositions"/> (assumed
+    /// ascending in document order) stays sorted. Among entries at an equal position the new
+    /// entry is placed last, matching "a steering entry occurs after the prompt that started
+    /// its turn".
+    /// </summary>
+    public static int ResolveInsertionIndex(IReadOnlyList<int> existingPositions, int newPosition) {
+        int index = existingPositions.Count;
+        while (index > 0 && existingPositions[index - 1] > newPosition)
+            index--;
+        return index;
+    }
+
+    /// <summary>
+    /// Resolves the <see cref="ResolveInsertionIndex(IReadOnlyList{int}, int)"/> insertion
+    /// point for <paramref name="newParagraph"/> relative to <paramref name="existingParagraphs"/>
+    /// using live document-symbol offsets. Works for paragraphs nested inside a
+    /// <see cref="Section"/> as well as top-level blocks, because
+    /// <see cref="TextPointer.GetOffsetToPosition"/> is monotonic in document order.
+    /// </summary>
+    public static int ResolveInsertionIndex(
+        TextPointer documentStart,
+        Paragraph newParagraph,
+        IReadOnlyList<Paragraph> existingParagraphs) {
+        ArgumentNullException.ThrowIfNull(documentStart);
+        ArgumentNullException.ThrowIfNull(newParagraph);
+        ArgumentNullException.ThrowIfNull(existingParagraphs);
+
+        var newOffset = documentStart.GetOffsetToPosition(newParagraph.ContentStart);
+        var offsets = new int[existingParagraphs.Count];
+        for (int i = 0; i < offsets.Length; i++)
+            offsets[i] = documentStart.GetOffsetToPosition(existingParagraphs[i].ContentStart);
+        return ResolveInsertionIndex(offsets, newOffset);
+    }
+}
 
 internal static class PromptInputBehavior {
     public static PromptInputAction ResolveAction(

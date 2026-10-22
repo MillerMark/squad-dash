@@ -76,7 +76,7 @@ public class DurableApprovalRequestManagerTests
         Assert.That(msg.Read, Is.False);
         Assert.That(msg.Priority, Is.EqualTo("high"));
         Assert.That(msg.Actions, Is.Empty,
-            "The Inbox message itself is the review surface; approval appears after its checks are complete");
+            "Unchecked review items stay on the inline Inbox review surface until they are answered.");
     }
 
     [Test]
@@ -208,7 +208,32 @@ public class DurableApprovalRequestManagerTests
 
         var msg = _inbox.GetById("approval-gate-PLAN-001");
         Assert.That(msg!.Read, Is.False);
-        Assert.That(msg.Actions, Is.Empty);
+        Assert.That(msg.Actions, Is.Empty,
+            "Reopened requests should not recreate the separate address-unapproved action while inline checks remain.");
+    }
+
+    [Test]
+    public async Task AppendCheckpoint_ReopeningSameGateClearsStaleResolvedReceipt()
+    {
+        var plan = MakePlan();
+        var gate = plan.ApprovalGates[0];
+        var snapshot = MakeSnapshot();
+        await _manager.AppendCheckpointAsync(plan, gate, snapshot);
+        await _manager.ResolveCheckpointAsync(plan, gate.GateId, "Reconciled from the authoritative plan state after restart.");
+
+        await _manager.AppendCheckpointAsync(plan, gate, snapshot);
+
+        var state = _manager.GetState(plan.PlanId)!;
+        var msg = _inbox.GetById(DurableApprovalRequestManager.BuildMessageId(plan.PlanId))!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.Archived, Is.False);
+            Assert.That(state.ActiveGateIds, Is.EqualTo(new[] { gate.GateId }));
+            Assert.That(state.ResolvedCheckpoints, Is.Empty);
+            Assert.That(msg.Body, Does.Not.Contain("All checkpoints resolved"));
+            Assert.That(msg.Body, Does.Not.Contain("resolved checkpoint"));
+            Assert.That(msg.Read, Is.False);
+        });
     }
 
     [Test]
@@ -531,7 +556,8 @@ public class DurableApprovalRequestManagerTests
         Assert.Multiple(() =>
         {
             Assert.That(message.Body, Does.Not.Contain(ManualTestKitChecklistComposer.SetupErrorMarker));
-            Assert.That(message.Actions, Is.Empty, "Review selections are still required before continuing.");
+            Assert.That(message.Actions, Is.Empty,
+                "Review selections remain in the inline Inbox checklist until every required item is answered.");
             foreach (var requirement in requirements)
             {
                 Assert.That(message.Body, Does.Contain($"☐ {requirement.Question}"));
@@ -936,11 +962,17 @@ public class DurableApprovalRequestManagerTests
     }
 
     [Test]
-    public void BuildActions_ReturnsNoSeparateReviewActionWhileChecksRemain()
+    public void BuildActions_ReturnsAddressUnapprovedActionWhileChecksRemain()
     {
         var plan = MakePlan();
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-001", "GATE-002"]);
-        Assert.That(actions, Is.Empty);
+        Assert.Multiple(() =>
+        {
+            Assert.That(actions, Has.Count.EqualTo(1));
+            Assert.That(actions[0].Label, Is.EqualTo("Address Unapproved Items…"));
+            Assert.That(actions[0].RouteMode,
+                Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
+        });
     }
 
     [Test]

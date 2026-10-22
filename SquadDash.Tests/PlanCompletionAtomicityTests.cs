@@ -229,6 +229,61 @@ internal sealed class PlanCompletionAtomicityTests
     }
 
     [Test]
+    public void RepairInconsistentState_AwaitingApprovalWithReadyPendingGate_ReopensCheckpoint()
+    {
+        const string reviewedStep = "PLANS-20260727-006";
+        const string finalStep = "PLANS-20260727-007";
+        var tasks = new[]
+        {
+            MakePlanTask("PLANS-20260727-005", PlanTaskStatus.Complete),
+            MakePlanTask(reviewedStep, PlanTaskStatus.HumanReviewRequired),
+            MakePlanTask(finalStep, PlanTaskStatus.Pending) with
+            {
+                DependsOn = ["PLANS-20260727-005", reviewedStep],
+            },
+        };
+        var gate = new PlanApprovalGate(
+            "PROMPTUNDO-GATE-001",
+            "Review the live prompt undo simulation.",
+            ["PLANS-20260727-005", reviewedStep],
+            [finalStep],
+            PlanGateStatus.Pending,
+            PlanRevision: "rev2",
+            ProofRequirements:
+            [
+                new PlanTaskProofRequirement(
+                    "host-selection",
+                    "live-ui-observation",
+                    "Reviewer confirms undo restores the host selection.")
+            ],
+            Question: "Does undo restore the selected text?");
+        var plan = MakePlan(
+            PlanLifecycleStatus.AwaitingApproval,
+            tasks,
+            completedCountOverride: 1) with
+        {
+            ApprovalGates = [gate],
+            Revision = "rev2",
+            RevisionNumber = 2,
+        };
+
+        var repaired = PlanStoreUpdater.RepairInconsistentState(plan);
+        var repairedGate = repaired.ApprovalGates.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(repaired.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.AwaitingApproval));
+            Assert.That(repairedGate.Status, Is.EqualTo(PlanGateStatus.AwaitingApproval));
+            Assert.That(repairedGate.RequestedAt, Is.Not.Null);
+            Assert.That(repairedGate.NotifiedAt, Is.Not.Null);
+            Assert.That(repaired.Tasks.Single(task => task.TaskId == reviewedStep).Status,
+                Is.EqualTo(PlanTaskStatus.HumanReviewRequired));
+            Assert.That(repaired.Tasks.Single(task => task.TaskId == finalStep).Status,
+                Is.EqualTo(PlanTaskStatus.Pending));
+        });
+    }
+
+    [Test]
     public void RepairInconsistentState_StaleExecutingTaskId_ClearsPointer()
     {
         // Case D: ExecutingTaskId still points to task-2 which is already Complete.

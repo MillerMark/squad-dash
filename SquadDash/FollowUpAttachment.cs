@@ -1,5 +1,12 @@
 namespace SquadDash;
 
+internal sealed record TranscriptAttachmentSource(
+    string? Role = null,
+    int? TurnIndex = null,
+    string? Timestamp = null,
+    string? ConversationHint = null,
+    string? MessageId = null);
+
 internal sealed record FollowUpAttachment(
     string CommitSha,
     string Description,
@@ -11,7 +18,14 @@ internal sealed record FollowUpAttachment(
     string? InboxMessageId = null,
     string? FileReferencePath = null,
     bool RequiresRemovalConfirmation = false,
-    string? RemovalWarning = null);
+    string? RemovalWarning = null,
+    string? Notes = null,
+    TranscriptAttachmentSource? TranscriptSource = null)
+{
+    internal bool SupportsNotes => ImagePath is null &&
+        System.IO.Path.GetExtension(FileReferencePath ?? "").ToLowerInvariant() is not
+            (".png" or ".jpg" or ".jpeg" or ".jfif" or ".bmp" or ".gif" or ".webp" or ".tif" or ".tiff" or ".ico" or ".svg");
+}
 
 /// <summary>DTO for persisting <see cref="FollowUpAttachment"/> items as JSON.</summary>
 internal sealed class FollowUpAttachmentDto
@@ -37,5 +51,7 @@ internal sealed class FollowUpAttachmentDto
     public string? FileReferencePath   { get; set; }
     public bool RequiresRemovalConfirmation { get; set; }
     public string? RemovalWarning { get; set; }
+    public string? Notes { get; set; }
+    public TranscriptAttachmentSource? TranscriptSource { get; set; }
 }
 

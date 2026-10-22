@@ -1,0 +1,121 @@
+using System.IO;
+
+namespace SquadDash.Tests;
+
+[TestFixture]
+internal sealed class AttachmentStripMainWindowWiringTests
+{
+    [Test]
+    public void TranscriptAttachmentActions_CaptureSourceBeforeNewChatChangesSelection()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var currentChat = SourceRegion(source, "private void AttachTranscriptFollowUp(", "private FollowUpAttachment? TryBuildTranscriptFollowUpAttachment(");
+        var creation = SourceRegion(source, "private FollowUpAttachment? TryBuildTranscriptFollowUpAttachment(", "private void AddTranscriptFollowUp(");
+        var newChat = SourceRegion(source, "private void AddTranscriptSelectionToNewChat(", "private void PreserveVisibleTranscriptViewportsThroughLayout(");
+        Assert.Multiple(() =>
+        {
+            Assert.That(currentChat, Does.Contain("TryBuildTranscriptFollowUpAttachment(rtb)"));
+            Assert.That(currentChat, Does.Contain("AddTranscriptFollowUp(attachment)"));
+            Assert.That(creation, Does.Contain("TranscriptAttachmentSourceFactory.FromSelection("));
+            Assert.That(creation, Does.Contain("TranscriptQuote: quote"));
+            Assert.That(creation, Does.Contain("TranscriptSource: transcriptSource"));
+            Assert.That(newChat.IndexOf("TryBuildTranscriptFollowUpAttachment(rtb)", StringComparison.Ordinal),
+                Is.LessThan(newChat.IndexOf("AddEmptyQueueSlot()", StringComparison.Ordinal)));
+            Assert.That(newChat, Does.Contain("AddTranscriptFollowUp(precomputedAttachment)"));
+            Assert.That(newChat, Does.Contain("PreserveVisibleTranscriptViewportsThroughLayout("));
+        });
+    }
+
+    [Test]
+    public void UpdateFollowUpStripCore_UsesPopulateAndRemovesInlineNotesEditor()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var method = SourceRegion(source, "private void UpdateFollowUpStripCore()", "private void ReopenImageForEditing(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Not.Contain("AttachmentNotesEditor.Create("));
+            Assert.That(method, Does.Not.Contain("label.MouseLeftButtonUp +="));
+            Assert.That(method, Does.Contain("AttachmentStripRow.Populate(row, label, att, _ =>"));
+            Assert.That(method, Does.Contain("PromptAttachmentViewerWindow.Show("));
+            Assert.That(method, Does.Contain("new[] { capturedAtt }, CanShowOwnedWindow() ? this : null"));
+            Assert.That(method, Does.Contain("_followUpAttachments.FirstOrDefault(entry => ReferenceEquals(entry.Value, list))"));
+            Assert.That(method, Does.Contain("if (owner.Key.Length == 0)"));
+            Assert.That(method, Does.Contain("PersistDraftFollowUp();"));
+            Assert.That(method, Does.Contain("SyncQueuePanel();"));
+            Assert.That(method, Does.Contain("notesChanged: (current, notes) =>"));
+            Assert.That(method, Does.Contain("capturedAtt = current with { Notes = notes };"));
+            Assert.That(method, Does.Contain("owner.Value![index] = capturedAtt;"));
+            Assert.That(method, Does.Contain("focusNotes: true"));
+            Assert.That(method, Does.Not.Contain("focusNotes: focusNotes"));
+        });
+    }
+
+    [Test]
+    public void UpdateFollowUpStripCore_DismissIsAddedBeforePopulateAndHandlesClick()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var method = SourceRegion(source, "private void UpdateFollowUpStripCore()", "private void ReopenImageForEditing(");
+        var dismissIndex = method.IndexOf("row.Children.Add(dismissBtn);", StringComparison.Ordinal);
+        var populateIndex = method.IndexOf("AttachmentStripRow.Populate(row, label, att, _ =>", StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("dismissBtn.Click += (_, e) =>"));
+            Assert.That(method, Does.Contain("e.Handled = true;"));
+            Assert.That(dismissIndex, Is.GreaterThan(-1));
+            Assert.That(populateIndex, Is.GreaterThan(dismissIndex));
+        });
+    }
+
+    [Test]
+    public void PromptAttachmentViewerWindow_Source_UsesFocusNotesContractForShowAndFocusRoutine()
+    {
+        var source = ReadSource("PromptAttachmentViewerWindow.cs");
+        var showMethod = SourceRegion(source, "internal static void Show(", "private static bool SameAttachments");
+        var focusMethod = SourceRegion(source, "internal void FocusNotes()", "private static UIElement BuildAttachmentContentCore(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(showMethod, Does.Contain("if (existing.WindowState == WindowState.Minimized)"));
+            Assert.That(showMethod, Does.Contain("existing.WindowState = WindowState.Normal;"));
+            Assert.That(showMethod, Does.Contain("existing.Activate();"));
+            Assert.That(showMethod, Does.Contain("if (focusNotes)"));
+            Assert.That(showMethod, Does.Contain("existing.FocusNotes();"));
+            Assert.That(showMethod, Does.Contain("win.FocusNotes();"));
+
+            Assert.That(focusMethod, Does.Contain("Dispatcher.BeginInvoke(DispatcherPriority.Input"));
+            Assert.That(focusMethod, Does.Contain("if (!IsVisible)"));
+            Assert.That(focusMethod, Does.Contain("Activate();"));
+            Assert.That(focusMethod, Does.Contain("FocusManager.SetFocusedElement(this, editor);"));
+            Assert.That(focusMethod, Does.Contain("editor.Focus();"));
+            Assert.That(focusMethod, Does.Contain("Keyboard.Focus(editor);"));
+            Assert.That(focusMethod, Does.Contain("editor.Select(editor.Text.Length, 0);"));
+            Assert.That(focusMethod, Does.Contain("editor.ScrollToEnd();"));
+            Assert.That(source, Does.Contain("ShowActivated = true;"));
+        });
+    }
+
+    private static string ReadSource(string fileName)
+    {
+        var root = TestContext.CurrentContext.TestDirectory;
+        while (!string.IsNullOrEmpty(root))
+        {
+            var candidate = Path.Combine(root, "SquadDash", fileName);
+            if (File.Exists(candidate))
+                return File.ReadAllText(candidate);
+            root = Path.GetDirectoryName(root)!;
+        }
+
+        throw new FileNotFoundException($"Could not locate {fileName} under repository root.");
+    }
+
+    private static string SourceRegion(string source, string startMarker, string endMarker)
+    {
+        var start = source.IndexOf(startMarker, StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0), $"Missing start marker: {startMarker}");
+        var end = source.IndexOf(endMarker, start, StringComparison.Ordinal);
+        Assert.That(end, Is.GreaterThan(start), $"Missing end marker: {endMarker}");
+        return source[start..end];
+    }
+}

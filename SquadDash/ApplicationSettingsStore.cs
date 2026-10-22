@@ -143,12 +143,12 @@ internal sealed class ApplicationSettingsStore {
         return updated;
     }
 
-    public ApplicationSettingsSnapshot SaveDocSourceFontSize(double docSourceFontSize) {
+    public ApplicationSettingsSnapshot SaveMarkdownEditorZoomMultiplier(double multiplier) {
         using var mutex = AcquireMutex();
-
         var current = LoadCore();
-        var updated = current with { DocSourceFontSize = NormalizeFontSize(docSourceFontSize) };
-
+        var updated = current with {
+            MarkdownEditorZoomMultiplier = ApplicationSettingsSnapshot.NormalizeMarkdownEditorZoomMultiplier(multiplier)
+        };
         SaveCore(updated);
         return updated;
     }
@@ -1532,10 +1532,10 @@ internal sealed record ApplicationSettingsSnapshot(
     public double TranscriptFontSize { get; init; } = 14;
     public double InboxFontSize { get; init; } = 14;
 
-    /// <summary>
-    /// Font size for the documentation source editor (DocSourceTextBox). Global/machine-wide.
-    /// </summary>
-    public double DocSourceFontSize { get; init; } = 12;
+    public double MarkdownEditorZoomMultiplier { get; init; } = 1.0;
+
+    internal static double NormalizeMarkdownEditorZoomMultiplier(double multiplier) =>
+        double.IsFinite(multiplier) ? Math.Clamp(multiplier, 0.5, 3.0) : 1.0;
     public double ValidationDetailsFontMultiplier { get; init; } = 1.0;
     public IReadOnlyDictionary<string, DeveloperStartupIssueSimulation> StartupIssueSimulationByWorkspace { get; init; } =
         new Dictionary<string, DeveloperStartupIssueSimulation>(StringComparer.OrdinalIgnoreCase);
@@ -2182,7 +2182,7 @@ internal sealed record ApplicationSettingsSnapshot(
             SpeechRegion = string.IsNullOrWhiteSpace(SpeechRegion) ? null : SpeechRegion.Trim(),
             TranscriptFontSize = NormalizeFontSize(TranscriptFontSize),
             InboxFontSize = NormalizeFontSize(InboxFontSize),
-            DocSourceFontSize = NormalizeFontSize(DocSourceFontSize),
+            MarkdownEditorZoomMultiplier = NormalizeMarkdownEditorZoomMultiplier(MarkdownEditorZoomMultiplier),
             ValidationDetailsFontMultiplier = NormalizeValidationDetailsFontMultiplier(ValidationDetailsFontMultiplier),
             Theme = Theme is "Light" or "Dark" or "Auto" ? Theme : null,
             LastUsedModel = string.IsNullOrWhiteSpace(LastUsedModel) ? null : LastUsedModel.Trim(),

@@ -57,6 +57,9 @@ internal sealed record ButtonExecutionResult(
 /// </summary>
 internal sealed class ButtonCommandExecutionService {
     private static readonly TimeSpan OutputDrainGrace = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan ElevatedLogPollInterval = TimeSpan.FromMilliseconds(250);
+    // Win32 ERROR_CANCELLED: Process.Start throws this when the user clicks "No" on the UAC prompt.
+    private const int ErrorCancelled = 1223;
     private const string PowerShellBootstrap =
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n" +
         "& $env:SQUADDASH_BUTTON_SCRIPT\n" +
@@ -67,6 +70,7 @@ internal sealed class ButtonCommandExecutionService {
         ArgumentNullException.ThrowIfNull(button);
         ArgumentNullException.ThrowIfNull(workspace);
         string? scriptPath = null;
+        string? logPath = null;
         string? cleanupError = null;
         ButtonExecutionResult result;
         try {
@@ -87,17 +91,31 @@ internal sealed class ButtonCommandExecutionService {
 
             var scriptDirectory = Path.Combine(workspace.WorkspaceStateDirectory, "button-runs");
             Directory.CreateDirectory(scriptDirectory);
-            scriptPath = Path.Combine(scriptDirectory, Guid.NewGuid().ToString("N") +
+            var runId = Guid.NewGuid().ToString("N");
+            scriptPath = Path.Combine(scriptDirectory, runId +
                 (button.Content.CommandType == ButtonCommandType.PowerShell ? ".ps1" : ".cmd"));
             var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier:
                 button.Content.CommandType == ButtonCommandType.PowerShell);
             await File.WriteAllTextAsync(scriptPath, BuildScriptContent(invocation), encoding).ConfigureAwait(false);
 
             SquadDashTrace.Write("Buttons", $"Starting button {button.Id} for '{workspace.FolderPath}'.");
-            var output = await RunProcessAsync(BuildStartInfo(invocation, scriptPath), outputProgress).ConfigureAwait(false);
+            (int ExitCode, string Stdout, string Stderr) output;
+            if (button.Content.RunAsAdministrator) {
+                logPath = Path.Combine(scriptDirectory, runId + ".out.log");
+                output = await RunElevatedProcessAsync(
+                    BuildElevatedStartInfo(invocation, scriptPath, logPath), logPath, outputProgress).ConfigureAwait(false);
+            }
+            else {
+                output = await RunProcessAsync(BuildStartInfo(invocation, scriptPath), outputProgress).ConfigureAwait(false);
+            }
             var error = output.ExitCode == 0 ? null : $"Button command exited with code {output.ExitCode}.";
             result = new ButtonExecutionResult(button, workspace, output.ExitCode, output.Stdout, output.Stderr, error);
             SquadDashTrace.Write("Buttons", $"Button {button.Id} for '{workspace.FolderPath}' exited with code {output.ExitCode}.");
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == ErrorCancelled) {
+            SquadDashTrace.Write("Buttons", $"Button {button.Id} for '{workspace.FolderPath}' elevation was declined by the user.");
+            result = new ButtonExecutionResult(button, workspace, null, string.Empty, string.Empty,
+                "The Run as Administrator prompt was canceled, so the command did not run.");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception
                                    or InvalidOperationException or ArgumentException or NotSupportedException
@@ -114,6 +132,15 @@ internal sealed class ButtonCommandExecutionService {
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) {
                     SquadDashTrace.Write("Buttons", $"Script cleanup failed for '{scriptPath}': {ex.Message}");
                     cleanupError = $"Could not remove temporary button script '{scriptPath}': {ex.Message}";
+                }
+            }
+            if (logPath is not null) {
+                try {
+                    File.Delete(logPath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) {
+                    SquadDashTrace.Write("Buttons", $"Elevated output log cleanup failed for '{logPath}': {ex.Message}");
+                    cleanupError ??= $"Could not remove temporary button output log '{logPath}': {ex.Message}";
                 }
             }
         }
@@ -195,6 +222,48 @@ internal sealed class ButtonCommandExecutionService {
                 throw new ArgumentException("Unsupported button command type.", nameof(invocation));
         }
     }
+
+    /// <summary>
+    /// Elevated launch seam, used only when the button requests Run as Administrator. UAC elevation
+    /// (Verb "runas") requires UseShellExecute = true, which cannot redirect StandardOutput/StandardError
+    /// on the parent Process object. Instead, the elevated cmd.exe host redirects its own output to
+    /// logPath; RunElevatedProcessAsync tails that file to still stream output to the caller.
+    /// Script path and log path are embedded directly (not via environment variables, which are
+    /// unsupported together with UseShellExecute = true). Both are SquadDash-generated GUID paths.
+    /// </summary>
+    public static ProcessStartInfo BuildElevatedStartInfo(ButtonInvocation invocation, string scriptPath, string logPath) {
+        ArgumentNullException.ThrowIfNull(invocation);
+        ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(logPath);
+        string innerCommand;
+        switch (invocation.Button.Content.CommandType) {
+            case ButtonCommandType.PowerShell:
+                var bootstrap =
+                    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n" +
+                    $"& '{EscapePowerShellSingleQuoted(scriptPath)}'\n" +
+                    "if (-not $?) { if ($LASTEXITCODE) { exit $LASTEXITCODE }; exit 1 }\n";
+                innerCommand = "pwsh.exe -NoLogo -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand " +
+                    Convert.ToBase64String(Encoding.Unicode.GetBytes(bootstrap));
+                break;
+            case ButtonCommandType.RawCommand:
+                innerCommand = $"chcp 65001 >nul & \"{scriptPath}\"";
+                break;
+            default:
+                throw new ArgumentException("Run as Administrator is not supported for this button command type.", nameof(invocation));
+        }
+        return new ProcessStartInfo {
+            FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe"),
+            WorkingDirectory = invocation.WorkingDirectory,
+            UseShellExecute = true,
+            Verb = "runas",
+            WindowStyle = ProcessWindowStyle.Hidden,
+            // Outer quotes are intentional: /s strips only the outermost pair, preserving the
+            // redirection target's own quotes for cmd to parse.
+            Arguments = $"/d /s /c \"{innerCommand} > \"{logPath}\" 2>&1\""
+        };
+    }
+
+    private static string EscapePowerShellSingleQuoted(string value) => value.Replace("'", "''");
 
     private static ProcessStartInfo BuildCapturedStartInfo(string workingDirectory, string scriptPath) {
         var startInfo = new ProcessStartInfo {
@@ -305,6 +374,82 @@ internal sealed class ButtonCommandExecutionService {
         }
         finally {
             stopReading.Cancel();
+        }
+    }
+
+    /// <summary>
+    /// Elevated-path runner. The child cmd.exe owns redirecting its own output to logPath (ShellExecute
+    /// forbids redirecting the parent-side Process streams while elevating). This instead polls logPath
+    /// for growth and streams new bytes through outputProgress, approximating the non-elevated experience.
+    /// A Win32Exception with NativeErrorCode == ErrorCancelled (user declined the UAC prompt) propagates
+    /// to the caller, which reports a friendly message instead of this raw exception.
+    /// </summary>
+    private static async Task<(int ExitCode, string Stdout, string Stderr)> RunElevatedProcessAsync(
+        ProcessStartInfo startInfo, string logPath, IProgress<string>? outputProgress) {
+        using var process = new Process { StartInfo = startInfo };
+        using var stopPolling = new CancellationTokenSource();
+        process.Start();
+        var tail = TailLogFileAsync(logPath, outputProgress, stopPolling.Token);
+        try {
+            await process.WaitForExitAsync().ConfigureAwait(false);
+        }
+        finally {
+            // One more drain after exit catches output flushed between the last poll and process exit.
+            await Task.Delay(ElevatedLogPollInterval).ConfigureAwait(false);
+            stopPolling.Cancel();
+        }
+        var captured = await tail.ConfigureAwait(false);
+        return (process.ExitCode, captured, string.Empty);
+    }
+
+    /// <summary>Polls a growing log file and reports newly-appended lines until canceled.</summary>
+    internal static async Task<string> TailLogFileAsync(string logPath, IProgress<string>? outputProgress, CancellationToken cancellationToken) {
+        var captured = new StringBuilder();
+        var line = new StringBuilder();
+        var previousWasCarriageReturn = false;
+        long position = 0;
+        PollOnce();
+        while (!cancellationToken.IsCancellationRequested) {
+            try {
+                await Task.Delay(ElevatedLogPollInterval, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) {
+                break;
+            }
+            PollOnce();
+        }
+        // Final pass after cancellation catches output flushed between the last poll and process exit.
+        PollOnce();
+        if (line.Length > 0)
+            outputProgress?.Report(line.ToString());
+        return captured.ToString();
+
+        void PollOnce() {
+            try {
+                if (!File.Exists(logPath)) return;
+                using var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                if (stream.Length <= position) return;
+                stream.Seek(position, SeekOrigin.Begin);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                var text = reader.ReadToEnd();
+                position = stream.Position;
+                captured.Append(text);
+                if (outputProgress is null) return;
+                foreach (var character in text) {
+                    if (character == '\r' || (character == '\n' && !previousWasCarriageReturn)) {
+                        outputProgress.Report(line.ToString());
+                        line.Clear();
+                    }
+                    else if (character != '\n') {
+                        line.Append(character);
+                    }
+                    previousWasCarriageReturn = character == '\r';
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                // The writer may hold a conflicting lock for an instant; try again on the next poll.
+                SquadDashTrace.Write("Buttons", $"Elevated output log poll failed for '{logPath}': {ex.Message}");
+            }
         }
     }
 }

@@ -52,13 +52,14 @@ public partial class MainWindow : Window
     private const double TranscriptFontSizeMin = 11;
     private const double TranscriptFontSizeMax = 28;
     private const double TranscriptFontSizeStep = 1;
+    // Precision (Mac trackpad) scrolling: dampen the sub-notch delta stream so slow
+    // two-finger drags move a few pixels at a time instead of flying. Mouse notches
+    // (exact multiples of 120) bypass this entirely and keep WPF's default behavior.
+    private const double PrecisionScrollSensitivity = 2.40;
     private const double PromptFontSizeMin = 12;
     private const double PromptFontSizeMax = 30;
     private const double PromptFontSizeStep = 1;
     private const int PromptInputTraceIntervalMs = 1000;
-    private const double DocSourceFontSizeMin = 8;
-    private const double DocSourceFontSizeMax = 28;
-    private const double DocSourceFontSizeStep = 1;
     private const double InboxFontSizeMin = 9;
     private const double InboxFontSizeMax = 28;
 
@@ -266,6 +267,8 @@ public partial class MainWindow : Window
         internal bool FirstNoticeSent { get; set; }
         internal int NextStrongNoticeMinute { get; set; } = SystemSteeringPolicy.FirstStrongNoticeMinute;
         internal int ToolCountAtLastNotice { get; set; } = -1;
+        internal DateTimeOffset? LastNoticeAt { get; set; }
+        internal DateTimeOffset? DescendantPauseStartedAt { get; set; }
         internal bool DeliveryPending { get; set; }
     }
     private WorkspaceIssuePresentation? _startupIssue;
@@ -370,9 +373,11 @@ public partial class MainWindow : Window
         _approvalTranscriptCards = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PlanApprovalReviewWindow>
         _openPlanApprovalReviewWindows = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Task> _pendingHumanReviewWrites = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PlanValidationDetailsWindow>
         _openPlanValidationDetailsWindows = new(StringComparer.Ordinal);
     private readonly HashSet<string> _approvalPlansUpdating = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _queuedApprovedReviewNotesFollowUps = new(StringComparer.Ordinal);
     private DispatcherTimer? _approvalResumeRetryTimer;
     private string? _approvalResumeRetryPlanId;
     private bool _approvalResumeRetryInFlight;
@@ -486,6 +491,28 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, TextDisplayWindow> _openTextWindows = new(StringComparer.OrdinalIgnoreCase);
     private bool _mainWindowClosingInProgress; // set at the very start of Closing, before ShowDialog
     private bool _isPromptRunning;
+    private bool _isConvertingEmbeddedCodeRegion;
+    // Per-tab single-authority prompt undo/redo (PROMPTUNDO-20261015-004). Each queue tab AND the
+    // Active Draft own an independent snapshot timeline; _promptUndoHistories holds them keyed by tab
+    // id (the Active Draft uses ActiveDraftUndoKey = ""), and _promptUndoHistory always points at the
+    // history for the tab currently shown in the prompt box. A tab's timeline travels WITH its prompt:
+    // queuing the active draft migrates its history onto the new queued item (and the draft gets a
+    // fresh empty one), switching tabs re-points _promptUndoHistory at the target tab's preserved
+    // timeline, and sending clears the active timeline. Each timeline spans host text AND every
+    // embedded region; the active one is driven by the Ctrl+Z/Ctrl+Y router in Window_PreviewKeyDown
+    // and fed by the host + in-region edit hooks.
+    private const string ActiveDraftUndoKey = "";
+    private readonly Dictionary<string, PromptUndoHistory> _promptUndoHistories = new(StringComparer.Ordinal);
+    private PromptUndoHistory _promptUndoHistory = null!;
+    // True once the per-tab undo registry is wired (end of ctor), so programmatic buffer loads before
+    // that point are ignored by the undo machinery.
+    private bool _promptUndoReady;
+    // Set true around programmatic prompt-buffer swaps (tab switch, draft restore, clear) so the
+    // TextChanged/region-edit hooks do NOT record the swap itself as a user edit on any timeline.
+    private bool _suppressPromptUndoCapture;
+    // Guards against piling up duplicate deferred embedded-code-region conversion callbacks
+    // (see PromptTextBox_TextChanged) when several keystrokes land before the first one runs.
+    private bool _embeddedCodeRegionConversionScheduled;
     private bool _codeHealthPendingOnIdle;
     private bool _queueDrainActive;  // true while an auto-dispatched queue item is executing
     private QueueRecoveryHoldState? _queueRecoveryHold;
@@ -590,7 +617,6 @@ public partial class MainWindow : Window
     private int _toolSpinnerFrame;
     private double _transcriptFontSize = FontSizeBaseValues["FontSizeMedium"];
     private double _promptFontSize = FontSizeBaseValues["FontSizeMedium"];
-    private double _docSourceFontSize = FontSizeBaseValues["FontSizeBody"];
     private double _inboxFontSize = 14;
     private int _fontScaleLevel = 2; // Normal (1.0×)
     private bool _fontSizeApplyPending;
@@ -617,6 +643,7 @@ public partial class MainWindow : Window
     private TranscriptConversationManager _conversationManager = null!;
     private TranscriptPanelController _transcriptPanelController = null!;
     private MarkdownDocumentRenderer _markdownRenderer = null!;
+    private readonly MarkdownDetailStateStore _transcriptDetailStateStore = new();
     private TranscriptScrollController _coordinatorScrollController = null!;
     private bool _modelObservedThisSession;
     private readonly Queue<(string Text, Brush? Brush)> _deferredSystemLines = new();
@@ -684,17 +711,6 @@ public partial class MainWindow : Window
     private DispatcherTimer? _coordinatorIntentDebounceTimer;
     private readonly Dictionary<string, DispatcherTimer> _agentIntentDebounceTimers = new();
 
-    // ── Doc source find-in-source bar state ────────────────────────────────────
-    private Border? _docSourceFindBar;
-    private TextBox? _docSourceFindTextBox;
-    private TextBlock? _docSourceFindMatchCount;
-    private Canvas? _docSourceFindOverlay;
-    private DispatcherTimer? _docSourceFindDebounceTimer;
-    private List<int> _docSourceFindMatches = [];
-    private int _docSourceFindCurrentIndex = -1;
-    private Canvas? _docSourceOverlayCanvas;     // persistent overlay canvas for highlights
-    private Shapes.Rectangle? _docSourceHoverHighlight;
-    private DispatcherTimer? _docSourceHoverTimer;
     private int _loopCurrentIteration;
     private DateTimeOffset _loopNextIterationAt;
     private bool _loopIsWaiting;
@@ -880,14 +896,16 @@ public partial class MainWindow : Window
     private DateTime _ctrlFirstReleaseTime;
     private ISpeechRecognitionService? _speechService;
     private PushToTalkWindow? _pttWindow;
-    private TextBox? _pttTargetTextBox;       // resolved at activation; null = PromptTextBox
-    private RichTextBox? _pttTargetRichTextBox;  // set when a RichTextBox (e.g. DocSourceTextBox) has focus at PTT activation
+    private TextBox? _pttTargetTextBox;       // resolved at activation; set for plain TextBox dictation targets (e.g. clipboard/note editors)
+    private RichTextBox? _pttTargetRichTextBox;  // set when a RichTextBox (e.g. PromptTextBox) has focus at PTT activation
     private readonly object _pttVolumeUpdateGate = new();
     private bool _pttVolumeUpdateQueued;
     private double _pendingPttVolumeHeight;
     private int _pttVolumeEventTraceCount;
     private int _pttVolumeUiUpdateTraceCount;
     private readonly Stopwatch _pttVolumeTraceStopwatch = Stopwatch.StartNew();
+    private int _pttSessionId;
+    private long _pttPhraseDispatchSequence;
     private int _sessionCaretIndex;       // caret captured before PTT panel becomes visible
     private int _sessionSelectionLength;  // selection length captured before PTT panel becomes visible
     private DispatcherTimer? _transcriptGlowHoldTimer;
@@ -970,6 +988,7 @@ public partial class MainWindow : Window
             DateTimeOffset.Now,
             AgentArtifactStore.ArchiveRetention);
         var initialSettings = _settingsStore.Load();
+        _settingsManager = new SettingsSnapshotManager(_settingsStore, initialSettings);
         _bridge = new SquadSdkProcess(_workspacePaths);
         _bridge.ByokProviderSettings = BuildByokSettings(initialSettings);
         _bridge.CopilotDefaultModel = BuildCopilotDefaultModel(initialSettings);
@@ -1006,6 +1025,53 @@ public partial class MainWindow : Window
                 }
             });
         InitializeComponent();
+        PromptTextBox.AddHandler(
+            UIElement.PreviewMouseLeftButtonDownEvent,
+            new MouseButtonEventHandler(PromptTextBox_PreviewMouseLeftButtonDown),
+            handledEventsToo: true);
+        SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE_HANDLER registered handledEventsToo=True isDocumentEnabled=True");
+        // Force plain-text paste — RichTextBox defaults to rich paste which would otherwise
+        // let formatted clipboard content creep into the plain-text prompt editor.
+        DataObject.AddPastingHandler(PromptTextBox, (s, e) =>
+        {
+            var resolvedFormat = RichTextBoxExtensions.ResolvePlainTextPasteFormat(e.FormatToApply, Clipboard.ContainsText());
+            if (resolvedFormat is null)
+                e.CancelCommand();
+            else
+                e.FormatToApply = resolvedFormat;
+        });
+        // Mirror GetPlainText's block-walk on the copy/cut path so a RichTextBox-level
+        // selection that spans an embedded code region keeps that region as its fenced text
+        // on the clipboard. WPF's default serialization only copies the selection's text Runs
+        // and silently drops the region's BlockUIContainer (regressed during the
+        // variable-length-backtick work). We override the clipboard data ONLY when the
+        // selection actually intersects a region; a plain-text selection falls through to
+        // WPF's normal copy so Shift+Enter breaks, etc. are unaffected. This fires for both
+        // Copy and Cut (Cut copies then deletes), so Cut keeps WPF's default deletion of the
+        // selected blocks while still placing the correct fenced text on the clipboard. The
+        // inside-a-region content-box Ctrl+C/X handler sets e.Handled and is a distinct case,
+        // so the two paths never double-handle.
+        DataObject.AddCopyingHandler(PromptTextBox, PromptTextBox_DataObjectCopying);
+        CommandBindings.Add(new CommandBinding(
+            ApplicationCommands.Cut,
+            PromptTextBox_CutExecuted,
+            PromptTextBox_CutCanExecute));
+        // ── Single-authority prompt undo/redo (PROMPTUNDO-20261015-003) ───────────────
+        // Suppress the host RichTextBox's native undo so it neither accumulates nor services a user
+        // Ctrl+Z/Ctrl+Y — the PromptUndoManager timeline is the sole authority. The keys are
+        // intercepted in Window_PreviewKeyDown (which tunnels before the host editor AND before any
+        // focused region's AvalonEdit) and routed into _promptUndoHistory. Each region's own
+        // AvalonEdit undo stack is suppressed in AvalonEditRegionEditor. Host-text edits feed the
+        // timeline from PromptTextBox_TextChanged; in-region edits feed it via
+        // EmbeddedCodeRegionBlock.AnyRegionContentEdited.
+        PromptTextBox.IsUndoEnabled = false;
+        _promptUndoHistory = new PromptUndoHistory(PromptTextBox);
+        _promptUndoHistory.CaptureBaseline();
+        _promptUndoHistories[ActiveDraftUndoKey] = _promptUndoHistory;
+        _promptUndoReady = true;
+        PromptTextBox.SelectionChanged += PromptTextBox_UndoSelectionChanged;
+        EmbeddedCodeRegionBlock.AnyRegionContentEditing += OnEmbeddedRegionContentEditing;
+        EmbeddedCodeRegionBlock.AnyRegionContentEdited += OnEmbeddedRegionContentEdited;
         TranscriptTitleSpinner.PreviewMouseLeftButtonUp +=
             TranscriptTitleSpinner_PreviewMouseLeftButtonUp;
         // Dynamic dock-size providers must exist before a workspace layout is restored or a
@@ -1197,12 +1263,12 @@ public partial class MainWindow : Window
             shouldRecoverMissingAgentReport: thread => _conversationManager.ShouldRecoverMissingAgentReportForLatestCoordinatorTurn(thread));
         _conversationManager = new TranscriptConversationManager(
             getWorkspace: () => _currentWorkspace,
-            getPromptText: () => PromptTextBox.Text,
+            getPromptText: () => PromptTextBox.GetPlainText(),
             setPromptText: (text, caretIndex, selectionStart, selectionLength) =>
             {
                 SetPromptTextBoxLogicalBuffer(text, caretIndex, selectionStart, selectionLength, "conversation-apply");
             },
-            getPromptCaretState: () => (PromptTextBox.CaretIndex, PromptTextBox.SelectionStart, PromptTextBox.SelectionLength),
+            getPromptCaretState: () => (PromptTextBox.GetCaretOffset(), PromptTextBox.GetSelectionStart(), PromptTextBox.GetSelectionLength()),
             isClosing: () => _isClosing,
             renderPersistedTurn: (thread, turn, isLast) => RenderPersistedTurn(thread, turn, isLast),
             coordinatorThread: () => CoordinatorThread,
@@ -1479,7 +1545,7 @@ public partial class MainWindow : Window
                 SquadDashTrace.Write(
                     TraceCategory.UI,
                     $"UI_THREAD_LAG elapsedMs={elapsedMs:0} promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} " +
-                    $"textLen={PromptTextBox?.Text.Length ?? 0} postedPending={_postedUiActionTracker.PendingCount} " +
+                    $"textLen={PromptTextBox?.GetPlainText().Length ?? 0} postedPending={_postedUiActionTracker.PendingCount} " +
                     $"promptRenderPendingMs={GetPromptRenderPendingMs()} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
                     $"pttState={_pttState} pttDraining={_pttDraining} pttVolumeQueued={_pttVolumeUpdateQueued} " +
                     $"lastLongDispatcherOp={_lastLongDispatcherOperationSummary}");
@@ -1608,7 +1674,7 @@ public partial class MainWindow : Window
                         e.Handled = true;
                     }
                 }
-                (_intelliSenseOwnerBox ?? PromptTextBox).Focus();
+                ((IInputElement?)_intelliSenseOwnerBox ?? PromptTextBox).Focus();
             }
             catch (Exception ex)
             {
@@ -1640,11 +1706,11 @@ public partial class MainWindow : Window
             getSettingsSnapshot: () => _settingsSnapshot);
 
         _promptBoxStateController = new PromptBoxStateController(
-            clearPromptTextBox: () => ClearPromptTextBoxLogicalBuffer("prompt-executed"),
+            clearPromptTextBox: () => ClearPromptTextBoxLogicalBuffer("prompt-executed", resetUndoHistory: true),
             focusPromptTextBox: () => PromptTextBox.Focus(),
             getIsEnabled:       () => PromptTextBox.IsEnabled,
             getQueueCount:      () => _promptQueue.Count,
-            getPromptBoxText:   () => PromptTextBox.Text,
+            getPromptBoxText:   () => PromptTextBox.GetPlainText(),
             setPromptBoxText:   text => SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "test-queue-draft"),
             enqueueSimItem:     item =>
             {
@@ -1839,7 +1905,8 @@ public partial class MainWindow : Window
             consumeInterruptedPromptFreshnessInstructionAsync: ConsumeInterruptedPromptFreshnessInstructionAsync,
             prepareBridgeForTurn: RefreshBridgeModelSettingsBeforeDispatch,
             onInterruptedPromptRecoverySaved: HandleInterruptedPromptRecoverySaved,
-            onInterruptedPromptRecoveryCleared: ReleaseInterruptedPromptRecoveryHold);
+            onInterruptedPromptRecoveryCleared: ReleaseInterruptedPromptRecoveryHold,
+            getVisibleCoordinatorResponseLength: () => GetSanitizedTurnResponseText(CoordinatorThread.CurrentTurn).Trim().Length);
         _pec.TryHandlePlanRuntimeFailure = error =>
             TryHandleActivePlanValidationProviderFailure(error, confirmedProviderEvent: false);
 
@@ -2170,7 +2237,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            DocEditorToolbar.TargetRichTextBox = DocSourceTextBox;
+            ConfigureDocSourceEditor();
 
             DeveloperMenuItem.Visibility = Visibility.Collapsed;
 
@@ -2643,21 +2710,19 @@ public partial class MainWindow : Window
         var initWsSw = Stopwatch.StartNew();
         SquadDashTrace.Write(TraceCategory.Startup, "InitializeWorkspace: begin.");
         var initialSnapshot = _settingsStore.Load();
-        _settingsManager = new SettingsSnapshotManager(_settingsStore, initialSnapshot);
+        _settingsManager.Replace(initialSnapshot);
         _bridge.BridgeDiagnosticsEnabled = _settingsSnapshot.BridgeDiagnosticsEnabled;
         RefreshBridgeDiagnosticsMenuCheckmark();
         AgentStatusCard.AvatarsSettingEnabled = _settingsSnapshot.ShowAgentAvatars;
         SquadDashTrace.Write(TraceCategory.Startup, $"InitializeWorkspace: settings loaded {initWsSw.ElapsedMilliseconds}ms.");
         _promptFontSize = Math.Clamp(_settingsSnapshot.PromptFontSize, PromptFontSizeMin, PromptFontSizeMax);
         _transcriptFontSize = Math.Clamp(_settingsSnapshot.TranscriptFontSize, TranscriptFontSizeMin, TranscriptFontSizeMax);
-        _docSourceFontSize = Math.Clamp(_settingsSnapshot.DocSourceFontSize, DocSourceFontSizeMin, DocSourceFontSizeMax);
         _inboxFontSize = Math.Clamp(_settingsSnapshot.InboxFontSize, InboxFontSizeMin, InboxFontSizeMax);
         _fontScaleLevel = Math.Clamp(_settingsSnapshot.FontSizeScaleLevel, 0, FontScaleFactors.Length - 1);
         _squadCliAdapter.LastObservedModel = _settingsSnapshot.LastUsedModel;
         ApplyViewMode();
         ApplyPromptFontSize();
         ApplyTranscriptFontSize();
-        ApplyDocSourceFontSize();
         ApplyFontSizeScale();
         _themePreference = _settingsSnapshot.Theme ?? "Auto";
         var resolvedTheme = string.Equals(_themePreference, "Auto", StringComparison.OrdinalIgnoreCase)
@@ -2748,7 +2813,7 @@ public partial class MainWindow : Window
 
                 // A slash command in a queued tab must execute immediately regardless of
                 // queue state — remove the slot, restore the main draft, then dispatch.
-                var queuedText = PromptTextBox.Text.Trim();
+                var queuedText = PromptTextBox.GetPlainText().Trim();
                 if (LocalPromptSubmissionPolicy.IsImmediateLocalCommand(queuedText))
                 {
                     var capturedId = _activeTabId;
@@ -2790,7 +2855,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var prompt = PromptTextBox.Text.Trim();
+            var prompt = PromptTextBox.GetPlainText().Trim();
             if (string.IsNullOrWhiteSpace(prompt) && !(_followUpAttachments.TryGetValue("", out var clickAttachCheck) && clickAttachCheck.Count > 0))
                 return;
 
@@ -2891,7 +2956,12 @@ public partial class MainWindow : Window
                 PlanRepairReplayPolicy.TaskResultRepairSourceTag,
                 StringComparison.Ordinal)
                     ? "Plan result repair"
-                    : null,
+                    : string.Equals(
+                        sourceTag,
+                        PlanApprovedReviewNotesFollowUp.SourceTag,
+                        StringComparison.Ordinal)
+                        ? "Post-completion review"
+                        : null,
             ReadOnlyDisplayText = string.Equals(
                 sourceTag,
                 PlanRepairReplayPolicy.TaskResultRepairSourceTag,
@@ -2923,7 +2993,7 @@ public partial class MainWindow : Window
 
     private void EnqueueCurrentPrompt()
     {
-        var text = PromptTextBox.Text.Trim();
+        var text = PromptTextBox.GetPlainText().Trim();
         var hasDraftAttachments = _followUpAttachments.TryGetValue("", out var draftAttachCheck) && draftAttachCheck.Count > 0;
         if (string.IsNullOrWhiteSpace(text) && !hasDraftAttachments) return;
 
@@ -2943,6 +3013,11 @@ public partial class MainWindow : Window
             _followUpAttachments.Remove("");
             _followUpAttachments[item.Id] = draftList;
         }
+
+        // The Active Draft's undo/redo timeline travels with the prompt it owns: hand it to the new
+        // queued item so switching back to that tab restores its history, then ClearPrompt... below
+        // gives the now-empty draft a fresh timeline (PROMPTUNDO-20261015-004).
+        MigratePromptUndoHistory(ActiveDraftUndoKey, item.Id);
 
         ClearPromptTextBoxLogicalBuffer("enqueue-current");
         SyncQueuePanel();
@@ -2991,7 +3066,7 @@ public partial class MainWindow : Window
         if (_activeTabId is null)
         {
             // Active Draft — enqueue at front if there is text.
-            var text = PromptTextBox.Text.Trim();
+            var text = PromptTextBox.GetPlainText().Trim();
             if (string.IsNullOrWhiteSpace(text)) return;
 
             RecordHintFeatureUsed(PromptHintFeature.CtrlShiftEnterPrioritize);
@@ -3008,6 +3083,10 @@ public partial class MainWindow : Window
                 _followUpAttachments.Remove("");
                 _followUpAttachments[item.Id] = draftList;
             }
+
+            // Same ownership transfer as EnqueueCurrentPrompt: the draft's undo timeline follows it to
+            // the front-of-queue item; the cleared draft then gets a fresh one (PROMPTUNDO-20261015-004).
+            MigratePromptUndoHistory(ActiveDraftUndoKey, item.Id);
 
             ClearPromptTextBoxLogicalBuffer("prioritize-draft");
             UpdateFollowUpStrip();
@@ -3276,6 +3355,16 @@ public partial class MainWindow : Window
                 paragraph,
                 DateTimeOffset.Now,
                 AllocateNarrativeSequence(targetTurn));
+            // A user steering message is a prompt — register it as a navigable ↑/↓ stop with
+            // a derived nav title, matching ordinary user prompts (~44896).
+            var steeringTitle = string.IsNullOrWhiteSpace(displayPrompt)
+                ? null : NotesStore.DeriveTitle(displayPrompt);
+            var steeringInsertIndex = RegisterSteeringPromptNavStop(
+                targetThread, paragraph, DateTimeOffset.Now, steeringTitle);
+            if (targetThread.PromptNavIndex >= steeringInsertIndex)
+                targetThread.PromptNavIndex++;
+            if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, targetThread))
+                SyncPromptNavButtons();
             _conversationManager.PersistTranscriptTurnSnapshot(
                 targetThread,
                 targetTurn,
@@ -3310,12 +3399,6 @@ public partial class MainWindow : Window
 
         foreach (var thread in liveThreads)
         {
-            if (thread.ThrottleRetryAt is { } retryAt && retryAt > now)
-                continue;
-            if (liveThreads.Any(candidate => !ReferenceEquals(candidate, thread) &&
-                                             IsDescendantOf(candidate, thread)))
-                continue;
-
             var turn = thread.CurrentTurn!;
             var key = BuildSystemSteeringStateKey(thread, turn);
             if (!_systemSteeringStates.TryGetValue(key, out var state))
@@ -3323,6 +3406,33 @@ public partial class MainWindow : Window
                 state = new SystemSteeringState { EpochStartedAt = turn.StartedAt };
                 _systemSteeringStates[key] = state;
             }
+
+            var hasLiveDescendant = liveThreads.Any(candidate =>
+                !ReferenceEquals(candidate, thread) && IsDescendantOf(candidate, thread));
+            if (hasLiveDescendant)
+            {
+                if (state.DescendantPauseStartedAt is null)
+                {
+                    state.DescendantPauseStartedAt = now;
+                    SquadDashTrace.Write("SystemSteering",
+                        $"Write timer paused thread={thread.ThreadId} reason=live-descendant.");
+                }
+                continue;
+            }
+
+            if (state.DescendantPauseStartedAt is { } pauseStartedAt)
+            {
+                state.EpochStartedAt = SystemSteeringPolicy.ResumeEpochAfterPause(
+                    state.EpochStartedAt,
+                    pauseStartedAt,
+                    now);
+                state.DescendantPauseStartedAt = null;
+                SquadDashTrace.Write("SystemSteering",
+                    $"Write timer resumed thread={thread.ThreadId} pausedMs={(long)(now - pauseStartedAt).TotalMilliseconds}.");
+            }
+
+            if (thread.ThrottleRetryAt is { } retryAt && retryAt > now)
+                continue;
 
             var lastWrite = turn.ToolEntries
                 .Where(tool => tool.IsCompleted && tool.Success &&
@@ -3338,6 +3448,7 @@ public partial class MainWindow : Window
                 state.FirstNoticeSent = false;
                 state.NextStrongNoticeMinute = SystemSteeringPolicy.FirstStrongNoticeMinute;
                 state.ToolCountAtLastNotice = turn.ToolEntries.Count;
+                state.LastNoticeAt = null;
                 state.DeliveryPending = false;
                 SquadDashTrace.Write("SystemSteering",
                     $"Write epoch reset thread={thread.ThreadId} at={lastWrite:O}.");
@@ -3347,12 +3458,30 @@ public partial class MainWindow : Window
             if (state.DeliveryPending)
                 continue;
             var minutesSinceWrite = Math.Max(0, (int)Math.Floor((now - state.EpochStartedAt).TotalMinutes));
+            var lastToolActivityAt = turn.ToolEntries
+                .Select(tool => tool.FinishedAt ?? tool.StartedAt)
+                .DefaultIfEmpty()
+                .Max();
+            if (turn.ToolEntries.Any(tool => !tool.IsCompleted) &&
+                thread.DirectLastActivityAt is { } directActivityAt &&
+                (lastToolActivityAt == default || directActivityAt > lastToolActivityAt))
+            {
+                lastToolActivityAt = directActivityAt;
+            }
+            var hasRecentToolActivity = SystemSteeringPolicy.HasRecentToolActivity(
+                now,
+                lastToolActivityAt == default ? null : lastToolActivityAt);
+            var minutesSinceLastNotice = state.LastNoticeAt is { } lastNoticeAt
+                ? Math.Max(0, (int)Math.Floor((now - lastNoticeAt).TotalMinutes))
+                : int.MaxValue;
             var decision = SystemSteeringPolicy.Decide(
                 minutesSinceWrite,
                 state.FirstNoticeSent,
                 state.NextStrongNoticeMinute,
                 turn.ToolEntries.Count,
-                state.ToolCountAtLastNotice);
+                state.ToolCountAtLastNotice,
+                minutesSinceLastNotice,
+                hasRecentToolActivity);
             if (decision == SystemSteeringDecision.Gentle)
             {
                 _ = SendSystemSteeringNoticeAsync(thread, turn, state, minutesSinceWrite, decision);
@@ -3411,6 +3540,7 @@ public partial class MainWindow : Window
                 return;
             state.FirstNoticeSent = true;
             state.ToolCountAtLastNotice = turn.ToolEntries.Count;
+            state.LastNoticeAt = DateTimeOffset.Now;
             if (strong)
             {
                 state.NextStrongNoticeMinute = SystemSteeringPolicy.NextStrongMinute(
@@ -3432,6 +3562,14 @@ public partial class MainWindow : Window
                 DateTimeOffset.Now,
                 AllocateNarrativeSequence(turn),
                 isSystem: true);
+            // System steering is an injected prompt too; register it as a navigable stop with a
+            // null title, matching the system-injected-prompt convention at ~44897.
+            var systemSteeringInsertIndex = RegisterSteeringPromptNavStop(
+                thread, paragraph, DateTimeOffset.Now, title: null);
+            if (thread.PromptNavIndex >= systemSteeringInsertIndex)
+                thread.PromptNavIndex++;
+            if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
+                SyncPromptNavButtons();
             _conversationManager.PersistTranscriptTurnSnapshot(thread, turn, "system-steering-accepted");
             ScrollToEndIfAtBottom(thread);
             SquadDashTrace.Write("SystemSteering",
@@ -3532,7 +3670,7 @@ public partial class MainWindow : Window
             : _promptQueue.Items.FirstOrDefault(item => item.Id == tabId);
         return new SteeringDraftSnapshot(
             tabId,
-            PromptTextBox.Text,
+            PromptTextBox.GetPlainText(),
             tabId is null ? _promptHasVoiceInput : queuedItem?.IsDictated == true,
             attachments);
     }
@@ -3551,7 +3689,7 @@ public partial class MainWindow : Window
             if (item is null)
                 return false;
             var currentText = string.Equals(_activeTabId, tabId, StringComparison.Ordinal)
-                ? PromptTextBox.Text
+                ? PromptTextBox.GetPlainText()
                 : item.Text;
             if (!string.Equals(currentText, draft.RawText, StringComparison.Ordinal) ||
                 item.IsDictated != draft.IsDictated)
@@ -3567,7 +3705,7 @@ public partial class MainWindow : Window
 
         var draftIsVisible = _activeTabId is null;
         var currentDraftText = draftIsVisible
-            ? PromptTextBox.Text
+            ? PromptTextBox.GetPlainText()
             : _queuePreEditDraft ?? string.Empty;
         if (!string.Equals(currentDraftText, draft.RawText, StringComparison.Ordinal) ||
             _promptHasVoiceInput != draft.IsDictated)
@@ -3576,7 +3714,7 @@ public partial class MainWindow : Window
         MarkAttachmentsSubmitted(draft.Attachments);
         if (draftIsVisible)
         {
-            ClearPromptTextBoxLogicalBuffer("steering-accepted");
+            ClearPromptTextBoxLogicalBuffer("steering-accepted", resetUndoHistory: true);
         }
         else
         {
@@ -3767,7 +3905,7 @@ public partial class MainWindow : Window
         var item = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
         if (item is null) return;
 
-        var prompt = PromptTextBox.Text.Trim();
+        var prompt = PromptTextBox.GetPlainText().Trim();
         if (string.IsNullOrWhiteSpace(prompt)) return;
 
         item.Text = prompt;
@@ -3828,7 +3966,7 @@ public partial class MainWindow : Window
         var item = _promptQueue.Items.FirstOrDefault(i => i.Id == id);
         if (item is null) return;
 
-        var prompt = PromptTextBox.Text.Trim();
+        var prompt = PromptTextBox.GetPlainText().Trim();
         if (string.IsNullOrWhiteSpace(prompt)) return;
 
         item.Text = prompt;
@@ -4061,7 +4199,13 @@ public partial class MainWindow : Window
                         StringComparison.Ordinal)
                         ? SystemTranscriptStatusPrefix +
                           "Correcting the current step result without repeating implementation work…"
-                        : null;
+                        : string.Equals(
+                            item.SourceTag,
+                            PlanApprovedReviewNotesFollowUp.SourceTag,
+                            StringComparison.Ordinal)
+                            ? SystemTranscriptStatusPrefix +
+                              "Reviewing approved notes and capturing follow-up tasks…"
+                            : null;
     }
 
     private static string DescribeQueueItemForTrace(PromptQueueItem item) =>
@@ -4638,10 +4782,10 @@ public partial class MainWindow : Window
         var current = _promptQueue.Items.FirstOrDefault(item => item.Id == _activeTabId);
         if (current is not null && !current.IsLocked)
         {
-            current.Text = PromptTextBox.Text;
-            current.CaretIndex = PromptTextBox.CaretIndex;
-            current.SelectionStart = PromptTextBox.SelectionStart;
-            current.SelectionLength = PromptTextBox.SelectionLength;
+            current.Text = PromptTextBox.GetPlainText();
+            current.CaretIndex = PromptTextBox.GetCaretOffset();
+            current.SelectionStart = PromptTextBox.GetSelectionStart();
+            current.SelectionLength = PromptTextBox.GetSelectionLength();
         }
 
         _activeTabId = null;
@@ -4737,6 +4881,9 @@ public partial class MainWindow : Window
             _queuePreEditDraft = null;
             ApplyPromptEditorLockState();
         }
+        // Drop undo/redo timelines for tabs that no longer exist (dispatched/removed), keeping the
+        // Active Draft and every live queue item (PROMPTUNDO-20261015-004).
+        PrunePromptUndoHistories();
         SetPromptStripVisibilityPreservingViewports(
             QueueTabBorder,
             items.Count > 0 || IsQueueDispatchHeld ? Visibility.Visible : Visibility.Collapsed,
@@ -5615,20 +5762,20 @@ public partial class MainWindow : Window
         // Save current content + caret before switching.
         if (_activeTabId is null)
         {
-            _queuePreEditDraft = PromptTextBox.Text;
-            _queuePreEditDraftCaretIndex = PromptTextBox.CaretIndex;
-            _queuePreEditDraftSelectionStart = PromptTextBox.SelectionStart;
-            _queuePreEditDraftSelectionLength = PromptTextBox.SelectionLength;
+            _queuePreEditDraft = PromptTextBox.GetPlainText();
+            _queuePreEditDraftCaretIndex = PromptTextBox.GetCaretOffset();
+            _queuePreEditDraftSelectionStart = PromptTextBox.GetSelectionStart();
+            _queuePreEditDraftSelectionLength = PromptTextBox.GetSelectionLength();
         }
         else
         {
             var current = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
             if (current is not null && !current.IsLocked)
             {
-                current.Text = PromptTextBox.Text;
-                current.CaretIndex = PromptTextBox.CaretIndex;
-                current.SelectionStart = PromptTextBox.SelectionStart;
-                current.SelectionLength = PromptTextBox.SelectionLength;
+                current.Text = PromptTextBox.GetPlainText();
+                current.CaretIndex = PromptTextBox.GetCaretOffset();
+                current.SelectionStart = PromptTextBox.GetSelectionStart();
+                current.SelectionLength = PromptTextBox.GetSelectionLength();
             }
         }
 
@@ -5748,7 +5895,7 @@ public partial class MainWindow : Window
         // When this item is the active tab, live edits are in PromptTextBox — not
         // yet written back to item.Text (that flush only happens on tab switch).
         // Read the live text so the empty-check reflects what the user sees.
-        var effectiveText = _activeTabId == id ? PromptTextBox.Text : item.Text;
+        var effectiveText = _activeTabId == id ? PromptTextBox.GetPlainText() : item.Text;
 
         // Empty items have nothing to confirm — delete immediately.
         // Tour/sim items in developer mode are also deleted without confirmation.
@@ -5788,7 +5935,7 @@ public partial class MainWindow : Window
         if (item is null) return;
 
         // Active tab's live text lives in PromptTextBox (not yet flushed to item.Text).
-        var effectiveText = PromptTextBox.Text;
+        var effectiveText = PromptTextBox.GetPlainText();
 
         if (!string.IsNullOrWhiteSpace(effectiveText) &&
             !(SquadDashEnvironment.IsDeveloperMode && IsTourOrSimTag(item.SourceTag)))
@@ -6479,9 +6626,10 @@ public partial class MainWindow : Window
 
             case "thinking_delta":
                 var thought = NormalizeThinkingChunk(evt.Text);
-                if (!string.IsNullOrWhiteSpace(thought))
+                if (!string.IsNullOrEmpty(thought))
                 {
-                    UpdateLeadAgent("Thinking", string.Empty, FormatThinkingText(thought));
+                    if (!string.IsNullOrWhiteSpace(thought))
+                        UpdateLeadAgent("Thinking", string.Empty, FormatThinkingText(thought));
                     AppendThinkingText(thought, evt.Speaker);
                 }
                 break;
@@ -7421,7 +7569,7 @@ public partial class MainWindow : Window
             return;
 
         var thought = NormalizeThinkingChunk(evt.Text ?? evt.ReasoningText);
-        if (string.IsNullOrWhiteSpace(thought))
+        if (string.IsNullOrEmpty(thought))
             return;
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
@@ -7430,7 +7578,8 @@ public partial class MainWindow : Window
         thread.StatusText = "Thinking";
         thread.IsCurrentBackgroundRun = true;
         AppendThinkingText(thread, thought, thread.Title);
-        thread.DetailText = FormatThinkingText(thought);
+        if (!string.IsNullOrWhiteSpace(thought))
+            thread.DetailText = FormatThinkingText(thought);
         SyncThreadChip(thread);
         PulseAgentActivity(FindAgentCardForThread(thread), SpinnerActivityKind.Thinking, thread);
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_thinking_delta");
@@ -7449,7 +7598,7 @@ public partial class MainWindow : Window
         thread.IsCurrentBackgroundRun = true;
 
         if (!string.IsNullOrWhiteSpace(evt.ReasoningText))
-            AppendThinkingText(thread, evt.ReasoningText!, thread.Title);
+            ReconcileFinalThinkingText(thread, evt.ReasoningText!, thread.Title);
 
         if (!string.IsNullOrWhiteSpace(evt.Text))
             ReconcileFinalSubagentResponseText(thread, evt.Text!);
@@ -7892,10 +8041,11 @@ public partial class MainWindow : Window
 
     private void HandlePromptFailure(SquadSdkEvent evt)
     {
-        if (TryHandleActivePlanValidationProviderFailure(evt.Message, confirmedProviderEvent: true))
+        var context = BuildProviderFailureContext(evt);
+        if (TryHandleActivePlanValidationProviderFailure(evt.Message, confirmedProviderEvent: true, context))
             return;
 
-        var failure = ProviderFailurePresentation.Analyze(evt.Message, BuildProviderFailureContext(evt));
+        var failure = ProviderFailurePresentation.Analyze(evt.Message, context);
         ProviderFailureTranscriptBlockFactory.Append(CoordinatorThread, failure, "Coordinator", _transcriptFontSize);
         ScrollToEndIfAtBottom(CoordinatorThread);
         UpdateLeadAgent("Error", string.Empty, failure.BuildThreadSummary("Coordinator"));
@@ -7906,14 +8056,16 @@ public partial class MainWindow : Window
 
     private bool TryHandleActivePlanValidationProviderFailure(
         string? rawError,
-        bool confirmedProviderEvent)
+        bool confirmedProviderEvent,
+        ProviderFailureContext? context = null)
     {
         var activeExecution = _conversationManager.ConversationState.ActiveLoopExecution;
         if (activeExecution?.IsExecutingPlan != true ||
             string.IsNullOrWhiteSpace(activeExecution.ActiveValidationId))
             return false;
 
-        var failure = ProviderFailurePresentation.Analyze(rawError);
+        context ??= BuildProviderFailureContext(new SquadSdkEvent());
+        var failure = ProviderFailurePresentation.Analyze(rawError, context);
         if (!confirmedProviderEvent && failure.Category == ProviderFailureCategory.Unknown)
             return false;
 
@@ -7940,24 +8092,16 @@ public partial class MainWindow : Window
             PlanValidationProviderFailurePresentation.BuildAttemptMessage(
                 title,
                 failure.RawError,
-                willRetry: retryCount <= 1));
+                willRetry: retryCount <= 1,
+                context));
         SquadDashTrace.Write(
             "PlanValidation",
             $"Provider failure registered validation={activeExecution.ActiveValidationId} retry={retryCount} error={failure.RawError}");
         return true;
     }
 
-    private ProviderFailureContext BuildProviderFailureContext(SquadSdkEvent evt)
-    {
-        var activeProfile = _bridge.ActiveProfile;
-        return new ProviderFailureContext(
-            evt.SessionModel ?? evt.Model ?? activeProfile?.Model,
-            evt.ProfileAlias ?? activeProfile?.Alias,
-            evt.ProviderBaseUrl ?? activeProfile?.ProviderUrl,
-            evt.ProviderType ?? activeProfile?.ProviderType,
-            evt.WireApi ?? activeProfile?.WireApi,
-            evt.RequestedModel);
-    }
+    private ProviderFailureContext BuildProviderFailureContext(SquadSdkEvent evt) =>
+        ProviderFailureContext.FromEvent(evt, _bridge.ActiveProfile, _modelProfileStore.GetProfiles());
 
     private void HandleSubagentCancelled(SquadSdkEvent evt)
     {
@@ -8686,6 +8830,7 @@ public partial class MainWindow : Window
         AppendLine($"⏳ Plan {durable.PlanId} is waiting for you to commit or stash the listed changes.");
 
         var pending = PendingDecomposePlanAdapter.FromPlan(waiting);
+        var verificationTask = SelectSinglePendingVerificationTask(waiting);
         ShowTranscriptPlanPreflightRecovery(
             pending,
             action: "continue-working",
@@ -8693,21 +8838,43 @@ public partial class MainWindow : Window
             blocked,
             sourceActionsPanel: null,
             CoordinatorThread.Document.Blocks,
-            retryOverride: async () =>
-            {
-                var latest = _planStore?.Load(waiting.PlanId)
-                    ?? throw new InvalidOperationException("The durable plan is no longer available.");
-                await StartBackloggedDecomposeGroupAsync(
-                    PendingDecomposePlanAdapter.FromPlan(latest).Group with
-                    {
-                        HostRevision = latest.Revision,
-                    });
-                return true;
-            },
+            retryOverride: () => ResumeWaitingForCleanWorktreePlanAsync(waiting.PlanId),
+            contentFactory: exception => PlanPreflightRecoveryContent.FromWaitingForCleanWorktree(
+                exception,
+                waiting.Title,
+                verificationTask?.Title),
             retryLabel: "Resume when clean",
             autoRetryWhenReady: true);
         SyncLoopPanel();
         SoundNotifications.Play(SoundEvent.LoopStopped);
+    }
+
+    private static PlanTask? SelectSinglePendingVerificationTask(Plan plan)
+    {
+        var candidates = plan.Tasks
+            .Where(task => task.Status == PlanTaskStatus.VerificationPending ||
+                           PlanTaskStatus.IsVerifying(task.Status))
+            .ToArray();
+        return candidates.Length == 1 ? candidates[0] : null;
+    }
+
+    private async Task<bool> ResumeWaitingForCleanWorktreePlanAsync(string planId)
+    {
+        var latest = _planStore?.Load(planId)
+            ?? throw new InvalidOperationException("The durable plan is no longer available.");
+        var verificationTask = SelectSinglePendingVerificationTask(latest);
+        if (verificationTask is not null)
+        {
+            await ResumeInterruptedTaskVerificationAsync(latest, verificationTask.TaskId);
+            return true;
+        }
+
+        await StartBackloggedDecomposeGroupAsync(
+            PendingDecomposePlanAdapter.FromPlan(latest).Group with
+            {
+                HostRevision = latest.Revision,
+            });
+        return true;
     }
 
     private void OnNativeLoopIterationCompleted(int iteration)
@@ -9438,9 +9605,9 @@ public partial class MainWindow : Window
         SquadDashTrace.Write("RC", $"rc_transcribed: {text}");
 
         // Put text in prompt box and auto-send if the prompt is empty (i.e. no text already there).
-        PromptTextBox.Text = text.Trim();
-        PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
-        if (!string.IsNullOrWhiteSpace(PromptTextBox.Text) && RunButton.IsEnabled)
+        PromptTextBox.SetPlainText(text.Trim());
+        PromptTextBox.SetCaretOffset(PromptTextBox.GetTextLength());
+        if (!string.IsNullOrWhiteSpace(PromptTextBox.GetPlainText()) && RunButton.IsEnabled)
             RunButton_Click(this, new System.Windows.RoutedEventArgs());
     }
 
@@ -11666,19 +11833,129 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         SyncPlansPanel();
 
-        if (updated.LifecycleStatus == PlanLifecycleStatus.Interrupted && !updated.IsPaused)
+        await ContinueAfterApprovedPlanRevisionAsync(current, updated);
+    }
+
+    private async Task ContinueAfterApprovedPlanRevisionAsync(Plan previous, Plan updated)
+    {
+        if (updated.IsPaused || PlanLifecycleStatus.IsTerminal(updated.LifecycleStatus))
+            return;
+
+        var active = _planStore?.Load(updated.PlanId) ?? updated;
+        if (PlanExecutionBoundaryPolicy.IsReadyToComplete(active))
+        {
+            var completed = PlanStoreUpdater.ApplyCompleted(active with { InterruptionData = null });
+            if (!TryPublishPlanProgress(completed, out var completionError))
+            {
+                AppendLine($"⚠ Plan revision was approved but completion could not be saved: {completionError}");
+                return;
+            }
+
+            RefreshPlanProjectionBestEffort(completed, "approved plan revision completion");
+            LoadTasksPanel();
+            SyncPlansPanel();
+            PublishPlanCompletionSummary(completed);
+            ScheduleDecomposeSystemEntry(
+                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(
+                    completed, "Revised plan completed"));
+            return;
+        }
+
+        if (active.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
+        {
+            if (HasReadyPendingApprovalGate(active))
+            {
+                active = await ActivateRevisionApprovalBoundaryAsync(previous, active);
+                if (active.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval)
+                {
+                    ResolveRecoveryTranscript(
+                        "↩ Revision approved. The approval checkpoint was refreshed.");
+                    return;
+                }
+                if (active.IsPaused || PlanLifecycleStatus.IsTerminal(active.LifecycleStatus))
+                    return;
+            }
+            else if (active.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
+            {
+                await RestoreRevisionAwaitingApprovalGateUIAsync(active);
+                ResolveRecoveryTranscript(
+                    "↩ Revision approved. The approval checkpoint was restored.");
+                return;
+            }
+        }
+
+        if (active.LifecycleStatus is
+            PlanLifecycleStatus.Interrupted or
+            PlanLifecycleStatus.AwaitingApproval or
+            PlanLifecycleStatus.Executing)
         {
             try
             {
-                await StartOrResumeDurablePlanAsync(updated);
+                await StartOrResumeDurablePlanAsync(active);
                 ResolveRecoveryTranscript(
-                    "↩ Recovery resumed. The remaining plan was revised and execution continued.");
+                    "↩ Revision approved. The remaining plan was revised and execution continued.");
             }
             catch (PlanPreflightBlockedException blocked)
             {
-                ScheduleApprovalResumeRetry(updated.PlanId, blocked);
+                ScheduleApprovalResumeRetry(active.PlanId, blocked);
             }
         }
+    }
+
+    private async Task<Plan> ActivateRevisionApprovalBoundaryAsync(Plan previous, Plan active)
+    {
+        var recovered = PlanStoreUpdater.ApplyApprovalBoundaryRecovery(active);
+        if (!TryPublishPlanProgress(recovered, out var publishError))
+        {
+            AppendLine($"⚠ Plan revision was approved but its approval checkpoint could not be reopened: {publishError}");
+            return active;
+        }
+
+        RefreshPlanProjectionBestEffort(recovered, "approved plan revision approval boundary");
+        var mustStop = PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(recovered);
+        await ProcessPlanApprovalsAfterStepAsync(
+            recovered.PlanId,
+            recovered.Revision,
+            ResolvePlanRevisionBoundaryTaskId(recovered, previous),
+            mustStop
+                ? DecomposeGroupExecutionState.AwaitingApproval
+                : DecomposeGroupExecutionState.Eligible,
+            recovered);
+        LoadTasksPanel();
+        SyncPlansPanel();
+        return _planStore?.Load(recovered.PlanId) ?? recovered;
+    }
+
+    private async Task RestoreRevisionAwaitingApprovalGateUIAsync(Plan active)
+    {
+        await RestoreAwaitingApprovalGateUIAsync(active.PlanId);
+    }
+
+    private static string ResolvePlanRevisionBoundaryTaskId(Plan updated, Plan previous)
+    {
+        var candidateGate = updated.ApprovalGates.FirstOrDefault(gate =>
+                                gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval) ??
+                            previous.ApprovalGates.FirstOrDefault(gate =>
+                                gate.Status is PlanGateStatus.Pending or PlanGateStatus.AwaitingApproval);
+        if (candidateGate is not null)
+        {
+            foreach (var taskId in candidateGate.AfterTaskIds.Reverse())
+            {
+                var task = updated.Tasks.FirstOrDefault(candidate =>
+                    string.Equals(candidate.TaskId, taskId, StringComparison.Ordinal));
+                if (task?.Status is PlanTaskStatus.Complete or
+                    PlanTaskStatus.Superseded or
+                    PlanTaskStatus.HumanReviewRequired)
+                    return taskId;
+            }
+        }
+
+        return previous.Progress.ExecutingTaskId ??
+               updated.Progress.ExecutingTaskId ??
+               updated.Tasks.LastOrDefault(task =>
+                   task.Status is PlanTaskStatus.Complete or PlanTaskStatus.Superseded)?.TaskId ??
+               updated.Tasks.FirstOrDefault()?.TaskId ??
+               updated.PlanId;
     }
 
     private void AppendPlanRevisionApprovalCard(
@@ -11687,12 +11964,24 @@ public partial class MainWindow : Window
         PlanRevisionApplyResult preview,
         TranscriptTurnView? ownerView)
     {
+        if (ShouldSuppressApprovalCardForPausedPlan(current.PlanId))
+            return;
+
         var blocks = ownerView?.NarrativeSection.Blocks ?? CoordinatorThread.Document.Blocks;
+        var presentation = PlanRevisionApprovalPresentationBuilder.Build(current, pending);
+        if (presentation.OwnsInterruptedRecovery)
+        {
+            // A valid saved revision is the most specific next decision for this interruption.
+            // Remove the generic recovery surface so the transcript presents one cohesive path.
+            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+                CoordinatorThread.Document.Blocks,
+                current.PlanId);
+        }
         var stack = new StackPanel { Margin = new Thickness(4) };
 
         var header = new TextBlock
         {
-            Text = "Plan Revision - Approval Required",
+            Text = presentation.Title,
             FontSize = _transcriptFontSize + 2,
             FontWeight = FontWeights.SemiBold,
             Margin = new Thickness(0, 0, 0, 6),
@@ -11753,6 +12042,14 @@ public partial class MainWindow : Window
         planTitle.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
         stack.Children.Add(planTitle);
 
+        if (presentation.Context is not null)
+        {
+            AddLabel("Why you are seeing this");
+            AddBody(presentation.Context, 5);
+            AddLabel("What happened");
+            AddBody(presentation.RecordedReason!, 8);
+        }
+
         AddLabel("Proposed change");
         AddBody(pending.Payload.Summary, 8);
         AddLabel("Impact");
@@ -11773,9 +12070,15 @@ public partial class MainWindow : Window
         if (preview.PreservedLockedTaskCount > 0)
             AddBody($"• {preview.PreservedLockedTaskCount} unaffected completed or active step(s) will remain unchanged.", 2);
 
+        if (presentation.Recommendation is not null)
+        {
+            AddLabel("Recommended next step");
+            AddBody(presentation.Recommendation, 8);
+        }
+
         var status = new TextBlock
         {
-            Text = "The current plan remains authoritative until you approve this revision.",
+            Text = presentation.Status,
             TextWrapping = TextWrapping.Wrap,
             FontSize = _transcriptFontSize - 1,
             Margin = new Thickness(0, 6, 0, 8),
@@ -11833,6 +12136,7 @@ public partial class MainWindow : Window
             actions.Visibility = Visibility.Collapsed;
             status.Text = "Current plan kept. No plan content changed.";
             RestoreAwaitingApprovalGateUI(pending.Payload.PlanId);
+            RestoreInterruptedPlanRecoverySurfaces();
         };
         ScrollToEndIfAtBottom(CoordinatorThread);
 
@@ -12927,17 +13231,63 @@ public partial class MainWindow : Window
         return item.Id;
     }
 
+    private string QueueLockedPlanPromptForDispatch(
+        string text,
+        string displayLabel,
+        string sourceTag,
+        IReadOnlyList<FollowUpAttachment> attachments,
+        string readOnlyDisplayText)
+    {
+        var item = new PromptQueueItem
+        {
+            Text = text,
+            SequenceNumber = _promptQueueCoordinator.NextSequenceNumber(),
+            QueueNumber = NextQueueNumber(),
+            SourceTag = sourceTag,
+            DisplayLabel = displayLabel,
+            IsLocked = true,
+            ReadOnlyDisplayText = readOnlyDisplayText,
+            CaretIndex = text.Length,
+            SelectionStart = text.Length,
+        };
+        _promptQueue.EnqueueItemAtFront(item);
+        _promptQueue.RenumberSequentially();
+        if (attachments.Count > 0)
+            _followUpAttachments[item.Id] = attachments.ToList();
+
+        SyncQueuePanel();
+        SquadDashTrace.Write(
+            "Queue",
+            $"Enqueued locked prompt {DescribeQueueItemForTrace(item)} queueCount={_promptQueue.Count}");
+        return item.Id;
+    }
+
+    private void DispatchQueuedLockedPlanPrompt()
+    {
+        if (_lastQuickReplyEntry?.AllowQuickReplies == true)
+            _pec.DisableQuickReplies(_lastQuickReplyEntry);
+        ClearActiveQuickReplyState(_lastQuickReplyEntry);
+        if (_queueManuallyPaused || _queuePausePending)
+            SetQueuePaused(false);
+        ResetQueuePausedState();
+        SyncQueuePanel();
+        if (_loopIsWaiting)
+            _loopController.CancelLoopWait();
+        _loopFollowUpTcs?.TrySetResult(true);
+        _ = DrainQueueAsync();
+    }
+
     private void QueueAddressUncheckedItems(
         Plan plan,
         string taskId,
         IReadOnlyList<PlanHumanReviewChecklistItem> checklistItems,
         string? activityGateId = null)
     {
-        var uncheckedItems = checklistItems.Where(item => !item.IsChecked).ToArray();
-        if (uncheckedItems.Length == 0)
+        var unapprovedItems = checklistItems.Where(item => !item.IsChecked).ToArray();
+        if (unapprovedItems.Length == 0)
             return;
 
-        activityGateId ??= uncheckedItems
+        activityGateId ??= unapprovedItems
             .Select(item => item.GateId)
             .FirstOrDefault(gateId => plan.ApprovalGates.Any(gate =>
                 string.Equals(gate.GateId, gateId, StringComparison.Ordinal)));
@@ -12950,16 +13300,16 @@ public partial class MainWindow : Window
         var stepLabel = PlanRecoveryPresentationBuilder.FormatStepLabel(
             task?.DisplayStepLabel,
             task?.Title ?? taskId);
-        var checklistText = string.Join("\n", uncheckedItems.Select(item => $"- {item.Text}"));
+        var checklistText = string.Join("\n", unapprovedItems.Select(FormatUnapprovedReviewItem));
         var context =
             $"Plan ID: {plan.PlanId}\n" +
             $"Revision: {plan.Revision}\n" +
             $"Task ID: {taskId}\n" +
-            $"Candidate commit: {uncheckedItems[0].CandidateCommit}\n\n" +
+            $"Candidate commit: {unapprovedItems[0].CandidateCommit}\n\n" +
             "The user is responding at an existing human-review boundary. Address only the requested " +
-            "unchecked verification items and keep the plan paused. The response may be discussion, a direct " +
+            "unapproved verification items and keep the plan paused. The response may be discussion, a direct " +
             "correction, plan rework, or a bounded amendment; report the chosen outcome through the correlated " +
-            "PLAN_REVIEW_RESPONSE_JSON contract supplied in the prompt.\n\nUnchecked verification items:\n" + checklistText +
+            "PLAN_REVIEW_RESPONSE_JSON contract supplied in the prompt.\n\nUnapproved verification items:\n" + checklistText +
             (activityGate is not null && approvalToken is not null
                 ? "\n\n" + PlanReviewResponseParser.BuildInstruction(
                     plan, activityGate, approvalToken, taskId)
@@ -12976,35 +13326,135 @@ public partial class MainWindow : Window
                 RemovalWarning: "This plan attachment anchors the correction to the correct plan and revision. Remove it anyway?"),
             new(
                 CommitSha: string.Empty,
-                Description: "Required unchecked-item context",
+                Description: "Required unapproved-item context",
                 OriginalPrompt: null,
                 ContentBlock: BuildTypedAttachmentBlock(
                     "plan-review-context",
-                    "Required unchecked-item context",
+                    "Required unapproved-item context",
                     context),
                 RequiresRemovalConfirmation: true,
-                RemovalWarning: "This attachment identifies the unchecked verification items and keeps the plan paused correctly. Remove it anyway?"),
+                RemovalWarning: "This attachment identifies the unapproved verification items and keeps the plan paused correctly. Remove it anyway?"),
         };
-        var queueItemId = QueueEditablePlanPrompt(
-            $"Address the unchecked verification items for {stepLabel}.\r\n\r\n" +
-            "Correct the following behavior:\r\n\r\n" +
-            "[Describe the correction you want]\r\n",
-            "[Describe the correction you want]",
-            "Address unchecked items",
+        var queueItemId = QueueLockedPlanPromptForDispatch(
+            $"Address the unapproved or unanswered verification items for {stepLabel}.\r\n\r\n" +
+            "Use the attached plan-review context. It includes each item, its answer, and any user note. " +
+            "Correct, clarify, or discuss only those items, keep the plan paused, and report the outcome " +
+            "through the supplied PLAN_REVIEW_RESPONSE_JSON contract.",
+            "Address unapproved items",
             "plan-review-correction-draft",
-            attachments);
+            attachments,
+            "Submitting unapproved or unanswered review items for correction. The protected context includes the current plan, each item answer, and the item-specific notes.");
         if (!string.IsNullOrWhiteSpace(activityGateId))
         {
             _pendingPlanReviewCorrectionContext = new PendingPlanReviewCorrectionContext(
                 queueItemId,
                 plan.PlanId,
                 activityGateId,
-                taskId);
+                taskId,
+                IsDirectSubmitted: true);
             if (approvalToken is not null && approvalToken.GateIds.Contains(activityGateId, StringComparer.Ordinal))
                 _pendingGateResponseContext = new PendingGateResponseContext(approvalToken, activityGateId);
             SyncGateChangeActivity(isPromptRunning: false);
             SyncPlanTaskCorrectionActivity(isPromptRunning: false);
         }
+        DispatchQueuedLockedPlanPrompt();
+    }
+
+    private static string FormatUnapprovedReviewItem(PlanHumanReviewChecklistItem item)
+    {
+        var answer = item.IsExplicitNo ? "No" : "Unanswered";
+        var note = PlanHumanReviewItemResponse.NormalizeNote(item.Note);
+        var text = $"- Question: {item.Text}\n  Answer: {answer}";
+        if (!string.IsNullOrWhiteSpace(note))
+            text += "\n  User note: " + note;
+        return text;
+    }
+
+    private void QueueApprovedReviewNotesFollowUp(Plan completedPlan)
+    {
+        var prompt = PlanApprovedReviewNotesFollowUp.BuildPrompt(completedPlan);
+        if (prompt is null)
+            return;
+
+        var key = PlanApprovedReviewNotesFollowUp.BuildCompletionKey(completedPlan);
+        if (!_queuedApprovedReviewNotesFollowUps.Add(key))
+            return;
+
+        var item = EnqueuePrompt(
+            prompt,
+            isSystemInjected: true,
+            forceAtTail: true,
+            sourceTag: PlanApprovedReviewNotesFollowUp.SourceTag,
+            drain: false);
+        if (item is null) return;
+
+        var waitReason = IsRightmostQueueTabActive()
+            ? "Waiting behind the currently selected queue draft. Send it or select another tab to continue."
+            : _queueManuallyPaused
+                ? "Waiting because the prompt queue is paused."
+                : _queueRecoveryHold is not null || _interruptedPromptRecoveryHold is not null
+                    ? "Waiting for the current recovery decision."
+                    : _isPromptRunning
+                        ? "It will start when the current turn finishes."
+                        : null;
+        ShowSystemTranscriptEntry(PlanApprovedReviewNotesFollowUp.BuildQueuedStatus(
+            PlanApprovedReviewNotesFollowUp.CountNotedItems(completedPlan),
+            waitReason));
+        _ = DrainQueueIfNeededAsync();
+    }
+
+    private void QueueApprovedReviewNotesFollowUpOnCompletionTransition(
+        Plan? previousPlan,
+        Plan publishedPlan)
+    {
+        if (publishedPlan.LifecycleStatus != PlanLifecycleStatus.Completed ||
+            previousPlan?.LifecycleStatus == PlanLifecycleStatus.Completed)
+            return;
+
+        QueueApprovedReviewNotesFollowUp(publishedPlan);
+    }
+
+    private void AddressUnapprovedItemsFromInbox(ApprovalClickToken token)
+    {
+        var plan = _planStore?.Load(token.PlanId);
+        if (plan is null)
+        {
+            ReportPlanActionIssue(
+                token.PlanId,
+                "Address unapproved items",
+                "The plan could not be loaded.");
+            return;
+        }
+
+        var gates = plan.ApprovalGates
+            .Where(gate => token.GateIds.Contains(gate.GateId, StringComparer.Ordinal) &&
+                           gate.Status == PlanGateStatus.AwaitingApproval)
+            .OrderBy(gate => gate.AfterTaskIds
+                .Select(taskId => plan.Tasks.ToList().FindIndex(task =>
+                    string.Equals(task.TaskId, taskId, StringComparison.Ordinal)))
+                .Where(index => index >= 0)
+                .DefaultIfEmpty(int.MaxValue)
+                .Min())
+            .ToArray();
+        var unapprovedItems = PlanHumanReviewChecklist.Build(plan, gates)
+            .Where(item => !item.IsChecked)
+            .ToArray();
+        if (unapprovedItems.Length == 0)
+            return;
+
+        var firstGate = gates.FirstOrDefault(gate =>
+            string.Equals(gate.GateId, unapprovedItems[0].GateId, StringComparison.Ordinal));
+        var reviewedTaskId = firstGate?.AfterTaskIds.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(reviewedTaskId))
+        {
+            ReportPlanActionIssue(
+                plan.PlanId,
+                "Address unapproved items",
+                "SquadDash could not identify the reviewed task for these items.");
+            return;
+        }
+
+        QueueAddressUncheckedItems(plan, reviewedTaskId, unapprovedItems, firstGate!.GateId);
     }
 
     private async Task QueuePlanRecoveryCorrectionAsync(PendingDecomposePlan plan, string taskId)
@@ -13565,6 +14015,161 @@ public partial class MainWindow : Window
             $"Queued plan start plan={plan.PlanId} title='{plan.DisplayName}' queueCount={_promptQueue.Count}.");
     }
 
+    private static bool IsInitialPlanExecutionAction(string? action) =>
+        string.Equals(action, "execute-active-branch", StringComparison.Ordinal) ||
+        string.Equals(action, "execute-new-branch", StringComparison.Ordinal);
+
+    private bool IsPendingPlanExecutionPreflightActive(PendingDecomposePlan plan)
+    {
+        if (_currentWorkspace is null) return false;
+        var current = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+            .Load(plan.Group.GroupId);
+        return current is not null &&
+               string.Equals(current.Revision, plan.Revision, StringComparison.Ordinal) &&
+               TranscriptQuickReplyFactory.ContainsPlanPreflightRecovery(
+                   CoordinatorThread.Document.Blocks,
+                   plan.Group.GroupId,
+                   plan.Revision,
+                   IsInitialPlanExecutionAction);
+    }
+
+    private void RefreshPendingPlanExecutionPreflightViewers(string groupId)
+    {
+        foreach (var entry in _openPlanViewerWindows.Where(entry =>
+                     string.Equals(entry.GroupId, groupId, StringComparison.Ordinal)))
+            entry.Window.NotifyPendingPlanExecutionPreflightChanged();
+    }
+
+    private BlockUIContainer CreatePlanPreflightReceiptContainer(
+        string groupId,
+        string revision,
+        string titleText,
+        string messageText)
+    {
+        var stack = new StackPanel();
+        var title = new TextBlock
+        {
+            Text = titleText,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = _transcriptFontSize,
+        };
+        title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+        stack.Children.Add(title);
+
+        var message = new TextBlock
+        {
+            Text = messageText,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0),
+            FontSize = _transcriptFontSize,
+        };
+        message.SetResourceReference(TextBlock.ForegroundProperty, "SubtleText");
+        stack.Children.Add(message);
+
+        var card = new Border
+        {
+            Child = stack,
+            CornerRadius = new CornerRadius(10),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(12, 10, 12, 10),
+            MaxWidth = 760,
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        card.SetResourceReference(Border.BackgroundProperty, "TranscriptSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+        return TranscriptQuickReplyFactory.CreateContainer(
+            card,
+            new PlanPreflightRecoveryReceiptTag(groupId, revision, DateTimeOffset.Now));
+    }
+
+    private bool ReplacePlanPreflightRecoveryCards(
+        BlockCollection blocks,
+        string groupId,
+        string revision,
+        Func<PlanPreflightRecoveryTag, bool> predicate,
+        Func<BlockUIContainer> replacementFactory)
+    {
+        var replaced = false;
+        foreach (var block in blocks.ToArray())
+        {
+            if (block is BlockUIContainer { Tag: PlanPreflightRecoveryTag tag } &&
+                string.Equals(tag.GroupId, groupId, StringComparison.Ordinal) &&
+                string.Equals(tag.Revision, revision, StringComparison.Ordinal) &&
+                predicate(tag))
+            {
+                blocks.InsertBefore(block, replacementFactory());
+                blocks.Remove(block);
+                replaced = true;
+                continue;
+            }
+
+            if (block is Section section)
+                replaced |= ReplacePlanPreflightRecoveryCards(
+                    section.Blocks,
+                    groupId,
+                    revision,
+                    predicate,
+                    replacementFactory);
+        }
+
+        return replaced;
+    }
+
+    private void RetirePlanExecutionPreflightAfterCollection(PendingDecomposePlan plan, Plan collectedPlan)
+    {
+        var replaced = ReplacePlanPreflightRecoveryCards(
+            CoordinatorThread.Document.Blocks,
+            plan.Group.GroupId,
+            plan.Revision,
+            tag => IsInitialPlanExecutionAction(tag.Action),
+            () => CreatePlanPreflightReceiptContainer(
+                plan.Group.GroupId,
+                plan.Revision,
+                "Plan added to Plans",
+                $"\"{collectedPlan.DisplayName}\" is saved in the Plans panel. Start it there when you're ready."));
+        if (replaced)
+            RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
+    }
+
+    private bool TryResolveStalePlanPreflightReceipt(
+        PendingDecomposePlan plan,
+        out string title,
+        out string message)
+    {
+        title = string.Empty;
+        message = string.Empty;
+        if (_currentWorkspace is null) return false;
+
+        var currentPlan = new PendingDecomposePlanStore(_currentWorkspace.SquadFolderPath)
+            .Load(plan.Group.GroupId);
+        if (currentPlan is not null &&
+            string.Equals(currentPlan.Revision, plan.Revision, StringComparison.Ordinal))
+            return false;
+
+        var durable = _planStore?.Load(plan.Group.GroupId)
+            ?? new PlanStore(_currentWorkspace.SquadFolderPath).Load(plan.Group.GroupId);
+        if (durable is not null &&
+            string.Equals(durable.Revision, plan.Revision, StringComparison.Ordinal))
+        {
+            title = "Plan added to Plans";
+            message = $"\"{durable.DisplayName}\" is already saved in the Plans panel. Start it there when you're ready.";
+            return true;
+        }
+
+        title = currentPlan is not null ? "Plan changed" : "Plan action resolved";
+        message = currentPlan is not null
+            ? "This recovery card belongs to an older plan revision. Use the controls on the latest plan response."
+            : "This pending plan approval is no longer active. Use the latest plan response or the Plans panel.";
+        return true;
+    }
+
+    private static bool IsStalePlanPreflightException(Exception ex) =>
+        ex is InvalidOperationException &&
+        (ex.Message.Contains("task-plan approval is stale", StringComparison.OrdinalIgnoreCase) ||
+         ex.Message.Contains("newer revision", StringComparison.OrdinalIgnoreCase) ||
+         ex.Message.Contains("no longer active", StringComparison.OrdinalIgnoreCase));
+
     private void ShowTranscriptPlanPreflightRecovery(
         PendingDecomposePlan plan,
         string action,
@@ -13712,7 +14317,7 @@ public partial class MainWindow : Window
         };
         var viewChangesLink = new Hyperlink(new Run("View changes")) { Cursor = Cursors.Hand };
         viewChangesLink.SetResourceReference(TextElement.ForegroundProperty, "DocumentLinkText");
-        if (!exception.RequiresRepositoryInitialization)
+        if (!exception.RequiresRepositoryInitialization && exception.ChangedPaths.Count > 0)
             utilities.Inlines.Add(viewChangesLink);
         else
             utilities.Visibility = Visibility.Collapsed;
@@ -13742,8 +14347,9 @@ public partial class MainWindow : Window
         card.SetResourceReference(Border.BorderBrushProperty, "PlanPreflightWarningBorder");
         var container = TranscriptQuickReplyFactory.CreateContainer(
             card,
-            new PlanPreflightRecoveryTag(plan.Group.GroupId, plan.Revision));
+            new PlanPreflightRecoveryTag(plan.Group.GroupId, plan.Revision, action));
         blocks.Add(container);
+        RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
         sourceActionsPanel?.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Collapsed);
 
         DispatcherTimer? timer = null;
@@ -13752,6 +14358,7 @@ public partial class MainWindow : Window
             timer?.Stop();
             if (blocks.Contains(container))
                 blocks.Remove(container);
+            RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
             sourceActionsPanel?.SetCurrentValue(UIElement.VisibilityProperty, Visibility.Visible);
         };
         viewChangesLink.Click += (_, _) => _ = ShowPlanPreflightChangesAsync(exception);
@@ -13802,6 +14409,7 @@ public partial class MainWindow : Window
                     readiness.FontWeight = FontWeights.Normal;
                     card.SetResourceReference(Border.BackgroundProperty, "TranscriptSurface");
                     card.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+                    RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
                     return;
                 }
                 buttons.IsEnabled = true;
@@ -13817,6 +14425,29 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
+                if (IsStalePlanPreflightException(ex) &&
+                    TryResolveStalePlanPreflightReceipt(plan, out var receiptTitle, out var receiptMessage))
+                {
+                    timer?.Stop();
+                    container.Tag = new PlanPreflightRecoveryReceiptTag(
+                        plan.Group.GroupId,
+                        plan.Revision,
+                        DateTimeOffset.Now);
+                    title.Text = receiptTitle;
+                    title.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
+                    summary.Visibility = Visibility.Collapsed;
+                    files.Visibility = Visibility.Collapsed;
+                    details.Visibility = Visibility.Collapsed;
+                    utilities.Visibility = Visibility.Collapsed;
+                    copyButton.Visibility = Visibility.Collapsed;
+                    buttons.Visibility = Visibility.Collapsed;
+                    readiness.Text = receiptMessage;
+                    readiness.FontWeight = FontWeights.Normal;
+                    card.SetResourceReference(Border.BackgroundProperty, "TranscriptSurface");
+                    card.SetResourceReference(Border.BorderBrushProperty, "InputBorder");
+                    RefreshPendingPlanExecutionPreflightViewers(plan.Group.GroupId);
+                    return;
+                }
                 buttons.IsEnabled = true;
                 readiness.Text = "Retry failed. Expand technical details or review the error output.";
                 HandleUiCallbackException("Decompose plan", ex);
@@ -13951,7 +14582,10 @@ public partial class MainWindow : Window
                     _inboxStore?.MarkActionUsed(messageId, "Add to Plans");
                     _inboxPanel?.Refresh(_inboxStore?.LoadAll() ?? []);
                     if (result.Plan is { } collectedPlan)
+                    {
                         _plansPanelController?.RevealCollectedPlan(collectedPlan);
+                        RetirePlanExecutionPreflightAfterCollection(plan, collectedPlan);
+                    }
                     AppendLine($"✅ Plan \"{group.GroupTitle}\" saved to Plans. Launch it when you're ready.");
                     return true;
                 case CollectionOutcome.StaleRevisionRejected:
@@ -14269,68 +14903,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OpenReviewCard(Plan displayedPlan, string taskId)
-    {
-        var current = _planStore?.Load(displayedPlan.PlanId) ?? displayedPlan;
-        var identity = new DecomposeRecoveryTag(current.PlanId, current.Revision, taskId);
-
-        Border? FindCard(bool requireLiveActions)
-        {
-            var sections = CoordinatorThread.Document.Blocks
-                .OfType<Section>()
-                .Where(candidate =>
-                    candidate.Tag is DecomposeRecoveryTag tag &&
-                    string.Equals(tag.GroupId, identity.GroupId, StringComparison.Ordinal) &&
-                    string.Equals(tag.Revision, identity.Revision, StringComparison.Ordinal) &&
-                    string.Equals(tag.TaskId, identity.TaskId, StringComparison.Ordinal))
-                .Reverse();
-            foreach (var section in sections)
-            {
-                var container = section.Blocks.OfType<BlockUIContainer>().FirstOrDefault(candidate =>
-                    candidate.Tag is DecomposeRecoveryCardTag cardTag &&
-                    cardTag.Identity == identity &&
-                    (!requireLiveActions || cardTag.ActionsPanel.Visibility == Visibility.Visible));
-                if (container?.Child is Border border) return border;
-            }
-            return null;
-        }
-
-        var card = FindCard(requireLiveActions: true);
-        if (card is null)
-        {
-            // Transcript cards are presentation state, not the source of truth. Reconstruct the
-            // card from the durable plan if transcript compaction or later activity removed it.
-            AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(current), taskId);
-            card = FindCard(requireLiveActions: true) ?? FindCard(requireLiveActions: false);
-        }
-
-        if (card is null)
-        {
-            ReportPlanActionIssue(
-                current.PlanId,
-                "Open review card",
-                "SquadDash could not reconstruct the review card from the current plan state.");
-            return;
-        }
-
-        OutputTextBox.Focus();
-        card.BringIntoView();
-        var highlight = new DoubleAnimation(
-            fromValue: 0.55,
-            toValue: 1,
-            duration: TimeSpan.FromMilliseconds(320))
-        {
-            AutoReverse = true,
-            RepeatBehavior = new RepeatBehavior(2),
-        };
-        highlight.Completed += (_, _) =>
-        {
-            card.BeginAnimation(UIElement.OpacityProperty, null);
-            card.Opacity = 1;
-        };
-        card.BeginAnimation(UIElement.OpacityProperty, highlight);
-    }
-
     private void OpenDecomposePlanViewer(
         PendingDecomposePlan plan,
         Plan? durablePlan = null,
@@ -14511,6 +15083,14 @@ public partial class MainWindow : Window
                       return;
                   }
                   ClearPlanActionIssue(current.PlanId);
+                  _pausePlanAfterCurrentStepRequested = false;
+                  RemovePlanPauseRequestedEntries(resumed.PlanId);
+                  if (resumed.LifecycleStatus == PlanLifecycleStatus.AwaitingApproval &&
+                      resumed.ApprovalGates.Any(gate => gate.Status == PlanGateStatus.AwaitingApproval))
+                  {
+                      RestoreAwaitingApprovalGateUI(resumed.PlanId);
+                      return;
+                  }
                   var executingWithoutRunner = resumed.LifecycleStatus == PlanLifecycleStatus.Executing &&
                                                (!IsLoopRunning || !string.Equals(
                                                    _activeDecomposeGroupId,
@@ -14549,6 +15129,7 @@ public partial class MainWindow : Window
                       return;
                   }
                   ClearPlanActionIssue(current.PlanId);
+                  RemoveApprovalCardsForPausedPlan(current.PlanId);
               }
             : null;
         var interruptedTaskId = durablePlan?.InterruptionData?.InterruptedTaskId;
@@ -14849,7 +15430,6 @@ public partial class MainWindow : Window
             onOpenTaskFileDiff: (task, path) => _ = OpenTaskFileDiffAsync(task, path),
             onContinueInterruptedTask: onContinueInterruptedTask,
             onReplanRemainingWork: onReplanRemainingWork,
-            onOpenReviewCard: (current, taskId) => OpenReviewCard(current, taskId),
             onReviewSelection: (item, isChecked) =>
                 RecordHumanReviewChecklistSelection(groupId, item, isChecked),
             onAddressUncheckedItems: (current, taskId, items) =>
@@ -14877,6 +15457,7 @@ public partial class MainWindow : Window
             resolveInterruptedActionSet: ResolveInterruptedActionSet,
             onOpenInterruptedChanges: current =>
                 _ = OpenInterruptedTaskReviewAsync(current.PlanId, current.Revision),
+            isPendingPlanExecutionPreflightActive: IsPendingPlanExecutionPreflightActive,
             squadFolderPath: _currentWorkspace?.SquadFolderPath,
             onDescriptionLinkClicked: HandleTranscriptLinkClick,
             onOpenWorkMetrics: (kind, workItemId) =>
@@ -15878,6 +16459,7 @@ public partial class MainWindow : Window
         }
 
         PlanTaskCommitEvidence? taskCommitEvidence = null;
+        PlanPreflightBlockedException? postCommitWorktreeBlock = null;
         if (result?.IsVerifiedNoOp == true &&
             string.Equals(result.GroupId, groupId, StringComparison.Ordinal) &&
             string.Equals(result.TaskId, taskId, StringComparison.Ordinal) &&
@@ -15934,6 +16516,7 @@ public partial class MainWindow : Window
                     result.Verification,
                     commitValidation.Commits,
                     commitValidation.ChangedFiles);
+                postCommitWorktreeBlock = commitValidation.WorktreeBlock;
             }
             else
             {
@@ -16348,6 +16931,11 @@ public partial class MainWindow : Window
                     return;
                 }
             }
+            if (postCommitWorktreeBlock is not null)
+            {
+                PausePlanForCleanWorktree(postCommitWorktreeBlock, groupId);
+                return;
+            }
 
             return;
         }
@@ -16507,8 +17095,19 @@ public partial class MainWindow : Window
                     : executionAttempt with { Status = "accepted" },
                 PendingRepairResult = null,
             });
-        LoadTasksPanel();
         var durableAfterAcceptance = _planStore?.Load(groupId);
+        var completedPlan =
+            state == DecomposeGroupExecutionState.Complete &&
+            durableAfterAcceptance?.LifecycleStatus == PlanLifecycleStatus.Completed
+                ? durableAfterAcceptance
+                : null;
+        var completedAfterAcceptance = completedPlan is not null;
+        if (postCommitWorktreeBlock is not null && !completedAfterAcceptance)
+        {
+            PausePlanForCleanWorktree(postCommitWorktreeBlock, groupId);
+            return;
+        }
+        LoadTasksPanel();
         if (_pausePlanAfterCurrentStepRequested || durableAfterAcceptance?.IsPaused == true)
         {
             SuppressLoopResumeAfterExplicitStop("pause-plan-after-step");
@@ -16525,14 +17124,13 @@ public partial class MainWindow : Window
             ActivateValidationForNextIteration(groupId, durableAfterAcceptance!, readyValidation);
             return;
         }
-        if (state == DecomposeGroupExecutionState.Complete &&
-            durableAfterAcceptance?.LifecycleStatus == PlanLifecycleStatus.Completed)
+        if (completedPlan is not null)
         {
             SuppressLoopResume("plan-complete");
             _loopController.RequestStop();
-            PublishPlanCompletionSummary(durableAfterAcceptance);
+            PublishPlanCompletionSummary(completedPlan);
             ScheduleDecomposeSystemEntry(
-                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(durableAfterAcceptance));
+                PlanLoopTranscriptPresentation.BuildPlanCompleteMessage(completedPlan));
         }
         else if (_planStore is not null)
         {
@@ -16632,11 +17230,16 @@ public partial class MainWindow : Window
             taskId,
             verification,
             automaticReworkAvailable);
-        var combinableHumanReview = nextVerificationAction == PlanTaskVerificationNextAction.HumanReview
-            ? PlanHumanReviewGatePolicy.FindCombinableGate(reviewedPlan, taskId)
+        var humanReviewWorkflow = nextVerificationAction == PlanTaskVerificationNextAction.HumanReview
+            ? PlanHumanReviewWorkflowResolver.Resolve(reviewedPlan, taskId)
+            : null;
+        var combinableHumanReview = humanReviewWorkflow is { HasActionableInstructions: true }
+            ? humanReviewWorkflow
             : null;
         if (combinableHumanReview is not null)
-            reviewedPlan = PlanStoreUpdater.ApplyGateReady(reviewedPlan, combinableHumanReview.GateId);
+            foreach (var gate in combinableHumanReview.CurrentGates)
+                if (gate.Status == PlanGateStatus.Pending)
+                    reviewedPlan = PlanStoreUpdater.ApplyGateReady(reviewedPlan, gate.GateId);
         if (!TryPublishPlanProgress(reviewedPlan, out var progressError))
         {
             StopAndOfferDecomposeRecovery(
@@ -16698,7 +17301,12 @@ public partial class MainWindow : Window
             ScheduleDecomposeSystemEntry(
                 $"Review required · \"{_CodeHealthGroupRunner.GetCurrentStepTitle() ?? taskId}\". " +
                 "Implementation and automated verification passed; complete the human observation checklist to continue.");
-            AppendDecomposeRecoveryActions(PendingDecomposePlanAdapter.FromPlan(reviewedPlan), taskId);
+            // This is a normal approval boundary, not an interrupted-plan recovery state.
+            // RestoreAsync creates the current click token and reopens the durable Inbox
+            // checkpoint before the transcript card is rendered. Routing this through the
+            // recovery-card presenter leaves no actionable surface because recovery controls
+            // correctly suppress AwaitingApproval plans that are not interrupted.
+            await RestoreAwaitingApprovalGateUIAsync(groupId);
             return;
         }
 
@@ -16707,7 +17315,9 @@ public partial class MainWindow : Window
         var discrepancies = verification.MissingOrOverstatedWork.Count == 0
             ? "- The evidence was inconclusive."
             : string.Join("\n", verification.MissingOrOverstatedWork.Select(item => "- " + item));
-        var humanReviewReason = string.Equals(
+        var humanReviewReason = verification.HumanReview is { } operatorBrief
+            ? operatorBrief.Situation + " " + operatorBrief.Impact
+            : string.Equals(
             verification.Summary,
             "Independent verification could not produce a trustworthy structured verdict after one envelope repair.",
             StringComparison.Ordinal)
@@ -16731,7 +17341,9 @@ public partial class MainWindow : Window
             pending.Revision,
             humanReviewReason,
             commitEvidence,
-            attentionCategory: PlanAttentionCategory.AutomaticWorkExhausted);
+            attentionCategory: humanReviewWorkflow is { HasActionableInstructions: false }
+                ? PlanAttentionCategory.HumanVerificationRequired
+                : PlanAttentionCategory.RecoveryDecisionRequired);
     }
 
     private async Task AcceptVerifiedTaskAsync(
@@ -16942,7 +17554,8 @@ public partial class MainWindow : Window
                 activeExecution,
                 PlanValidationProviderFailurePresentation.BuildRecoveryReason(
                     activeExecution.ValidationProviderFailureReason,
-                    activeExecution.ValidationProviderRetryCount),
+                    activeExecution.ValidationProviderRetryCount,
+                    BuildProviderFailureContext(new SquadSdkEvent())),
                 validatedCommit: null);
             return;
         }
@@ -17447,7 +18060,15 @@ public partial class MainWindow : Window
     }
 
 
-    private async Task<(string? Error, string? EffectiveCommit, IReadOnlyList<PlanEvidenceCommit> Commits, IReadOnlyList<PlanExecutionAnomaly> Anomalies, IReadOnlyList<string> ChangedFiles)> ValidateDecomposeStepCommitAsync(
+    private sealed record DecomposeStepCommitValidation(
+        string? Error,
+        string? EffectiveCommit,
+        IReadOnlyList<PlanEvidenceCommit> Commits,
+        IReadOnlyList<PlanExecutionAnomaly> Anomalies,
+        IReadOnlyList<string> ChangedFiles,
+        PlanPreflightBlockedException? WorktreeBlock = null);
+
+    private async Task<DecomposeStepCommitValidation> ValidateDecomposeStepCommitAsync(
         DecomposeStepResult result,
         bool verificationOnly,
         string? baselineOverride = null,
@@ -17456,10 +18077,10 @@ public partial class MainWindow : Window
         Func<string, string, Task<string>>? runGit = null)
     {
         runGit ??= RunGitAsync;
-        if (_currentWorkspace is null) return ("No workspace is active.", null, [], [], []);
+        if (_currentWorkspace is null) return new("No workspace is active.", null, [], [], []);
         if (string.IsNullOrWhiteSpace(result.Commit) ||
             !Regex.IsMatch(result.Commit, "^[0-9a-fA-F]{7,64}$", RegexOptions.CultureInvariant))
-            return ("The reported commit was missing or malformed.", null, [], [], []);
+            return new("The reported commit was missing or malformed.", null, [], [], []);
 
         try
         {
@@ -17502,7 +18123,7 @@ public partial class MainWindow : Window
                 catch (InvalidOperationException ex)
                 {
                     SquadDashTrace.Write("PlanRecovery", $"Task commit ancestry validation failed: {ex.Message}");
-                    return ($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null, [], [], []);
+                    return new($"The reported task commit {resolved} is not reachable between the task baseline and active branch HEAD {head}.", null, [], [], []);
                 }
             }
             else if (!string.Equals(resolved, head, StringComparison.OrdinalIgnoreCase))
@@ -17514,12 +18135,12 @@ public partial class MainWindow : Window
                 catch (InvalidOperationException ex)
                 {
                     SquadDashTrace.Write("PlanRecovery", $"Verification commit ancestry validation failed: {ex.Message}");
-                    return ($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null, [], [], []);
+                    return new($"The verification result referenced {resolved}, which is not part of the active branch at {head}.", null, [], [], []);
                 }
             }
 
             if (!verificationOnly && string.Equals(baseline, resolved, StringComparison.OrdinalIgnoreCase))
-                return ("The step reported completion without creating a new commit.", null, [], [], []);
+                return new("The step reported completion without creating a new commit.", null, [], [], []);
 
             IReadOnlyList<PlanEvidenceCommit> commits = [];
             IReadOnlyList<PlanExecutionAnomaly> anomalies = [];
@@ -17532,9 +18153,9 @@ public partial class MainWindow : Window
                     workspace,
                     $"rev-list --count \"{baseline}..{rangeEnd}\"")).Trim();
                 if (!int.TryParse(commitCountText, out var commitCount))
-                    return ("SquadDash could not determine how many commits the step produced.", null, [], [], []);
+                    return new("SquadDash could not determine how many commits the step produced.", null, [], [], []);
                 if (verificationOnly && commitCount != 0)
-                    return ($"The verification-only step changed the branch by {commitCount} commit(s); it must only evaluate existing work.", null, [], [], []);
+                    return new($"The verification-only step changed the branch by {commitCount} commit(s); it must only evaluate existing work.", null, [], [], []);
 
                 if (!verificationOnly)
                 {
@@ -17578,16 +18199,30 @@ public partial class MainWindow : Window
                     path.Replace('\\', '/'),
                     tasksRelativePath,
                     StringComparison.OrdinalIgnoreCase)))
-                return ("The AI commit modified tasks.md; plan status is owned by SquadDash.", null, [], [], []);
+                return new("The AI commit modified tasks.md; plan status is owned by SquadDash.", null, [], [], []);
 
+            PlanPreflightBlockedException? worktreeBlock = null;
             if (!skipWorktreePreflight)
-                await EnsurePlanWorktreeReadyAsync(workspace);
-            return (null, verificationOnly ? head : resolved, commits, anomalies, changedPaths);
+            {
+                try
+                {
+                    await EnsurePlanWorktreeReadyAsync(workspace, result.GroupId);
+                }
+                catch (PlanPreflightBlockedException blocked)
+                {
+                    worktreeBlock = blocked;
+                    SquadDashTrace.Write(
+                        "PlanRecovery",
+                        $"Validated task commit {resolved} for plan={result.GroupId} task={result.TaskId}, " +
+                        $"but downstream dispatch is waiting for a clean worktree paths=[{string.Join(",", blocked.ChangedPaths)}].");
+                }
+            }
+            return new(null, verificationOnly ? head : resolved, commits, anomalies, changedPaths, worktreeBlock);
         }
         catch (Exception ex)
         {
             SquadDashTrace.Write("PlanRecovery", $"Task commit validation failed: {ex.Message}");
-            return ($"Git validation failed: {ex.Message}", null, [], [], []);
+            return new($"Git validation failed: {ex.Message}", null, [], [], []);
         }
     }
 
@@ -18064,20 +18699,58 @@ public partial class MainWindow : Window
     /// that was persisted with <see cref="PlanLifecycleStatus.AwaitingApproval"/>.
     /// Does not re-fire sound or push notifications (gate.NotifiedAt is already set).
     /// </summary>
-    private void RestoreAwaitingApprovalGateUI(string? onlyPlanId = null)
+    private void RestoreAwaitingApprovalGateUI(string? onlyPlanId = null) =>
+        _ = RestoreAwaitingApprovalGateUIAsync(onlyPlanId);
+
+    private async Task RestoreAwaitingApprovalGateUIAsync(string? onlyPlanId = null)
     {
         if (_planStore is null || _planApprovalRuntime is null) return;
-        (Plan Plan, PlanApprovalGate Gate)? attentionRequest = null;
-        foreach (var plan in _planStore.LoadAll())
+        var eligiblePlans = _planStore.LoadAll()
+            .Where(plan =>
+            {
+                if (onlyPlanId is not null &&
+                    !string.Equals(plan.PlanId, onlyPlanId, StringComparison.Ordinal))
+                    return false;
+                if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval)
+                    return false;
+                if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId))
+                    return false;
+                // A proposed plan revision is the higher-priority decision. Approving a checkpoint
+                // from the currently authoritative definition while that proposal is unresolved is
+                // both confusing and potentially stale. "Keep current plan" restores this surface.
+                if (HasPendingPlanRevision(plan.PlanId))
+                    return false;
+                return plan.ApprovalGates.Any(g => g.Status == PlanGateStatus.AwaitingApproval);
+            })
+            .ToArray();
+
+        if (eligiblePlans.Length == 0)
         {
-            if (onlyPlanId is not null &&
-                !string.Equals(plan.PlanId, onlyPlanId, StringComparison.Ordinal))
-                continue;
-            if (plan.LifecycleStatus != PlanLifecycleStatus.AwaitingApproval) continue;
-            // A proposed plan revision is the higher-priority decision. Approving a checkpoint
-            // from the currently authoritative definition while that proposal is unresolved is
-            // both confusing and potentially stale. "Keep current plan" restores this surface.
-            if (HasPendingPlanRevision(plan.PlanId)) continue;
+            SyncLoopPanel();
+            return;
+        }
+
+        try
+        {
+            await _planApprovalRuntime.RestoreAsync(eligiblePlans);
+            if (_inboxStore is not null)
+            {
+                var messages = _inboxStore.LoadAll();
+                _inboxPanel?.Refresh(messages);
+                ReconcileOpenInboxWindows(messages);
+            }
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Could not restore approval runtime tokens before transcript card restore: {ex.Message}");
+        }
+
+        (Plan Plan, PlanApprovalGate Gate)? attentionRequest = null;
+        foreach (var candidate in eligiblePlans)
+        {
+            var plan = _planStore.Load(candidate.PlanId) ?? candidate;
             var awaitingGate = plan.ApprovalGates
                 .FirstOrDefault(g => g.Status == PlanGateStatus.AwaitingApproval);
             if (awaitingGate is null) continue;
@@ -18085,7 +18758,7 @@ public partial class MainWindow : Window
             if (token is null) continue;
             _activePlanAwaitingGateApproval ??= awaitingGate.GateId;
             var snapshot = BuildLightweightApprovalSnapshot(plan, awaitingGate);
-            Dispatcher.BeginInvoke(
+            _ = Dispatcher.BeginInvoke(
                 () => AppendGateApprovalActions(plan, awaitingGate, snapshot, token),
                 System.Windows.Threading.DispatcherPriority.Background);
             attentionRequest ??= (plan, awaitingGate);
@@ -18095,7 +18768,7 @@ public partial class MainWindow : Window
         {
             // The original attention cue does not survive a process restart. Replay one
             // cue after layout settles so the durable request is discoverable again.
-            Dispatcher.BeginInvoke(
+            _ = Dispatcher.BeginInvoke(
                 new Action(async () => await TryShowApprovalCalloutAsync(request.Plan, request.Gate)),
                 System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         }
@@ -18181,6 +18854,9 @@ public partial class MainWindow : Window
         ApprovalReviewSnapshot snapshot,
         ApprovalClickToken clickToken)
     {
+        if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId))
+            return;
+
         var activeGates = plan.ApprovalGates
             .Where(candidate => candidate.Status == PlanGateStatus.AwaitingApproval)
             .ToArray();
@@ -18208,12 +18884,12 @@ public partial class MainWindow : Window
             onOpenEvidence: task => OpenApprovalStepEvidence(plan, task),
             onChecklistChanged: (item, isChecked) =>
                 RecordHumanReviewChecklistSelection(plan.PlanId, item, isChecked),
+            onChecklistResponseChanged: (item, response) =>
+                RecordHumanReviewChecklistResponse(plan.PlanId, item, response),
             onClarifyItem: item => QueueClarifyHumanReviewItem(plan, item),
             onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
             onAddressUncheckedItems: uncheckedItems =>
             {
-                if (cardResult is not null)
-                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
                 var reviewedTaskId = activeGates
                     .FirstOrDefault(candidate => string.Equals(
                         candidate.GateId,
@@ -18222,7 +18898,11 @@ public partial class MainWindow : Window
                     .AfterTaskIds.FirstOrDefault()
                     ?? gate.AfterTaskIds.FirstOrDefault();
                 if (!string.IsNullOrWhiteSpace(reviewedTaskId))
+                {
+                    if (cardResult is not null)
+                        TranscriptApprovalCardBuilder.ShowChangeRequestSubmittedState(cardResult);
                     QueueAddressUncheckedItems(plan, reviewedTaskId, uncheckedItems, gate.GateId);
+                }
             });
 
         if (!_approvalTranscriptCards.TryGetValue(plan.PlanId, out var cards))
@@ -18279,12 +18959,12 @@ public partial class MainWindow : Window
             onOpenEvidence: task => OpenApprovalStepEvidence(plan, task),
             onChecklistChanged: (item, isChecked) =>
                 RecordHumanReviewChecklistSelection(plan.PlanId, item, isChecked),
+            onChecklistResponseChanged: (item, response) =>
+                RecordHumanReviewChecklistResponse(plan.PlanId, item, response),
             onClarifyItem: item => QueueClarifyHumanReviewItem(plan, item),
             onRefreshWordingItem: item => QueueRefreshHumanReviewWording(plan, item),
             onAddressUncheckedItems: uncheckedItems =>
             {
-                if (cardResult is not null)
-                    TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(cardResult);
                 var reviewedTaskId = activeGates
                     .FirstOrDefault(candidate => string.Equals(
                         candidate.GateId,
@@ -18293,7 +18973,11 @@ public partial class MainWindow : Window
                     .AfterTaskIds.FirstOrDefault()
                     ?? gate.AfterTaskIds.FirstOrDefault();
                 if (!string.IsNullOrWhiteSpace(reviewedTaskId))
+                {
+                    if (cardResult is not null)
+                        TranscriptApprovalCardBuilder.ShowChangeRequestSubmittedState(cardResult);
                     QueueAddressUncheckedItems(plan, reviewedTaskId, uncheckedItems, gate.GateId);
+                }
             });
 
         if (_openPlanApprovalReviewWindows.TryGetValue(plan.PlanId, out var existing))
@@ -18413,6 +19097,8 @@ public partial class MainWindow : Window
                 {
                     if (isPromptRunning)
                         TranscriptApprovalCardBuilder.HideWhileCorrectionRuns(card);
+                    else if (_pendingPlanReviewCorrectionContext.IsDirectSubmitted)
+                        TranscriptApprovalCardBuilder.ShowChangeRequestSubmittedState(card);
                     else
                         TranscriptApprovalCardBuilder.ShowChangeRequestDraftingState(card);
                 }
@@ -18650,6 +19336,13 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (ShouldSuppressApprovalCardForPausedPlan(plan.PlanId))
+            {
+                SquadDashTrace.Write("Approval",
+                    $"Approval callout suppressed while plan is paused plan={plan.PlanId} gate={gate.GateId}.");
+                return;
+            }
+
             var messageId = DurableApprovalRequestManager.BuildMessageId(plan.PlanId);
             if (_shownApprovalCalloutMessageIds.Contains(messageId))
                 return;
@@ -19039,6 +19732,7 @@ public partial class MainWindow : Window
         foreach (var window in _openInboxWindows.Where(window => window.MessageId == messageId).ToArray())
             window.BeginApprovalUpdate();
 
+        await FlushPendingHumanReviewWritesAsync(clickToken.PlanId);
         var plan = _planStore.Load(clickToken.PlanId);
         if (plan is null)
         {
@@ -19081,6 +19775,23 @@ public partial class MainWindow : Window
             }
             var workspace = _currentWorkspace?.FolderPath;
             var store = _planStore;
+            if (!plan.IsPaused)
+            {
+                try
+                {
+                    if (!await EnsurePlanContinuationBranchReadyAsync(plan))
+                    {
+                        RejectReview("Branch choice was canceled. No task or checkpoint state changed.");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    RejectReview("SquadDash could not prepare the plan branch before continuing: " +
+                                 ex.Message + " No task or checkpoint state changed.");
+                    return;
+                }
+            }
             using var validationBudget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             currentHead = await PlanRecoveryGit.TryReadHeadAsync(workspace, validationBudget.Token);
             if (currentHead is null)
@@ -19088,14 +19799,13 @@ public partial class MainWindow : Window
                 RejectReview("Current Git evidence is unavailable. No task or checkpoint state changed; retry after Git is available.");
                 return;
             }
-            if (!PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(
-                    plan, representedGateIds, currentHead))
-            {
-                RejectReview("The branch contains work beyond the represented checkpoint evidence. No state changed; reopen the review.");
-                return;
-            }
             var checkpointCommits = PlanHumanReviewCheckpointCommitPolicy.ResolveDurableCommits(
                 plan, representedGateIds);
+            if (checkpointCommits.Count == 0)
+            {
+                RejectReview("The represented checkpoint has no durable Git evidence. No state changed; reopen the review.");
+                return;
+            }
             foreach (var checkpointCommit in checkpointCommits)
             {
                 if (await PlanRecoveryGit.IsAncestorAsync(
@@ -19227,7 +19937,15 @@ public partial class MainWindow : Window
                     SquadDashTrace.Write(
                         "Approval",
                         $"Approval acquired; attempting automatic plan resume plan={clickToken.PlanId}.");
-                    if (!await StartDecomposeLoopAsync(clickToken.PlanId))
+                    var continuationPlan = _planStore?.Load(resolution.UpdatedPlan.PlanId) ?? resolution.UpdatedPlan;
+                    if (!await EnsurePlanContinuationBranchReadyAsync(continuationPlan))
+                    {
+                        ScheduleDecomposeSystemEntry(
+                            $"Approval acquired for plan {clickToken.PlanId}, but continuation was canceled before selecting the plan branch. " +
+                            "Open the plan to resume.");
+                        return;
+                    }
+                    if (!await StartDurablePlanExecutionAsync(continuationPlan))
                     {
                         if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
                         {
@@ -20464,7 +21182,21 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 "Approval",
                 $"Repository is clean; retrying approved plan continuation plan={planId}.");
-            if (!await StartDecomposeLoopAsync(planId))
+            plan = _planStore?.Load(planId);
+            if (plan is null)
+            {
+                StopApprovalResumeRetry();
+                return;
+            }
+            if (!await EnsurePlanContinuationBranchReadyAsync(plan))
+            {
+                StopApprovalResumeRetry();
+                ScheduleDecomposeSystemEntry(
+                    $"Approval was acquired for plan {planId}, but continuation was canceled before selecting the plan branch. " +
+                    "Open the plan to resume.");
+                return;
+            }
+            if (!await StartDurablePlanExecutionAsync(plan))
             {
                 if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
                     return;
@@ -20790,6 +21522,15 @@ public partial class MainWindow : Window
             .OrderByDescending(candidate => candidate.Timestamps.InterruptedAt ?? candidate.Timestamps.CreatedAt)
             .FirstOrDefault();
         if (plan is null) return;
+        if (PendingPlanRevisionOwnsRecovery(plan))
+        {
+            // RestorePendingPlanRevisionApprovalCards runs first and owns the next decision for
+            // this plan. Do not follow it with a second, competing recovery card.
+            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+                CoordinatorThread.Document.Blocks,
+                plan.PlanId);
+            return;
+        }
         var taskId = plan.InterruptionData?.InterruptedTaskId
             ?? plan.Progress.ExecutingTaskId
             ?? plan.Tasks.FirstOrDefault(task => task.Status != PlanTaskStatus.Complete)?.TaskId;
@@ -20828,6 +21569,49 @@ public partial class MainWindow : Window
             taskId);
     }
 
+    private async Task RestoreWaitingForCleanWorktreeRecoverySurfaceAsync()
+    {
+        if (_currentWorkspace is null || _planStore is null) return;
+
+        var branch = ReadGitBranch(_currentWorkspace.FolderPath);
+        var plan = _planStore.LoadAll()
+            .Where(candidate =>
+                candidate.LifecycleStatus == PlanLifecycleStatus.WaitingForCleanWorktree &&
+                string.Equals(candidate.Branch, branch, StringComparison.Ordinal))
+            .OrderByDescending(candidate => candidate.Timestamps.LastRunAt ?? candidate.Timestamps.CreatedAt)
+            .FirstOrDefault();
+        if (plan is null) return;
+
+        var dirtyPaths = await GetPlanPreflightDirtyPathsAsync(plan.PlanId);
+        if (dirtyPaths is null)
+        {
+            SquadDashTrace.Write(
+                "PlanRecovery",
+                $"Could not inspect the worktree while restoring clean-worktree recovery plan={plan.PlanId}.");
+            return;
+        }
+
+        var verificationTask = SelectSinglePendingVerificationTask(plan);
+        var blocked = new PlanPreflightBlockedException(
+            "Uncommitted changes",
+            dirtyPaths,
+            targetBranch: null);
+        ShowTranscriptPlanPreflightRecovery(
+            PendingDecomposePlanAdapter.FromPlan(plan),
+            action: "continue-working",
+            branchOverride: plan.Branch,
+            blocked,
+            sourceActionsPanel: null,
+            CoordinatorThread.Document.Blocks,
+            retryOverride: () => ResumeWaitingForCleanWorktreePlanAsync(plan.PlanId),
+            contentFactory: exception => PlanPreflightRecoveryContent.FromWaitingForCleanWorktree(
+                exception,
+                plan.Title,
+                verificationTask?.Title),
+            retryLabel: verificationTask is null ? "Resume Plan" : "Resume Verification",
+            autoRetryWhenReady: true);
+    }
+
     private void RestoreFailedPlanValidationRecoverySurface()
     {
         if (_planStore is null) return;
@@ -20859,6 +21643,17 @@ public partial class MainWindow : Window
     private bool HasPendingPlanRevision(string planId) =>
         _currentWorkspace is not null &&
         new PendingPlanRevisionProposalStore(_currentWorkspace.SquadFolderPath).Load(planId) is not null;
+
+    private bool PendingPlanRevisionOwnsRecovery(Plan plan)
+    {
+        if (_currentWorkspace is null)
+            return false;
+
+        var pending = new PendingPlanRevisionProposalStore(_currentWorkspace.SquadFolderPath)
+            .Load(plan.PlanId);
+        return pending is not null &&
+               PlanRevisionApprovalPresentationBuilder.Build(plan, pending).OwnsInterruptedRecovery;
+    }
 
     private void RestorePendingManualLoopResumeSurface()
     {
@@ -20920,37 +21715,132 @@ public partial class MainWindow : Window
         ScrollToEndIfAtBottom(CoordinatorThread);
     }
 
-    private async void RecordHumanReviewChecklistSelection(
+    private void RecordHumanReviewChecklistSelection(
         string planId,
         PlanHumanReviewChecklistItem item,
         bool isChecked)
+        => RecordHumanReviewChecklistResponse(
+            planId,
+            item,
+            new PlanHumanReviewItemResponse(isChecked ? true : null, item.Note));
+
+    private void RecordHumanReviewChecklistResponse(
+        string planId,
+        PlanHumanReviewChecklistItem item,
+        PlanHumanReviewItemResponse response)
     {
+        var normalized = response.Normalized();
+        SynchronizeHumanReviewResponseSurfaces(planId, item, normalized);
+        var prior = _pendingHumanReviewWrites.TryGetValue(planId, out var pending)
+            ? pending
+            : Task.CompletedTask;
+        var write = RecordHumanReviewChecklistResponseAsync(planId, item, normalized, prior);
+        _pendingHumanReviewWrites[planId] = write;
+        _ = ClearHumanReviewWriteWhenCompleteAsync(planId, write);
+    }
+
+    private async Task FlushPendingHumanReviewWritesAsync(string planId)
+    {
+        while (_pendingHumanReviewWrites.TryGetValue(planId, out var pending))
+        {
+            try
+            {
+                await pending;
+            }
+            catch (Exception ex)
+            {
+                SquadDashTrace.Write(
+                    "Approval",
+                    $"Pending human-review write failed before approval plan={planId}: {ex.Message}");
+            }
+
+            if (!_pendingHumanReviewWrites.TryGetValue(planId, out var current) ||
+                ReferenceEquals(current, pending))
+                break;
+        }
+    }
+
+    private async Task ClearHumanReviewWriteWhenCompleteAsync(string planId, Task write)
+    {
+        try
+        {
+            await write;
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                "Approval",
+                $"Human-review write failed plan={planId}: {ex.Message}");
+        }
+        finally
+        {
+            if (_pendingHumanReviewWrites.TryGetValue(planId, out var current) &&
+                ReferenceEquals(current, write))
+                _pendingHumanReviewWrites.Remove(planId);
+        }
+    }
+
+    private async Task RecordHumanReviewChecklistResponseAsync(
+        string planId,
+        PlanHumanReviewChecklistItem item,
+        PlanHumanReviewItemResponse normalized,
+        Task prior)
+    {
+        try
+        {
+            await prior;
+        }
+        catch
+        {
+            // Continue with the latest visible selection; individual failures are reported by
+            // the failed write itself and should not strand later reviewer choices.
+        }
+
+        await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Background);
+
         var current = _planStore?.Load(planId);
         if (current is null) return;
-        var updated = PlanStoreUpdater.ApplyGateHumanReviewSelection(
+        var previous = ResolveHumanReviewItemResponse(current, item);
+        var answerChanged = previous.IsApproved != normalized.IsApproved;
+        var updated = PlanStoreUpdater.ApplyGateHumanReviewResponse(
             current,
             item.GateId,
             item.ItemId,
-            isChecked,
+            normalized.IsApproved,
+            normalized.Note,
             item.CandidateCommit,
             item.ReviewTarget);
         if (ReferenceEquals(updated, current)) return;
-        if (!TryPublishPlanProgress(updated, out var saveError))
+        if (answerChanged)
         {
-            ReportPlanActionIssue(
-                planId,
-                "Save human review",
-                saveError ?? "SquadDash could not save this verification selection.");
-            return;
+            if (!TryPublishPlanProgress(updated, out var saveError))
+            {
+                ReportPlanActionIssue(
+                    planId,
+                    "Save human review",
+                    saveError ?? "SquadDash could not save this verification selection.");
+                return;
+            }
         }
-
-        if (_approvalTranscriptCards.TryGetValue(planId, out var cards))
-            foreach (var card in cards)
-                card.SetChecklistSelection(item, isChecked);
+        else
+        {
+            try
+            {
+                _planStore!.Save(updated);
+            }
+            catch (Exception ex)
+            {
+                ReportPlanActionIssue(
+                    planId,
+                    "Save human review note",
+                    "SquadDash could not save this verification note. " + ex.Message);
+                return;
+            }
+        }
 
         try
         {
-            if (_planApprovalRuntime is not null && _inboxStore is not null)
+            if (answerChanged && _planApprovalRuntime is not null && _inboxStore is not null)
             {
                 await _planApprovalRuntime.Requests.RefreshFromPlanAsync(updated);
                 var messageId = DurableApprovalRequestManager.BuildMessageId(planId);
@@ -20961,7 +21851,8 @@ public partial class MainWindow : Window
                 RefreshOpenPlanBoundInboxWindows(planId, exceptMessageId: messageId);
             }
 
-            if (_openPlanApprovalReviewWindows.ContainsKey(planId) &&
+            if (answerChanged &&
+                _openPlanApprovalReviewWindows.ContainsKey(planId) &&
                 _planApprovalRuntime?.Actions.GetCurrentToken(planId) is { } token &&
                 updated.ApprovalGates.FirstOrDefault(gate =>
                     gate.Status == PlanGateStatus.AwaitingApproval) is { } gate)
@@ -20980,6 +21871,37 @@ public partial class MainWindow : Window
                 "Approval",
                 $"Could not synchronize human-review selection plan={planId} item={item.ItemId}: {ex.Message}");
         }
+    }
+
+    private static PlanHumanReviewItemResponse ResolveHumanReviewItemResponse(
+        Plan plan,
+        PlanHumanReviewChecklistItem item)
+    {
+        var storedItem = PlanHumanReviewChecklist.Build(
+                plan,
+                plan.ApprovalGates.Where(gate => string.Equals(gate.GateId, item.GateId, StringComparison.Ordinal)).ToArray())
+            .FirstOrDefault(candidate =>
+                string.Equals(candidate.GateId, item.GateId, StringComparison.Ordinal) &&
+                string.Equals(candidate.ItemId, item.ItemId, StringComparison.Ordinal));
+        return PlanHumanReviewItemResponse.FromItem(storedItem ?? item).Normalized();
+    }
+
+    private void SynchronizeHumanReviewResponseSurfaces(
+        string planId,
+        PlanHumanReviewChecklistItem item,
+        PlanHumanReviewItemResponse response)
+    {
+        var normalized = response.Normalized();
+        if (_approvalTranscriptCards.TryGetValue(planId, out var cards))
+            foreach (var card in cards)
+                card.SetChecklistResponse(item, normalized);
+
+        if (_openPlanApprovalReviewWindows.TryGetValue(planId, out var reviewWindow))
+            reviewWindow.SetChecklistResponse(item, normalized);
+
+        foreach (var window in _openInboxWindows.Where(candidate =>
+                     string.Equals(candidate.PlanGroupId, planId, StringComparison.Ordinal)).ToArray())
+            window.SetHumanReviewChecklistResponse(planId, item, normalized);
     }
 
     private void RefreshOpenPlanBoundInboxWindows(string planId, string? exceptMessageId = null)
@@ -21041,7 +21963,20 @@ public partial class MainWindow : Window
         bool showEndPlan = false,
         bool developerPreview = false)
     {
+        if (!developerPreview && ShouldSuppressApprovalCardForPausedPlan(plan.Group.GroupId))
+            return;
+
         var durablePlan = _planStore?.Load(plan.Group.GroupId);
+        if (!developerPreview && durablePlan is not null && PendingPlanRevisionOwnsRecovery(durablePlan))
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Recovery controls suppressed because plan={durablePlan.PlanId} has a pending revision that owns the next decision.");
+            TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+                CoordinatorThread.Document.Blocks,
+                durablePlan.PlanId);
+            return;
+        }
         if (!developerPreview &&
             (durablePlan is null || !PlanRecoveryControlPolicy.HasActionableInterruption(durablePlan)))
         {
@@ -21069,7 +22004,7 @@ public partial class MainWindow : Window
         var reviewAttention = durablePlan is null
             ? null
             : PlanReviewAttentionPresentationResolver.Resolve(durablePlan, taskId);
-        var combinedHumanReviewGate = reviewAttention?.Gate;
+        var combinedHumanReviewGates = reviewAttention?.Gates ?? [];
         var humanChecklistItems = reviewAttention?.Checklist.ToArray() ?? [];
         var humanChecklistState = humanChecklistItems.ToDictionary(
             item => item.ItemId,
@@ -21652,6 +22587,14 @@ public partial class MainWindow : Window
                             async () => await RetryDecomposeTaskAsync(plan, taskId));
                     }
                     break;
+                case PlanRecoverySurfaceActionKind.RepairReviewInstructions:
+                    AddAction(
+                        action.Label,
+                        action.Hint,
+                        () => QueueDecomposeReplan(plan, taskId),
+                        removeAfterAction: false,
+                        tone: action.Tone);
+                    break;
                 case PlanRecoverySurfaceActionKind.ReviseRemainingPlan:
                     AddAction(
                         action.Label,
@@ -21898,15 +22841,27 @@ public partial class MainWindow : Window
             }
 
             var recommendation = CreateTranscriptParagraph(bottomMargin: 6);
-            var recommendationText = combinedHumanReviewGate is null
-                ? presentation.Recommendation
-                : $"Use the commit link above to investigate. Confirming {stepLabel} also approves the human checkpoint above.";
+            var recommendationText = combinedHumanReviewGates.Count == 0
+                ? humanReview?.Recommendation ?? presentation.Recommendation
+                : humanReview?.Recommendation ??
+                  $"Use the commit link above to investigate. Confirming {stepLabel} also approves every checkpoint in the review phase above.";
             AddRecoveryRecommendationText(recommendation.Inlines, recommendationText);
             blocks.Add(recommendation);
 
+            if (!string.IsNullOrWhiteSpace(humanReview?.AlternativeGuidance))
+            {
+                var alternative = CreateTranscriptParagraph(bottomMargin: 6);
+                alternative.Inlines.Add(new Run("Another option: ") { FontWeight = FontWeights.SemiBold });
+                AddRecoveryCommitLinkedText(
+                    alternative.Inlines,
+                    humanReview.AlternativeGuidance);
+                blocks.Add(alternative);
+                copyParts.Add("Another option: " + humanReview.AlternativeGuidance);
+            }
+
         }
 
-        if (combinedHumanReviewGate is not null && humanChecklistItems.Length > 0)
+        if (combinedHumanReviewGates.Count > 0 && humanChecklistItems.Length > 0)
         {
             var completionButton = AddAsyncResultAction(
                 durablePlan!.IsPaused
@@ -21921,16 +22876,15 @@ public partial class MainWindow : Window
                     return await AcceptInterruptedStepAfterReviewAsync(latest);
                 });
             var addressButton = AddAction(
-                "✎ Address Unchecked Items…",
-                "Create an editable queued prompt with the current plan and unchecked verification items attached as protected context.",
+                PlanReviewActionPresentation.AddressUnapprovedItemsLabel,
+                PlanReviewActionPresentation.AddressUnapprovedItemsToolTip,
                 () => QueueAddressUncheckedItems(
                     _planStore?.Load(durablePlan!.PlanId) ?? durablePlan!,
                     taskId,
                     humanChecklistItems.Select(item => item with
                     {
                         IsChecked = humanChecklistState[item.ItemId]
-                    }).ToArray(),
-                    combinedHumanReviewGate.GateId),
+                    }).ToArray()),
                 removeAfterAction: true);
             AddAction(
                 "✎ Revise Remaining Plan…",
@@ -23884,10 +24838,9 @@ public partial class MainWindow : Window
                 gate.BeforeTaskIds.All(id => storedPlan.Tasks.Any(task =>
                     string.Equals(task.TaskId, id, StringComparison.Ordinal) &&
                     task.Status == PlanTaskStatus.Pending)));
-        var combinedHumanReviewGate = combinedAmendmentGate is null
-            ? PlanHumanReviewGatePolicy.FindCombinableGate(storedPlan, taskId)
-            : null;
-        var combinedApprovalGate = combinedAmendmentGate ?? combinedHumanReviewGate;
+        var combinedHumanReviewGates = combinedAmendmentGate is null
+            ? PlanHumanReviewGatePolicy.FindCombinableGates(storedPlan, taskId)
+            : [];
 
         var activeBranch = ReadGitBranch(workspace);
         if (!string.Equals(activeBranch, storedPlan.Branch, StringComparison.Ordinal))
@@ -24115,18 +25068,24 @@ public partial class MainWindow : Window
                 storedPlan,
                 nextExecutingTaskId: null,
                 syntheticResult);
-            if (combinedApprovalGate is not null)
+            var gatesToApprove = combinedAmendmentGate is not null
+                ? [combinedAmendmentGate]
+                : combinedHumanReviewGates;
+            if (gatesToApprove.Count > 0)
             {
-                if (combinedApprovalGate.Status == PlanGateStatus.Pending)
-                    updated = PlanStoreUpdater.ApplyGateReady(updated, combinedApprovalGate.GateId);
                 var resolvedBy = await HumanApprovalIdentityResolver.ResolveAsync(workspace);
-                updated = PlanStoreUpdater.ApplyGateApproved(
-                    updated,
-                    combinedApprovalGate.GateId,
-                    combinedAmendmentGate is not null
-                        ? PlanAmendmentGateAcceptancePolicy.CombinedApprovalNote
-                        : $"Confirmed {stepLabel} complete while reviewing its commit evidence and human-observation checkpoint.",
-                    resolvedBy);
+                foreach (var gate in gatesToApprove)
+                {
+                    if (gate.Status == PlanGateStatus.Pending)
+                        updated = PlanStoreUpdater.ApplyGateReady(updated, gate.GateId);
+                    updated = PlanStoreUpdater.ApplyGateApproved(
+                        updated,
+                        gate.GateId,
+                        combinedAmendmentGate is not null
+                            ? PlanAmendmentGateAcceptancePolicy.CombinedApprovalNote
+                            : $"Confirmed {stepLabel} complete while reviewing its commit evidence and human-observation checkpoint.",
+                        resolvedBy);
+                }
             }
             if (PlanExecutionBoundaryPolicy.IsReadyToComplete(updated))
             {
@@ -24162,8 +25121,8 @@ public partial class MainWindow : Window
         LoadTasksPanel();
         if (acceptedPlan!.LifecycleStatus == PlanLifecycleStatus.Completed)
         {
-            ResolveRecoveryTranscript(combinedHumanReviewGate is not null
-                ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human checkpoint is approved and the plan is complete."
+            ResolveRecoveryTranscript(combinedHumanReviewGates.Count > 0
+                ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human review phase is approved and the plan is complete."
                 : combinedAmendmentGate is not null
                     ? $"✓ Recovery completed. Accepted reviewed amendment {rangeLabel}, approved its checkpoint, and completed the plan."
                     : $"✓ Recovery completed. Human accepted {rangeLabel} for {stepLabel}; the plan is complete.");
@@ -24182,8 +25141,8 @@ public partial class MainWindow : Window
             hasReadyApprovalBoundary;
         var mustAwaitApproval = shouldAdvanceToApprovalBoundary &&
                                 PlanExecutionBoundaryPolicy.ShouldStopForHumanApproval(acceptedPlan!);
-        ResolveRecoveryTranscript(combinedHumanReviewGate is not null
-            ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human checkpoint is also approved."
+        ResolveRecoveryTranscript(combinedHumanReviewGates.Count > 0
+            ? $"✓ Recovery completed. {stepLabel} was accepted from {rangeLabel}; its human review phase is also approved."
             : combinedAmendmentGate is not null
                 ? $"✓ Recovery completed. Accepted reviewed amendment {rangeLabel} and approved its checkpoint."
                 : mustAwaitApproval
@@ -24326,7 +25285,9 @@ public partial class MainWindow : Window
     {
         if (_planStore is null || _planApprovalRuntime is null) return false;
         var token = _planApprovalRuntime.Actions.GetCurrentToken(storedPlan.PlanId);
-        if (token is null || !token.GateIds.Contains(reviewAttention.Gate.GateId, StringComparer.Ordinal))
+        var gateIds = reviewAttention.Gates.Select(gate => gate.GateId).ToArray();
+        if (token is null || gateIds.Any(gateId =>
+                !token.GateIds.Contains(gateId, StringComparer.Ordinal)))
         {
             ReportPlanActionIssue(
                 storedPlan.PlanId,
@@ -24335,14 +25296,29 @@ public partial class MainWindow : Window
             return false;
         }
 
-        await HandleApprovalClickAsync(token, gateIdsToResolve: [reviewAttention.Gate.GateId]);
+        await HandleApprovalClickAsync(token, gateIdsToResolve: gateIds);
         var current = _planStore.Load(storedPlan.PlanId);
         return current?.Tasks.Any(task =>
                    string.Equals(task.TaskId, reviewAttention.Task.TaskId, StringComparison.Ordinal) &&
                    task.Status == PlanTaskStatus.Complete) == true &&
-               current.ApprovalGates.Any(gate =>
-                   string.Equals(gate.GateId, reviewAttention.Gate.GateId, StringComparison.Ordinal) &&
-                   gate.Status == PlanGateStatus.Approved);
+               gateIds.All(gateId => current.ApprovalGates.Any(gate =>
+                   string.Equals(gate.GateId, gateId, StringComparison.Ordinal) &&
+                   gate.Status == PlanGateStatus.Approved));
+    }
+
+    private async Task<bool> EnsurePlanContinuationBranchReadyAsync(Plan plan)
+    {
+        if (_currentWorkspace is null)
+            throw new InvalidOperationException("No workspace is active.");
+
+        var activeBranch = ReadGitBranch(_currentWorkspace.FolderPath);
+        if (string.Equals(activeBranch, plan.Branch, StringComparison.Ordinal))
+            return true;
+        if (_isPromptRunning || IsLoopRunning || _queueDrainActive)
+            throw new InvalidOperationException(
+                "Wait for the current prompt or plan turn to finish before choosing how this plan should resume.");
+
+        return await EnsureResumeBranchChoiceAsync(plan);
     }
 
     private async Task<bool> ValidateHumanReviewStepAcceptanceAsync(
@@ -26576,7 +27552,10 @@ public partial class MainWindow : Window
             var rtb = (sender as RichTextBox) ?? OutputTextBox;
             if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
+                if (TranscriptCodeBlockPreview.Find(e.OriginalSource as DependencyObject) is not null)
+                    return;
                 FocusTranscriptForInactiveSelectionScroll(rtb);
+                TryPrecisionTrackpadScroll(rtb, e);
                 return;
             }
 
@@ -26624,6 +27603,42 @@ public partial class MainWindow : Window
 
         _ = rtb.Focus();
         _ = Keyboard.Focus(rtb);
+    }
+
+    /// <summary>
+    /// Smooths high-frequency precision-trackpad scrolling (e.g. a Mac trackpad
+    /// forwarded through Parallels/VMware) without altering the physical-mouse feel.
+    ///
+    /// <para>
+    /// A physical mouse delivers one clean 120-unit notch per detent, so
+    /// <see cref="MouseWheelEventArgs.Delta"/> is always an exact multiple of 120.
+    /// A precision trackpad instead emits a stream of small, often sub-120 deltas.
+    /// We use that granularity as the discriminator: multiples of 120 fall through
+    /// untouched (WPF's default <see cref="SystemParameters.WheelScrollLines"/>
+    /// behavior), while non-multiples are scrolled ourselves by a dampened pixel
+    /// amount so slow drags move precisely.
+    /// </para>
+    /// </summary>
+    private void TryPrecisionTrackpadScroll(RichTextBox rtb, MouseWheelEventArgs e)
+    {
+        // Exact 120-multiple => physical mouse notch. Leave the Windows+mouse path
+        // completely unchanged by falling through to WPF's default scrolling.
+        if (e.Delta == 0 || e.Delta % Mouse.MouseWheelDeltaForOneLine == 0)
+            return;
+
+        var sv = rtb.Template?.FindName("PART_ContentHost", rtb) as ScrollViewer;
+        if (sv is null)
+            return;
+
+        // Convert the raw delta into a dampened pixel offset. One font-line of pixels
+        // per full 120-unit notch, scaled down by the sensitivity factor.
+        double lineHeight = _transcriptFontSize * 1.3;
+        double pixels = (e.Delta / (double)Mouse.MouseWheelDeltaForOneLine)
+                        * lineHeight
+                        * PrecisionScrollSensitivity;
+
+        sv.ScrollToVerticalOffset(sv.VerticalOffset - pixels);
+        e.Handled = true;
     }
 
     /// <summary>
@@ -27024,10 +28039,21 @@ public partial class MainWindow : Window
         // Walk all sections at all depths. Document structure is:
         //   Document → NarrativeSection (Section) → inner Section → BlockUIContainer/Paragraph
         // We use a local helper to avoid duplicating the per-section logic.
-        void ApplySectionBlocks(Section section)
+        void ApplyBlocks(BlockCollection blocks)
         {
-            foreach (var inner in section.Blocks.OfType<BlockUIContainer>())
+            foreach (var inner in blocks.OfType<BlockUIContainer>())
             {
+                if (inner.Tag is TranscriptCodeBlockPreview preview)
+                {
+                    preview.UpdateFontSize(_transcriptFontSize);
+                    continue;
+                }
+                if (inner.Tag is MarkdownDetailView detail)
+                {
+                    detail.Expander.FontSize = _transcriptFontSize;
+                    ApplyTranscriptFontSizeToDocument(detail.Viewer.Document);
+                }
+
                 // Code block: BlockUIContainer > Grid > TextBox (Tag="codeblock")
                 // Also handles legacy StackPanel wrappers from earlier code paths.
                 var codeBox = inner.Child switch
@@ -27063,7 +28089,7 @@ public partial class MainWindow : Window
                         button.FontSize = _transcriptFontSize;
             }
 
-            foreach (var para in section.Blocks.OfType<Paragraph>())
+            foreach (var para in blocks.OfType<Paragraph>())
             {
                 if (para.Tag is string headingTag)
                 {
@@ -27073,12 +28099,11 @@ public partial class MainWindow : Window
             }
 
             // Recurse into nested Sections (NarrativeSection → inner Section → content)
-            foreach (var nested in section.Blocks.OfType<Section>())
-                ApplySectionBlocks(nested);
+            foreach (var nested in blocks.OfType<Section>())
+                ApplyBlocks(nested.Blocks);
         }
 
-        foreach (var block in document.Blocks.OfType<Section>())
-            ApplySectionBlocks(block);
+        ApplyBlocks(document.Blocks);
 
         // Tour quick reply: BlockUIContainer added directly to document (not inside a Section)
         // Structure: BlockUIContainer > WrapPanel > Button
@@ -27228,6 +28253,8 @@ public partial class MainWindow : Window
         try
         {
             var clickSource = e.OriginalSource as DependencyObject;
+            if (TranscriptCodeBlockPreview.Find(clickSource) is not null)
+                return;
             if (TranscriptApprovalCardBuilder.ShouldDeferContextMenuToEditableTextBox(clickSource, out var editableTextBox))
             {
                 _ = editableTextBox.Focus();
@@ -27376,33 +28403,300 @@ public partial class MainWindow : Window
         }
     }
 
+    // Keeps embedded code regions intact when the user copies/cuts a RichTextBox-level
+    // selection that spans or contains one. Wired via DataObject.AddCopyingHandler on
+    // PromptTextBox (see constructor). Fires for both Copy and Cut; for Cut, WPF performs its
+    // normal deletion of the selected content after this runs, so we only need to fix up the
+    // clipboard text. When the selection intersects no region we return without touching the
+    // DataObject, letting WPF's default plain-text copy proceed unchanged.
+    private void PromptTextBox_DataObjectCopying(object sender, DataObjectCopyingEventArgs e)
+    {
+        if (e.IsDragDrop)
+            return;
+
+        var fencedText = PromptTextBox.GetSelectionFencedText(out var containsRegion);
+        if (!containsRegion)
+            return;
+
+        e.DataObject.SetData(DataFormats.UnicodeText, fencedText);
+        e.DataObject.SetData(DataFormats.Text, fencedText);
+    }
+
+    private void PromptTextBox_CutCanExecute(object sender, CanExecuteRoutedEventArgs e)
+    {
+        if (PromptTextBox?.IsKeyboardFocusWithin == true
+            && PromptTextBox.SelectionContainsEmbeddedCodeRegion())
+        {
+            e.CanExecute = true;
+            e.Handled = true;
+        }
+    }
+
+    private void PromptTextBox_CutExecuted(object sender, ExecutedRoutedEventArgs e)
+    {
+        try
+        {
+            if (TryCutPromptSelectionContainingEmbeddedRegion())
+                e.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(PromptTextBox_CutExecuted), ex);
+        }
+    }
+
+    private bool TryCutPromptSelectionContainingEmbeddedRegion()
+    {
+        if (PromptTextBox.Selection.IsEmpty || !PromptTextBox.SelectionContainsEmbeddedCodeRegion())
+            return false;
+
+        var fencedText = PromptTextBox.GetSelectionFencedText(out var containsRegion);
+        if (!containsRegion)
+            return false;
+
+        SetClipboardTextWithRetry(fencedText);
+        return PromptTextBox.DeleteSelectionWithoutUndo();
+    }
+
+    private void PromptTextBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            // A click repositions the caret (and may change which region owns focus) — a non-typing
+            // action that ends any in-progress coalescing burst so the next edit starts a fresh undo
+            // entry (PROMPTUNDO-20261015-004).
+            _promptUndoHistory?.CloseCoalescingWindow();
+
+            // Detect if the click landed inside an embedded code region's TextBox.
+            // If so, prevent RichTextBox's default selection and let the region handle focus.
+            var clickPosition = e.GetPosition(PromptTextBox);
+            var hitElement = PromptTextBox.InputHitTest(clickPosition) as DependencyObject;
+            var handledBefore = e.Handled;
+            SquadDashTrace.Write(
+                "UI",
+                $"PROMPT_EMBEDDED_CODE_MOUSE enter handled={handledBefore} point=({clickPosition.X:F1},{clickPosition.Y:F1}) original={DescribePromptInputObject(e.OriginalSource)} hit={DescribePromptInputObject(hitElement)} selectionEmpty={PromptTextBox.Selection.IsEmpty} selectionLength={GetPromptSelectionLengthForTrace()} caretOffset={GetPromptCaretOffsetForTrace()} focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
+
+            if (hitElement == null)
+            {
+                SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE exit reason=no-hit");
+                return;
+            }
+
+            // Walk up the visual tree to find the EmbeddedCodeRegionBlock
+            var current = hitElement;
+            var hitContentEditor = false;
+            EmbeddedCodeRegionBlock? targetRegion = null;
+            var hitToggle = false;
+            var path = new List<string>();
+
+            while (current != null)
+            {
+                if (path.Count < 16)
+                    path.Add(DescribePromptInputObject(current));
+
+                // The region's content is now an AvalonEdit TextEditor (its editing surface is the
+                // TextArea). A hit landing within either means the click is on the content editor —
+                // the equivalent of the old "hit the nested content TextBox" test.
+                if (current is ICSharpCode.AvalonEdit.TextEditor or ICSharpCode.AvalonEdit.Editing.TextArea)
+                    hitContentEditor = true;
+
+                if (current is System.Windows.Controls.Primitives.ToggleButton)
+                    hitToggle = true;
+
+                if (current is EmbeddedCodeRegionBlock region)
+                {
+                    targetRegion = region;
+                    break;
+                }
+
+                if (current is Visual visual)
+                    current = VisualTreeHelper.GetParent(visual);
+                else
+                    break;
+            }
+
+            SquadDashTrace.Write(
+                "UI",
+                $"PROMPT_EMBEDDED_CODE_MOUSE path={string.Join(">", path)} targetRegion={targetRegion != null} hitContentEditor={hitContentEditor} hitToggle={hitToggle}");
+
+            // RichTextBox treats BlockUIContainer as an embedded object unless the hosted
+            // editor claims the mouse gesture. For a click that landed on the nested content
+            // editor we must NOT handle this (Preview) event: AvalonEdit implements native
+            // caret placement, double-click word-select, click-drag and double-click-drag
+            // selection on the bubbling MouseLeftButtonDown, which marking Preview handled would
+            // suppress. The region's own bubbling handler stops the gesture reaching the host, so
+            // no object-selection occurs. We only claim clicks on region chrome (no nested editor
+            // or toggle under the cursor), where there is no native text selection to preserve.
+            if (targetRegion != null && !hitToggle)
+            {
+                if (!EmbeddedCodeRegionBlock.ShouldClaimRegionMouseGesture(
+                        hitRegion: true, hitToggle: hitToggle, hitContentTextBox: hitContentEditor,
+                        hitLanguagePicker: targetRegion.IsLanguagePickerHit(hitElement)))
+                {
+                    SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=nested-control-native");
+                    return; // Let the editor select or the language button open its picker.
+                }
+
+                SquadDashTrace.Write("UI", "PROMPT_EMBEDDED_CODE_MOUSE route=region-focus-end");
+                targetRegion.FocusContent();
+
+                e.Handled = true;
+                SquadDashTrace.Write(
+                    "UI",
+                    $"PROMPT_EMBEDDED_CODE_MOUSE exit reason=focused-region handled=True focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
+                return;
+            }
+
+            SquadDashTrace.Write("UI", $"PROMPT_EMBEDDED_CODE_MOUSE exit reason={(hitToggle ? "toggle" : "outside-region")} handled={e.Handled}");
+
+            // A click that landed outside every embedded region (and not on a toggle) means the
+            // user is leaving region editing for the host prompt. Drop the active-region tracking
+            // so the typing-safety net does not redirect subsequent host typing into a region the
+            // user has clicked away from.
+            if (targetRegion == null && !hitToggle)
+                EmbeddedCodeRegionBlock.ClearActiveRegion();
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(PromptTextBox_PreviewMouseLeftButtonDown), ex);
+        }
+    }
+
+    private static string DescribePromptInputObject(object? value)
+    {
+        if (value is null)
+            return "(null)";
+
+        var typeName = value.GetType().Name;
+        return value is FrameworkElement { Name.Length: > 0 } element
+            ? $"{typeName}#{element.Name}"
+            : typeName;
+    }
+
+    private static string DescribePttTarget(Control target)
+        => target is FrameworkElement { Name.Length: > 0 } element
+            ? $"{target.GetType().Name}#{element.Name}"
+            : target.GetType().Name;
+
+    private static (int Paragraphs, int LineBreaks) GetRichTextStructureCounts(RichTextBox rtb)
+    {
+        var paragraphs = 0;
+        var lineBreaks = 0;
+        foreach (var block in rtb.Document.Blocks)
+        {
+            if (block is not Paragraph paragraph)
+                continue;
+            paragraphs++;
+            foreach (var inline in paragraph.Inlines)
+                if (inline is LineBreak)
+                    lineBreaks++;
+        }
+        return (paragraphs, lineBreaks);
+    }
+
+    private string GetPromptCaretOffsetForTrace()
+    {
+        try
+        {
+            return PromptTextBox.GetCaretOffset().ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"error:{ex.GetType().Name}";
+        }
+    }
+
+    private string GetPromptSelectionLengthForTrace()
+    {
+        try
+        {
+            return PromptTextBox.GetSelectionLength().ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"error:{ex.GetType().Name}";
+        }
+    }
+
+
     private void ApplyPromptFontSize()
     {
         PromptTextBox.FontSize = _promptFontSize;
         IntelliSenseList.FontSize = _promptFontSize;
         IntelliSenseList.MaxHeight = (_promptFontSize + 4) * 8;
+
+        // AvalonEdit-backed embedded code regions do NOT follow WPF font inheritance (their point
+        // size is set imperatively on the TextEditor), so push the current prompt font size onto
+        // each region's editor now — 1:1, so code regions render at the same point size as the
+        // surrounding prompt text. Newly created / rehydrated regions pick up the same size at
+        // AttachHost time (which reads the host's FontSize, set just above).
+        foreach (var region in RichTextBoxExtensions.EnumerateEmbeddedRegions(PromptTextBox))
+            region.ApplyEditorFontSize(_promptFontSize);
     }
 
-    private void ClearPromptTextBoxLogicalBuffer(string reason) =>
-        SetPromptTextBoxLogicalBuffer(string.Empty, 0, 0, 0, reason);
+    private void ClearPromptTextBoxLogicalBuffer(string reason, bool resetUndoHistory = false) =>
+        SetPromptTextBoxLogicalBuffer(string.Empty, 0, 0, 0, reason, resetUndoHistory);
 
     private void SetPromptTextBoxLogicalBuffer(
         string text,
         int caretIndex,
         int selectionStart = 0,
         int selectionLength = 0,
-        string reason = "load")
+        string reason = "load",
+        bool resetUndoHistory = false)
     {
         text ??= string.Empty;
         var normalizedCaret = Math.Clamp(caretIndex, 0, text.Length);
         var normalizedSelectionStart = Math.Clamp(selectionStart, 0, text.Length);
         var normalizedSelectionLength = Math.Clamp(selectionLength, 0, text.Length - normalizedSelectionStart);
 
-        PromptTextBox.Text = text;
-        if (normalizedSelectionLength > 0)
-            PromptTextBox.Select(normalizedSelectionStart, normalizedSelectionLength);
-        else
-            PromptTextBox.CaretIndex = normalizedCaret;
+        // Every programmatic buffer swap (tab switch, draft restore, clear) must NOT be recorded as a
+        // user edit on any per-tab undo timeline — the target tab's timeline already reflects its
+        // content, or is (re)baselined explicitly below. Suppress capture for the whole swap.
+        var previousSuppress = _suppressPromptUndoCapture;
+        _suppressPromptUndoCapture = true;
+        try
+        {
+            PromptTextBox.SetPlainText(text);
+
+            // Convert any already-fenced content into collapsible regions as part of every
+            // programmatic load/restore — not just live typing. PromptTextBox_TextChanged's own
+            // conversion call is skipped whenever _conversationManager.IsApplyingHistoryEntry is
+            // true (which it is for the entire duration of a draft/history restore via
+            // ApplyPromptText), so without this, fences loaded at startup would stay raw text
+            // until the user caused an unrelated TextChanged event.
+            if (!_isConvertingEmbeddedCodeRegion)
+            {
+                _isConvertingEmbeddedCodeRegion = true;
+                try
+                {
+                    while (EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox)) { }
+                }
+                finally
+                {
+                    _isConvertingEmbeddedCodeRegion = false;
+                }
+            }
+
+            if (normalizedSelectionLength > 0)
+                PromptTextBox.SelectRange(normalizedSelectionStart, normalizedSelectionLength);
+            else
+                PromptTextBox.SetCaretOffset(normalizedCaret);
+        }
+        finally
+        {
+            _suppressPromptUndoCapture = previousSuppress;
+        }
+
+        // Re-point the active timeline at the tab now shown in the box (creating + baselining a fresh
+        // one the first time a tab is seen), then — on send/steering — clear it so the just-sent
+        // prompt leaves no stale undo history behind.
+        if (_promptUndoReady && !_suppressPromptUndoCapture)
+        {
+            ActivatePromptUndoHistoryForCurrentTab();
+            if (resetUndoHistory)
+                _promptUndoHistory.Clear();
+        }
 
         var undoWasEnabled = PromptTextBox.IsUndoEnabled;
         if (undoWasEnabled)
@@ -27417,7 +28711,7 @@ public partial class MainWindow : Window
         }
         SquadDashTrace.Write(
             TraceCategory.UI,
-            $"PROMPT_BUFFER_LOAD reason={reason} textLen={text.Length} caret={PromptTextBox.CaretIndex} selectionLen={PromptTextBox.SelectionLength} undoCleared={undoWasEnabled}");
+            $"PROMPT_BUFFER_LOAD reason={reason} textLen={text.Length} caret={PromptTextBox.GetCaretOffset()} selectionLen={PromptTextBox.GetSelectionLength()} undoCleared={undoWasEnabled}");
     }
 
     private void PromptTextBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
@@ -27429,9 +28723,44 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Space-leak safety net: if keyboard focus has slipped back to the host prompt while an
+        // embedded region is still the active region (its caret is visibly blinking inside it),
+        // a space/printable keystroke would otherwise be inserted into the host adjacent to the
+        // region. Redirect it into the region the user is actually working in. See
+        // EmbeddedRegionInputRouter for the pure decision and AVALONEDIT-20261014-001.
+        var activeRegion = EmbeddedCodeRegionBlock.ActiveRegion;
+        var routeDecision = EmbeddedRegionInputRouter.DecideHostTextInput(
+            hasText: !string.IsNullOrEmpty(e.Text),
+            focusInsideRegion: FocusedEmbeddedCodeRegion() is not null,
+            hostHasFocus: ReferenceEquals(Keyboard.FocusedElement, PromptTextBox),
+            activeRegionAttached: activeRegion?.IsAttachedToHost() == true);
+        if (!string.IsNullOrEmpty(e.Text) && (activeRegion is not null || FocusedEmbeddedCodeRegion() is not null))
+        {
+            SquadDashTrace.Write(
+                "UI",
+                $"PROMPT_EMBEDDED_CODE_TEXT_INPUT reached decision={routeDecision} text-len={e.Text.Length} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)} hostHasFocus={ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)} focusInsideRegion={FocusedEmbeddedCodeRegion() is not null} activeRegion={activeRegion is not null}");
+        }
+        if (routeDecision == HostTextInputDecision.RouteToActiveRegion && activeRegion is not null)
+        {
+            SquadDashTrace.Write(
+                "UI",
+                $"PROMPT_EMBEDDED_CODE_TEXT route=active-region text-len={e.Text.Length} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
+            activeRegion.InsertHostText(e.Text);
+            e.Handled = true;
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(e.Text)
+            && PromptTextBox.SelectionContainsEmbeddedCodeRegion()
+            && PromptTextBox.ReplaceSelectionWithoutUndo(e.Text))
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Paren embedding (works on all keyboard layouts)
-        if ((e.Text == "(" || e.Text == ")") && PromptTextBox.SelectionLength > 0
-            && !PromptTextBox.SelectedText.Contains('\n'))
+        if ((e.Text == "(" || e.Text == ")") && PromptTextBox.GetSelectionLength() > 0
+            && !PromptTextBox.GetSelectedText().Contains('\n'))
         {
             if (MarkdownEditorCommands.ApplyInlineParens(PromptTextBox, e.Text))
             {
@@ -27492,7 +28821,7 @@ public partial class MainWindow : Window
             Style   = (Style)FindResource("ThemedMenuItemStyle"),
             Command = ApplicationCommands.Cut,
             CommandTarget = PromptTextBox,
-            IsEnabled = PromptTextBox.SelectionLength > 0
+            IsEnabled = PromptTextBox.GetSelectionLength() > 0
         };
         var copy = new MenuItem
         {
@@ -27500,7 +28829,7 @@ public partial class MainWindow : Window
             Style   = (Style)FindResource("ThemedMenuItemStyle"),
             Command = ApplicationCommands.Copy,
             CommandTarget = PromptTextBox,
-            IsEnabled = PromptTextBox.SelectionLength > 0
+            IsEnabled = PromptTextBox.GetSelectionLength() > 0
         };
         var paste = new MenuItem
         {
@@ -27514,12 +28843,12 @@ public partial class MainWindow : Window
         menu.Items.Add(copy);
         menu.Items.Add(paste);
 
-        if (PromptTextBox.SelectionLength > 0)
+        if (PromptTextBox.GetSelectionLength() > 0)
         {
             menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
 
-            var capturedStart  = PromptTextBox.SelectionStart;
-            var capturedLength = PromptTextBox.SelectionLength;
+            var capturedStart  = PromptTextBox.GetSelectionStart();
+            var capturedLength = PromptTextBox.GetSelectionLength();
             var smoothItem = new MenuItem
             {
                 Header           = "✨ Smooth Dictation",
@@ -27527,210 +28856,13 @@ public partial class MainWindow : Window
                 Style            = (Style)FindResource("ThemedMenuItemStyle")
             };
             smoothItem.Click += (_, _) => {
-                PromptTextBox.Select(capturedStart, capturedLength);
-                SmoothDictationHelper.ApplyToTextBox(PromptTextBox);
+                PromptTextBox.SelectRange(capturedStart, capturedLength);
+                SmoothDictationHelper.ApplyToRichTextBox(PromptTextBox);
             };
             menu.Items.Add(smoothItem);
         }
 
         PromptTextBox.ContextMenu = menu;
-    }
-
-    private void ApplyDocSourceFontSize()
-    {
-        if (DocSourceTextBox is not null)
-            DocSourceTextBox.FontSize = _docSourceFontSize;
-    }
-
-    private void DocSourceTextBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
-    {
-        try
-        {
-            if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
-                return;
-
-            _docSourceFontSize = Math.Clamp(
-                _docSourceFontSize + (e.Delta > 0 ? DocSourceFontSizeStep : -DocSourceFontSizeStep),
-                DocSourceFontSizeMin,
-                DocSourceFontSizeMax);
-
-            ApplyDocSourceFontSize();
-            _settingsManager.Replace(_settingsStore.SaveDocSourceFontSize(_docSourceFontSize));
-            e.Handled = true;
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(DocSourceTextBox_PreviewMouseWheel), ex);
-        }
-    }
-
-    private void DocSourceTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
-    {
-        // ── Ctrl+Shift+Z → Redo ───────────────────────────────────────────────────
-        if (e.Key == System.Windows.Input.Key.Z
-            && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
-        {
-            if (DocSourceTextBox.CanRedo)
-                DocSourceTextBox.Redo();
-            e.Handled = true;
-            return;
-        }
-
-        // ── Shift+F3: cycle case of selected text ─────────────────────────────────
-        if (e.Key == System.Windows.Input.Key.F3
-            && Keyboard.Modifiers == ModifierKeys.Shift
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            var selStart     = DocSourceTextBox.GetSelectionStart();
-            var selectedText = DocSourceTextBox.GetSelectedText();
-
-            bool continuing = _docCycleVariants is not null
-                && selStart == _docCycleSelStart
-                && selectedText == _docCycleVariants[_docCycleIndex];
-
-            if (!continuing)
-            {
-                _docCycleOriginal = selectedText;
-                _docCycleVariants = TextCaseHelper.ComputeOrderedVariants(selectedText);
-                _docCycleIndex    = 0;
-                _docCycleSelStart = selStart;
-
-                var firstVariant = _docCycleVariants[_docCycleIndex];
-                DocSourceTextBox.ReplaceSelection(firstVariant);
-                DocSourceTextBox.SelectRange(selStart, firstVariant.Length);
-            }
-            else
-            {
-                _docCycleIndex = (_docCycleIndex + 1) % _docCycleVariants!.Count;
-                var nextVariant = _docCycleVariants[_docCycleIndex];
-
-                // Restore original (no undo), then apply next variant as a single undo entry.
-                DocSourceTextBox.IsUndoEnabled = false;
-                DocSourceTextBox.SelectRange(_docCycleSelStart, selectedText.Length);
-                DocSourceTextBox.Selection.Text = _docCycleOriginal!;
-                DocSourceTextBox.IsUndoEnabled  = true;
-                DocSourceTextBox.SelectRange(_docCycleSelStart, _docCycleOriginal!.Length);
-                DocSourceTextBox.ReplaceSelection(nextVariant);
-                DocSourceTextBox.SelectRange(_docCycleSelStart, nextVariant.Length);
-            }
-            e.Handled = true;
-            _guidedTourCoordinator.RaiseCycleCaseForward(this);
-            return;
-        }
-
-        // ── Ctrl+Shift+F3: reverse cycle case of selected text ────────────────────
-        if (e.Key == System.Windows.Input.Key.F3
-            && Keyboard.Modifiers == (ModifierKeys.Shift | ModifierKeys.Control)
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            var selStart     = DocSourceTextBox.GetSelectionStart();
-            var selectedText = DocSourceTextBox.GetSelectedText();
-
-            bool continuing = _docCycleVariants is not null
-                && selStart == _docCycleSelStart
-                && selectedText == _docCycleVariants[_docCycleIndex];
-
-            if (!continuing)
-            {
-                _docCycleOriginal = selectedText;
-                _docCycleVariants = TextCaseHelper.ComputeOrderedVariants(selectedText);
-                _docCycleSelStart = selStart;
-                _docCycleIndex    = _docCycleVariants.Count - 1;
-
-                var firstVariant = _docCycleVariants[_docCycleIndex];
-                DocSourceTextBox.ReplaceSelection(firstVariant);
-                DocSourceTextBox.SelectRange(selStart, firstVariant.Length);
-            }
-            else
-            {
-                _docCycleIndex = (_docCycleIndex - 1 + _docCycleVariants!.Count) % _docCycleVariants.Count;
-                var prevVariant = _docCycleVariants[_docCycleIndex];
-
-                DocSourceTextBox.IsUndoEnabled = false;
-                DocSourceTextBox.SelectRange(_docCycleSelStart, selectedText.Length);
-                DocSourceTextBox.Selection.Text = _docCycleOriginal!;
-                DocSourceTextBox.IsUndoEnabled  = true;
-                DocSourceTextBox.SelectRange(_docCycleSelStart, _docCycleOriginal!.Length);
-                DocSourceTextBox.ReplaceSelection(prevVariant);
-                DocSourceTextBox.SelectRange(_docCycleSelStart, prevVariant.Length);
-            }
-            e.Handled = true;
-            _guidedTourCoordinator.RaiseCycleCaseReverse(this);
-            return;
-        }
-
-        // ── Smooth Dictation: Shift+Space on selection ────────────────────────────
-        if (e.Key == System.Windows.Input.Key.Space
-            && Keyboard.Modifiers == ModifierKeys.Shift
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            e.Handled = SmoothDictationHelper.ApplyToRichTextBox(DocSourceTextBox);
-            return;
-        }
-
-        // ── Selection embedding: backtick or apostrophe wraps inline code or fence ─
-        if ((e.Key == System.Windows.Input.Key.OemTilde || e.Key == System.Windows.Input.Key.OemQuotes)
-            && Keyboard.Modifiers == ModifierKeys.None
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            if (MarkdownEditorCommands.ApplyInlineCodeOrFence(DocSourceTextBox))
-            {
-                _suppressDocSourceNextTextInput = true;
-                e.Handled = true;
-                return;
-            }
-        }
-
-        // ── Selection embedding: double-quote wraps inline quote ──────────────────
-        if (e.Key == System.Windows.Input.Key.OemQuotes
-            && Keyboard.Modifiers == ModifierKeys.Shift
-            && DocSourceTextBox.GetSelectionLength() > 0)
-        {
-            if (MarkdownEditorCommands.ApplyInlineQuote(DocSourceTextBox))
-            {
-                _suppressDocSourceNextTextInput = true;
-                e.Handled = true;
-                return;
-            }
-        }
-
-        // ── Shift+Enter: duplicate current line ───────────────────────────────────
-        if (e.Key == System.Windows.Input.Key.Return
-            && Keyboard.Modifiers == ModifierKeys.Shift)
-        {
-            MarkdownEditorCommands.DuplicateLine(DocSourceTextBox);
-            e.Handled = true;
-            return;
-        }
-
-        // ── List continuation: Enter at end of a bullet/numbered line ─────────────
-        if (e.Key == System.Windows.Input.Key.Return
-            && Keyboard.Modifiers == ModifierKeys.None)
-        {
-            if (MarkdownEditorCommands.ContinueListOnEnter(DocSourceTextBox))
-                e.Handled = true;
-            return;
-        }
-
-        if (e.Key == System.Windows.Input.Key.Tab)
-        {
-            e.Handled = true;
-            var caret    = DocSourceTextBox.GetCaretOffset();
-            var selLen   = DocSourceTextBox.GetSelectionLength();
-            var selStart = DocSourceTextBox.GetSelectionStart();
-            var text     = DocSourceTextBox.GetPlainText();
-            if (selLen > 0)
-            {
-                DocSourceTextBox.SelectRange(selStart, selLen);
-                DocSourceTextBox.ReplaceSelection("    ");
-                DocSourceTextBox.SetCaretOffset(selStart + 4);
-            }
-            else
-            {
-                DocSourceTextBox.SetPlainText(text.Insert(caret, "    "));
-                DocSourceTextBox.SetCaretOffset(caret + 4);
-            }
-        }
     }
 
     private void PromptTextBox_KeyDown(object sender, KeyEventArgs e)
@@ -27748,10 +28880,118 @@ public partial class MainWindow : Window
             _suppressPromptNextTextInput = false;
 
             var modifiers = Keyboard.Modifiers;
+            if (IsInsideEmbeddedCodeRegion(e.OriginalSource) || IsInsideEmbeddedCodeRegion(Keyboard.FocusedElement))
+            {
+                SquadDashTrace.Write(
+                    "UI",
+                    $"PROMPT_EMBEDDED_CODE_KEY pass-through key={e.Key} modifiers={modifiers} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
+                return;
+            }
+
+            // Space-leak diagnostic: Space does NOT insert text on KeyDown (the host inserts via
+            // the bubbling TextInput, intercepted in PromptTextBox_PreviewTextInput), so we only
+            // trace here to confirm the focus/active-region facts at keydown time. The actual
+            // redirect happens in PreviewTextInput's safety net.
+            if (e.Key == Key.Space && EmbeddedCodeRegionBlock.ActiveRegion is not null)
+            {
+                SquadDashTrace.Write(
+                    "UI",
+                    $"PROMPT_EMBEDDED_CODE_SPACE_KEY reached-host modifiers={modifiers} source={DescribePromptInputObject(e.OriginalSource)} focused={DescribePromptInputObject(Keyboard.FocusedElement)} hostHasFocus={ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)} activeAttached={EmbeddedCodeRegionBlock.ActiveRegion.IsAttachedToHost()}");
+            }
+
+            // Same focus-leak safety net as printable text input, but for keys that WPF translates
+            // into native RichTextBox editing commands before TextInput. Letting Backspace reach the
+            // host while an embedded region is still active can enter WPF's fail-fast path around
+            // BlockUIContainer selection updates, so route it back into the region immediately.
+            if (modifiers == ModifierKeys.None
+                && e.Key is Key.Back or Key.Delete
+                && PromptTextBox.Selection.IsEmpty
+                && FocusedEmbeddedCodeRegion() is null
+                && ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)
+                && EmbeddedCodeRegionBlock.ActiveRegion is { } activeRegion
+                && activeRegion.IsAttachedToHost()
+                && activeRegion.TryHandleRegionDeleteKey(e.Key, modifiers))
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (modifiers == ModifierKeys.None
+                && e.Key is Key.Delete or Key.Back
+                && PromptTextBox.SelectionContainsEmbeddedCodeRegion()
+                && PromptTextBox.DeleteSelectionWithoutUndo())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.X
+                && (modifiers & ModifierKeys.Control) != 0
+                && (modifiers & ModifierKeys.Alt) == 0
+                && (modifiers & ModifierKeys.Shift) == 0
+                && TryCutPromptSelectionContainingEmbeddedRegion())
+            {
+                e.Handled = true;
+                return;
+            }
+
+            // Collapsed-caret case: the caret sits right next to a region (no highlighted
+            // selection) and Delete/Backspace would otherwise fall through to WPF's native
+            // block-boundary deletion around the BlockUIContainer, which is unreliable and
+            // can crash. Remove the adjacent region ourselves instead.
+            if (modifiers == ModifierKeys.None && e.Key is Key.Delete or Key.Back)
+            {
+                var direction = e.Key == Key.Delete ? LogicalDirection.Forward : LogicalDirection.Backward;
+                if (PromptTextBox.TryDeleteAdjacentEmbeddedCodeRegion(direction))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // ── Arrow key navigation into/out of embedded code regions ────────────────
+            // When Down arrow is pressed at end of a line just before a region, focus the region.
+            // When Up arrow is pressed at start of a line just after a region, focus the region.
+            if (modifiers == ModifierKeys.None && (e.Key == Key.Down || e.Key == Key.Up))
+            {
+                if (PromptTextBox.TryFocusAdjacentEmbeddedCodeRegion(e.Key == Key.Down ? LogicalDirection.Forward : LogicalDirection.Backward))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            // Smart arrow-key navigation: detect when arrow key would land on a region's
+            // paragraph line (dead zone) and instead route focus directly into the region.
+            // Handles Up/Down/Left/Right arrows to enter regions with correct caret positioning.
+            if (modifiers == ModifierKeys.None && e.Key is Key.Up or Key.Down or Key.Left or Key.Right)
+            {
+                var caretBefore = PromptTextBox.CaretPosition;
+                
+                // Simulate the arrow key movement to find where caret would land
+                TextPointer? caretAfter = null;
+                if (e.Key == Key.Down)
+                    caretAfter = caretBefore.GetPositionAtOffset(0, LogicalDirection.Forward)?.GetLineStartPosition(1);
+                else if (e.Key == Key.Up)
+                    caretAfter = caretBefore.GetPositionAtOffset(0, LogicalDirection.Backward)?.GetLineStartPosition(-1);
+                else if (e.Key == Key.Right)
+                    caretAfter = caretBefore.GetPositionAtOffset(1, LogicalDirection.Forward);
+                else if (e.Key == Key.Left)
+                    caretAfter = caretBefore.GetPositionAtOffset(-1, LogicalDirection.Backward);
+
+                // Try smart navigation. caretAfter may be null (the backward Up/Left prediction
+                // can walk off across the region); TryNavigateIntoEmbeddedRegionWithDirection
+                // handles a null prediction for entry-from-below.
+                if (PromptTextBox.TryNavigateIntoEmbeddedRegionWithDirection(e.Key, caretBefore, caretAfter))
+                {
+                    e.Handled = true;
+                    return;
+                }
+            }
 
             if (modifiers == ModifierKeys.None
                 && IsPrintableKey(e.Key)
-                && !((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && PromptTextBox.SelectionLength > 0))
+                && !((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && PromptTextBox.GetSelectionLength() > 0))
             {
                 return;
             }
@@ -27824,10 +29064,10 @@ public partial class MainWindow : Window
             }
 
             // ── Shift+F3: cycle case of selected text ─────────────────────────────
-            if (e.Key == Key.F3 && modifiers == ModifierKeys.Shift && PromptTextBox.SelectionLength > 0)
+            if (e.Key == Key.F3 && modifiers == ModifierKeys.Shift && PromptTextBox.GetSelectionLength() > 0)
             {
-                var selStart     = PromptTextBox.SelectionStart;
-                var selectedText = PromptTextBox.SelectedText;
+                var selStart     = PromptTextBox.GetSelectionStart();
+                var selectedText = PromptTextBox.GetSelectedText();
 
                 // Continue an existing cycle if the selection is still on the same range and
                 // shows one of our computed variants.
@@ -27838,16 +29078,15 @@ public partial class MainWindow : Window
                 if (!continuing)
                 {
                     // New selection — initialize cycle state.
-                    _promptCycleOriginal  = PromptTextBox.Text;
+                    _promptCycleOriginal  = PromptTextBox.GetPlainText();
                     _promptCycleVariants  = TextCaseHelper.ComputeOrderedVariants(selectedText);
                     _promptCycleIndex     = 0;
                     _promptCycleSelStart  = selStart;
-                    _promptCycleSelLen    = PromptTextBox.SelectionLength;
+                    _promptCycleSelLen    = PromptTextBox.GetSelectionLength();
 
                     // First press: normal replacement — creates one undo entry (original → variant).
-                    PromptTextBox.SelectedText    = _promptCycleVariants[_promptCycleIndex];
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleVariants[_promptCycleIndex].Length;
+                    PromptTextBox.ReplaceSelection(_promptCycleVariants[_promptCycleIndex]);
+                    PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleVariants[_promptCycleIndex].Length);
                 }
                 else
                 {
@@ -27856,15 +29095,16 @@ public partial class MainWindow : Window
                     var nextVariant = _promptCycleVariants[_promptCycleIndex];
 
                     // Restore original text without adding to the undo stack, then apply the
-                    // new variant as a single replacement so Ctrl+Z always undoes back to original.
+                    // new variant as a single replacement. Native host undo is suppressed globally
+                    // by the single-authority timeline (PROMPTUNDO-20261015-003); preserve that
+                    // disabled state rather than hard-re-enabling it.
+                    var cycleUndoWasEnabled = PromptTextBox.IsUndoEnabled;
                     PromptTextBox.IsUndoEnabled   = false;
-                    PromptTextBox.Text            = _promptCycleOriginal!;
-                    PromptTextBox.IsUndoEnabled   = true;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleSelLen;
-                    PromptTextBox.SelectedText    = nextVariant;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = nextVariant.Length;
+                    PromptTextBox.SetPlainText(_promptCycleOriginal!);
+                    PromptTextBox.IsUndoEnabled   = cycleUndoWasEnabled;
+                    PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleSelLen);
+                    PromptTextBox.ReplaceSelection(nextVariant);
+                    PromptTextBox.SelectRange(_promptCycleSelStart, nextVariant.Length);
                 }
                 e.Handled = true;
                 _guidedTourCoordinator.RaiseCycleCaseForward(this);
@@ -27872,10 +29112,10 @@ public partial class MainWindow : Window
             }
 
             // ── Ctrl+Shift+F3: reverse cycle case of selected text ────────────────
-            if (e.Key == Key.F3 && modifiers == (ModifierKeys.Shift | ModifierKeys.Control) && PromptTextBox.SelectionLength > 0)
+            if (e.Key == Key.F3 && modifiers == (ModifierKeys.Shift | ModifierKeys.Control) && PromptTextBox.GetSelectionLength() > 0)
             {
-                var selStart     = PromptTextBox.SelectionStart;
-                var selectedText = PromptTextBox.SelectedText;
+                var selStart     = PromptTextBox.GetSelectionStart();
+                var selectedText = PromptTextBox.GetSelectedText();
 
                 bool continuing = _promptCycleVariants is not null
                     && selStart == _promptCycleSelStart
@@ -27883,29 +29123,27 @@ public partial class MainWindow : Window
 
                 if (!continuing)
                 {
-                    _promptCycleOriginal  = PromptTextBox.Text;
+                    _promptCycleOriginal  = PromptTextBox.GetPlainText();
                     _promptCycleVariants  = TextCaseHelper.ComputeOrderedVariants(selectedText);
                     _promptCycleIndex     = _promptCycleVariants.Count - 1;
                     _promptCycleSelStart  = selStart;
-                    _promptCycleSelLen    = PromptTextBox.SelectionLength;
+                    _promptCycleSelLen    = PromptTextBox.GetSelectionLength();
 
-                    PromptTextBox.SelectedText    = _promptCycleVariants[_promptCycleIndex];
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleVariants[_promptCycleIndex].Length;
+                    PromptTextBox.ReplaceSelection(_promptCycleVariants[_promptCycleIndex]);
+                    PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleVariants[_promptCycleIndex].Length);
                 }
                 else
                 {
                     _promptCycleIndex = (_promptCycleIndex - 1 + _promptCycleVariants!.Count) % _promptCycleVariants.Count;
                     var prevVariant = _promptCycleVariants[_promptCycleIndex];
 
+                    var cycleUndoWasEnabled = PromptTextBox.IsUndoEnabled;
                     PromptTextBox.IsUndoEnabled   = false;
-                    PromptTextBox.Text            = _promptCycleOriginal!;
-                    PromptTextBox.IsUndoEnabled   = true;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = _promptCycleSelLen;
-                    PromptTextBox.SelectedText    = prevVariant;
-                    PromptTextBox.SelectionStart  = _promptCycleSelStart;
-                    PromptTextBox.SelectionLength = prevVariant.Length;
+                    PromptTextBox.SetPlainText(_promptCycleOriginal!);
+                    PromptTextBox.IsUndoEnabled   = cycleUndoWasEnabled;
+                    PromptTextBox.SelectRange(_promptCycleSelStart, _promptCycleSelLen);
+                    PromptTextBox.ReplaceSelection(prevVariant);
+                    PromptTextBox.SelectRange(_promptCycleSelStart, prevVariant.Length);
                 }
                 e.Handled = true;
                 _guidedTourCoordinator.RaiseCycleCaseReverse(this);
@@ -27913,15 +29151,15 @@ public partial class MainWindow : Window
             }
 
             // ── Smooth Dictation: Shift+Space on selection ────────────────────────
-            if (e.Key == Key.Space && modifiers == ModifierKeys.Shift && PromptTextBox.SelectionLength > 0)
+            if (e.Key == Key.Space && modifiers == ModifierKeys.Shift && PromptTextBox.GetSelectionLength() > 0)
             {
-                e.Handled = SmoothDictationHelper.ApplyToTextBox(PromptTextBox);
+                e.Handled = SmoothDictationHelper.ApplyToRichTextBox(PromptTextBox);
                 return;
             }
 
             // ── Selection embedding: backtick or apostrophe ───────────────────────────
             if ((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && modifiers == ModifierKeys.None
-                && PromptTextBox.SelectionLength > 0)
+                && PromptTextBox.GetSelectionLength() > 0)
             {
                 if (MarkdownEditorCommands.ApplyInlineCodeOrFence(PromptTextBox))
                 {
@@ -27933,7 +29171,7 @@ public partial class MainWindow : Window
 
             // ── Selection embedding: double-quote ─────────────────────────────────────
             if (e.Key == Key.OemQuotes && modifiers == ModifierKeys.Shift
-                && PromptTextBox.SelectionLength > 0)
+                && PromptTextBox.GetSelectionLength() > 0)
             {
                 if (MarkdownEditorCommands.ApplyInlineQuote(PromptTextBox))
                 {
@@ -28041,7 +29279,7 @@ public partial class MainWindow : Window
             {
                 SquadDashTrace.Write(TraceCategory.Performance,
                     $"PROMPT_KEYDOWN elapsed={sw.ElapsedMilliseconds}ms key={e.Key} repeat={e.IsRepeat} " +
-                    $"handled={e.Handled} textLen={PromptTextBox.Text.Length} caret={PromptTextBox.CaretIndex}");
+                    $"handled={e.Handled} textLen={PromptTextBox.GetTextLength()} caret={PromptTextBox.GetCaretOffset()}");
             }
         }
     }
@@ -28052,6 +29290,191 @@ public partial class MainWindow : Window
     private static bool IsShiftKey(Key key) =>
         key is Key.LeftShift or Key.RightShift;
 
+    private static bool IsInsideEmbeddedCodeRegion(object? value)
+        => FindEmbeddedCodeRegion(value) is not null;
+
+    /// <summary>
+    /// Walks up the visual/logical tree from <paramref name="value"/> and returns the enclosing
+    /// <see cref="EmbeddedCodeRegionBlock"/>, or <see langword="null"/> if the element is not
+    /// inside one. Shared by the keyboard-routing guards and the voice-insertion path so both
+    /// consistently detect "this element lives inside an embedded code region".
+    /// </summary>
+    private static EmbeddedCodeRegionBlock? FindEmbeddedCodeRegion(object? value)
+        => EmbeddedCodeRegionBlock.FindContainingRegion(value as DependencyObject);
+
+    /// <summary>
+    /// Returns the embedded code region that currently owns keyboard focus, or
+    /// <see langword="null"/> when focus is not inside a region. Used to route space/printable
+    /// keystrokes and voice dictation into the focused region instead of the host prompt.
+    /// </summary>
+    private static EmbeddedCodeRegionBlock? FocusedEmbeddedCodeRegion()
+        => FindEmbeddedCodeRegion(Keyboard.FocusedElement);
+
+    private void PromptTextBox_UndoSelectionChanged(object sender, RoutedEventArgs e)
+    {
+        if (_promptUndoHistory is null || _promptUndoHistory.IsApplying || _isConvertingEmbeddedCodeRegion || _suppressPromptUndoCapture)
+            return;
+        _promptUndoHistory.RefreshSelection();
+    }
+
+    private void OnEmbeddedRegionContentEditing(object? sender, EventArgs e)
+    {
+        if (_promptUndoHistory is null || _promptUndoHistory.IsApplying || _isConvertingEmbeddedCodeRegion || _suppressPromptUndoCapture)
+            return;
+        if (sender is EmbeddedCodeRegionBlock region)
+            _promptUndoHistory.RefreshSelection(region);
+    }
+
+    /// <summary>
+    /// Pushes a snapshot onto the single-authority prompt undo/redo timeline when text changes
+    /// INSIDE an embedded code region (PROMPTUNDO-20261015-003). A nested AvalonEdit's own edits
+    /// never raise the host <see cref="RichTextBox"/>'s TextChanged, so this is the in-region half
+    /// of edit capture, paired with the host-text push in <see cref="PromptTextBox_TextChanged"/>.
+    /// Skipped during a snapshot restore and during a fence-conversion rebuild, mirroring the host
+    /// path.
+    /// </summary>
+    private void OnEmbeddedRegionContentEdited(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (_promptUndoHistory is null || _promptUndoHistory.IsApplying || _isConvertingEmbeddedCodeRegion || _suppressPromptUndoCapture)
+                return;
+            if (sender is EmbeddedCodeRegionBlock region)
+                _promptUndoHistory.PushSnapshot(region);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(OnEmbeddedRegionContentEdited), ex);
+        }
+    }
+
+    /// Key identifying the prompt undo/redo timeline for the tab currently shown in the box: the
+    /// active queued item id, or <see cref="ActiveDraftUndoKey"/> for the Active Draft.
+    private string CurrentUndoKey => _activeTabId ?? ActiveDraftUndoKey;
+
+    /// <summary>
+    /// Re-points <see cref="_promptUndoHistory"/> at the undo/redo timeline owned by the tab now
+    /// shown in the prompt box (PROMPTUNDO-20261015-004). The first time a tab is seen a fresh
+    /// timeline is created and baselined against the prompt's current content; thereafter the tab's
+    /// preserved timeline is reused as-is, so switching tabs restores that tab's exact undo history.
+    /// </summary>
+    private void ActivatePromptUndoHistoryForCurrentTab()
+    {
+        if (!_promptUndoReady)
+            return;
+
+        var key = CurrentUndoKey;
+        if (!_promptUndoHistories.TryGetValue(key, out var history))
+        {
+            history = new PromptUndoHistory(PromptTextBox);
+            history.CaptureBaseline();
+            _promptUndoHistories[key] = history;
+        }
+        _promptUndoHistory = history;
+    }
+
+    /// <summary>
+    /// Moves a tab's undo/redo timeline from one key to another (PROMPTUNDO-20261015-004) so that
+    /// queuing the Active Draft carries its history onto the new queued item. The moved timeline's
+    /// coalescing window is closed so the queue transition never folds into a later in-place edit.
+    /// </summary>
+    private void MigratePromptUndoHistory(string fromKey, string toKey)
+    {
+        if (!_promptUndoReady || string.Equals(fromKey, toKey, StringComparison.Ordinal))
+            return;
+
+        if (_promptUndoHistories.TryGetValue(fromKey, out var history))
+        {
+            history.CloseCoalescingWindow();
+            _promptUndoHistories[toKey] = history;
+            _promptUndoHistories.Remove(fromKey);
+        }
+    }
+
+    /// <summary>
+    /// Drops undo/redo timelines whose tab no longer exists (PROMPTUNDO-20261015-004): anything that
+    /// is not the Active Draft and not a current queue item. Called after every queue sync so
+    /// dispatched/removed tabs do not leak their histories. Guarantees the active key always has a
+    /// live timeline afterwards.
+    /// </summary>
+    private void PrunePromptUndoHistories()
+    {
+        if (!_promptUndoReady)
+            return;
+
+        var live = new HashSet<string>(StringComparer.Ordinal) { ActiveDraftUndoKey };
+        foreach (var item in _promptQueue.Items)
+            live.Add(item.Id);
+
+        foreach (var key in _promptUndoHistories.Keys.Where(k => !live.Contains(k)).ToList())
+            _promptUndoHistories.Remove(key);
+
+        if (!_promptUndoHistories.ContainsKey(CurrentUndoKey))
+            ActivatePromptUndoHistoryForCurrentTab();
+    }
+
+    /// <summary>
+    /// True when the prompt owns the undo/redo context: keyboard focus is on the host prompt
+    /// <see cref="RichTextBox"/> OR inside one of its embedded code regions' AvalonEdit controls.
+    /// This is what makes the single authority span both surfaces — a Ctrl+Z pressed with focus
+    /// inside a region routes to the shared timeline, not the region's local undo.
+    /// </summary>
+    private bool PromptOwnsUndoContext()
+        => PromptTextBox.IsKeyboardFocusWithin
+           || ReferenceEquals(Keyboard.FocusedElement, PromptTextBox)
+           || IsInsideEmbeddedCodeRegion(Keyboard.FocusedElement);
+
+    /// True for keys that move the caret / change focus without editing text, which therefore close
+    /// an undo coalescing window (PROMPTUNDO-20261015-004). Deliberately excludes Backspace/Delete,
+    /// which ARE edits and must keep coalescing.
+    private static bool IsCaretNavigationKey(Key key) => key switch
+    {
+        Key.Left or Key.Right or Key.Up or Key.Down
+            or Key.Home or Key.End or Key.PageUp or Key.PageDown or Key.Tab => true,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Single-authority Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z router (PROMPTUNDO-20261015-003, §1/§5).
+    /// Invoked from <see cref="Window_PreviewKeyDown"/> — the earliest tunneling stage, which runs
+    /// before the host editor AND before any focused region's AvalonEdit — so marking the event
+    /// handled here guarantees NO native undo path (host RichTextBox or region AvalonEdit) ever
+    /// services the user's keystroke; only <see cref="_promptUndoHistory"/> does. Returns true when
+    /// it consumed the chord.
+    /// </summary>
+    private bool TryRoutePromptUndoRedo(KeyEventArgs e)
+    {
+        if (_promptUndoHistory is null)
+            return false;
+
+        var modifiers = Keyboard.Modifiers;
+        if ((modifiers & ModifierKeys.Control) == 0)
+            return false;
+        if ((modifiers & ModifierKeys.Alt) != 0)
+            return false;
+
+        var shift = (modifiers & ModifierKeys.Shift) != 0;
+        var isUndo = e.Key == Key.Z && !shift;
+        var isRedo = (e.Key == Key.Y && !shift) || (e.Key == Key.Z && shift);
+        if (!isUndo && !isRedo)
+            return false;
+
+        if (!PromptOwnsUndoContext())
+            return false;
+
+        var before = PromptUndoManager.CaptureSnapshot(PromptTextBox);
+        var changed = isUndo ? _promptUndoHistory.Undo() : _promptUndoHistory.Redo();
+        var after = PromptUndoManager.CaptureSnapshot(PromptTextBox);
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PROMPT_UNDO operation={(isUndo ? "undo" : "redo")} changed={changed} " +
+            $"beforeLen={before.SerializedText.Length} beforeCaret={before.CaretOffset} beforeAnchor={before.AnchorOffset} " +
+            $"afterLen={after.SerializedText.Length} afterCaret={after.CaretOffset} afterAnchor={after.AnchorOffset}");
+
+        e.Handled = true;
+        return true;
+    }
+
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         try
@@ -28060,6 +29483,21 @@ public partial class MainWindow : Window
             ShowCodeHealthBannerIfPending();
             if (TryRecoverPromptInputFromStaleModifiers(e))
                 return;
+
+            // ── Single-authority prompt undo/redo (PROMPTUNDO-20261015-003) ──────────
+            // Intercept Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z here at the window's tunneling
+            // preview stage — before the host RichTextBox's native undo AND before a
+            // focused region's AvalonEdit can act — so the shared PromptUndoManager
+            // timeline is the ONLY thing that services the chord whether focus is in
+            // host text or inside an embedded region.
+            if (TryRoutePromptUndoRedo(e))
+                return;
+
+            // A caret-navigation key (arrows/Home/End/PageUp/PageDown/Tab) moves the caret or changes
+            // region focus without editing text — a coalescing boundary, so close the active tab's
+            // window and let the key proceed normally (PROMPTUNDO-20261015-004).
+            if (_promptUndoHistory is not null && IsCaretNavigationKey(e.Key) && PromptOwnsUndoContext())
+                _promptUndoHistory.CloseCoalescingWindow();
 
             // ── Tour shortcut routing ─────────────────────────────────────────────
             // When a guided-tour step sets a shortcut target (e.g. PromptTextBox for
@@ -28274,68 +29712,22 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // ── Escape: dismiss doc find bar from any focus position (incl. WebBrowser preview) ──
-            if (e.Key == Key.Escape && _docSourceFindBar is not null)
+            // Guard against rerouting input when the docs source Avalon editor has focus.
+            if (IsDocSourceEditorFocused())
             {
-                HideDocSourceFindBar();
-                e.Handled = true;
-                return;
-            }
-
-            // ── Feature 1: Guard against rerouting input when DocSourceTextBox has focus ──
-            if (DocSourceTextBox?.IsFocused == true)
-            {
-                // Allow Ctrl+F to trigger find-in-source instead of transcript search
                 if (e.Key == Key.F && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
                 {
                     ShowDocSourceFindBar();
                     e.Handled = true;
                     return;
                 }
-                // Ctrl+B: wrap selection (or insert empty pair) in markdown bold
-                if (e.Key == Key.B && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
-                {
-                    DocSourceTextBox_ApplyBold();
-                    e.Handled = true;
-                    return;
-                }
-                // Ctrl+I: wrap selection in markdown italic
-                if (e.Key == Key.I && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
-                {
-                    DocSourceTextBox_ApplyItalic();
-                    e.Handled = true;
-                    return;
-                }
-                // Let Ctrl+Shift+A (Revise) and Ctrl+Shift+C (Cleanup) fall through
-                // so the window-level handlers below can process them.
-                if ((e.Key == Key.A || e.Key == Key.C)
-                    && (Keyboard.Modifiers & ModifierKeys.Control) != 0
-                    && (Keyboard.Modifiers & ModifierKeys.Shift)   != 0
-                    && (Keyboard.Modifiers & ModifierKeys.Alt)     == 0)
-                {
-                    // Fall through to the Ctrl+Shift+A / Ctrl+Shift+C handlers below.
-                }
-                // Let Alt+Arrow through for camelCase navigation.
-                else
-                {
-                    var effectiveKeyDoc = e.Key == Key.System ? e.SystemKey : e.Key;
-                    if ((effectiveKeyDoc == Key.Left || effectiveKeyDoc == Key.Right)
-                        && (Keyboard.Modifiers & ModifierKeys.Alt) != 0
-                        && (Keyboard.Modifiers & ModifierKeys.Control) == 0)
-                    {
-                        // Fall through to the camelCase nav block below.
-                    }
-                    // Let bare Ctrl key events fall through so the double-tap PTT state machine
-                    // can track them. All other keys are eaten here.
-                    else if (!IsCtrlKey(e.Key))
-                        return;
-                }
+                // Let the editor own escape/find/formatting/navigation/PTT gestures.
+                return;
             }
 
-            // Also guard the transcript search box and the doc find text box —
-            // but let bare Ctrl key events fall through so the PTT state machine can track them.
+            // Also guard the transcript search box, but let bare Ctrl key events fall through
+            // so the PTT state machine can track them.
             if (SearchBox?.IsFocused == true && !IsCtrlKey(e.Key)) return;
-            if (_docSourceFindTextBox?.IsFocused == true && !IsCtrlKey(e.Key)) return;
 
             if (_pttState == PttState.Idle
                 && PromptTextBox?.IsKeyboardFocusWithin == true
@@ -28350,6 +29742,7 @@ public partial class MainWindow : Window
             if (_transcriptFullScreenEnabled
                 && !_fullScreenPromptVisible
                 && Keyboard.FocusedElement is not TextBox
+                && !IsInsideEmbeddedCodeRegion(Keyboard.FocusedElement)
                 && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt)) == ModifierKeys.None
                 && IsPrintableKey(e.Key))
             {
@@ -28358,8 +29751,8 @@ public partial class MainWindow : Window
                 if (PromptTextBox is not { } promptBox)
                     return;
                 if (ch.HasValue)
-                    promptBox.AppendText(ch.Value.ToString());
-                promptBox.CaretIndex = promptBox.Text.Length;
+                    promptBox.AppendPlainText(ch.Value.ToString());
+                promptBox.SetCaretOffset(promptBox.GetTextLength());
                 promptBox.Focus();
                 e.Handled = true;
                 return;
@@ -28370,7 +29763,7 @@ public partial class MainWindow : Window
             {
                 // If docs panel is open, Ctrl+F searches the doc — even if focus is on
                 // a toolbar button, the topics tree, or the rendered preview.
-                if (DocsPanel.Visibility == Visibility.Visible && DocSourceTextBox != null)
+                if (DocsPanel.Visibility == Visibility.Visible && IsDocSourceVisible() && DocSourceEditor is not null)
                 {
                     ShowDocSourceFindBar();
                     e.Handled = true;
@@ -28388,7 +29781,7 @@ public partial class MainWindow : Window
                 // (handled by PromptTextBox_KeyDown), not navigate search results.
                 if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0
                     && PromptTextBox?.IsKeyboardFocusWithin == true
-                    && PromptTextBox.SelectionLength > 0)
+                    && PromptTextBox.GetSelectionLength() > 0)
                     return;
 
                 if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
@@ -28458,8 +29851,8 @@ public partial class MainWindow : Window
                     ShowFullScreenPrompt();
                 if (PromptTextBox is not { } promptBox)
                     return;
-                promptBox.AppendText(text);
-                promptBox.CaretIndex = promptBox.Text.Length;
+                promptBox.AppendPlainText(text);
+                promptBox.SetCaretOffset(promptBox.GetTextLength());
                 promptBox.Focus();
                 e.Handled = true;
                 return;
@@ -28546,8 +29939,7 @@ public partial class MainWindow : Window
             // controls can scroll their own content normally.
             if (e.Key == Key.PageUp
                 && Keyboard.Modifiers == ModifierKeys.None
-                && DocSourceTextBox?.IsKeyboardFocusWithin != true
-                && _docSourceFindTextBox?.IsFocused != true)
+                && DocSourceEditor?.IsKeyboardFocusWithin != true)
             {
                 ActiveScrollController.ScrollPageUp();
                 e.Handled = true;
@@ -28555,8 +29947,7 @@ public partial class MainWindow : Window
             }
             if (e.Key == Key.PageDown
                 && Keyboard.Modifiers == ModifierKeys.None
-                && DocSourceTextBox?.IsKeyboardFocusWithin != true
-                && _docSourceFindTextBox?.IsFocused != true)
+                && DocSourceEditor?.IsKeyboardFocusWithin != true)
             {
                 ActiveScrollController.ScrollPageDown();
                 e.Handled = true;
@@ -28606,6 +29997,9 @@ public partial class MainWindow : Window
                     return;
                 }
             }
+
+            if (IsDocSourceEditorFocused() && IsCtrlKey(e.Key))
+                return;
 
             switch (_pttState)
             {
@@ -28694,7 +30088,7 @@ public partial class MainWindow : Window
     private void TryStartPushToTalkFromFocusedTarget(double secondTapGapMs)
     {
         // Resolve the target at activation time — prefer a focused RichTextBox
-        // (e.g. DocSourceTextBox) over the fallback TextBox path.
+        // (e.g. PromptTextBox) over the fallback TextBox path.
         var focusedTextBox     = Keyboard.FocusedElement as TextBox;
         var focusedRichTextBox = Keyboard.FocusedElement as RichTextBox;
 
@@ -28702,22 +30096,24 @@ public partial class MainWindow : Window
         // so dictated text goes to the prompt input instead of the transcript.
         if (focusedRichTextBox == ActiveTranscriptBox)
         {
-            focusedRichTextBox = null;
             PromptTextBox?.Focus();
-            focusedTextBox = PromptTextBox;
+            focusedRichTextBox = PromptTextBox;
         }
 
         _pttTargetRichTextBox = null;
+        _pttTargetTextBox = null;
         if (focusedRichTextBox != null)
         {
             _pttTargetRichTextBox = focusedRichTextBox;
-            _pttTargetTextBox = null;
+        }
+        else if (focusedTextBox != null)
+        {
+            _pttTargetTextBox = focusedTextBox;
         }
         else
         {
-            _pttTargetTextBox = focusedTextBox != null && focusedTextBox != PromptTextBox
-                ? focusedTextBox
-                : PromptTextBox;
+            // Nothing else focused — default to the prompt box (now a RichTextBox).
+            _pttTargetRichTextBox = PromptTextBox;
         }
 
         var pttTargetExists = _pttTargetRichTextBox != null || _pttTargetTextBox != null;
@@ -28727,7 +30123,6 @@ public partial class MainWindow : Window
             _pttState = PttState.Idle;
             return;
         }
-
         // Capture caret/selection before the PTT panel becomes visible (layout shifts can reset it).
         if (_pttTargetRichTextBox != null)
         {
@@ -28747,12 +30142,11 @@ public partial class MainWindow : Window
         // the prompt box may be empty but we must not treat that as a new draft auto-send.
         _voiceStartedWithSendEnabled = _activeTabId == null
                                        && _settingsSnapshot.PttAutoSend
-                                       && _pttTargetRichTextBox == null
-                                       && _pttTargetTextBox == PromptTextBox
-                                       && string.IsNullOrEmpty(PromptTextBox?.Text);
+                                       && _pttTargetRichTextBox == PromptTextBox
+                                       && string.IsNullOrEmpty(PromptTextBox?.GetPlainText());
         SquadDashTrace.Write("UI",
             $"PTT started: secondTapGapMs={secondTapGapMs:0} voiceSendEnabled={_voiceStartedWithSendEnabled} " +
-            $"targetIsPrompt={_pttTargetTextBox == PromptTextBox} promptHasText={!string.IsNullOrEmpty(PromptTextBox?.Text)}");
+            $"targetIsPrompt={_pttTargetRichTextBox == PromptTextBox} promptHasText={!string.IsNullOrEmpty(PromptTextBox?.GetPlainText())}");
 
         // Re-evaluate on each PTT activation: true only when quick reply
         // buttons are visible, the prompt box was empty at start time,
@@ -28762,7 +30156,7 @@ public partial class MainWindow : Window
         _dictationStartedForQuickReply = _activeTabId == null
                                          && _lastQuickReplyEntry?.AllowQuickReplies == true
                                          && _currentQuickReplyOptions.Length > 0
-                                         && string.IsNullOrEmpty(PromptTextBox?.Text)
+                                         && string.IsNullOrEmpty(PromptTextBox?.GetPlainText())
                                          && (DateTime.UtcNow - _quickRepliesShownAt).TotalMilliseconds >= QuickReplyReadWindowMs;
         _pttState = PttState.Active;
         _ = StartPushToTalkAsync();
@@ -28888,6 +30282,12 @@ public partial class MainWindow : Window
         if (PromptTextBox?.IsKeyboardFocusWithin != true || !IsPrintableKey(e.Key))
             return false;
 
+        // When a focused embedded code region is within PromptTextBox, IsKeyboardFocusWithin is
+        // still true — but the keystroke is destined for the region, not the host. Never hijack
+        // it into the host RichTextBox.
+        if (FocusedEmbeddedCodeRegion() is not null)
+            return false;
+
         var logicalModifiers = Keyboard.Modifiers;
         var physicalModifiers = NativeMethods.GetPhysicalModifierKeys();
         const ModifierKeys shortcutModifiers = ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows;
@@ -28900,13 +30300,16 @@ public partial class MainWindow : Window
         if (ch is null)
             return false;
 
-        var insertionStart = PromptTextBox.SelectionStart;
-        PromptTextBox.SelectedText = ch.Value.ToString();
-        PromptTextBox.CaretIndex = insertionStart + 1;
+        var insertionStart = PromptTextBox.GetSelectionStart();
+        if (PromptTextBox.SelectionContainsEmbeddedCodeRegion())
+            PromptTextBox.ReplaceSelectionWithoutUndo(ch.Value.ToString());
+        else
+            PromptTextBox.ReplaceSelection(ch.Value.ToString());
+        PromptTextBox.SetCaretOffset(insertionStart + 1);
         e.Handled = true;
         SquadDashTrace.Write(
             TraceCategory.UI,
-            $"PROMPT_STALE_MODIFIER_RECOVERY key={e.Key} logical={logicalModifiers} physical={physicalModifiers} textLen={PromptTextBox.Text.Length}");
+            $"PROMPT_STALE_MODIFIER_RECOVERY key={e.Key} logical={logicalModifiers} physical={physicalModifiers} textLen={PromptTextBox.GetTextLength()}");
         ResetPttState();
         return true;
     }
@@ -28915,6 +30318,9 @@ public partial class MainWindow : Window
     {
         try
         {
+            if (IsDocSourceEditorFocused())
+                return;
+
             // Commit any pending font-scale change immediately when Ctrl is released
             // so the apply happens at the exact moment scrolling stops.
             if (IsCtrlKey(e.Key) && _fontScaleCommitTimer is { IsEnabled: true })
@@ -28973,10 +30379,10 @@ public partial class MainWindow : Window
 
     private async Task StartPushToTalkAsync()
     {
-        var targetIsPrompt = _pttTargetRichTextBox == null && (_pttTargetTextBox == null || _pttTargetTextBox == PromptTextBox);
+        var targetIsPrompt = _pttTargetRichTextBox == PromptTextBox;
         var targetHasText  = _pttTargetRichTextBox != null
             ? !string.IsNullOrEmpty(_pttTargetRichTextBox.GetPlainText())
-            : !string.IsNullOrEmpty((_pttTargetTextBox ?? PromptTextBox).Text);
+            : !string.IsNullOrEmpty(_pttTargetTextBox?.Text);
         _pttHadPreexistingText = targetHasText;
         _promptHasVoiceInput = false;
         RecordHintFeatureUsed(PromptHintFeature.PushToTalk);
@@ -29008,6 +30414,41 @@ public partial class MainWindow : Window
             return;
         }
 
+        var sessionId = ++_pttSessionId;
+        var targetKind = _pttTargetRichTextBox is not null
+            ? "rtb"
+            : _pttTargetTextBox is not null
+                ? "textbox"
+                : "none";
+        var focusedEmbedded = _pttTargetRichTextBox == PromptTextBox && FocusedEmbeddedCodeRegion() is not null;
+        if (_pttTargetRichTextBox is not null)
+        {
+            var (paragraphCount, lineBreakCount) = GetRichTextStructureCounts(_pttTargetRichTextBox);
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CAPTURE session={sessionId} target={targetKind} name={DescribePttTarget(_pttTargetRichTextBox)} " +
+                $"focusedEmbedded={focusedEmbedded.ToString().ToLowerInvariant()} caret={_sessionCaretIndex} selection={_sessionSelectionLength} " +
+                $"docLen={_pttTargetRichTextBox.GetTextLength()} paragraphs={paragraphCount} lineBreaks={lineBreakCount}");
+        }
+        else if (_pttTargetTextBox is not null)
+        {
+            var text = _pttTargetTextBox.Text ?? string.Empty;
+            var lineBreakCount = text.Count(c => c == '\n');
+            var lineCount = lineBreakCount + 1;
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CAPTURE session={sessionId} target={targetKind} name={DescribePttTarget(_pttTargetTextBox)} " +
+                $"focusedEmbedded={focusedEmbedded.ToString().ToLowerInvariant()} caret={_sessionCaretIndex} selection={_sessionSelectionLength} " +
+                $"docLen={text.Length} paragraphs={lineCount} lineBreaks={lineBreakCount}");
+        }
+        else
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CAPTURE session={sessionId} target={targetKind} focusedEmbedded={focusedEmbedded.ToString().ToLowerInvariant()} " +
+                $"caret={_sessionCaretIndex} selection={_sessionSelectionLength} docLen=0");
+        }
+
         SquadDashTrace.Write(
             TraceCategory.UI,
             $"PTT_START provider={_settingsSnapshot.SpeechProvider} targetIsPrompt={targetIsPrompt} targetHadText={_pttHadPreexistingText}");
@@ -29023,16 +30464,31 @@ public partial class MainWindow : Window
             : new AzureSpeechRecognitionService();
 
         _speechService.PhraseRecognized += (_, text) =>
-            Dispatcher.BeginInvoke(DispatcherPriority.Input, () => AppendSpeechToPrompt(text));
+        {
+            var dispatchId = Interlocked.Increment(ref _pttPhraseDispatchSequence);
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CALLBACK_SCHEDULE event=phrase session={sessionId} dispatch={dispatchId} priority={DispatcherPriority.Input} state={_pttState}");
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, () => AppendSpeechToPrompt(text, sessionId, dispatchId));
+        };
 
         _speechService.VolumeChanged += (_, level) => QueuePttVolumeUpdate(level);
 
         _speechService.RecognitionError += (_, msg) =>
+        {
+            var dispatchId = Interlocked.Increment(ref _pttPhraseDispatchSequence);
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CALLBACK_SCHEDULE event=error session={sessionId} dispatch={dispatchId} priority={DispatcherPriority.Input} state={_pttState}");
             Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
             {
+                SquadDashTrace.Write(
+                    TraceCategory.Avalon,
+                    $"AVALON_PTT_CALLBACK_EXEC event=error session={sessionId} dispatch={dispatchId} state={_pttState}");
                 _ = StopPushToTalkAsync(send: false);
                 AppendLine("[voice error] " + msg, System.Windows.Media.Brushes.Red);
             });
+        };
 
         try
         {
@@ -29111,7 +30567,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            var target = _pttTargetTextBox ?? PromptTextBox;
+            var target = _pttTargetTextBox!;
             dpiSource = target;
             try
             {
@@ -29204,16 +30660,20 @@ public partial class MainWindow : Window
 
     private async Task StopPushToTalkAsync(bool send, bool sendAsQuickReply = false)
     {
+        var stoppingSessionId = _pttSessionId;
         SquadDashTrace.Write("UI", $"PTT_STOP begin send={send} sendAsQuickReply={sendAsQuickReply} state={_pttState}");
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_STOP_BEGIN session={stoppingSessionId} currentSession={_pttSessionId} send={send} sendAsQuickReply={sendAsQuickReply} " +
+            $"state={_pttState} callbackPriority={DispatcherPriority.Input} cleanupPriority={DispatcherPriority.Background}");
         _pttState = PttState.Idle;
         StopPttCtrlPollTimer();
         _pttLostFocusDuringRecording = false;
-        var wasTargetingPrompt = _pttTargetRichTextBox == null
-            && (_pttTargetTextBox is null || _pttTargetTextBox == PromptTextBox);
+        var wasTargetingPrompt = _pttTargetRichTextBox == PromptTextBox;
         // Do NOT null _pttTargetTextBox here — pending AppendSpeechToPrompt BeginInvoke
         // callbacks in the dispatcher queue still need it to route text to the correct target.
         // It is cleared inside the Background-priority dispatcher callback below, after all
-        // Normal-priority phrase callbacks have drained.
+        // Input-priority phrase callbacks have drained.
 
         var service = _speechService;
         _speechService = null;
@@ -29238,15 +30698,21 @@ public partial class MainWindow : Window
             service.Dispose();
         }
 
-        // Yield to the dispatcher at Background priority. All queued Normal-priority
+        // Yield to the dispatcher at Background priority. All queued Input-priority
         // PhraseRecognized → AppendSpeechToPrompt callbacks run first, writing the final
-        // dictated text into PromptTextBox.Text. Then our Background item runs on the
+        // dictated text into PromptTextBox.GetPlainText(). Then our Background item runs on the
         // dispatcher thread — we clear _pttDraining and trigger the deferred close if needed.
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_CLEANUP_SCHEDULE session={stoppingSessionId} currentSession={_pttSessionId} priority={DispatcherPriority.Background} targetRtb={_pttTargetRichTextBox is not null} targetTextBox={_pttTargetTextBox is not null}");
         await Dispatcher.InvokeAsync(() =>
         {
-            _pttTargetTextBox = null;  // Clear after all Normal-priority phrase callbacks have run.
+            _pttTargetTextBox = null;  // Clear after all Input-priority phrase callbacks have run.
             _pttTargetRichTextBox = null;
             _pttDraining = false;
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_CLEANUP_EXEC session={stoppingSessionId} currentSession={_pttSessionId} priority={DispatcherPriority.Background} targetRtb={_pttTargetRichTextBox is not null} targetTextBox={_pttTargetTextBox is not null}");
             TryCompletePendingRestart("ptt-restart-after-drain", emergencySaveBeforeClose: true);
         }, System.Windows.Threading.DispatcherPriority.Background);
 
@@ -29275,7 +30741,7 @@ public partial class MainWindow : Window
             await Task.Delay(UiTimingConstants.PttSendSettleMs).ConfigureAwait(false);
             Dispatcher.Invoke(() =>
             {
-                var text = PromptTextBox.Text.Trim();
+                var text = PromptTextBox.GetPlainText().Trim();
                 var quickReplyEntry = _lastQuickReplyEntry;
                 if (!string.IsNullOrWhiteSpace(text) && quickReplyEntry?.AllowQuickReplies == true)
                 {
@@ -29288,7 +30754,7 @@ public partial class MainWindow : Window
                         _promptQueue.Remove(idToRemove);
                         SyncQueuePanel();
                     }
-                    PromptTextBox.Clear();
+                    PromptTextBox.SetPlainText(string.Empty);
                     _pec.DisableQuickReplies(quickReplyEntry);
                     ClearActiveQuickReplyState(quickReplyEntry);
                     ResumeQueueAfterStoppedWorkResponseIfNeeded();
@@ -29318,7 +30784,7 @@ public partial class MainWindow : Window
                     // that tab directly rather than enqueuing a duplicate new item.
                     _ = DispatchQueuedTabAsync(_activeTabId);
                 }
-                else if (!string.IsNullOrWhiteSpace(PromptTextBox.Text) ||
+                else if (!string.IsNullOrWhiteSpace(PromptTextBox.GetPlainText()) ||
                          (_followUpAttachments.TryGetValue("", out var pttAttachCheck) && pttAttachCheck.Count > 0))
                 {
                     EnqueueCurrentPrompt();
@@ -29332,8 +30798,23 @@ public partial class MainWindow : Window
         }
     }
 
-    private void AppendSpeechToPrompt(string text)
+    private void AppendSpeechToPrompt(string text, int callbackSessionId, long dispatchId)
     {
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_CALLBACK_EXEC event=phrase session={callbackSessionId} dispatch={dispatchId} " +
+            $"state={_pttState} currentSession={_pttSessionId} targetRtb={_pttTargetRichTextBox is not null} targetTextBox={_pttTargetTextBox is not null} focused={DescribePromptInputObject(Keyboard.FocusedElement)}");
+        var focusedRegion = FocusedEmbeddedCodeRegion();
+        var targetRichTextBox = _pttTargetRichTextBox;
+        var targetTextBox = _pttTargetTextBox;
+        if (focusedRegion is null && targetRichTextBox is null && targetTextBox is null)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_DROP session={callbackSessionId} dispatch={dispatchId} reason=no-target");
+            return;
+        }
+
         _promptHasVoiceInput = true;
 
         // If this PTT result has more than 2 words and is landing on an active dummy tab, mark it.
@@ -29345,13 +30826,44 @@ public partial class MainWindow : Window
                 activeItem.HasSubstantialVoiceWork = true;
         }
 
-        if (_pttTargetRichTextBox != null)
+        // When an embedded code region currently holds keyboard focus, dictation must land
+        // INSIDE that region's editor (at its caret) rather than the host prompt. Without this
+        // the recognized text would be inserted at the host RichTextBox's own caret, outside
+        // the region the user is clearly working in.
+        if (focusedRegion is not null)
         {
-            AppendSpeechToRichTextBox(_pttTargetRichTextBox, text);
+            var liveHostCaret = targetRichTextBox?.GetSelectionStart() ?? -1;
+            var liveHostSelection = targetRichTextBox?.GetSelectionLength() ?? -1;
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_DISPATCH session={callbackSessionId} dispatch={dispatchId} route=embedded-region " +
+                $"words={CountWords(text)} sessionCaret={_sessionCaretIndex} sessionSelection={_sessionSelectionLength} " +
+                $"liveHostCaret={liveHostCaret} liveHostSelection={liveHostSelection}");
+            SquadDashTrace.Write("UI", $"PROMPT_EMBEDDED_CODE_DICTATION routing-to-region words={CountWords(text)}");
+            focusedRegion.InsertDictation(text, _settingsSnapshot.VoiceReplacementRules);
             return;
         }
 
-        var target = _pttTargetTextBox ?? PromptTextBox;
+        if (targetRichTextBox != null)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_DISPATCH session={callbackSessionId} dispatch={dispatchId} route=rtb name={DescribePttTarget(targetRichTextBox)}");
+            AppendSpeechToRichTextBox(targetRichTextBox, text, callbackSessionId, dispatchId);
+            return;
+        }
+
+        var target = targetTextBox;
+        if (target is null)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_DROP session={callbackSessionId} dispatch={dispatchId} reason=no-target");
+            return;
+        }
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_DISPATCH session={callbackSessionId} dispatch={dispatchId} route=textbox name={DescribePttTarget(target)}");
         var current = target.Text;
         // Clamp in case text was externally modified since session start.
         var caretIndex = Math.Min(_sessionCaretIndex, current.Length);
@@ -29376,6 +30888,11 @@ public partial class MainWindow : Window
         var replaced = rules.Count > 0
             ? prefix + VoiceInsertionHeuristics.ApplyReplacementRules(processed, rules)
             : insert;
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_TEXTBOX_PLAN session={callbackSessionId} dispatch={dispatchId} currentLen={current.Length} " +
+            $"sessionCaret={_sessionCaretIndex} sessionSelection={selLength} planCaret={caretIndex} planInsertLen={insert.Length} " +
+            $"planReplacement={(!string.Equals(replaced, insert, StringComparison.Ordinal)).ToString().ToLowerInvariant()}");
 
         // Step 1: insert conditioned text
         target.Text = leftContext + insert + rightContext;
@@ -29389,47 +30906,71 @@ public partial class MainWindow : Window
             target.CaretIndex = caretIndex + replaced.Length;
             _sessionCaretIndex = caretIndex + replaced.Length;
         }
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_TEXTBOX_INSERT_POST session={callbackSessionId} dispatch={dispatchId} textLen={target.Text.Length} caret={target.CaretIndex}");
     }
 
-    private void AppendSpeechToRichTextBox(RichTextBox rtb, string text)
+    private void AppendSpeechToRichTextBox(RichTextBox rtb, string text, int callbackSessionId, long dispatchId)
     {
-        var current    = rtb.GetPlainText();
-        var caretIndex = Math.Min(_sessionCaretIndex, current.Length);
-        var selLength  = _sessionSelectionLength;
+        var current = rtb.GetPlainText();
+        var selLength = _sessionSelectionLength;
         _sessionSelectionLength = 0; // consume once; subsequent dictation appends
-        var selEndIndex   = Math.Min(caretIndex + selLength, current.Length);
-        var leftContext   = current[..caretIndex];
-        var rightContext  = current[selEndIndex..];
-        var precedingChar = caretIndex > 0 ? current[caretIndex - 1] : '\0';
-        // Suppress the auto-inserted leading space when the caret sits immediately after
-        // an opening double-quote that is itself preceded by a space — e.g. `like "`.
-        var isQuoteAfterSpace = (precedingChar == '"' || precedingChar == '\u201C')
-                                && caretIndex >= 2 && current[caretIndex - 2] == ' ';
-        var prefix = precedingChar != '\0' && precedingChar != ' ' && precedingChar != '('
-                     && precedingChar != '\n' && precedingChar != '\r' && !isQuoteAfterSpace
-                     ? " " : string.Empty;
-        var processed = VoiceInsertionHeuristics.Apply(leftContext, text, rightContext);
-        var insert    = prefix + processed;
         var rules = _settingsSnapshot.VoiceReplacementRules;
-        var replaced = rules.Count > 0
-            ? prefix + VoiceInsertionHeuristics.ApplyReplacementRules(processed, rules)
-            : insert;
+        var (paragraphCount, lineBreakCount) = GetRichTextStructureCounts(rtb);
+        var plan = VoiceInsertionHeuristics.PlanDictationInsertion(
+            current, _sessionCaretIndex, selLength, text, rules);
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_RTB_PLAN session={callbackSessionId} dispatch={dispatchId} currentLen={current.Length} " +
+            $"sessionCaret={_sessionCaretIndex} sessionSelection={selLength} paragraphs={paragraphCount} lineBreaks={lineBreakCount} " +
+            $"planCaret={plan.CaretIndex} planSelection={plan.SelectionLength} planInsertedLen={plan.InsertedText.Length} " +
+            $"planHasReplacement={plan.HasReplacementStep.ToString().ToLowerInvariant()} " +
+            $"planCaretAfterInsert={plan.CaretIndexAfterInsert} planCaretAfterReplace={plan.CaretIndexAfterReplace} " +
+            $"liveCaret={rtb.GetSelectionStart()} liveSelection={rtb.GetSelectionLength()}");
 
         // Step 1: insert conditioned text
         // Use SelectRange + ReplaceSelection — undo-safe, preserves scroll position and formatting.
-        rtb.SelectRange(caretIndex, selEndIndex - caretIndex);
-        rtb.ReplaceSelection(insert);
-        rtb.SelectRange(caretIndex + insert.Length, 0);
-        _sessionCaretIndex = caretIndex + insert.Length;
+        rtb.SelectRange(plan.CaretIndex, plan.SelectionLength);
+        var selectStart = rtb.GetSelectionStart();
+        var selectLength = rtb.GetSelectionLength();
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_RTB_SELECT_POST session={callbackSessionId} dispatch={dispatchId} phase=pre-insert expected={plan.CaretIndex}+{plan.SelectionLength} " +
+            $"actual={selectStart}+{selectLength} deltaStart={selectStart - plan.CaretIndex} deltaLength={selectLength - plan.SelectionLength}");
+        rtb.ReplaceSelection(plan.InsertedText);
+        rtb.SelectRange(plan.CaretIndexAfterInsert, 0);
+        var postInsertStart = rtb.GetSelectionStart();
+        var postInsertLength = rtb.GetSelectionLength();
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_RTB_SELECT_POST session={callbackSessionId} dispatch={dispatchId} phase=post-insert expected={plan.CaretIndexAfterInsert}+0 " +
+            $"actual={postInsertStart}+{postInsertLength} deltaStart={postInsertStart - plan.CaretIndexAfterInsert} deltaLength={postInsertLength}");
+        _sessionCaretIndex = plan.CaretIndexAfterInsert;
 
         // Step 2: apply replacements as a separate undo entry
-        if (!string.Equals(replaced, insert, StringComparison.Ordinal))
+        if (plan.HasReplacementStep)
         {
-            rtb.SelectRange(caretIndex, insert.Length);
-            rtb.ReplaceSelection(replaced);
-            rtb.SelectRange(caretIndex + replaced.Length, 0);
-            _sessionCaretIndex = caretIndex + replaced.Length;
+            rtb.SelectRange(plan.CaretIndex, plan.InsertedText.Length);
+            var replaceSelectStart = rtb.GetSelectionStart();
+            var replaceSelectLength = rtb.GetSelectionLength();
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_RTB_SELECT_POST session={callbackSessionId} dispatch={dispatchId} phase=pre-replace expected={plan.CaretIndex}+{plan.InsertedText.Length} " +
+                $"actual={replaceSelectStart}+{replaceSelectLength} deltaStart={replaceSelectStart - plan.CaretIndex} deltaLength={replaceSelectLength - plan.InsertedText.Length}");
+            rtb.ReplaceSelection(plan.ReplacedText);
+            rtb.SelectRange(plan.CaretIndexAfterReplace, 0);
+            var postReplaceStart = rtb.GetSelectionStart();
+            var postReplaceLength = rtb.GetSelectionLength();
+            SquadDashTrace.Write(
+                TraceCategory.Avalon,
+                $"AVALON_PTT_RTB_SELECT_POST session={callbackSessionId} dispatch={dispatchId} phase=post-replace expected={plan.CaretIndexAfterReplace}+0 " +
+                $"actual={postReplaceStart}+{postReplaceLength} deltaStart={postReplaceStart - plan.CaretIndexAfterReplace} deltaLength={postReplaceLength}");
+            _sessionCaretIndex = plan.CaretIndexAfterReplace;
         }
+        SquadDashTrace.Write(
+            TraceCategory.Avalon,
+            $"AVALON_PTT_RTB_INSERT_POST session={callbackSessionId} dispatch={dispatchId} textLen={rtb.GetTextLength()} sessionCaret={_sessionCaretIndex}");
     }
 
     private void UpdateVoiceHintVisibility()
@@ -29610,7 +31151,68 @@ public partial class MainWindow : Window
             if (_conversationManager.IsApplyingHistoryEntry)
                 return;
 
-            var text = PromptTextBox.Text;
+            // Single-authority undo/redo (PROMPTUNDO-20261015-003): record this host-text edit onto
+            // the one shared prompt timeline. Skipped while a snapshot restore is in flight (the
+            // restore itself raises TextChanged) and while an embedded-code-region fence conversion
+            // is rebuilding the document — the pre-conversion keystroke already captured the
+            // equivalent flat serialization, since a region round-trips to its exact fenced text.
+            if (_promptUndoHistory is not null && !_promptUndoHistory.IsApplying && !_isConvertingEmbeddedCodeRegion && !_suppressPromptUndoCapture)
+                _promptUndoHistory.PushSnapshot();
+
+            // Convert any triple-backtick fence that just became complete (closing ``` typed
+            // or pasted) into a collapsible embedded code region, and any bare *opening* fence
+            // marker into an instantly-focused empty region. This mutates Document.Blocks (via
+            // EmbeddedCodeRegionManager.RenderSegments), which both raises nested TextChanged
+            // events AND toggles IsUndoEnabled — and WPF's TextBoxBase throws
+            // InvalidOperationException if IsUndoEnabled is set while still inside the
+            // DeclareChangeBlock/BeginChange scope that wraps the live keystroke which raised
+            // this very TextChanged event. TryConvertOpenFence hits that window reliably because
+            // it fires on every keystroke while an unclosed fence line exists (unlike the
+            // complete-fence path, which mostly only fires after a full paste). Deferring the
+            // actual conversion via Dispatcher.BeginInvoke at Background priority (lower than
+            // Input) runs it after the current keystroke's internal change block has closed, but
+            // before further queued input is processed — avoiding the crash without introducing
+            // a user-visible delay. The _isConvertingEmbeddedCodeRegion guard (set inside the
+            // deferred callback, same as before) still protects against the nested TextChanged
+            // events the rebuild itself raises; _embeddedCodeRegionConversionScheduled only
+            // prevents piling up duplicate deferred callbacks if several keystrokes land before
+            // the first one runs.
+            if (!_isConvertingEmbeddedCodeRegion && !_embeddedCodeRegionConversionScheduled)
+            {
+                _embeddedCodeRegionConversionScheduled = true;
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+                {
+                    _embeddedCodeRegionConversionScheduled = false;
+                    if (_isConvertingEmbeddedCodeRegion)
+                        return;
+
+                    _isConvertingEmbeddedCodeRegion = true;
+                    try
+                    {
+                        while (EmbeddedCodeRegionManager.TryConvertNextFence(PromptTextBox)) { }
+
+                        // Complete-fence conversion above takes priority (e.g. a multi-line
+                        // paste that already contains both the opening and closing fence is
+                        // fully handled by the loop above). Only after that settles do we check
+                        // for a bare opening fence marker with no close yet — the user just
+                        // finished typing "```" (optionally with a language tag) on its own
+                        // line — and convert it instantly into an empty, expanded region with
+                        // the caret already inside, so raw "```" never sits waiting in the
+                        // prompt text.
+                        EmbeddedCodeRegionManager.TryConvertOpenFence(PromptTextBox);
+                    }
+                    catch (Exception ex)
+                    {
+                        HandleUiCallbackException(nameof(PromptTextBox_TextChanged), ex);
+                    }
+                    finally
+                    {
+                        _isConvertingEmbeddedCodeRegion = false;
+                    }
+                });
+            }
+
+            var text = PromptTextBox.GetPlainText();
             MarkPhase(PromptTextChangedPhase.ReadText);
             if (string.IsNullOrEmpty(text))
             {
@@ -29629,7 +31231,7 @@ public partial class MainWindow : Window
             if (_isPromptRunning)
                 UpdateInteractiveControlState(promptTextOnly: true);
             MarkPhase(PromptTextChangedPhase.InteractiveState);
-            TryUpdateIntelliSense(text, PromptTextBox.CaretIndex);
+            TryUpdateIntelliSense(text, PromptTextBox.GetCaretOffset());
             MarkPhase(PromptTextChangedPhase.IntelliSense);
         }
         catch (Exception ex)
@@ -29642,8 +31244,8 @@ public partial class MainWindow : Window
             if (sw.ElapsedMilliseconds >= PromptTextChangedSevereTraceMs)
             {
                 SquadDashTrace.Write(TraceCategory.Performance,
-                    $"PROMPT_TEXT_CHANGED elapsed={sw.ElapsedMilliseconds}ms textLen={PromptTextBox.Text.Length} " +
-                    $"caret={PromptTextBox.CaretIndex} primaryHosts={_primaryAgentTranscriptHosts.Count} " +
+                    $"PROMPT_TEXT_CHANGED elapsed={sw.ElapsedMilliseconds}ms textLen={PromptTextBox.GetTextLength()} " +
+                    $"caret={PromptTextBox.GetCaretOffset()} primaryHosts={_primaryAgentTranscriptHosts.Count} " +
                     $"phaseMaxMs={FormatPromptTextChangedPhaseMaxes()}");
             }
             RecordPromptInputTiming(isTextChanged: true, sw.ElapsedMilliseconds);
@@ -29732,7 +31334,7 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 TraceCategory.Performance,
                 $"DISPATCHER_OP_LONG status={status} priority={started.Priority} elapsedMs={elapsedMs} " +
-                $"promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} textLen={PromptTextBox?.Text.Length ?? 0} " +
+                $"promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} textLen={PromptTextBox?.GetTextLength() ?? 0} " +
                 $"postedPending={_postedUiActionTracker.PendingCount} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
                 BuildTranscriptRenderState());
         }
@@ -29745,7 +31347,7 @@ public partial class MainWindow : Window
     private void MarkPromptInputAwaitingRender()
     {
         _promptRenderLatencyStartedAt = Stopwatch.GetTimestamp();
-        _promptRenderLatencyTextLen = PromptTextBox?.Text.Length ?? 0;
+        _promptRenderLatencyTextLen = PromptTextBox?.GetTextLength() ?? 0;
 
         if (_promptRenderLatencyPending)
             return;
@@ -29768,8 +31370,8 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(
                 TraceCategory.Performance,
                 $"PROMPT_RENDER_LATENCY elapsedMs={elapsedMs} textLenAtInput={_promptRenderLatencyTextLen} " +
-                $"textLenNow={PromptTextBox?.Text.Length ?? 0} caret={PromptTextBox?.CaretIndex ?? 0} " +
-                $"selectionLen={PromptTextBox?.SelectionLength ?? 0} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
+                $"textLenNow={PromptTextBox?.GetTextLength() ?? 0} caret={PromptTextBox?.GetCaretOffset() ?? 0} " +
+                $"selectionLen={PromptTextBox?.GetSelectionLength() ?? 0} uiNativeThreadId={NativeMethods.GetCurrentNativeThreadId()} " +
                 $"lastLongDispatcherOp={_lastLongDispatcherOperationSummary} " +
                 BuildTranscriptRenderState());
         }
@@ -29816,7 +31418,7 @@ public partial class MainWindow : Window
             $"textChangedCount={textChangedCount} textChangedAvgMs={FormatAverageMs(_promptTextChangedTraceElapsedMs, textChangedCount)} textChangedMaxMs={_promptTextChangedTraceMaxMs} " +
             $"textChangedPhaseAvgMs={FormatPromptTextChangedPhaseAverages(textChangedCount)} textChangedPhaseMaxMs={FormatPromptTextChangedPhaseMaxes()} " +
             $"keyDownCount={keyDownCount} keyDownAvgMs={FormatAverageMs(_promptKeyDownTraceElapsedMs, keyDownCount)} keyDownMaxMs={_promptKeyDownTraceMaxMs} " +
-            $"textLen={PromptTextBox.Text.Length} caret={PromptTextBox.CaretIndex} selectionLen={PromptTextBox.SelectionLength} " +
+            $"textLen={PromptTextBox.GetTextLength()} caret={PromptTextBox.GetCaretOffset()} selectionLen={PromptTextBox.GetSelectionLength()} " +
             $"logicalModifiers={Keyboard.Modifiers} physicalModifiers={NativeMethods.GetPhysicalModifierKeys()}");
 
         _promptInputTraceStopwatch.Restart();
@@ -29925,6 +31527,7 @@ public partial class MainWindow : Window
 
     private static int FindAtTriggerPosition(string text, int caret)
     {
+        caret = Math.Clamp(caret, 0, text.Length);
         if (caret <= 0) return -1;
         var scanStart = Math.Max(0, caret - MaxAtTriggerScanChars);
         int i = caret - 1;
@@ -29998,12 +31601,15 @@ public partial class MainWindow : Window
     }
 
     private void TryUpdateIntelliSense() =>
-        TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
+        TryUpdateIntelliSense(PromptTextBox.GetPlainText(), PromptTextBox.GetCaretOffset());
 
     private void TryUpdateIntelliSense(string text, int caret)
     {
         if (_conversationManager.IsApplyingHistoryEntry || _isApplyingIntelliSenseAccept)
             return;
+
+        text ??= string.Empty;
+        caret = Math.Clamp(caret, 0, text.Length);
 
         if (_intelliSenseState is not null)
         {
@@ -30024,7 +31630,7 @@ public partial class MainWindow : Window
         }
 
         // Check for [ trigger — only when [ is the first char (prompt is otherwise empty)
-        if (caret == 1 && text[0] == '[')
+        if (caret == 1 && text.Length > 0 && text[0] == '[')
         {
             var options = GetCurrentQuickReplyOptions();
             if (options.Length > 0)
@@ -30049,7 +31655,7 @@ public partial class MainWindow : Window
         // filter="/" and shows ALL commands instead of the filtered subset.  Using text.Length
         // always places the filter at the end of the typed text, which is where the user's
         // logical cursor is during re-activation.
-        if (caret > 0 && text[0] == '/' && !text.Contains(' ') && !text.Contains('\n'))
+        if (caret > 0 && caret <= text.Length && text.Length > 0 && text[0] == '/' && !text.Contains(' ') && !text.Contains('\n'))
         {
             var activated = IntelliSenseController.TryActivate('/', 0, SlashCommands, filterIncludesTrigger: true);
             _intelliSenseState = activated is not null
@@ -30107,11 +31713,16 @@ public partial class MainWindow : Window
         if (IntelliSenseList.SelectedItem is not null)
             IntelliSenseList.ScrollIntoView(IntelliSenseList.SelectedItem);
 
-        var ownerBox = _intelliSenseOwnerBox ?? PromptTextBox;
-        IntelliSensePopup.PlacementTarget = ownerBox;
+        // _intelliSenseOwnerBox is non-null only when a filter TextBox (Tasks/Inbox) owns
+        // IntelliSense; null means PromptTextBox (RichTextBox) owns it.
+        var ownerBox = _intelliSenseOwnerBox;
+        UIElement placementTarget = ownerBox is not null ? ownerBox : PromptTextBox;
+        IntelliSensePopup.PlacementTarget = placementTarget;
         IntelliSensePopup.CustomPopupPlacementCallback = (popupSize, targetSize, offset) =>
         {
-            var caretRect = ownerBox.GetRectFromCharacterIndex(ownerBox.CaretIndex);
+            var caretRect = ownerBox is not null
+                ? ownerBox.GetRectFromCharacterIndex(ownerBox.CaretIndex)
+                : PromptTextBox.GetRectFromOffset(PromptTextBox.GetCaretOffset());
             return new[] {
                 new CustomPopupPlacement(
                     new Point(caretRect.Left, caretRect.Bottom),
@@ -30127,9 +31738,13 @@ public partial class MainWindow : Window
     {
         if (_intelliSenseState is null) return;
 
-        var targetBox = _intelliSenseOwnerBox ?? PromptTextBox;
+        // _intelliSenseOwnerBox is non-null only when a filter TextBox (Tasks/Inbox) owns
+        // IntelliSense; null means PromptTextBox (RichTextBox) owns it.
+        var ownerBox      = _intelliSenseOwnerBox;
+        var currentText   = ownerBox?.Text       ?? PromptTextBox.GetPlainText();
+        var currentCaret  = ownerBox?.CaretIndex ?? PromptTextBox.GetCaretOffset();
         var (newText, newCaret) = IntelliSenseController.Accept(
-            _intelliSenseState, targetBox.Text, targetBox.CaretIndex);
+            _intelliSenseState, currentText, currentCaret);
 
         // Capture trigger char and selected label before state is cleared below.
         var triggerChar = _intelliSenseState.TriggerChar;
@@ -30147,9 +31762,9 @@ public partial class MainWindow : Window
                 : (_agentHandleByDisplayName.TryGetValue(displayName, out var h) ? h : null);
             if (handle is not null)
             {
-                var before = targetBox.Text[.._intelliSenseState.TriggerPosition];
-                var after  = targetBox.CaretIndex < targetBox.Text.Length
-                    ? targetBox.Text[targetBox.CaretIndex..]
+                var before = currentText[.._intelliSenseState.TriggerPosition];
+                var after  = currentCaret < currentText.Length
+                    ? currentText[currentCaret..]
                     : string.Empty;
                 newText  = before + "@" + handle + " " + after;
                 newCaret = _intelliSenseState.TriggerPosition + 1 + handle.Length + 1;
@@ -30165,14 +31780,21 @@ public partial class MainWindow : Window
             andSubmit = false;
         }
 
-        var ownerBox = _intelliSenseOwnerBox;
         _isApplyingIntelliSenseAccept = true;
         try
         {
             _intelliSenseState = null;
             _intelliSenseOwnerBox = null;
-            targetBox.Text = newText;
-            targetBox.CaretIndex = newCaret;
+            if (ownerBox is not null)
+            {
+                ownerBox.Text = newText;
+                ownerBox.CaretIndex = newCaret;
+            }
+            else
+            {
+                PromptTextBox.SetPlainText(newText);
+                PromptTextBox.SetCaretOffset(newCaret);
+            }
         }
         finally
         {
@@ -30185,7 +31807,7 @@ public partial class MainWindow : Window
             // routing metadata (including sim mode) is respected, exactly as if the user
             // had clicked the button directly.
             if (triggerChar == '[')
-                SimulateQuickReplyIntelliSenseAccept(selectedLabel, targetBox);
+                SimulateQuickReplyIntelliSenseAccept(selectedLabel);
             else
                 RunButton_Click(this, new RoutedEventArgs());
         }
@@ -30195,8 +31817,10 @@ public partial class MainWindow : Window
     /// Called when a quick reply option is accepted via IntelliSense ([ trigger).
     /// Routes the selection through the appropriate click handler so that routing
     /// metadata — including sim mode — is honoured, just as if the button were clicked.
+    /// Only ever invoked for PromptTextBox (the [ trigger cannot originate from the
+    /// Tasks/Inbox filter boxes), so it operates directly on the RichTextBox.
     /// </summary>
-    private void SimulateQuickReplyIntelliSenseAccept(string optionLabel, TextBox targetBox)
+    private void SimulateQuickReplyIntelliSenseAccept(string optionLabel)
     {
         var cardButton = TranscriptQuickReplyFactory
             .FindLatestActionButtons(CoordinatorThread.Document.Blocks)
@@ -30207,7 +31831,7 @@ public partial class MainWindow : Window
         if (cardButton is not null)
         {
             _isApplyingIntelliSenseAccept = true;
-            try { targetBox.Text = string.Empty; }
+            try { PromptTextBox.SetPlainText(string.Empty); }
             finally { _isApplyingIntelliSenseAccept = false; }
             cardButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, cardButton));
             return;
@@ -30222,7 +31846,7 @@ public partial class MainWindow : Window
         {
             // Clear the accepted text — the button handler owns the submission.
             _isApplyingIntelliSenseAccept = true;
-            try { targetBox.Text = string.Empty; }
+            try { PromptTextBox.SetPlainText(string.Empty); }
             finally { _isApplyingIntelliSenseAccept = false; }
             var syntheticSender = new FrameworkElement { Tag = payload };
             QuickReplyButton_Click(syntheticSender, new RoutedEventArgs());
@@ -30231,7 +31855,7 @@ public partial class MainWindow : Window
         {
             // No routing payload = tour-injected quick reply.  Route through the tour handler.
             _isApplyingIntelliSenseAccept = true;
-            try { targetBox.Text = string.Empty; }
+            try { PromptTextBox.SetPlainText(string.Empty); }
             finally { _isApplyingIntelliSenseAccept = false; }
             var syntheticSender = new FrameworkElement { Tag = new TourQuickReplyPayload(optionLabel) };
             TourQuickReplyButton_Click(syntheticSender, new RoutedEventArgs());
@@ -31366,7 +32990,7 @@ public partial class MainWindow : Window
             if (documents.Count == 0)
                 return;
 
-            OpenMarkdownFiles(documents, "Agent Charter & History");
+            OpenMarkdownFiles(documents, "Agent Charter & History", showSource: true, useAvalonEdit: true);
         }
         catch (Exception ex)
         {
@@ -31827,6 +33451,8 @@ public partial class MainWindow : Window
             if (e.StagingItem.Input is not KeyEventArgs keyArgs) return;
             if (keyArgs.RoutedEvent != Keyboard.PreviewKeyDownEvent) return;
             var key = keyArgs.Key == Key.System ? keyArgs.SystemKey : keyArgs.Key;
+            if (IsDocSourceEditorFocused() && IsCtrlKey(key))
+                return;
 
             // Ctrl+C or Ctrl+Insert while UI Reveal is active → copy happened, exit reveal.
             if (_uiRevealOverlay?.IsActive == true
@@ -32656,7 +34282,7 @@ public partial class MainWindow : Window
         {
             var liveItem = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
             if (liveItem is not null)
-                liveItem.Text = PromptTextBox.Text;
+                liveItem.Text = PromptTextBox.GetPlainText();
         }
 
         // If the user clicked into a demo tab that will be removed, restore the pre-edit draft
@@ -32991,25 +34617,25 @@ public partial class MainWindow : Window
 
         _guidedTourCoordinator.CommandRegistry.Register("ShowSlashIntelliSense", () =>
         {
-            var current = PromptTextBox.Text;
+            var current = PromptTextBox.GetPlainText();
             if (string.IsNullOrEmpty(current) || current[0] == '/')
             {
                 if (string.IsNullOrEmpty(current))
                     SetPromptTextBoxLogicalBuffer("/", 1, reason: "tour-slash-intellisense");
-                TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
+                TryUpdateIntelliSense(PromptTextBox.GetPlainText(), PromptTextBox.GetCaretOffset());
                 _guidedTourCoordinator.KeptOpenIntelliSenseTrigger = "slash";
             }
         });
 
         _guidedTourCoordinator.CommandRegistry.Register("ShowAtIntelliSense", () =>
         {
-            var current = PromptTextBox.Text;
+            var current = PromptTextBox.GetPlainText();
             if (!current.EndsWith('@'))
             {
                 var newText = current + "@";
                 SetPromptTextBoxLogicalBuffer(newText, newText.Length, reason: "tour-at-intellisense");
             }
-            TryUpdateIntelliSense(PromptTextBox.Text, PromptTextBox.CaretIndex);
+            TryUpdateIntelliSense(PromptTextBox.GetPlainText(), PromptTextBox.GetCaretOffset());
             _guidedTourCoordinator.KeptOpenIntelliSenseTrigger = "at";
         });
 
@@ -33441,7 +35067,7 @@ public partial class MainWindow : Window
             if (_activeTabId == existing.Id)
             {
                 // Tab already active — just re-apply the selection (handles navigate-back case).
-                PromptTextBox.Select(selStart, selLength);
+                PromptTextBox.SelectRange(selStart, selLength);
                 _ = Dispatcher.BeginInvoke(DispatcherPriority.Input, () => { this.Activate(); PromptTextBox.Focus(); });
                 return;
             }
@@ -33452,20 +35078,20 @@ public partial class MainWindow : Window
             // dummy item's text — exactly what OnQueueTabClicked does minus the drain path.
             if (_activeTabId is null)
             {
-                _queuePreEditDraft               = PromptTextBox.Text;
-                _queuePreEditDraftCaretIndex     = PromptTextBox.CaretIndex;
-                _queuePreEditDraftSelectionStart = PromptTextBox.SelectionStart;
-                _queuePreEditDraftSelectionLength = PromptTextBox.SelectionLength;
+                _queuePreEditDraft               = PromptTextBox.GetPlainText();
+                _queuePreEditDraftCaretIndex     = PromptTextBox.GetCaretOffset();
+                _queuePreEditDraftSelectionStart = PromptTextBox.GetSelectionStart();
+                _queuePreEditDraftSelectionLength = PromptTextBox.GetSelectionLength();
             }
             else
             {
                 var prev = _promptQueue.Items.FirstOrDefault(i => i.Id == _activeTabId);
                 if (prev is not null)
                 {
-                    prev.Text            = PromptTextBox.Text;
-                    prev.CaretIndex      = PromptTextBox.CaretIndex;
-                    prev.SelectionStart  = PromptTextBox.SelectionStart;
-                    prev.SelectionLength = PromptTextBox.SelectionLength;
+                    prev.Text            = PromptTextBox.GetPlainText();
+                    prev.CaretIndex      = PromptTextBox.GetCaretOffset();
+                    prev.SelectionStart  = PromptTextBox.GetSelectionStart();
+                    prev.SelectionLength = PromptTextBox.GetSelectionLength();
                 }
             }
             var previousId = _activeTabId;
@@ -34651,6 +36277,14 @@ public partial class MainWindow : Window
             entry.OutputText    = string.IsNullOrWhiteSpace(output) ? null : output;
             entry.DetailContent = ToolTranscriptDetailContent.Build(new ToolTranscriptDetail(
                 descriptor, null, output, entry.StartedAt, entry.FinishedAt, null, true, true));
+
+            if (string.Equals(toolName, "edit", StringComparison.OrdinalIgnoreCase) &&
+                ToolTranscriptFormatter.BuildSimulatedEdit(description, output) is { } simulatedEdit)
+            {
+                entry.CapturedEdits  = new[] { simulatedEdit };
+                entry.IsSimulatedEdit = true;
+            }
+
             RenderToolEntry(entry);
 
             await Task.Delay(rng.Next(120, 300));
@@ -35949,6 +37583,56 @@ public partial class MainWindow : Window
             CoordinatorThread.CurrentTurn = null;
         }
         catch (Exception ex) { HandleUiCallbackException(nameof(SimulateBridgeDisposed_Click), ex); }
+    }
+
+    /// <summary>
+    /// Developer → Simulation → "Prompt Undo Review" (PROMPTUNDO-20261015-006, GATE-001 review fixture).
+    /// Loads a scratch prompt made of host text BEFORE and AFTER a multi-line embedded code region so a
+    /// reviewer can reproduce every undo/redo selection scenario (forward/backward host selection,
+    /// collapsed caret, in-region selection, redo, in-region Ctrl+Z routing, and a boundary-straddling
+    /// selection that starts in host text and ends inside the region).
+    /// <para>
+    /// This drives the REAL undo path, not a mockup: <see cref="SetPromptTextBoxLogicalBuffer"/> runs the
+    /// production load — <see cref="RichTextBoxExtensions.SetPlainText"/> then
+    /// <see cref="EmbeddedCodeRegionManager.TryConvertNextFence"/> converts the fence into a live
+    /// <see cref="EmbeddedCodeRegionBlock"/> (AvalonEdit), and
+    /// <see cref="ActivatePromptUndoHistoryForCurrentTab"/> (re)baselines the single-authority
+    /// <see cref="_promptUndoHistory"/>. Thereafter Ctrl+Z / Ctrl+Y flow through
+    /// <see cref="Window_PreviewKeyDown"/> → <see cref="TryRoutePromptUndoRedo"/> →
+    /// <see cref="PromptUndoHistory.Undo"/>/<see cref="PromptUndoHistory.Redo"/> exactly as in normal use.
+    /// </para>
+    /// </summary>
+    private void SimulatePromptUndoReview_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            const string promptText =
+                """
+                Prompt Undo Review — host text BEFORE the region. Make a selection here (drag left→right for a forward selection, or right→left for a backward one), type to replace it, then press Ctrl+Z and confirm the exact selection and caret are restored.
+
+                ```csharp
+                int Add(int a, int b)
+                {
+                    return a + b;
+                }
+                ```
+
+                Host text AFTER the region. A selection may start up here in the host and end inside the code region above (a boundary-straddling selection); undo must restore it spanning the boundary with the caret on the correct end.
+                """;
+
+            // Load through the production buffer path: converts the fence into a real embedded code
+            // region and (re)baselines the single-authority prompt undo timeline for this tab. Reset the
+            // history so the reviewer starts from a clean baseline over the loaded content.
+            SetPromptTextBoxLogicalBuffer(
+                promptText,
+                caretIndex: 0,
+                reason: "prompt-undo-review-sim",
+                resetUndoHistory: true);
+
+            PromptTextBox.Focus();
+            SquadDashTrace.Write(TraceCategory.UI, "PROMPT_UNDO_REVIEW_SIM loaded host+region fixture");
+        }
+        catch (Exception ex) { HandleUiCallbackException(nameof(SimulatePromptUndoReview_Click), ex); }
     }
 
     private async void SimulatePlanApprovalInboxVisible_Click(object sender, RoutedEventArgs e)
@@ -38682,13 +40366,6 @@ public partial class MainWindow : Window
         DocumentUtilities.StripDocFrontMatter(raw, out frontMatter);
 
     private bool _suppressDocSourceTextChanged;
-    private bool _suppressDocSourceNextTextInput;
-
-    // ── Shift+F3 case-cycle state (DocSourceTextBox) ─────────────────────────────
-    private string?       _docCycleOriginal;    // original selected text before first cycle press
-    private List<string>? _docCycleVariants;    // [TitleCase, SentenceCase, UPPER, PascalCase]
-    private int           _docCycleIndex;       // index of the variant currently shown
-    private int           _docCycleSelStart;    // selection start when cycle began
     private DispatcherTimer? _docSourceSaveTimer;
     private DispatcherTimer? _docPreviewRefreshTimer;
 
@@ -38733,7 +40410,7 @@ public partial class MainWindow : Window
         ApplyDocSourceLayout(_docSourceLayoutTopBottom, sourceSize);
         if (ViewSourceButton is not null) ViewSourceButton.Content = "Hide Source";
 
-        ApplyDocSourceFontSize();
+        EnsureDocSourceEditorContextMenu();
         PopulateDocSourceEditor();
 
         // Inject hover JS now that the source panel is visible — the initial LoadCompleted
@@ -38761,6 +40438,7 @@ public partial class MainWindow : Window
             DocsPreviewColumn.Width = new GridLength(1, GridUnitType.Star);
         DocsSourceSplitterRow.Height = new GridLength(0);
         DocsSourceRow.Height = new GridLength(0);
+        DocSourceEditor?.ClearSourceHighlight();
         if (DocSourceSplitter is not null) DocSourceSplitter.Visibility = Visibility.Collapsed;
         if (DocSourcePanel is not null) DocSourcePanel.Visibility = Visibility.Collapsed;
         if (ViewSourceButton is not null) ViewSourceButton.Content = "View Source";
@@ -38898,7 +40576,7 @@ public partial class MainWindow : Window
 
     private void PopulateDocSourceEditor()
     {
-        if (DocSourceTextBox is null) return;
+        if (DocSourceEditor is null) return;
 
         // Cancel any pending preview refresh so it doesn't fire with stale content
         // after the document switch.
@@ -38909,23 +40587,27 @@ public partial class MainWindow : Window
         {
             if (string.IsNullOrEmpty(_currentDocPath) || !File.Exists(_currentDocPath))
             {
-                DocSourceTextBox.SetPlainText(string.Empty);
+                DocSourceEditor.SetText(string.Empty);
             }
             else
             {
                 var raw      = File.ReadAllText(_currentDocPath);
                 var stripped = StripDocFrontMatter(raw, out var frontMatter);
                 _currentDocFrontMatter = frontMatter;
-                DocSourceTextBox.SetPlainText(stripped);
+                DocSourceEditor.SetText(stripped);
             }
+            DocSourceEditor.ClearSourceHighlight();
         }
         finally
         {
             _suppressDocSourceTextChanged = false;
         }
+
+        DocSourceEditor.DocumentPath = _currentDocPath ?? string.Empty;
+        DocSourceEditor.CleanupPrompt = _settingsSnapshot.CleanupPrompt;
     }
 
-    private void DocSourceTextBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    private void DocSourceEditor_TextChanged(object? sender, string e)
     {
         // During shutdown WPF can fire TextChanged as the visual tree is torn down (template
         // detachment / document reset).  Restarting the debounce timer at that point would
@@ -38982,7 +40664,7 @@ public partial class MainWindow : Window
 
     private void RefreshDocMarkdownViewerFromSource()
     {
-        if (DocMarkdownViewer is null || DocSourceTextBox is null) return;
+        if (DocMarkdownViewer is null || DocSourceEditor is null) return;
 
         // Capture current scroll position before re-rendering
         try
@@ -38994,7 +40676,7 @@ public partial class MainWindow : Window
         }
         catch { /* WebBrowser has no document yet */ }
 
-        var markdown = DocSourceTextBox.GetPlainText();
+        var markdown = DocSourceEditor.GetText();
         var title = string.IsNullOrEmpty(_currentDocPath) ? "Documentation" : Path.GetFileNameWithoutExtension(_currentDocPath);
         var html = MarkdownHtmlBuilder.Build(markdown, title, filePath: _currentDocPath, isDark: AgentStatusCard.IsDarkTheme);
 
@@ -39019,141 +40701,33 @@ public partial class MainWindow : Window
     // Feature 3: Highlight doc source from hover
     internal void HighlightDocSourceFromHover(string lineHint)
     {
-        if (DocSourceTextBox is null || string.IsNullOrEmpty(lineHint)) return;
-        if (!int.TryParse(lineHint, out var lineNum) || lineNum < 1) return;
-
-        var lines = DocSourceTextBox.GetPlainText().Split('\n');
-        if (lineNum > lines.Length) return;
-
-        // Find the start position of the line
-        int startPos = 0;
-        for (int i = 0; i < lineNum - 1; i++)
+        if (DocSourceEditor is null || !IsDocSourceVisible())
+            return;
+        if (string.IsNullOrWhiteSpace(lineHint))
         {
-            startPos += lines[i].Length + 1; // +1 for newline
+            DocSourceEditor.ClearSourceHighlight();
+            return;
         }
-
-        var lineLength = lineNum - 1 < lines.Length ? lines[lineNum - 1].Length : 0;
-        HighlightDocSourceRange(startPos, lineLength);
+        DocSourceEditor.HighlightSourceLine(lineHint);
     }
 
     // Called when the user clicks an element in the preview — scrolls source to that line and highlights it.
     internal void ScrollDocSourceToLine(string lineHint)
     {
-        if (DocSourceTextBox is null || string.IsNullOrEmpty(lineHint)) return;
+        if (DocSourceEditor?.Editor is null || string.IsNullOrEmpty(lineHint)) return;
         if (!int.TryParse(lineHint, out var lineNum) || lineNum < 1) return;
-
-        var lines = DocSourceTextBox.GetPlainText().Split('\n');
-        if (lineNum > lines.Length) return;
-
-        int startPos = 0;
-        for (int i = 0; i < lineNum - 1; i++)
-            startPos += lines[i].Length + 1;
-
-        var lineLength = lineNum - 1 < lines.Length ? lines[lineNum - 1].Length : 0;
-        DocSourceTextBox.ScrollToOffset(startPos);
-        // Defer highlight until after WPF has processed the scroll (layout settles at Render priority).
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Render,
-            () => HighlightDocSourceRange(startPos, lineLength));
-    }
-
-    private Canvas EnsureDocSourceOverlayCanvas()
-    {
-        if (_docSourceOverlayCanvas is not null) return _docSourceOverlayCanvas;
-
-        if (DocSourcePanel is null) throw new InvalidOperationException("DocSourcePanel is null");
-
-        Grid grid;
-        if (DocSourcePanel.Child is Grid existingGrid)
-        {
-            grid = existingGrid;
-        }
-        else
-        {
-            var child = DocSourcePanel.Child;
-            grid = new Grid();
-            DocSourcePanel.Child = grid;
-            if (child is not null)
-                grid.Children.Add(child);
-        }
-
-        _docSourceOverlayCanvas = new Canvas
-        {
-            IsHitTestVisible = false,
-            Background = Brushes.Transparent
-        };
-        grid.Children.Add(_docSourceOverlayCanvas);
-        return _docSourceOverlayCanvas;
-    }
-
-    private void HighlightDocSourceRange(int start, int length)
-    {
-        if (DocSourceTextBox is null || DocSourcePanel is null) return;
-
-        // Remove existing hover highlight
-        if (_docSourceHoverHighlight is not null)
-        {
-            (_docSourceHoverHighlight.Parent as Canvas)?.Children.Remove(_docSourceHoverHighlight);
-            _docSourceHoverHighlight = null;
-        }
-
-        _docSourceHoverTimer?.Stop();
-
-        if (length <= 0) return;
-
-        // Get the bounding rect of the character in TextBox space
-        var rect = DocSourceTextBox.GetRectFromOffset(start);
-        if (rect == Rect.Empty) return;
-
-        var overlayCanvas = EnsureDocSourceOverlayCanvas();
-
-        // Convert TextBox-local coordinates to overlay Canvas coordinates
-        var origin = DocSourceTextBox.TranslatePoint(new Point(0, 0), overlayCanvas);
-        var charTopLeft = DocSourceTextBox.TranslatePoint(rect.TopLeft, overlayCanvas);
-
-        // If the target line is scrolled outside the visible area of the source box, don't draw.
-        double visibleTop = origin.Y;
-        double visibleBottom = origin.Y + DocSourceTextBox.ActualHeight;
-        if (charTopLeft.Y < visibleTop || charTopLeft.Y >= visibleBottom) return;
-
-        var isDark = AgentStatusCard.IsDarkTheme;
-        var highlightColor = isDark
-            ? Color.FromArgb(60, 255, 220, 80)    // warm amber tint on dark
-            : Color.FromArgb(50, 100, 180, 255);   // cool blue tint on light
-
-        double highlightWidth = Math.Max(DocSourceTextBox.ActualWidth - (charTopLeft.X - origin.X), 0);
-
-        _docSourceHoverHighlight = new Shapes.Rectangle
-        {
-            Width = highlightWidth,
-            Height = Math.Max(rect.Height, 14),
-            Fill = new SolidColorBrush(highlightColor),
-            IsHitTestVisible = false
-        };
-
-        Canvas.SetLeft(_docSourceHoverHighlight, charTopLeft.X);
-        Canvas.SetTop(_docSourceHoverHighlight, charTopLeft.Y);
-        overlayCanvas.Children.Add(_docSourceHoverHighlight);
-
-        // Auto-clear after 1 second
-        _docSourceHoverTimer = new DispatcherTimer { Interval = UiTimingConstants.DocSourceHoverInterval };
-        _docSourceHoverTimer.Tick += (s, e) =>
-        {
-            _docSourceHoverTimer.Stop();
-            if (_docSourceHoverHighlight is not null)
-            {
-                (_docSourceHoverHighlight.Parent as Canvas)?.Children.Remove(_docSourceHoverHighlight);
-                _docSourceHoverHighlight = null;
-            }
-        };
-        _docSourceHoverTimer.Start();
+        var maxLine = Math.Max(1, DocSourceEditor.Editor.Document.LineCount);
+        var clampedLine = Math.Min(lineNum, maxLine);
+        DocSourceEditor.Editor.ScrollToLine(clampedLine);
+        DocSourceEditor.HighlightSourceLine(clampedLine.ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
 
     private void SaveDocSourceToDisk()
     {
-        if (DocSourceTextBox is null || string.IsNullOrEmpty(_currentDocPath)) return;
+        if (DocSourceEditor is null || string.IsNullOrEmpty(_currentDocPath)) return;
         try
         {
-            var bodyText = DocSourceTextBox.GetPlainText();
+            var bodyText = DocSourceEditor.GetText();
 
             // Safety net: never overwrite a doc file with an empty body.
             // WPF fires TextChanged (and can thereby trigger saves) during visual-tree
@@ -39189,229 +40763,341 @@ public partial class MainWindow : Window
         RefreshDocMarkdownViewerFromSource();
     }
 
-    private void DocSourceTextBox_ApplyBold()
-    {
-        if (DocSourceTextBox is null) return;
-        ApplyMarkdownBold(DocSourceTextBox);
-    }
-
     private void PromptTextBox_ApplyBold()
     {
         ApplyMarkdownBold(PromptTextBox);
     }
 
+    private bool TryApplyDocSourceEditorMutation(Action<TextBox> action) =>
+        TryApplyDocSourceEditorMutation(tb =>
+        {
+            action(tb);
+            return true;
+        });
+
+    private bool TryApplyDocSourceEditorMutation(Func<TextBox, bool> action)
+    {
+        if (DocSourceEditor?.Editor is not { } editor)
+            return false;
+
+        var beforeRawText = editor.Document.Text;
+        var beforeText = NormalizeLineEndings(beforeRawText);
+        var selectionStart = Math.Clamp(editor.SelectionStart, 0, beforeRawText.Length);
+        var selectionEnd = Math.Clamp(selectionStart + editor.SelectionLength, 0, beforeRawText.Length);
+        var selectionStartLf = MapRawOffsetToNormalizedOffset(beforeRawText, selectionStart);
+        var selectionLengthLf = MapRawOffsetToNormalizedOffset(beforeRawText, selectionEnd) - selectionStartLf;
+        var bridge = new TextBox
+        {
+            Text = beforeText,
+            SelectionStart = Math.Clamp(selectionStartLf, 0, beforeText.Length),
+            SelectionLength = Math.Clamp(selectionLengthLf, 0, Math.Max(0, beforeText.Length - selectionStartLf))
+        };
+        if (bridge.SelectionLength == 0)
+            bridge.CaretIndex = Math.Clamp(MapRawOffsetToNormalizedOffset(beforeRawText, editor.CaretOffset), 0, beforeText.Length);
+
+        var beforeSelectionStart = bridge.SelectionStart;
+        var beforeSelectionLength = bridge.SelectionLength;
+
+        if (!action(bridge))
+            return false;
+
+        return ApplyDocSourceBridgeResult(editor, beforeRawText, beforeText, beforeSelectionStart, beforeSelectionLength, bridge);
+    }
+
+    private static bool ApplyDocSourceBridgeResult(ICSharpCode.AvalonEdit.TextEditor editor, string beforeRawText, string beforeText, int beforeSelectionStart, int beforeSelectionLength, TextBox bridge)
+    {
+        var afterText = NormalizeLineEndings(bridge.Text);
+        var afterSelectionStart = Math.Clamp(bridge.SelectionStart, 0, afterText.Length);
+        var afterSelectionLength = Math.Clamp(bridge.SelectionLength, 0, Math.Max(0, afterText.Length - afterSelectionStart));
+
+        if (beforeText == afterText &&
+            beforeSelectionStart == afterSelectionStart &&
+            beforeSelectionLength == afterSelectionLength)
+        {
+            return false;
+        }
+
+        var (offset, removeLength, insertText) = ComputeDocSourceBridgeDiff(beforeText, afterText);
+        var rawOffset = MapNormalizedOffsetToRawOffset(beforeRawText, offset);
+        var rawEnd = MapNormalizedOffsetToRawOffset(beforeRawText, offset + removeLength);
+        var rawRemoveLength = Math.Max(0, rawEnd - rawOffset);
+        if (!CanMutateDocSourceRange(editor, rawOffset, rawRemoveLength))
+            return false;
+        using (editor.Document.RunUpdate())
+        {
+            editor.Document.Replace(rawOffset, rawRemoveLength, insertText);
+        }
+
+        var afterRawText = editor.Document.Text;
+        var afterSelectionStartRaw = MapNormalizedOffsetToRawOffset(afterRawText, afterSelectionStart);
+        var afterSelectionEndRaw = MapNormalizedOffsetToRawOffset(afterRawText, afterSelectionStart + afterSelectionLength);
+        var afterSelectionLengthRaw = Math.Max(0, afterSelectionEndRaw - afterSelectionStartRaw);
+        editor.Select(afterSelectionStartRaw, afterSelectionLengthRaw);
+        if (afterSelectionLengthRaw == 0)
+            editor.CaretOffset = afterSelectionStartRaw;
+        return true;
+    }
+
+    private static int MapRawOffsetToNormalizedOffset(string rawText, int rawOffset)
+    {
+        rawOffset = Math.Clamp(rawOffset, 0, rawText.Length);
+        if (rawOffset == 0)
+            return 0;
+        return NormalizeLineEndings(rawText[..rawOffset]).Length;
+    }
+
+    private static int MapNormalizedOffsetToRawOffset(string rawText, int normalizedOffset)
+    {
+        normalizedOffset = Math.Clamp(normalizedOffset, 0, NormalizeLineEndings(rawText).Length);
+        if (normalizedOffset == 0)
+            return 0;
+
+        var rawOffset = 0;
+        var normalized = 0;
+        while (rawOffset < rawText.Length && normalized < normalizedOffset)
+        {
+            if (rawText[rawOffset] == '\r')
+            {
+                rawOffset++;
+                if (rawOffset < rawText.Length && rawText[rawOffset] == '\n')
+                    rawOffset++;
+            }
+            else
+            {
+                rawOffset++;
+            }
+
+            normalized++;
+        }
+
+        return rawOffset;
+    }
+
+    private static bool CanMutateDocSourceRange(ICSharpCode.AvalonEdit.TextEditor editor, int start, int length)
+    {
+        if (editor.IsReadOnly)
+            return false;
+        if (editor.TextArea.ReadOnlySectionProvider is not { } provider)
+            return true;
+
+        start = Math.Clamp(start, 0, editor.Document.TextLength);
+        length = Math.Clamp(length, 0, Math.Max(0, editor.Document.TextLength - start));
+        if (!provider.CanInsert(start))
+            return false;
+        if (length == 0)
+            return true;
+
+        var segment = new ICSharpCode.AvalonEdit.Document.TextSegment { StartOffset = start, Length = length };
+        return provider.GetDeletableSegments(segment)
+            .Any(s => s.Offset == start && s.Length == length);
+    }
+
+    private static (int Offset, int RemoveLength, string InsertText) ComputeDocSourceBridgeDiff(string before, string after)
+    {
+        var prefix = 0;
+        var maxPrefix = Math.Min(before.Length, after.Length);
+        while (prefix < maxPrefix && before[prefix] == after[prefix])
+            prefix++;
+
+        var beforeSuffix = before.Length;
+        var afterSuffix = after.Length;
+        while (beforeSuffix > prefix &&
+               afterSuffix > prefix &&
+               before[beforeSuffix - 1] == after[afterSuffix - 1])
+        {
+            beforeSuffix--;
+            afterSuffix--;
+        }
+
+        return (prefix, beforeSuffix - prefix, after[prefix..afterSuffix]);
+    }
+
+    private static string NormalizeLineEndings(string? text) =>
+        (text ?? string.Empty).Replace("\r\n", "\n").Replace("\r", "\n");
+
     private static void ApplyMarkdownBold(TextBox box) => MarkdownEditorCommands.ApplyBold(box);
     private static void ApplyMarkdownBold(RichTextBox box) => MarkdownEditorCommands.ApplyBold(box);
-
-    private void DocSourceTextBox_ApplyItalic()
-    {
-        if (DocSourceTextBox is null) return;
-        ApplyMarkdownItalic(DocSourceTextBox);
-        DocSourceTextBox.Focus();
-    }
 
     private static void ApplyMarkdownItalic(TextBox box) => MarkdownEditorCommands.ApplyItalic(box);
     private static void ApplyMarkdownItalic(RichTextBox box) => MarkdownEditorCommands.ApplyItalic(box);
 
-    private void DocSourceTextBox_SelectionChanged(object sender, RoutedEventArgs e)
+    private void ConfigureDocSourceEditor()
     {
+        if (DocSourceEditor is null)
+            return;
+
+        DocSourceEditor.ReviseWithAiCallback = (instructions, sel, doc, cwd, ct) =>
+            _bridge.RunDocRevisionAsync(instructions, sel, doc, cwd, ct);
+        DocSourceEditor.StartPttCallback = tb => {
+            _pttTargetTextBox = tb;
+            _sessionCaretIndex = tb.SelectionStart;
+            _sessionSelectionLength = tb.SelectionLength;
+            _voiceStartedWithSendEnabled = false;
+            _pttState = PttState.Active;
+            _ = StartPushToTalkAsync();
+        };
+        DocSourceEditor.StopPttCallback = () => _ = StopPushToTalkAsync(send: false);
+        DocSourceEditor.CleanupPrompt = _settingsSnapshot.CleanupPrompt;
+        DocSourceEditor.DocumentPath = _currentDocPath ?? string.Empty;
+
+        EnsureDocSourceEditorContextMenu();
     }
 
-    private void DocEditorToolbar_ImageInsertRequested(object sender, RoutedEventArgs e)
+    private void EnsureDocSourceEditorContextMenu()
     {
-        if (DocSourceTextBox is null) return;
-        DocSourceTextBox_InsertImagePlaceholder();
-        DocSourceTextBox.Focus();
+        if (DocSourceEditor?.Editor?.TextArea?.ContextMenu is not ContextMenu menu)
+            return;
+        if (Equals(menu.Tag, "DocSourceHostMenuInitialized"))
+            return;
+
+        menu.Tag = "DocSourceHostMenuInitialized";
+
+        var separator = new Separator();
+        separator.SetResourceReference(StyleProperty, "ThemedMenuSeparatorStyle");
+        menu.Items.Add(separator);
+
+        var pasteImageItem = new MenuItem { Header = "Paste image from clipboard" };
+        pasteImageItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        pasteImageItem.Click += (_, _) => DocSourceEditor_PasteImageFromClipboard();
+        menu.Items.Add(pasteImageItem);
+
+        var addToChatItem = new MenuItem { Header = "Add to Chat" };
+        addToChatItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        addToChatItem.Click += (_, _) => AddDocSourceSelectionToChat(addToNewChat: false);
+        menu.Items.Add(addToChatItem);
+
+        var addToNewChatItem = new MenuItem { Header = "Add to New Chat" };
+        addToNewChatItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        addToNewChatItem.Click += (_, _) => AddDocSourceSelectionToChat(addToNewChat: true);
+        menu.Items.Add(addToNewChatItem);
+
+        var addToNotesItem = new MenuItem { Header = "Add to Notes" };
+        addToNotesItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        addToNotesItem.Click += (_, _) => {
+            var text = DocSourceEditor?.Editor?.SelectedText;
+            if (!string.IsNullOrWhiteSpace(text))
+                AddNoteFromText(text);
+        };
+        menu.Items.Add(addToNotesItem);
+
+        var quickCleanupItem = new MenuItem { Header = "⚡ _Quick Cleanup", InputGestureText = "Ctrl+Shift+C" };
+        quickCleanupItem.SetResourceReference(StyleProperty, "ThemedMenuItemStyle");
+        quickCleanupItem.Click += (_, _) => DirectReviseDocSourceSelection(_settingsSnapshot.CleanupPrompt);
+        menu.Items.Add(quickCleanupItem);
+
+        menu.Opened += (_, _) => {
+            if (DocSourceEditor is null)
+                return;
+            DocSourceEditor.DocumentPath = _currentDocPath ?? string.Empty;
+            DocSourceEditor.CleanupPrompt = _settingsSnapshot.CleanupPrompt;
+
+            var hasSelection = DocSourceEditor.Editor.SelectionLength > 0;
+            pasteImageItem.IsEnabled = Clipboard.ContainsImage() && !string.IsNullOrEmpty(_currentDocPath);
+            addToChatItem.IsEnabled = hasSelection;
+            addToNewChatItem.IsEnabled = hasSelection;
+            addToNotesItem.IsEnabled = hasSelection;
+            quickCleanupItem.IsEnabled = hasSelection && !string.IsNullOrWhiteSpace(_settingsSnapshot.CleanupPrompt);
+        };
     }
 
-    private void DocSourceTextBox_InsertImagePlaceholder()
+    private void AddDocSourceSelectionToChat(bool addToNewChat)
     {
-        if (DocSourceTextBox is null) return;
+        var text = DocSourceEditor?.Editor?.SelectedText;
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        var docTitle = _currentDocPath is not null
+            ? Path.GetFileNameWithoutExtension(_currentDocPath)
+            : "Documentation";
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"## Documentation: {docTitle}");
+        if (_currentDocPath is not null)
+            sb.AppendLine($"File: {_currentDocPath}");
+        sb.AppendLine();
+        sb.AppendLine(text.Trim());
+        if (addToNewChat)
+            AddEmptyQueueSlot();
+        AttachContextFollowUp($"Doc: {docTitle}", sb.ToString().TrimEnd());
+    }
+
+    private void DocSourceEditor_ImageInsertRequested(object sender, RoutedEventArgs e)
+    {
+        InsertDocSourceImagePlaceholder();
+        DocSourceEditor?.FocusEditor();
+    }
+
+    private void InsertDocSourceImagePlaceholder()
+    {
+        if (DocSourceEditor?.Editor is not { } editor)
+            return;
+
         var id = Guid.NewGuid().ToString("N")[..8];
         var placeholder =
             $"![Screenshot: brief description](images/screenshot-{id}.png)\n" +
             "> 📸 *Screenshot needed: Detailed description of what to capture in this screenshot.*";
-        DocSourceTextBox.Focus();
-        DocSourceTextBox.Selection.Text = placeholder; // inserts at caret, participates in WPF undo stack
-    }
-
-    private void DocSourceTextBox_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
-    {
-        if (_suppressDocSourceNextTextInput)
-        {
-            _suppressDocSourceNextTextInput = false;
-            e.Handled = true;
+        var start = editor.SelectionStart;
+        var length = editor.SelectionLength;
+        if (!CanMutateDocSourceRange(editor, start, length))
             return;
-        }
-
-        // Paren embedding (works on all keyboard layouts)
-        if ((e.Text == "(" || e.Text == ")") && DocSourceTextBox.GetSelectionLength() > 0
-            && !DocSourceTextBox.GetSelectedText().Contains('\n'))
-        {
-            if (MarkdownEditorCommands.ApplyInlineParens(DocSourceTextBox, e.Text))
-            {
-                e.Handled = true;
-                return;
-            }
-        }
+        editor.Document.Replace(start, length, placeholder);
+        editor.Select(start + placeholder.Length, 0);
+        editor.CaretOffset = start + placeholder.Length;
+        editor.TextArea.Focus();
     }
 
-    private void DocSourceTextBox_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    private bool TryInvokeDocSourceReviseFromContextMenu()
     {
-        if (DocSourceTextBox is null) return;
-        try
-        {
-            var menu = MakeMenu();
+        EnsureDocSourceEditorContextMenu();
+        if (DocSourceEditor?.Editor?.TextArea?.ContextMenu is not ContextMenu menu)
+            return false;
+        var reviseItem = menu.Items.OfType<MenuItem>()
+            .FirstOrDefault(item => string.Equals(item.InputGestureText, "Ctrl+Shift+A", StringComparison.OrdinalIgnoreCase));
+        if (reviseItem is null)
+            return false;
+        reviseItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        return true;
+    }
 
-            var hasSelection = DocSourceTextBox.GetSelectionLength() > 0;
-            var capturedSelStart = hasSelection ? DocSourceTextBox.GetSelectionStart() : 0;
-            var capturedSelLen   = hasSelection ? DocSourceTextBox.GetSelectionLength() : 0;
+    private void DirectReviseDocSourceSelection(string instructions)
+    {
+        if (DocSourceEditor?.Editor is not { } editor || string.IsNullOrWhiteSpace(instructions))
+            return;
+        if (editor.SelectionLength <= 0)
+            return;
 
-            if (hasSelection)
+        var selectionLength = editor.SelectionLength;
+        if (!CanMutateDocSourceRange(editor, editor.SelectionStart, selectionLength))
+            return;
+
+        var currentDocPath = _currentDocPath ?? string.Empty;
+        var currentDocument = editor.Document;
+        var selection = new AvalonEditRevisionSelection(currentDocument, editor.SelectionStart, selectionLength);
+        // The executor accepts a RichTextBox transport; only the anchored Avalon document is edited.
+        var bridge = new RichTextBox();
+        bridge.SetPlainText(DocSourceEditor.GetText());
+        bridge.SelectRange(
+            MapRawOffsetToNormalizedOffset(currentDocument.Text, editor.SelectionStart),
+            NormalizeLineEndings(selection.OriginalText).Length);
+        string? revisedText = null;
+        MarkdownRevisionExecutor.DirectRevise(bridge, currentDocPath, instructions,
+            async (prompt, selected, document, cwd, token) =>
             {
-                // Capture now — WPF clears the selection when the ContextMenu takes focus.
-                var docTitle = _currentDocPath is not null
-                    ? System.IO.Path.GetFileNameWithoutExtension(_currentDocPath)
-                    : "Documentation";
-
-                var addToChatItem = new MenuItem
-                {
-                    Header = "Add to Chat",
-                    Style  = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                addToChatItem.Click += (_, _) => {
-                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
-                    if (!string.IsNullOrWhiteSpace(text)) {
-                        var sb = new System.Text.StringBuilder();
-                        sb.AppendLine($"## Documentation: {docTitle}");
-                        if (_currentDocPath is not null) sb.AppendLine($"File: {_currentDocPath}");
-                        sb.AppendLine();
-                        sb.AppendLine(text.Trim());
-                        AttachContextFollowUp($"Doc: {docTitle}", sb.ToString().TrimEnd());
-                    }
-                };
-                menu.Items.Add(addToChatItem);
-
-                var addToNewChatDocItem = new MenuItem
-                {
-                    Header = "Add to New Chat",
-                    Style  = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                addToNewChatDocItem.Click += (_, _) => {
-                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
-                    if (!string.IsNullOrWhiteSpace(text)) {
-                        var sb = new System.Text.StringBuilder();
-                        sb.AppendLine($"## Documentation: {docTitle}");
-                        if (_currentDocPath is not null) sb.AppendLine($"File: {_currentDocPath}");
-                        sb.AppendLine();
-                        sb.AppendLine(text.Trim());
-                        AddEmptyQueueSlot();
-                        AttachContextFollowUp($"Doc: {docTitle}", sb.ToString().TrimEnd());
-                    }
-                };
-                menu.Items.Add(addToNewChatDocItem);
-
-                var addToNotesItem = new MenuItem
-                {
-                    Header = "Add to Notes",
-                    Style  = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                addToNotesItem.Click += (_, _) => {
-                    var text = DocSourceTextBox.GetSubstring(capturedSelStart, capturedSelLen);
-                    if (!string.IsNullOrWhiteSpace(text))
-                        AddNoteFromText(text);
-                };
-                menu.Items.Add(addToNotesItem);
-
-                menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
-            }
-
-            var cutItem = new MenuItem
+                revisedText = await _bridge.RunDocRevisionAsync(prompt, selected, document, cwd, token);
+                return revisedText;
+            }, this,
+            onCompleted: () =>
             {
-                Header = "Cu_t",
-                Style = (Style)FindResource("ThemedMenuItemStyle"),
-                Command = ApplicationCommands.Cut,
-                CommandTarget = DocSourceTextBox
-            };
-            var copyItem = new MenuItem
-            {
-                Header = "_Copy",
-                Style = (Style)FindResource("ThemedMenuItemStyle"),
-                Command = ApplicationCommands.Copy,
-                CommandTarget = DocSourceTextBox
-            };
-            var pasteItem = new MenuItem
-            {
-                Header = "_Paste",
-                Style = (Style)FindResource("ThemedMenuItemStyle"),
-                Command = ApplicationCommands.Paste,
-                CommandTarget = DocSourceTextBox
-            };
-
-            cutItem.IsEnabled = hasSelection;
-            copyItem.IsEnabled = hasSelection;
-            pasteItem.IsEnabled = Clipboard.ContainsText();
-
-            menu.Items.Add(cutItem);
-            menu.Items.Add(copyItem);
-            menu.Items.Add(pasteItem);
-
-            if (Clipboard.ContainsImage())
-            {
-                menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
-                var imgItem = new MenuItem
+                if (string.IsNullOrWhiteSpace(revisedText))
+                    return;
+                var targetChanged = !string.Equals(_currentDocPath, currentDocPath, StringComparison.OrdinalIgnoreCase);
+                if (targetChanged || !selection.TryGetRange(out var start, out var length)
+                    || !CanMutateDocSourceRange(editor, start, length) || !selection.TryReplace(revisedText))
                 {
-                    Header = "Paste image from clipboard",
-                    Style = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                imgItem.Click += (_, _) => DocSourceTextBox_PasteImageFromClipboard();
-                menu.Items.Add(imgItem);
-            }
-
-            if (hasSelection)
-            {
-                menu.Items.Add(new Separator { Style = (Style)FindResource("ThemedMenuSeparatorStyle") });
-
-                var reviseItem = new MenuItem
-                {
-                    Header           = "✏ _Revise with AI",
-                    InputGestureText = "Ctrl+Shift+A",
-                    Style            = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                reviseItem.Click += (_, _) => ShowDocRevisePopup(DocSourceTextBox, _currentDocPath ?? "", capturedSelStart, capturedSelLen);
-                menu.Items.Add(reviseItem);
-
-                var cleanupItem = new MenuItem
-                {
-                    Header           = "⚡ _Quick Cleanup",
-                    InputGestureText = "Ctrl+Shift+C",
-                };
-                cleanupItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
-                cleanupItem.Click += (_, _) => DirectReviseRichTextBox(DocSourceTextBox, _currentDocPath ?? "", _settingsSnapshot.CleanupPrompt);
-                menu.Items.Add(cleanupItem);
-
-                var smoothItem = new MenuItem
-                {
-                    Header           = "✨ Smooth Dictation",
-                    InputGestureText = "Shift+Space",
-                    Style            = (Style)FindResource("ThemedMenuItemStyle")
-                };
-                smoothItem.Click += (_, _) => {
-                    DocSourceTextBox.SelectRange(capturedSelStart, capturedSelLen);
-                    SmoothDictationHelper.ApplyToRichTextBox(DocSourceTextBox);
-                };
-                menu.Items.Add(smoothItem);
-            }
-
-            menu.PlacementTarget = DocSourceTextBox;
-            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
-            menu.IsOpen = true;
-            e.Handled = true;
-        }
-        catch (Exception ex)
-        {
-            HandleUiCallbackException(nameof(DocSourceTextBox_PreviewMouseRightButtonDown), ex);
-        }
+                    var result = new RevisionResultWindow(revisedText) { Owner = this };
+                    WindowPlacementHelper.CenterOnOwnerAndEnsureOnScreen(result, this);
+                    result.Show();
+                }
+            });
     }
 
     private void ShowDocRevisePopup(System.Windows.Controls.TextBox textBox, string filePath,
@@ -39838,10 +41524,15 @@ public partial class MainWindow : Window
 
     private bool TryShowRevisePopupForFocusedTextBox()
     {
+        if (IsDocSourceEditorFocused() && DocSourceEditor?.Editor.SelectionLength > 0)
+        {
+            return TryInvokeDocSourceReviseFromContextMenu();
+        }
+
         if (Keyboard.FocusedElement is RichTextBox rtb)
         {
             if (rtb.GetSelectionLength() <= 0) return false;
-            var filePath = ReferenceEquals(rtb, DocSourceTextBox) ? (_currentDocPath ?? "") : "";
+            var filePath = string.Empty;
             ShowDocRevisePopup(rtb, filePath);
             return true;
         }
@@ -39863,10 +41554,16 @@ public partial class MainWindow : Window
     {
         if (string.IsNullOrWhiteSpace(instructions)) return false;
 
+        if (IsDocSourceEditorFocused() && DocSourceEditor?.Editor.SelectionLength > 0)
+        {
+            DirectReviseDocSourceSelection(instructions);
+            return true;
+        }
+
         if (Keyboard.FocusedElement is RichTextBox rtb)
         {
             if (rtb.GetSelectionLength() <= 0) return false;
-            var filePath = ReferenceEquals(rtb, DocSourceTextBox) ? (_currentDocPath ?? "") : "";
+            var filePath = string.Empty;
             DirectReviseRichTextBox(rtb, filePath, instructions);
             return true;
         }
@@ -39958,13 +41655,20 @@ public partial class MainWindow : Window
         catch { return false; }
     }
 
-    private void DocSourceTextBox_PasteImageFromClipboard()
+    private void DocSourceEditor_PasteImageFromClipboard()
     {
-        if (DocSourceTextBox is null || !Clipboard.ContainsImage()) return;
-        if (string.IsNullOrEmpty(_currentDocPath)) return;
+        if (DocSourceEditor?.Editor is not { } markdownEditor || !Clipboard.ContainsImage())
+            return;
+        if (string.IsNullOrEmpty(_currentDocPath))
+            return;
 
         var clipImg = Clipboard.GetImage()!;
         var currentDocPath = _currentDocPath;
+        var currentDocument = markdownEditor.Document;
+        var insertionOffset = Math.Clamp(markdownEditor.CaretOffset, 0, currentDocument.TextLength);
+        var insertionAnchor = currentDocument.CreateAnchor(insertionOffset);
+        insertionAnchor.MovementType = ICSharpCode.AvalonEdit.Document.AnchorMovementType.BeforeInsertion;
+
         var editor = new ClipboardImageEditorWindow(this, clipImg);
         editor.ImageAccepted += image =>
         {
@@ -39981,345 +41685,43 @@ public partial class MainWindow : Window
             using (var stream = File.OpenWrite(fullImagePath))
                 encoder.Save(stream);
 
-            var caretIndex = DocSourceTextBox?.GetCaretOffset() ?? 0;
+            var skippedReason = string.Empty;
+            var liveEditor = DocSourceEditor?.Editor;
+            if (liveEditor is null)
+                skippedReason = "source editor is no longer available";
+            else if (!string.Equals(_currentDocPath, currentDocPath, StringComparison.OrdinalIgnoreCase))
+                skippedReason = "active document changed";
+            else if (!ReferenceEquals(liveEditor.Document, currentDocument))
+                skippedReason = "document instance changed";
+            else if (insertionAnchor.IsDeleted)
+                skippedReason = "target insertion point was deleted";
+            else if (!CanMutateDocSourceRange(liveEditor, insertionAnchor.Offset, 0))
+                skippedReason = "target insertion point is read-only";
+
+            if (!string.IsNullOrEmpty(skippedReason))
+            {
+                var message = $"Image saved to {fullImagePath}, but markdown link was not inserted because {skippedReason}.";
+                SquadDashTrace.Write("DocSource", message);
+                UIErrorHelper.ShowError("Image Saved Without Insert", message);
+                return;
+            }
+
+            var start = Math.Clamp(insertionAnchor.Offset, 0, currentDocument.TextLength);
             var markdown = $"![{docName} screenshot](images/{fileName})";
-            DocSourceTextBox?.SetPlainText(DocSourceTextBox.GetPlainText().Insert(caretIndex, markdown));
-            DocSourceTextBox?.SetCaretOffset(caretIndex + markdown.Length);
+            currentDocument.Insert(start, markdown);
+            markdownEditor.Select(start + markdown.Length, 0);
+            markdownEditor.CaretOffset = start + markdown.Length;
+            markdownEditor.TextArea.Focus();
         };
         OpenEditorModeless(editor);
     }
 
-    // ── Feature 2: Find-in-source bar ───────────────────────────────────────────
     private void ShowDocSourceFindBar()
     {
-        if (DocSourcePanel is null || DocSourceTextBox is null) return;
-
-        if (_docSourceFindBar is not null)
-        {
-            _docSourceFindTextBox?.Focus();
-            _docSourceFindTextBox?.SelectAll();
+        if (DocSourceEditor?.Editor?.TextArea is not { } textArea)
             return;
-        }
-
-        // Ensure overlay canvas (and Grid wrapper) exist
-        var overlayCanvas = EnsureDocSourceOverlayCanvas();
-        var grid = DocSourcePanel.Child as Grid;
-        if (grid is null) return;
-
-        // Create a separate Canvas for find match highlights
-        _docSourceFindOverlay = new Canvas
-        {
-            IsHitTestVisible = false,
-            Background = Brushes.Transparent
-        };
-        grid.Children.Add(_docSourceFindOverlay);
-
-        // Re-render highlights whenever the user scrolls the source editor
-        var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
-        if (sv is not null)
-            sv.ScrollChanged += DocSourceFind_ScrollChanged;
-
-        // Create find bar
-        var findPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4) };
-
-        _docSourceFindTextBox = new TextBox
-        {
-            Width = 150,
-            Padding = new Thickness(4),
-            Margin = new Thickness(0, 0, 6, 0)
-        };
-        _docSourceFindTextBox.TextChanged += DocSourceFind_TextChanged;
-        _docSourceFindTextBox.PreviewKeyDown += DocSourceFind_KeyDown;
-
-        var prevBtn = new Button
-        {
-            Content = "▲",
-            Width = 24,
-            Padding = new Thickness(0),
-            Margin = new Thickness(0, 0, 2, 0)
-        };
-        prevBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        prevBtn.Click += (s, e) => DocSourceFind_NavigatePrevious();
-
-        var nextBtn = new Button
-        {
-            Content = "▼",
-            Width = 24,
-            Padding = new Thickness(0),
-            Margin = new Thickness(0, 0, 6, 0)
-        };
-        nextBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        nextBtn.Click += (s, e) => DocSourceFind_NavigateNext();
-
-        _docSourceFindMatchCount = new TextBlock
-        {
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0),
-            FontSize = (double)Application.Current.Resources["FontSizeSmall"]
-        };
-        _docSourceFindMatchCount.SetResourceReference(TextBlock.ForegroundProperty, "LabelText");
-
-        var closeBtn = new Button
-        {
-            Content = "✕",
-            Width = 24,
-            Padding = new Thickness(0)
-        };
-        closeBtn.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
-        closeBtn.Click += (s, e) => HideDocSourceFindBar();
-
-        findPanel.Children.Add(_docSourceFindTextBox);
-        findPanel.Children.Add(prevBtn);
-        findPanel.Children.Add(nextBtn);
-        findPanel.Children.Add(_docSourceFindMatchCount);
-        findPanel.Children.Add(closeBtn);
-
-        _docSourceFindBar = new Border
-        {
-            Child = findPanel,
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(8, 6, 8, 6),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 10, 10, 0)
-        };
-        _docSourceFindBar.SetResourceReference(Border.BackgroundProperty, "PopupSurface");
-        _docSourceFindBar.SetResourceReference(Border.BorderBrushProperty, "PanelBorder");
-        _docSourceFindBar.BorderThickness = new Thickness(1);
-
-        grid.Children.Add(_docSourceFindBar);
-
-        _docSourceFindTextBox.Focus();
-    }
-
-    private void HideDocSourceFindBar()
-    {
-        if (_docSourceFindBar is null) return;
-
-        // Unsubscribe scroll listener
-        if (DocSourceTextBox is not null)
-        {
-            var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
-            if (sv is not null)
-                sv.ScrollChanged -= DocSourceFind_ScrollChanged;
-        }
-
-        var grid = DocSourcePanel?.Child as Grid;
-        if (grid is not null)
-        {
-            grid.Children.Remove(_docSourceFindBar);
-            if (_docSourceFindOverlay is not null)
-                grid.Children.Remove(_docSourceFindOverlay);
-        }
-
-        _docSourceFindBar = null;
-        _docSourceFindTextBox = null;
-        _docSourceFindMatchCount = null;
-        _docSourceFindOverlay = null;
-        _docSourceFindMatches.Clear();
-        _docSourceFindCurrentIndex = -1;
-        DocSourceTextBox?.Focus();
-    }
-
-    private void DocSourceFind_ScrollChanged(object sender, ScrollChangedEventArgs e)
-    {
-        DocSourceFind_RenderHighlights();
-    }
-
-    private void DocSourceFind_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        _docSourceFindDebounceTimer?.Stop();
-        _docSourceFindDebounceTimer = new DispatcherTimer { Interval = UiTimingConstants.DocSourceFindDebounceInterval };
-        _docSourceFindDebounceTimer.Tick += (s, args) =>
-        {
-            _docSourceFindDebounceTimer.Stop();
-            DocSourceFind_UpdateMatches();
-        };
-        _docSourceFindDebounceTimer.Start();
-    }
-
-    private void DocSourceFind_KeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Escape)
-        {
-            HideDocSourceFindBar();
-            e.Handled = true;
-        }
-        else if (e.Key == Key.Enter || e.Key == Key.F3)
-        {
-            if ((Keyboard.Modifiers & ModifierKeys.Shift) != 0)
-                DocSourceFind_NavigatePrevious();
-            else
-                DocSourceFind_NavigateNext();
-            e.Handled = true;
-        }
-    }
-
-    private void DocSourceFind_UpdateMatches()
-    {
-        if (DocSourceTextBox is null || _docSourceFindTextBox is null || _docSourceFindOverlay is null) return;
-
-        _docSourceFindMatches.Clear();
-        _docSourceFindCurrentIndex = -1;
-        _docSourceFindOverlay.Children.Clear();
-
-        var searchText = _docSourceFindTextBox.Text;
-        if (string.IsNullOrEmpty(searchText))
-        {
-            if (_docSourceFindMatchCount is not null)
-                _docSourceFindMatchCount.Text = string.Empty;
-            return;
-        }
-
-        var text = DocSourceTextBox.GetPlainText();
-        var index = 0;
-        while ((index = text.IndexOf(searchText, index, StringComparison.OrdinalIgnoreCase)) >= 0)
-        {
-            _docSourceFindMatches.Add(index);
-            index += searchText.Length;
-        }
-
-        if (_docSourceFindMatches.Count > 0)
-            _docSourceFindCurrentIndex = 0;
-
-        DocSourceFind_RenderHighlights();
-        DocSourceFind_UpdateMatchCountDisplay();
-
-        if (_docSourceFindCurrentIndex >= 0)
-            DocSourceFind_ScrollToCurrentMatch();
-    }
-
-    private void DocSourceFind_RenderHighlights()
-    {
-        if (DocSourceTextBox is null || _docSourceFindOverlay is null || _docSourceFindTextBox is null) return;
-
-        _docSourceFindOverlay.Children.Clear();
-
-        var isDark = AgentStatusCard.IsDarkTheme;
-        var matchBg = isDark ? Color.FromArgb(200, 74, 62, 16) : Color.FromArgb(200, 200, 224, 255);
-        var currentBg = isDark ? Color.FromArgb(220, 200, 160, 0) : Color.FromArgb(220, 32, 96, 192);
-        var searchLen = _docSourceFindTextBox.Text.Length;
-        if (searchLen == 0) return;
-
-        // Draw match rectangles.
-        // GetRectFromCharacterIndex returns coords in TextBox local space (accounting for
-        // current scroll). TranslatePoint converts them to the overlay Canvas coordinate space.
-        for (int i = 0; i < _docSourceFindMatches.Count; i++)
-        {
-            var pos = _docSourceFindMatches[i];
-            var startRect = DocSourceTextBox.GetRectFromOffset(pos);
-            if (startRect == Rect.Empty) continue; // off-screen — skip, ScrollChanged will re-render
-
-            // Use start+end rects for accurate width (handles variable-width fonts too)
-            var endPos = Math.Min(pos + searchLen, DocSourceTextBox.GetTextLength());
-            var endRect = DocSourceTextBox.GetRectFromOffset(endPos);
-            double highlightWidth = (endRect != Rect.Empty && endRect.Left >= startRect.Left)
-                ? Math.Max(2, endRect.Left - startRect.Left)
-                : Math.Max(2, searchLen * (startRect.Width > 0 ? startRect.Width : 8));
-
-            var canvasOrigin = DocSourceTextBox.TranslatePoint(
-                new Point(startRect.Left, startRect.Top), _docSourceFindOverlay);
-
-            var highlight = new Shapes.Rectangle
-            {
-                Width = highlightWidth,
-                Height = Math.Max(2, startRect.Height),
-                Fill = new SolidColorBrush(i == _docSourceFindCurrentIndex ? currentBg : matchBg),
-                Opacity = 0.55
-            };
-
-            Canvas.SetLeft(highlight, canvasOrigin.X);
-            Canvas.SetTop(highlight, canvasOrigin.Y);
-            _docSourceFindOverlay.Children.Add(highlight);
-        }
-
-        // Draw scrollbar tick marks proportional to the total text length
-        if (DocSourceTextBox.GetTextLength() > 0 && _docSourceFindMatches.Count > 0)
-        {
-            var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
-            var scrollBar = sv is not null ? VisualTreeSearch.FindChild<ScrollBar>(sv) : null;
-            double trackHeight = scrollBar?.ActualHeight ?? DocSourceTextBox.ActualHeight;
-
-            foreach (var pos in _docSourceFindMatches)
-            {
-                var fraction = (double)pos / DocSourceTextBox.GetTextLength();
-                var tick = new Shapes.Rectangle
-                {
-                    Width = 4,
-                    Height = 3,
-                    Fill = new SolidColorBrush(matchBg)
-                };
-                Canvas.SetRight(tick, 0);
-                Canvas.SetTop(tick, fraction * trackHeight);
-                _docSourceFindOverlay.Children.Add(tick);
-            }
-        }
-    }
-
-    private void DocSourceFind_UpdateMatchCountDisplay()
-    {
-        if (_docSourceFindMatchCount is null) return;
-
-        if (_docSourceFindMatches.Count == 0)
-            _docSourceFindMatchCount.Text = "No matches";
-        else
-            _docSourceFindMatchCount.Text = $"{_docSourceFindCurrentIndex + 1} / {_docSourceFindMatches.Count}";
-    }
-
-    private void DocSourceFind_NavigateNext()
-    {
-        if (_docSourceFindMatches.Count == 0) return;
-
-        _docSourceFindCurrentIndex = (_docSourceFindCurrentIndex + 1) % _docSourceFindMatches.Count;
-        DocSourceFind_RenderHighlights();
-        DocSourceFind_UpdateMatchCountDisplay();
-        DocSourceFind_ScrollToCurrentMatch();
-    }
-
-    private void DocSourceFind_NavigatePrevious()
-    {
-        if (_docSourceFindMatches.Count == 0) return;
-
-        _docSourceFindCurrentIndex--;
-        if (_docSourceFindCurrentIndex < 0)
-            _docSourceFindCurrentIndex = _docSourceFindMatches.Count - 1;
-
-        DocSourceFind_RenderHighlights();
-        DocSourceFind_UpdateMatchCountDisplay();
-        DocSourceFind_ScrollToCurrentMatch();
-    }
-
-    private void DocSourceFind_ScrollToCurrentMatch()
-    {
-        if (DocSourceTextBox is null || _docSourceFindCurrentIndex < 0 || _docSourceFindCurrentIndex >= _docSourceFindMatches.Count) return;
-
-        var pos = _docSourceFindMatches[_docSourceFindCurrentIndex];
-
-        // Scroll vertically to the matching line
-        DocSourceTextBox.ScrollToOffset(pos);
-
-        // After the vertical scroll settles, handle horizontal scroll, re-render highlights
-        // (positions changed due to scroll), then return focus to the find box.
-        _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
-        {
-            var sv = VisualTreeSearch.FindChild<ScrollViewer>(DocSourceTextBox);
-            if (sv is not null && DocSourceTextBox is not null && _docSourceFindTextBox is not null)
-            {
-                var matchRect = DocSourceTextBox.GetRectFromOffset(pos);
-                if (matchRect != Rect.Empty)
-                {
-                    // Bring the match into horizontal view with a small margin
-                    const double margin = 24;
-                    if (matchRect.Left < 0)
-                        sv.ScrollToHorizontalOffset(Math.Max(0, sv.HorizontalOffset + matchRect.Left - margin));
-                    else if (matchRect.Right > DocSourceTextBox.ActualWidth)
-                        sv.ScrollToHorizontalOffset(sv.HorizontalOffset + matchRect.Right - DocSourceTextBox.ActualWidth + margin);
-                }
-            }
-
-            DocSourceFind_RenderHighlights();
-            _docSourceFindTextBox?.Focus();
-        });
+        textArea.Focus();
+        ApplicationCommands.Find.Execute(null, textArea);
     }
 
     private static bool IsPrintableKey(Key key) =>
@@ -40462,7 +41864,7 @@ public partial class MainWindow : Window
         _conversationManager.PersistConversationState(_conversationManager.ConversationState with
         {
             SessionId = _conversationManager.CurrentSessionId,
-            PromptDraft = PromptTextBox.Text,
+            PromptDraft = PromptTextBox.GetPlainText(),
             PromptHistory = _conversationManager.PromptHistory.ToArray(),
             Threads = _conversationManager.BuildPersistedAgentThreadRecords(includeCurrentTurns: false)
         });
@@ -40740,43 +42142,89 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.UI, "SessionGap: no shutdown time found — stripe skipped.");
         }
 
+        void TraceWorkspaceLoadPhase(string name, Action action)
+        {
+            var phaseSw = Stopwatch.StartNew();
+            try
+            {
+                action();
+            }
+            finally
+            {
+                phaseSw.Stop();
+                SquadDashTrace.Write(
+                    TraceCategory.Performance,
+                    $"LOAD_CONVERSATION_PHASE: {name} {phaseSw.ElapsedMilliseconds}ms");
+            }
+        }
+
+        async Task TraceWorkspaceLoadPhaseAsync(string name, Func<Task> action)
+        {
+            var phaseSw = Stopwatch.StartNew();
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                phaseSw.Stop();
+                SquadDashTrace.Write(
+                    TraceCategory.Performance,
+                    $"LOAD_CONVERSATION_PHASE: {name} {phaseSw.ElapsedMilliseconds}ms");
+            }
+        }
+
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_START: folder={_currentWorkspace?.FolderPath}");
         var loadConvSw = Stopwatch.StartNew();
-        await _conversationManager.LoadWorkspaceConversationAsync();
+        await TraceWorkspaceLoadPhaseAsync(
+            "conversation-manager",
+            () => _conversationManager.LoadWorkspaceConversationAsync());
         _workspaceConversationHydrated = true;
-        if (_hasAuthoritativeBackgroundTaskSnapshot)
-            ReconcileRestoredIncompleteToolsFromBackgroundSnapshot();
+        TraceWorkspaceLoadPhase(
+            "background-task-reconcile",
+            () =>
+            {
+                if (_hasAuthoritativeBackgroundTaskSnapshot)
+                    ReconcileRestoredIncompleteToolsFromBackgroundSnapshot();
+            });
         // Recovery evidence lives in the persisted transcript, which is workspace-hydrated only
         // here. Reconcile it before rebuilding any recovery card or Inbox action.
-        await ReconcileInterruptedPlanTaskEvidenceAsync();
-        ReconcileDecomposeRecoveryInboxMessages();
+        await TraceWorkspaceLoadPhaseAsync(
+            "interrupted-plan-evidence",
+            () => ReconcileInterruptedPlanTaskEvidenceAsync());
+        TraceWorkspaceLoadPhase("recovery-inbox-reconcile", () => ReconcileDecomposeRecoveryInboxMessages());
         // Repair durable state only after the workspace-scoped execution envelope is loaded,
         // but before rebuilding approval/recovery controls from that state.
-        RepairStalePlanExecutingState();
-        ReconcileCollectedPendingPlans();
+        TraceWorkspaceLoadPhase("stale-plan-repair", () => RepairStalePlanExecutingState());
+        TraceWorkspaceLoadPhase("collected-plan-reconcile", () => ReconcileCollectedPendingPlans());
         // TASKS_JSON can be followed by an empty/system turn, so the plan-producing turn
         // is not necessarily the last persisted turn. Rebuild approval actions from the
         // durable pending-plan store after hydration and state repair instead of inferring
         // ownership from transcript position.
-        RestorePendingDecomposeApprovalSurfaces(promoteUnaddressedToInbox: true);
+        TraceWorkspaceLoadPhase(
+            "pending-decompose-approval-surfaces",
+            () => RestorePendingDecomposeApprovalSurfaces(promoteUnaddressedToInbox: true));
         // Transcript hydration replaces the document. Restore durable approval cards only
         // after that replacement so a restart cannot silently erase the required action.
-        RestoreAwaitingApprovalGateUI();
+        await TraceWorkspaceLoadPhaseAsync("awaiting-approval-gates", () => RestoreAwaitingApprovalGateUIAsync());
         // Pending plan-revision cards are also live WPF controls. Restoring them before
         // LoadWorkspaceConversationAsync adds them to the document that hydration discards.
         // Restore after checkpoint cards so the unresolved revision action remains visible.
-        RestorePendingPlanRevisionApprovalCards();
+        TraceWorkspaceLoadPhase("pending-plan-revision-cards", () => RestorePendingPlanRevisionApprovalCards());
+        await TraceWorkspaceLoadPhaseAsync(
+            "waiting-for-clean-worktree-recovery",
+            () => RestoreWaitingForCleanWorktreeRecoverySurfaceAsync());
         // Interrupted-plan actions are live WPF controls and are not serialized with the
         // narrative. Reconstruct them only after hydration (and stale-state repair), or the
         // document replacement above will silently erase them during every restart.
-        RestoreInterruptedPlanRecoverySurfaces();
-        RestoreFailedPlanValidationRecoverySurface();
-        RestoreRejectedPlanRevisionRecoverySurface();
-        RestoreInterruptedPromptRecoverySurface();
-        RestorePendingPlanContinuation();
+        TraceWorkspaceLoadPhase("interrupted-plan-recovery-surfaces", () => RestoreInterruptedPlanRecoverySurfaces());
+        TraceWorkspaceLoadPhase("failed-plan-validation-recovery", () => RestoreFailedPlanValidationRecoverySurface());
+        TraceWorkspaceLoadPhase("rejected-plan-revision-recovery", () => RestoreRejectedPlanRevisionRecoverySurface());
+        TraceWorkspaceLoadPhase("interrupted-prompt-recovery", () => RestoreInterruptedPromptRecoverySurface());
+        TraceWorkspaceLoadPhase("pending-plan-continuation", () => RestorePendingPlanContinuation());
         // A queued semantic preflight and its candidate correlation are one durable operation.
         // Restore the correlation before queue hydration can dispatch the recovered prompt.
-        RestorePendingPlanHumanProofCoverageReview();
+        TraceWorkspaceLoadPhase("human-proof-coverage-review", () => RestorePendingPlanHumanProofCoverageReview());
         loadConvSw.Stop();
         SquadDashTrace.Write(TraceCategory.Performance, $"LOAD_CONVERSATION_END: {loadConvSw.ElapsedMilliseconds}ms");
         _ = Dispatcher.BeginInvoke(
@@ -40906,7 +42354,9 @@ public partial class MainWindow : Window
                             a.InboxMessageId,
                             a.FileReferencePath,
                             a.RequiresRemovalConfirmation,
-                            a.RemovalWarning))
+                            a.RemovalWarning,
+                            a.Notes,
+                            a.TranscriptSource))
                         .ToList();
                 }
             }
@@ -41464,12 +42914,17 @@ public partial class MainWindow : Window
         box.BeginChange();
     }
 
+    private bool IsBulkTranscriptDocumentLoadActive(TranscriptThreadState thread) =>
+        _bulkChangeTranscriptBoxes.ContainsKey(thread);
+
     private void EndBulkTranscriptDocumentLoad(TranscriptThreadState thread)
     {
         if (!_bulkChangeTranscriptBoxes.Remove(thread, out var box))
             return;
 
         box.EndChange();
+        if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
+            SchedulePromptNavGeometryRefresh();
     }
 
     private ThrottledScrollRichTextBox CreatePrimaryAgentTranscriptBox()
@@ -41655,7 +43110,7 @@ public partial class MainWindow : Window
                 $"snapshotCount={_transcriptSnapshots.Count} snapshotThread={snapshotThread} " +
                 $"lastSnapshotAgeMs={snapshotAgeMs} lastSnapshot=\"{_lastTranscriptSnapshotCaptureSummary}\" " +
                 $"inputAgeMs={inputAgeMs} promptFocused={PromptTextBox?.IsKeyboardFocusWithin == true} " +
-                $"docFocused={DocSourceTextBox?.IsKeyboardFocusWithin == true} promptLen={PromptTextBox?.Text.Length ?? 0}";
+                $"docFocused={DocSourceEditor?.IsKeyboardFocusWithin == true} promptLen={PromptTextBox?.GetTextLength() ?? 0}";
         }
         catch (Exception ex)
         {
@@ -43289,6 +44744,7 @@ public partial class MainWindow : Window
             FontSize = _transcriptFontSize,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
+        ReadOnlyTextInputGuard.DisableInputMethod(rtb);
         rtb.SetResourceReference(RichTextBox.ForegroundProperty, "LabelText");
         rtb.SetResourceReference(RichTextBox.SelectionBrushProperty, "DocEditorSelectionBrush");
         rtb.SetResourceReference(RichTextBox.SelectionOpacityProperty, "DocEditorSelectionOpacity");
@@ -43298,6 +44754,8 @@ public partial class MainWindow : Window
         {
             try
             {
+                if (TranscriptCodeBlockPreview.Find(e.OriginalSource as DependencyObject) is not null)
+                    return;
                 var menu = new ContextMenu();
                 menu.SetResourceReference(ContextMenu.StyleProperty, "ThemedContextMenuStyle");
 
@@ -44603,6 +46061,7 @@ public partial class MainWindow : Window
                     promptParagraph.Inlines.Add(voiceRun);
                 }
             }
+            TranscriptAttachmentSourceFactory.SetRole(promptParagraph, promptIsSystemInjected ? "system" : "user");
             thread.Document.Blocks.Add(promptParagraph);
             topLevelBlocks.Add(promptParagraph);
             thread.PromptParagraphs.Add(new PromptEntry(promptParagraph, startedAt,
@@ -44614,7 +46073,7 @@ public partial class MainWindow : Window
             else
                 RestartAgentIntentDebounce(thread);
             if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
-                SyncPromptNavButtons();
+                SyncPromptNavButtons(allowGeometry: !IsBulkTranscriptDocumentLoadActive(thread));
         }
 
         var narrativeSection = new Section();
@@ -44890,6 +46349,7 @@ public partial class MainWindow : Window
 
     private void RenderPersistedTurn(TranscriptThreadState thread, TranscriptTurnRecord turn, bool isLastTurn = false)
     {
+        var renderSw = Stopwatch.StartNew();
         // Session-boundary markers are rendered as a stripe separator, not as AI content.
         if (turn.IsSessionBoundary)
         {
@@ -44899,6 +46359,7 @@ public partial class MainWindow : Window
                     turn.SessionBoundaryOfflineDuration ?? TimeSpan.Zero,
                     turn.SessionBoundaryStartupTime,
                     turn.SessionBoundaryAppVersion);
+            TraceSlowPersistedTurnRender(thread, turn, renderSw, isSessionBoundary: true);
             return;
         }
 
@@ -44969,6 +46430,31 @@ public partial class MainWindow : Window
                 foreach (var report in turn.AgentReports)
                     AppendAgentReportButton(report.AgentLabel, report.ReportPath, view);
         }
+
+        TraceSlowPersistedTurnRender(thread, turn, renderSw, isSessionBoundary: false);
+    }
+
+    private static void TraceSlowPersistedTurnRender(
+        TranscriptThreadState thread,
+        TranscriptTurnRecord turn,
+        Stopwatch renderSw,
+        bool isSessionBoundary)
+    {
+        renderSw.Stop();
+        if (renderSw.ElapsedMilliseconds < 50)
+            return;
+
+        var responseSegments = turn.GetResponseSegments().Count();
+        var hostNotices = turn.GetHostNotices().Count();
+        var codeFenceCount = CountOccurrences(turn.ResponseText ?? string.Empty, "```");
+        SquadDashTrace.Write(
+            TraceCategory.Performance,
+            $"PERSISTED_TURN_RENDER_SLOW: {renderSw.ElapsedMilliseconds}ms " +
+            $"thread={thread.ThreadId} kind={thread.Kind} boundary={isSessionBoundary} " +
+            $"promptChars={turn.Prompt?.Length ?? 0} responseChars={turn.ResponseText?.Length ?? 0} " +
+            $"thinkingChars={turn.ThinkingText?.Length ?? 0} tools={turn.Tools.Count} " +
+            $"segments={responseSegments} hostNotices={hostNotices} codeFences={codeFenceCount} " +
+            $"agentReports={turn.AgentReports?.Count ?? 0}");
     }
 
     private bool RenderStructuredPersistedNarrative(TranscriptTurnView view, TranscriptTurnRecord turn, bool isLastTurn = false)
@@ -45124,6 +46610,11 @@ public partial class MainWindow : Window
                 MakeThemedToolTip("This prompt includes attachments. Click to view."),
                 isSystemSteering);
             view.NarrativeSection.Blocks.Add(paragraph);
+            // Re-register steering entries as navigation stops after a reload, mirroring the
+            // live paths. User steering keeps a derived title; system steering stays titleless.
+            var steeringTitle = isSystemSteering || string.IsNullOrWhiteSpace(display.Prompt)
+                ? null : NotesStore.DeriveTitle(display.Prompt);
+            RegisterSteeringPromptNavStop(view.OwnerThread, paragraph, notice.OccurredAt, steeringTitle);
             return;
         }
 
@@ -45257,8 +46748,7 @@ public partial class MainWindow : Window
 
         var textEditingActive =
             PromptTextBox?.IsKeyboardFocusWithin == true ||
-            DocSourceTextBox?.IsKeyboardFocusWithin == true ||
-            _docSourceFindTextBox?.IsKeyboardFocusWithin == true ||
+            DocSourceEditor?.IsKeyboardFocusWithin == true ||
             _intelliSenseOwnerBox?.IsKeyboardFocusWithin == true;
 
         var quietPeriod = textEditingActive
@@ -45303,11 +46793,13 @@ public partial class MainWindow : Window
 
     private void RenderResponseEntry(TranscriptResponseEntry entry)
     {
+        var renderSw = Stopwatch.StartNew();
         var rawText = entry.RawTextBuilder.ToString();
 
-        // Scan for fusion patterns: sentence-ending punctuation immediately followed by
-        // a word character with no intervening space or newline.
-        TraceFusionPatternsInRawText(rawText, entry.Sequence);
+        // Enable only while actively debugging transcript text fusion; the scan and trace
+        // writes otherwise sit directly in the historical transcript render path.
+        if (EnableFusionPatternTrace)
+            TraceFusionPatternsInRawText(rawText, entry.Sequence);
 
         var sanitizedText = AgentArtifactBlockExpander.ExpandDisplayArtifacts(
             SanitizeResponseText(rawText),
@@ -45365,6 +46857,7 @@ public partial class MainWindow : Window
         // document height synchronously, clamping VerticalOffset before the rebuild adds
         // content back. That clamp is what causes the scroll thumb to jump mid-transcript.
         var oldBlocks = entry.Section.Blocks.ToList();
+        DisposeTranscriptMarkdownDetails(oldBlocks);
         int shared = Math.Min(oldBlocks.Count, newBlocks.Count);
 
         for (int i = 0; i < shared; i++)
@@ -45376,7 +46869,43 @@ public partial class MainWindow : Window
             entry.Section.Blocks.Add(newBlocks[i]);
         for (int i = shared; i < oldBlocks.Count; i++)
             entry.Section.Blocks.Remove(oldBlocks[i]);
+
+        renderSw.Stop();
+        if (renderSw.ElapsedMilliseconds >= 40)
+        {
+            var codeFenceCount = CountOccurrences(rawText, "```");
+            var lineCount = rawText.Count(static value => value == '\n') + 1;
+            SquadDashTrace.Write(
+                TraceCategory.Performance,
+                $"RESPONSE_RENDER_SLOW: {renderSw.ElapsedMilliseconds}ms " +
+                $"thread={entry.Turn.OwnerThread.ThreadId} kind={entry.Turn.OwnerThread.Kind} " +
+                $"seq={entry.Sequence} chars={rawText.Length} lines={lineCount} " +
+                $"blocks={newBlocks.Count} oldBlocks={oldBlocks.Count} " +
+                $"quickReplies={entry.AllowQuickReplies} protocolJson={protocolJsonBlocks.Count} " +
+                $"codeFences={codeFenceCount} hasDiagnostics={ContainsDiagnosticsText(rawText)}");
+        }
     }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(value))
+            return 0;
+
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += value.Length;
+        }
+        return count;
+    }
+
+    private static bool ContainsDiagnosticsText(string text) =>
+        text.Contains("diagnostic", StringComparison.OrdinalIgnoreCase) ||
+        text.Contains("diagnostics", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly bool EnableFusionPatternTrace = false;
 
     /// <summary>
     /// Scans <paramref name="rawText"/> for patterns where sentence-ending punctuation
@@ -45484,6 +47013,16 @@ public partial class MainWindow : Window
 
         var normalized = responseText.Replace("\r\n", "\n").Replace('\r', '\n');
         var lines = normalized.Split('\n');
+        var detailRegions = MarkdownDetailParser.Parse(lines);
+        var detailRegionsByStart = detailRegions.ToDictionary(region => region.StartLine);
+        var validDetailRegions = detailRegions.Where(region => region.Diagnostic is null).ToArray();
+        var detailState = CreateTranscriptDetailStateContext(entry);
+        var detailKeys = detailState?.Identity.GetSectionKeys(validDetailRegions.Select(region =>
+            new MarkdownDetailSection(region.Label, region.Body)));
+        var detailIndex = 0;
+        foreach (var diagnostic in detailRegions.Where(region => region.Diagnostic is not null))
+            SquadDashTrace.Write("MarkdownDetail",
+                $"Transcript line {diagnostic.StartLine + 1}: {diagnostic.Diagnostic}");
         var paragraphLines = new List<string>();
 
         for (var index = 0; index < lines.Length; index++)
@@ -45491,8 +47030,34 @@ public partial class MainWindow : Window
             var line = lines[index];
             var trimmed = line.TrimStart();
 
+            if (detailRegionsByStart.TryGetValue(index, out var detailRegion))
+            {
+                foreach (var block in BuildParagraphBlocks(paragraphLines))
+                    yield return block;
+                paragraphLines.Clear();
+
+                if (detailRegion.Diagnostic is null)
+                {
+                    var key = detailKeys is null ? null : detailKeys[detailIndex];
+                    detailIndex++;
+                    yield return BuildTranscriptDetailBlock(entry, detailRegion, detailState, key);
+                }
+                else
+                {
+                    var literalLines = lines
+                        .Skip(detailRegion.StartLine)
+                        .Take(detailRegion.EndLine - detailRegion.StartLine + 1)
+                        .ToList();
+                    foreach (var block in BuildParagraphBlocks(literalLines))
+                        yield return block;
+                }
+
+                index = detailRegion.EndLine;
+                continue;
+            }
+
             // Code fence
-            if (MarkdownDocumentRenderer.TryReadFenceStart(trimmed, out var fenceLength))
+            if (MarkdownDocumentRenderer.TryReadFenceStart(trimmed, out var fenceLength, out var language))
             {
                 foreach (var block in BuildParagraphBlocks(paragraphLines))
                     yield return block;
@@ -45506,7 +47071,7 @@ public partial class MainWindow : Window
                     index++;
                 }
 
-                yield return BuildCodeBlock(string.Join("\n", codeLines));
+                yield return BuildCodeBlock(string.Join("\n", codeLines), language);
                 continue;
             }
 
@@ -45538,6 +47103,61 @@ public partial class MainWindow : Window
             hintRun.SetResourceReference(TextElement.ForegroundProperty, "KeyboardHintText");
             hintParagraph.Inlines.Add(hintRun);
             yield return hintParagraph;
+        }
+    }
+
+    private MarkdownDetailStateContext? CreateTranscriptDetailStateContext(TranscriptResponseEntry entry)
+    {
+        var workspaceFolder = _currentWorkspace?.FolderPath;
+        if (string.IsNullOrWhiteSpace(workspaceFolder))
+            return null;
+
+        var entityId = $"{entry.Turn.OwnerThread.ThreadId}:{entry.Turn.StartedAt.UtcTicks}:{entry.Sequence}";
+        return new MarkdownDetailStateContext(
+            MarkdownDetailIdentity.Create(workspaceFolder, "transcript-response", entityId, "response"),
+            _transcriptDetailStateStore);
+    }
+
+    private Block BuildTranscriptDetailBlock(
+        TranscriptResponseEntry entry,
+        MarkdownDetailRegion region,
+        MarkdownDetailStateContext? detailState,
+        string? key)
+    {
+        var body = new FlowDocument
+        {
+            FontFamily = entry.Turn.OwnerThread.Document.FontFamily,
+            FontSize = _transcriptFontSize,
+            Foreground = entry.Turn.OwnerThread.Document.Foreground,
+            Background = Brushes.Transparent,
+            PagePadding = new Thickness(0)
+        };
+        foreach (var block in BuildResponseBlocks(entry, region.Body, allowQuickReplies: false).ToArray())
+            body.Blocks.Add(block);
+        MarkdownVisibleContent.Bind(body);
+
+        var detail = new MarkdownDetailView(entry.Turn.OwnerThread.Document, body, region.Label, key, detailState);
+        detail.Expander.FontSize = _transcriptFontSize;
+        return new BlockUIContainer(detail.Expander)
+        {
+            Tag = detail,
+            Margin = new Thickness(0, 2, 0, 8)
+        };
+    }
+
+    private static void DisposeTranscriptMarkdownDetails(IEnumerable<Block> blocks)
+    {
+        foreach (var block in blocks)
+        {
+            if (block is BlockUIContainer { Tag: MarkdownDetailView detail })
+            {
+                MarkdownVisibleContent.Detach(detail.Viewer.Document);
+                detail.Dispose();
+            }
+            else if (block is Section section)
+            {
+                DisposeTranscriptMarkdownDetails(section.Blocks.Cast<Block>());
+            }
         }
     }
 
@@ -45709,66 +47329,8 @@ public partial class MainWindow : Window
         return p;
     }
 
-    private Block BuildCodeBlock(string code)
-    {
-        var copyButtonSize = _transcriptFontSize * 1.5;
-        var codeTopPadding = Math.Max(30, copyButtonSize + 8);
-        var textBox = new TextBox
-        {
-            Text = code,
-            IsReadOnly = true,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.NoWrap,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            FontFamily = new FontFamily("Consolas"),
-            FontSize = _transcriptFontSize * 0.9,
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(10, codeTopPadding, 10, 8),
-            Tag = "codeblock"
-        };
-        textBox.SetResourceReference(Control.BackgroundProperty, "CodeSurface");
-        textBox.SetResourceReference(Control.ForegroundProperty, "CodeText");
-
-        var copyBtn = new CopyButton
-        {
-            CopyTooltip = "Copy code",
-            Width = copyButtonSize,
-            Height = copyButtonSize,
-            Padding = new Thickness(0),
-            Margin = new Thickness(0),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            VerticalAlignment = VerticalAlignment.Stretch
-        };
-        copyBtn.Click += (_, _) =>
-        {
-            try { Clipboard.SetText(code); } catch { }
-        };
-
-        var copyButtonBackdrop = new Border
-        {
-            CornerRadius = new CornerRadius(2),
-            Opacity = 0.5,
-            BorderThickness = new Thickness(0)
-        };
-        copyButtonBackdrop.SetResourceReference(Border.BackgroundProperty, "CodeSurface");
-
-        var stickyCopyHost = new Grid
-        {
-            Width = copyButtonSize,
-            Height = copyButtonSize,
-            Margin = new Thickness(4, 2, 4, 2),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top
-        };
-        stickyCopyHost.Children.Add(copyButtonBackdrop);
-        stickyCopyHost.Children.Add(copyBtn);
-
-        var container = new Grid();
-        container.Children.Add(textBox);
-        StickyCodeBlockBehavior.Attach(container, stickyCopyHost);
-        return new BlockUIContainer(container) { Margin = new Thickness(0, 2, 0, 10) };
-    }
+    private Block BuildCodeBlock(string code, string language) =>
+        CopyableCodeBlockBuilder.Build(code, _transcriptFontSize, transcript: true, language: language);
 
     private sealed record QuickReplyButtonPayload(
         TranscriptResponseEntry Entry,
@@ -47128,7 +48690,7 @@ public partial class MainWindow : Window
             InterruptedPromptRecoveryPresentation.BuildEditablePrompt(recovery),
             recovery.Attachments);
         PromptTextBox.Focus();
-        PromptTextBox.CaretIndex = PromptTextBox.Text.Length;
+        PromptTextBox.SetCaretOffset(PromptTextBox.GetTextLength());
         SquadDashTrace.Write("Recovery", $"Restored interrupted prompt to editor id={recovery.RecoveryId}");
     }
 
@@ -47208,7 +48770,7 @@ public partial class MainWindow : Window
         }
 
         // If the active draft box is empty, fill it directly.
-        if (_activeTabId is null && string.IsNullOrWhiteSpace(PromptTextBox.Text))
+        if (_activeTabId is null && string.IsNullOrWhiteSpace(PromptTextBox.GetPlainText()))
         {
             SetPromptTextBoxLogicalBuffer(text, text.Length, reason: "draft-quick-reply");
             PromptTextBox.Focus();
@@ -47447,11 +49009,17 @@ public partial class MainWindow : Window
 
     private void AppendThinkingText(TranscriptThreadState thread, string text, string? speaker)
     {
-        if (thread.CurrentTurn is null || string.IsNullOrWhiteSpace(text))
+        if (thread.CurrentTurn is null)
+            return;
+
+        if (string.IsNullOrEmpty(text))
             return;
 
         var thoughtEntry = GetOrCreateThoughtEntry(thread.CurrentTurn, speaker);
+        var beforeLength = thoughtEntry.RawTextBuilder.Length;
         AppendThoughtChunk(thoughtEntry.RawTextBuilder, text);
+        if (thoughtEntry.RawTextBuilder.Length == beforeLength)
+            return;
 
         if (thread.CurrentTurn.ThoughtBlocks.LastOrDefault() is { } thoughtBlock)
             thoughtBlock.LastUpdatedAt = DateTimeOffset.Now;
@@ -47460,13 +49028,102 @@ public partial class MainWindow : Window
         ScrollToEndIfAtBottom(thread);
     }
 
-    private static void AppendThoughtChunk(StringBuilder builder, string text)
+    // Defense-in-depth counterpart to ReconcileFinalSubagentResponseText (below), but for
+    // thinking/reasoning text. The Coordinator's own thinking stream has no distinct
+    // "final reasoning" event separate from "thinking_delta" — the SDK's own reconciliation
+    // (which normally only emits the unstreamed tail) feeds into the very same delta channel
+    // that AppendThinkingText uses for live streaming. If that upstream reconciliation ever
+    // misses a whitespace/line-break-only match and re-emits the ENTIRE reasoning block as a
+    // single "delta", AppendThoughtChunk must recognize and reconcile it instead of blindly
+    // appending a duplicate. This is gated so genuine small incremental deltas (the common
+    // case, many times per response) are left untouched and remain as cheap as before.
+    private static void AppendThoughtChunk(
+        StringBuilder builder,
+        string text)
     {
         var chunk = NormalizeThinkingChunk(text);
-        if (string.IsNullOrWhiteSpace(chunk))
+        if (string.IsNullOrEmpty(chunk))
             return;
 
+        if (string.IsNullOrWhiteSpace(chunk) && builder.Length == 0)
+            return;
+
+        // Only pay for the whitespace-tolerant resend check (and the StringBuilder -> string
+        // copy it requires) when the incoming chunk is at least as long as what's already
+        // accumulated — a genuine incremental delta never satisfies that, so this keeps the
+        // common streaming case exactly as cheap as a plain Append.
+        if (builder.Length > 0 && chunk.Length >= builder.Length)
+        {
+            var current = builder.ToString();
+            if (TranscriptTextUtilities.LooksLikeFullReasoningResend(current, chunk))
+            {
+                var merged = TranscriptTextUtilities.MergeStreamingAndFinalResponse(
+                    current,
+                    chunk,
+                    out var tailToAppend);
+
+                if (!string.IsNullOrEmpty(tailToAppend))
+                    builder.Append(tailToAppend);
+                else if (!string.Equals(merged, current, StringComparison.Ordinal))
+                {
+                    builder.Clear();
+                    builder.Append(merged);
+                }
+
+                return;
+            }
+        }
+
         builder.Append(chunk);
+    }
+
+    // Defense-in-depth counterpart to ReconcileFinalSubagentResponseText for thinking/reasoning
+    // text. Used when an event explicitly carries the FINAL/authoritative reasoning text for a
+    // turn (e.g. a sub-agent's completed message), rather than an incremental streaming delta.
+    // Reconciles against whatever has already been streamed into the thought entry instead of
+    // blindly re-appending it, so whitespace/line-break-only re-sends of the same reasoning
+    // don't show up twice.
+    private void ReconcileFinalThinkingText(TranscriptThreadState thread, string finalText, string? speaker)
+    {
+        if (string.IsNullOrWhiteSpace(finalText))
+            return;
+
+        _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
+        if (thread.CurrentTurn is null)
+            return;
+
+        var normalizedFinal = NormalizeThinkingChunk(finalText);
+        if (string.IsNullOrWhiteSpace(normalizedFinal))
+            return;
+
+        var thoughtEntry = GetOrCreateThoughtEntry(thread.CurrentTurn, speaker);
+        var builder = thoughtEntry.RawTextBuilder;
+        var current = builder.ToString();
+
+        var merged = TranscriptTextUtilities.MergeStreamingAndFinalResponse(
+            current,
+            normalizedFinal,
+            out var tailToAppend);
+
+        if (!string.IsNullOrEmpty(tailToAppend))
+            builder.Append(tailToAppend);
+        else if (!string.Equals(merged, current, StringComparison.Ordinal))
+        {
+            builder.Clear();
+            builder.Append(merged);
+        }
+        else
+        {
+            // Final text fully duplicates (or is a whitespace-only variant of) what's already
+            // streamed — nothing new to render.
+            return;
+        }
+
+        if (thread.CurrentTurn.ThoughtBlocks.LastOrDefault() is { } thoughtBlock)
+            thoughtBlock.LastUpdatedAt = DateTimeOffset.Now;
+
+        QueueThoughtEntryRender(thoughtEntry, flushImmediately: false);
+        ScrollToEndIfAtBottom(thread);
     }
 
     private void ScrollToEndIfAtBottom() =>
@@ -47485,8 +49142,7 @@ public partial class MainWindow : Window
     {
         _ = Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
         {
-            var activeBox = ActiveTranscriptBox;
-            var sv = activeBox.Template?.FindName("PART_ContentHost", activeBox) as ScrollViewer;
+            var sv = ResolveActiveTranscriptScrollViewer();
             if (sv is null) return;
 
             var tp = paragraph.ContentStart;
@@ -47628,10 +49284,24 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RefreshActiveTranscriptScrollViewer()
+    /// <summary>
+    /// Resolves the ScrollViewer that actually scrolls the active transcript RichTextBox.
+    /// This MUST match the instance <see cref="ScrollToPromptParagraph"/> scrolls, so both
+    /// use the control-template content host (<c>PART_ContentHost</c>). A plain visual-tree
+    /// search can return a different (e.g. embedded-code-region) ScrollViewer or an orphaned
+    /// host after an in-place template rebuild, which desynchronises the nav geometry.
+    /// </summary>
+    private ScrollViewer? ResolveActiveTranscriptScrollViewer()
     {
         var activeBox = ActiveTranscriptBox;
-        var newScrollViewer = VisualTreeSearch.FindChild<ScrollViewer>(activeBox);
+        activeBox.ApplyTemplate();
+        return activeBox.Template?.FindName("PART_ContentHost", activeBox) as ScrollViewer
+            ?? VisualTreeSearch.FindChild<ScrollViewer>(activeBox);
+    }
+
+    private void RefreshActiveTranscriptScrollViewer()
+    {
+        var newScrollViewer = ResolveActiveTranscriptScrollViewer();
         if (ReferenceEquals(newScrollViewer, _transcriptScrollViewer))
             return;
 
@@ -47706,54 +49376,31 @@ public partial class MainWindow : Window
         if (_transcriptScrollViewer is null || thread.PromptParagraphs.Count == 0)
             return;
 
-        // A prompt is "above" (UP target) when it's scrolled above the viewport top.
-        // A prompt is a "below" (DOWN target) when it is:
-        //   (a) below the viewport top by more than the dead-zone, AND
-        //   (b) can actually be scrolled to the viewport top — i.e. its absolute Y is
-        //       within the scrollable range (≤ ScrollableHeight). Prompts near the very
-        //       bottom of the document cannot be placed at the top because the scroll
-        //       viewer hits its maximum offset; navigating to them would produce no
-        //       meaningful movement, so the ↓ button should be disabled for them.
-        const double DeadZone = 50.0;
         var sv         = _transcriptScrollViewer;
         var viewportTop    = sv.VerticalOffset;
         var scrollableMax  = sv.ScrollableHeight; // ExtentHeight − ViewportHeight
 
-        double bestAboveY = double.MinValue;
-        double bestBelowY = double.MaxValue;
-
+        // Project each prompt onto its absolute document-space Y. Unmeasurable prompts
+        // are passed through as NaN so the pure math skips them.
+        var promptAbsYs = new double[thread.PromptParagraphs.Count];
         for (int i = 0; i < thread.PromptParagraphs.Count; i++)
         {
             var para = thread.PromptParagraphs[i].Paragraph;
             var rect = para.ContentStart.GetCharacterRect(System.Windows.Documents.LogicalDirection.Forward);
-            if (rect.IsEmpty) continue;
-
-            // Absolute Y in the document.
-            var absY = viewportTop + rect.Top;
-
-            if (absY < viewportTop - DeadZone)
-            {
-                // Prompt is above the viewport — candidate for ↑ (go up/back).
-                // Pick the one with the LARGEST absoluteY (nearest from above).
-                if (absY > bestAboveY) { bestAboveY = absY; nearestAboveIdx = i; }
-            }
-            else if (absY > viewportTop + DeadZone && absY <= scrollableMax)
-            {
-                // Prompt is below the viewport top AND can be brought to the top
-                // (there is enough content below it to fill the viewport).
-                // Pick the one with the SMALLEST absoluteY (nearest from below).
-                if (absY < bestBelowY) { bestBelowY = absY; nearestBelowIdx = i; }
-            }
+            promptAbsYs[i] = rect.IsEmpty ? double.NaN : viewportTop + rect.Top;
         }
 
-        canGoUp   = nearestAboveIdx >= 0;
-        canGoDown = nearestBelowIdx >= 0;
+        var navState = PromptScrollNavMath.Compute(promptAbsYs, viewportTop, scrollableMax);
+        nearestAboveIdx = navState.NearestAboveIdx;
+        nearestBelowIdx = navState.NearestBelowIdx;
+        canGoUp   = navState.CanGoUp;
+        canGoDown = navState.CanGoDown;
 
         SquadDashTrace.Write(TraceCategory.TranscriptNav,
             $"GetScrollBasedNavState: viewportTop={viewportTop:F1} scrollableMax={scrollableMax:F1} " +
             $"prompts={thread.PromptParagraphs.Count} navIndex={thread.PromptNavIndex} " +
-            $"nearestAbove={nearestAboveIdx} (absY={bestAboveY:F1}) " +
-            $"nearestBelow={nearestBelowIdx} (absY={(nearestBelowIdx >= 0 ? bestBelowY : double.NaN):F1}) " +
+            $"nearestAbove={nearestAboveIdx} (absY={(nearestAboveIdx >= 0 ? promptAbsYs[nearestAboveIdx] : double.NaN):F1}) " +
+            $"nearestBelow={nearestBelowIdx} (absY={(nearestBelowIdx >= 0 ? promptAbsYs[nearestBelowIdx] : double.NaN):F1}) " +
             $"canGoUp={canGoUp} canGoDown={canGoDown}");
     }
 
@@ -47779,6 +49426,17 @@ public partial class MainWindow : Window
 
         bool canGoUp;
         bool canGoDown;
+        if (allowGeometry)
+        {
+            // Re-resolve the live content-host ScrollViewer before reading geometry. An
+            // in-place template rebuild (e.g. embedded code regions) or a transcript-box
+            // swap can orphan the cached instance, leaving it frozen at a stale offset
+            // (the classic symptom: viewportTop pinned at the old document bottom, which
+            // permanently disables ↓). This also moves the ScrollChanged subscription to
+            // the live viewer so the authoritative post-scroll recompute actually fires.
+            RefreshActiveTranscriptScrollViewer();
+        }
+
         if (allowGeometry && _transcriptScrollViewer is not null)
         {
             // Base enabled state on scroll position so that manual scrolling keeps
@@ -47793,6 +49451,34 @@ public partial class MainWindow : Window
 
         PromptNavUpButton.IsEnabled   = canGoUp;
         PromptNavDownButton.IsEnabled = canGoDown;
+    }
+
+    /// <summary>
+    /// Registers a steering paragraph as a prompt-navigation stop. A steering message is a
+    /// user prompt (or a system-injected prompt) and must be a navigable ↑/↓ stop like any
+    /// other prompt. Because steering paragraphs are rendered inside a turn's narrative
+    /// <see cref="System.Windows.Documents.Section"/> rather than as a top-level block, they
+    /// are inserted into <see cref="TranscriptThreadState.PromptParagraphs"/> at their true
+    /// document-order position (via <see cref="PromptRegistrationMath.ResolveInsertionIndex"/>)
+    /// so nearest-above/below geometry, Shift+click "latest", and the index-based fallbacks all
+    /// stay correct. The paragraph must already be attached to <paramref name="thread"/>'s
+    /// document before calling. Returns the index at which the entry was inserted.
+    /// </summary>
+    private static int RegisterSteeringPromptNavStop(
+        TranscriptThreadState thread,
+        System.Windows.Documents.Paragraph paragraph,
+        DateTimeOffset occurredAt,
+        string? title)
+    {
+        var documentStart = thread.Document.ContentStart;
+        var existingParagraphs = new System.Windows.Documents.Paragraph[thread.PromptParagraphs.Count];
+        for (int i = 0; i < existingParagraphs.Length; i++)
+            existingParagraphs[i] = thread.PromptParagraphs[i].Paragraph;
+
+        var insertIndex = PromptRegistrationMath.ResolveInsertionIndex(
+            documentStart, paragraph, existingParagraphs);
+        thread.PromptParagraphs.Insert(insertIndex, new PromptEntry(paragraph, occurredAt, title));
+        return insertIndex;
     }
 
     private static string FormatRelativeTime(DateTimeOffset timestamp)
@@ -48294,10 +49980,13 @@ public partial class MainWindow : Window
         foreach (var entry in block.ToolEntries)
         {
             if (!entry.IsCompleted || !entry.Success) continue;
-            var diff = ToolTranscriptFormatter.TryBuildEditDiffSummary(entry.Descriptor, entry.OutputText, entry.ArgsJson);
-            if (diff is null) continue;
-            added   += diff.AddedLineCount;
-            removed += diff.RemovedLineCount;
+            var edits = entry.CapturedEdits;
+            if (edits is null && ReferenceEquals(entry.Turn.OwnerThread.CurrentTurn, entry.Turn))
+                edits = EnsureCapturedEdits(entry);
+            if (edits is not { Count: > 0 })
+                continue;
+            added   += edits.Sum(edit => edit.AddedLineCount);
+            removed += edits.Sum(edit => edit.RemovedLineCount);
         }
         return (added, removed);
     }
@@ -48830,6 +50519,7 @@ public partial class MainWindow : Window
             MinHeight = 140,
             MaxHeight = 260
         };
+        ReadOnlyTextInputGuard.DisableInputMethod(detailTextBox);
         detailTextBox.SetResourceReference(TextBox.BackgroundProperty, "CodeSurface");
         detailTextBox.SetResourceReference(TextBox.BorderBrushProperty, "InputBorder");
         detailTextBox.SetResourceReference(TextBox.ForegroundProperty, "LabelText");
@@ -48877,6 +50567,8 @@ public partial class MainWindow : Window
         };
         block.Turn.ToolEntries.Add(entry);
         block.ToolEntries.Add(entry);
+
+        expander.Expanded += (_, _) => EnsureToolDetailText(entry);
 
         // Refresh the coordinator intent label when a new tool entry arrives for it.
         if (entry.Turn.OwnerThread.Kind == TranscriptThreadKind.Coordinator)
@@ -48977,8 +50669,7 @@ public partial class MainWindow : Window
         entry.DetailContent = ToolTranscriptOutputLimiter.TrimForLiveTranscript(entry.Descriptor, tool.DetailContent);
         entry.CapturedEdits = tool.CapturedEdits is { Count: > 0 }
             ? tool.CapturedEdits
-            : ToolTranscriptFormatter.TryExtractCapturedEdits(
-                entry.Descriptor, entry.OutputText, entry.ArgsJson);
+            : null;
         entry.IsCompleted = tool.IsCompleted;
         entry.Success = tool.Success;
         RenderToolEntry(entry);
@@ -49085,7 +50776,19 @@ public partial class MainWindow : Window
             entry.IsCompleted && !entry.Success ? "ToolFailureText" : "ToolBodyText");
         entry.MessageTextBlock.Inlines.Clear();
         RenderToolMessage(entry);
-        entry.DetailTextBox.Text = entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
+        if (entry.Expander.IsExpanded)
+            EnsureToolDetailText(entry);
+    }
+
+    private void EnsureToolDetailText(ToolTranscriptEntry entry)
+    {
+        var detailText = BuildToolDetailText(entry);
+        if (!string.Equals(entry.DetailTextBox.Text, detailText, StringComparison.Ordinal))
+            entry.DetailTextBox.Text = detailText;
+    }
+
+    private static string BuildToolDetailText(ToolTranscriptEntry entry) =>
+        entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
             entry.Descriptor,
             entry.ArgsJson,
             entry.OutputText,
@@ -49094,7 +50797,6 @@ public partial class MainWindow : Window
             entry.ProgressText,
             entry.IsCompleted,
             entry.Success));
-    }
 
     private void RenderToolMessage(ToolTranscriptEntry entry)
     {
@@ -49136,28 +50838,42 @@ public partial class MainWindow : Window
         entry.EmojiImage.Visibility = entry.EmojiImage.Source is not null
             ? Visibility.Visible : Visibility.Collapsed;
 
-        if (entry.IsCompleted && entry.Success)
-            entry.CapturedEdits ??= ToolTranscriptFormatter.TryExtractCapturedEdits(
-                entry.Descriptor, entry.OutputText, entry.ArgsJson);
+        var shouldTryRenderEditLink =
+            entry.CapturedEdits is { Count: > 0 } ||
+            ReferenceEquals(entry.Turn.OwnerThread.CurrentTurn, entry.Turn) &&
+            ToolTranscriptFormatter.IsEditToolName(entry.Descriptor.ToolName);
+        var capturedEdits = shouldTryRenderEditLink
+            ? EnsureCapturedEdits(entry)
+            : entry.CapturedEdits;
 
         if (entry.IsCompleted &&
             entry.Success &&
+            capturedEdits is not null &&
             ToolEditLinkPresenter.TryRender(
                 entry.MessageTextBlock,
                 entry.Descriptor,
                 entry.OutputText,
                 entry.ArgsJson,
-                entry.CapturedEdits,
+                capturedEdits,
                 async clickedEdit =>
                 {
-                    var originatingCall = new CapturedEditCall(
-                        entry.ToolCallId,
-                        entry.StartedAt,
-                        entry.CapturedEdits ?? Array.Empty<CapturedFileEdit>());
-                    var viewer = await CommitViewerWindow.CreateFromCapturedEditsAsync(
-                        originatingCall,
-                        clickedEdit.Path,
-                        () => BuildCapturedTurnEdits(entry.Turn));
+                    CommitViewerWindow viewer;
+                    if (entry.IsSimulatedEdit)
+                    {
+                        viewer = await CommitViewerWindow.CreateFromPatchAsync(
+                            clickedEdit.DisplayName, clickedEdit.UnifiedDiff);
+                    }
+                    else
+                    {
+                        var originatingCall = new CapturedEditCall(
+                            entry.ToolCallId,
+                            entry.StartedAt,
+                            EnsureCapturedEdits(entry));
+                        viewer = await CommitViewerWindow.CreateFromCapturedEditsAsync(
+                            originatingCall,
+                            clickedEdit.Path,
+                            () => BuildCapturedTurnEdits(entry.Turn));
+                    }
                     viewer.ConfigureEnvironmentFontZoom(Window_PreviewMouseWheel);
                     if (CanShowOwnedWindow())
                         viewer.Owner = this;
@@ -49183,13 +50899,30 @@ public partial class MainWindow : Window
         foreach (var entry in turn.ToolEntries
                      .Where(candidate => candidate.IsCompleted && candidate.Success)
                      .OrderBy(candidate => candidate.StartedAt)) {
-            entry.CapturedEdits ??= ToolTranscriptFormatter.TryExtractCapturedEdits(
-                entry.Descriptor, entry.OutputText, entry.ArgsJson);
-            if (entry.CapturedEdits.Count == 0)
+            var capturedEdits = EnsureCapturedEdits(entry);
+            if (capturedEdits.Count == 0)
                 continue;
-            calls.Add(new CapturedEditCall(entry.ToolCallId, entry.StartedAt, entry.CapturedEdits));
+            calls.Add(new CapturedEditCall(entry.ToolCallId, entry.StartedAt, capturedEdits));
         }
         return calls;
+    }
+
+    private static IReadOnlyList<CapturedFileEdit> EnsureCapturedEdits(ToolTranscriptEntry entry)
+    {
+        if (entry.CapturedEdits is { } capturedEdits)
+            return capturedEdits;
+        if (!entry.IsCompleted ||
+            !entry.Success ||
+            !ToolTranscriptFormatter.IsEditToolName(entry.Descriptor.ToolName))
+        {
+            return Array.Empty<CapturedFileEdit>();
+        }
+
+        entry.CapturedEdits = ToolTranscriptFormatter.TryExtractCapturedEdits(
+            entry.Descriptor,
+            entry.OutputText,
+            entry.ArgsJson);
+        return entry.CapturedEdits;
     }
 
     private void AdvanceToolSpinner()
@@ -49253,15 +50986,7 @@ public partial class MainWindow : Window
 
             ShowTextWindow(
                 $"{ToolTranscriptFormatter.HumanizeToolName(entry.Descriptor.ToolName)} Tool Details",
-                entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
-                    entry.Descriptor,
-                    entry.ArgsJson,
-                    entry.OutputText,
-                    entry.StartedAt,
-                    entry.FinishedAt,
-                    entry.ProgressText,
-                    entry.IsCompleted,
-                    entry.Success)));
+                BuildToolDetailText(entry));
         }
         catch (Exception ex)
         {
@@ -49271,17 +50996,6 @@ public partial class MainWindow : Window
 
     private ContextMenu CreateToolBlockContextMenu(ToolTranscriptEntry entry)
     {
-        string GetDetailText() =>
-            entry.DetailContent ?? ToolTranscriptFormatter.BuildDetailContent(new ToolTranscriptDetail(
-                entry.Descriptor,
-                entry.ArgsJson,
-                entry.OutputText,
-                entry.StartedAt,
-                entry.FinishedAt,
-                entry.ProgressText,
-                entry.IsCompleted,
-                entry.Success));
-
         var openDetailsItem = new MenuItem
         {
             Header = "Open Details Window",
@@ -49293,7 +51007,7 @@ public partial class MainWindow : Window
             {
                 ShowTextWindow(
                     $"{ToolTranscriptFormatter.HumanizeToolName(entry.Descriptor.ToolName)} Tool Details",
-                    GetDetailText());
+                    BuildToolDetailText(entry));
             }
             catch (Exception ex)
             {
@@ -49310,7 +51024,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                var text = GetDetailText();
+                var text = BuildToolDetailText(entry);
                 if (!string.IsNullOrEmpty(text))
                     Clipboard.SetText(text);
             }
@@ -50257,7 +51971,7 @@ public partial class MainWindow : Window
             isInstallingSquad: _isInstallingSquad,
             isPromptRunning: _isPromptRunning,
             canAbortBackgroundTask: canAbortBackgroundTask,
-            currentPromptText: PromptTextBox.Text);
+            currentPromptText: PromptTextBox.GetPlainText());
         var previous = _lastInteractiveControlState;
         _lastInteractiveControlState = state;
 
@@ -51509,6 +53223,9 @@ public partial class MainWindow : Window
             CleanupActiveLoopCliProjection("window-closed");
             _speechService?.Dispose();
             _speechService = null;
+            _docSourceSaveTimer?.Stop();
+            _docPreviewRefreshTimer?.Stop();
+            DocSourceEditor?.Dispose();
             var pendingPlacement = _pendingWindowPlacement;
             var pendingUtilityWindowState = _pendingUtilityWindowState;
             var pendingDocsPanelState = _pendingDocsPanelState;
@@ -52368,7 +54085,7 @@ public partial class MainWindow : Window
 
     private bool IsMultiLinePrompt()
     {
-        return PromptTextBox.LineCount > 1 || PromptTextBox.Text.Contains('\n');
+        return PromptTextBox.GetLineCount() > 1 || PromptTextBox.GetPlainText().Contains('\n');
     }
 
     private void HideHistoryHint()
@@ -54898,6 +56615,10 @@ public partial class MainWindow : Window
         ButtonsPanelBorder.DockMaximumUsefulWidth = width;
     }
 
+    /// Active palette source for AvalonEdit-backed embedded code regions. Pluggable per the
+    /// AvalonEdit integration contract; the shipped source reads the theme's CodeSurface/CodeText.
+    private readonly IRegionEditorPaletteSource _regionEditorPaletteSource = new ThemeResourcePaletteSource();
+
     private void ApplyTheme(string themeName)
     {
         var themeUri = string.Equals(themeName, "Light", StringComparison.OrdinalIgnoreCase)
@@ -54962,10 +56683,18 @@ public partial class MainWindow : Window
         var isDark = string.Equals(themeName, "Dark", StringComparison.OrdinalIgnoreCase);
         AgentStatusCard.SetTheme(isDark);
 
-        // Re-render doc-source find highlights so they use the new theme's colours.
-        DocSourceFind_RenderHighlights();
+        DocSourceEditor?.RefreshTheme();
         foreach (var agent in _agents)
             agent.NotifyThemeChanged();
+
+        // AvalonEdit-backed embedded code regions do NOT follow DynamicResource, so push the
+        // active theme's surface/text and syntax palette into each region imperatively now that the
+        // theme dictionaries have been swapped (AVALONEDIT-20261014-001, §3). Newly created
+        // regions pull the same palette at construction, so one created between switches is themed.
+        var regionPalette = _regionEditorPaletteSource.CreatePalette();
+        TranscriptCodeBlockPreview.ApplyTheme(Dispatcher, regionPalette);
+        foreach (var region in RichTextBoxExtensions.EnumerateEmbeddedRegions(PromptTextBox))
+            region.NotifyThemeChanged(regionPalette);
 
         foreach (var thread in _agentThreadRegistry.ThreadOrder)
             SyncThreadChip(thread);
@@ -55177,7 +56906,7 @@ public partial class MainWindow : Window
     {
         _search.InvalidateAdornerHighlights();
         _search.InvalidateScrollbarAdorner();
-        DocSourceFind_RenderHighlights();
+        DocSourceEditor?.RefreshTheme();
         RefreshSessionGapStripes();
         foreach (var thread in _agentThreadRegistry.ThreadOrder)
             SyncThreadChip(thread);
@@ -56150,7 +57879,8 @@ public partial class MainWindow : Window
         OpenMarkdownFiles([new MarkdownDocumentSpec(Path.GetFileNameWithoutExtension(filePath), filePath)], title, showSource);
     }
 
-    private void OpenMarkdownFiles(IReadOnlyList<MarkdownDocumentSpec> files, string title, bool showSource = false)
+    private void OpenMarkdownFiles(IReadOnlyList<MarkdownDocumentSpec> files, string title, bool showSource = false,
+        bool useAvalonEdit = false)
     {
         if (files.Count == 0)
             return;
@@ -56162,7 +57892,8 @@ public partial class MainWindow : Window
                 title,
                 files,
                 showSource,
-                BuildMarkdownCaptureContext());
+                BuildMarkdownCaptureContext(),
+                useAvalonEdit: useAvalonEdit);
         }
         catch (Exception ex)
         {
@@ -56690,6 +58421,7 @@ public partial class MainWindow : Window
                                 workspaceFolder: _currentWorkspace?.FolderPath,
                                 loadPlan: planId => _planStore?.Load(planId),
                                 onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection,
+                                onHumanReviewResponseChanged: RecordHumanReviewChecklistResponse,
                                 resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id),
                                 openInboxMessage: id => OpenOrFocusInboxMessage(id));
                             win.Owner = this;
@@ -56780,7 +58512,9 @@ public partial class MainWindow : Window
                         d.InboxMessageId,
                         d.FileReferencePath,
                         d.RequiresRemovalConfirmation,
-                        d.RemovalWarning)));
+                        d.RemovalWarning,
+                        d.Notes,
+                        d.TranscriptSource)));
             }
             catch { /* corrupt data — ignore */ }
         }
@@ -57014,11 +58748,11 @@ public partial class MainWindow : Window
             var newFrontMatter = DocumentUtilities.SetNavExclude(_currentDocFrontMatter, excluded: !isPublished);
 
             string bodyText;
-            if (DocSourcePanel?.Visibility == Visibility.Visible && DocSourceTextBox is not null)
+            if (DocSourcePanel?.Visibility == Visibility.Visible && DocSourceEditor is not null)
             {
                 _docSourceSaveTimer?.Stop();
                 _docPreviewRefreshTimer?.Stop();
-                bodyText = DocSourceTextBox.GetPlainText();
+                bodyText = DocSourceEditor.GetText();
             }
             else
             {
@@ -57885,21 +59619,21 @@ public partial class MainWindow : Window
 
     private void AttachTranscriptFollowUp(RichTextBox rtb)
     {
+        if (TryBuildTranscriptFollowUpAttachment(rtb) is { } attachment)
+            AddTranscriptFollowUp(attachment);
+    }
+
+    private FollowUpAttachment? TryBuildTranscriptFollowUpAttachment(RichTextBox rtb)
+    {
         var quote = TranscriptCopyService.BuildSelectionText(rtb);
-        if (string.IsNullOrWhiteSpace(quote)) return;
+        if (string.IsNullOrWhiteSpace(quote))
+            return null;
 
-        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
-        // Deduplicate: don't add if the same transcript quote is already in the list.
-        if (list.Count >= 15 || list.Any(a => a.TranscriptQuote == quote)) return;
-
-        // Title: first non-whitespace line of the selection, capped at 80 chars.
         var firstLine = quote.Split('\n')
             .Select(l => l.Trim())
             .FirstOrDefault(l => l.Length > 0) ?? quote.TrimStart();
         var title = firstLine.Length > 80 ? firstLine[..80].TrimEnd() + "…" : firstLine;
 
-        // Scan backwards through the thread's prompt paragraphs to find the prompt
-        // that precedes the selection, giving the AI useful context.
         var thread = FindThreadForDocument(rtb.Document);
         var selectionStart = rtb.Selection.Start;
         PromptEntry? precedingEntry = null;
@@ -57920,7 +59654,9 @@ public partial class MainWindow : Window
                 {
                     if (entry.Paragraph.Parent is null) continue;
                     if (entry.Paragraph.ContentStart.CompareTo(selectionStart) < 0)
+                    {
                         precedingEntry = entry;
+                    }
                     else
                         break;
                 }
@@ -57936,18 +59672,32 @@ public partial class MainWindow : Window
         string? originalPrompt = precedingEntry is not null
             ? new TextRange(precedingEntry.Paragraph.ContentStart, precedingEntry.Paragraph.ContentEnd).Text.Trim()
             : null;
+        var transcriptSource = TranscriptAttachmentSourceFactory.FromSelection(
+            thread,
+            rtb.Document,
+            selectionStart,
+            rtb.Selection.End);
 
-        // TRACE: log raw bytes of quote at build time to diagnose missing-space bug
         var quoteBytes = System.Text.Encoding.UTF8.GetBytes(quote.Length > 200 ? quote[..200] : quote);
         SquadDashTrace.Write(TraceCategory.UI,
             $"[ExcerptTrace] AttachTranscriptFollowUp — quote length={quote.Length}, " +
             $"bytes[0..{Math.Min(quoteBytes.Length, 200)}]: {string.Join(",", quoteBytes.Select(b => b.ToString()))}");
 
-        list.Add(new FollowUpAttachment(
-            CommitSha:      string.Empty,
-            Description:    title,
+        return new FollowUpAttachment(
+            CommitSha: string.Empty,
+            Description: title,
             OriginalPrompt: originalPrompt,
-            TranscriptQuote: quote));
+            TranscriptQuote: quote,
+            TranscriptSource: transcriptSource);
+    }
+
+    private void AddTranscriptFollowUp(FollowUpAttachment attachment)
+    {
+        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+        if (list.Count >= 15 || list.Any(a => a.TranscriptQuote == attachment.TranscriptQuote))
+            return;
+
+        list.Add(attachment);
         UpdateFollowUpStrip();
         SyncQueuePanel();
         if (_activeTabId is null) PersistDraftFollowUp();
@@ -57959,10 +59709,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void AddTranscriptSelectionToNewChat(RichTextBox rtb)
     {
+        var precomputedAttachment = TryBuildTranscriptFollowUpAttachment(rtb);
+
         void AddAndAttach()
         {
             AddEmptyQueueSlot();
-            AttachTranscriptFollowUp(rtb);
+            if (precomputedAttachment is not null)
+                AddTranscriptFollowUp(precomputedAttachment);
         }
 
         PreserveVisibleTranscriptViewportsThroughLayout(
@@ -58276,6 +60029,8 @@ public partial class MainWindow : Window
     private static FollowUpAttachment BuildHistoricalTypedAttachment(string block)
     {
         var (type, title) = AttachmentBlockFormatter.ExtractAttachmentMetadata(block);
+        var notes = AttachmentBlockFormatter.ExtractAttachmentNotes(block);
+        var content = AttachmentBlockFormatter.ExtractAttachmentContent(block);
         var description = !string.IsNullOrWhiteSpace(title)
             ? title!
             : type switch
@@ -58290,11 +60045,23 @@ public partial class MainWindow : Window
                 _                => "Attachment",
             };
 
+        if (string.Equals(type, "transcript", StringComparison.Ordinal))
+        {
+            return new FollowUpAttachment(
+                CommitSha: string.Empty,
+                Description: description,
+                OriginalPrompt: null,
+                TranscriptQuote: content,
+                Notes: notes,
+                TranscriptSource: AttachmentBlockFormatter.ExtractTranscriptSource(block));
+        }
+
         return new FollowUpAttachment(
             CommitSha: string.Empty,
             Description: description,
             OriginalPrompt: null,
-            ContentBlock: block);
+            ContentBlock: block,
+            Notes: notes);
     }
 
     private void AttachContextFollowUp(string description, string contentBlock)    {
@@ -58360,7 +60127,7 @@ public partial class MainWindow : Window
         UpdateFollowUpStrip();
         SyncQueuePanel();
         PromptTextBox.Focus();
-        PromptTextBox.CaretIndex = draft.Length;
+        PromptTextBox.SetCaretOffset(draft.Length);
         ShowPlanRevisionPromptGlow();
     }
 
@@ -58395,7 +60162,7 @@ public partial class MainWindow : Window
     private void ReplyInChatFromInboxMessage(InboxMessage msg)
     {
         var draftKey = _activeTabId ?? "";
-        var hasDraftText = !string.IsNullOrWhiteSpace(PromptTextBox.Text);
+        var hasDraftText = !string.IsNullOrWhiteSpace(PromptTextBox.GetPlainText());
         var hasDraftAttachments = _followUpAttachments.TryGetValue(draftKey, out var draftList) && draftList.Count > 0;
 
         if (hasDraftText || hasDraftAttachments)
@@ -58576,6 +60343,7 @@ public partial class MainWindow : Window
             workspaceFolder: _currentWorkspace?.FolderPath,
             loadPlan: readOnlyFixture ? null : planId => _planStore?.Load(planId),
             onHumanReviewSelectionChanged: readOnlyFixture ? null : RecordHumanReviewChecklistSelection,
+            onHumanReviewResponseChanged: readOnlyFixture ? null : RecordHumanReviewChecklistResponse,
             resolveMessageFilePath: readOnlyFixture ? null : id => _inboxStore?.GetMessageFilePath(id),
             openInboxMessage: readOnlyFixture ? null : id => OpenOrFocusInboxMessage(id));
         win.Owner = CanShowOwnedWindow() ? this : null;
@@ -58629,6 +60397,10 @@ public partial class MainWindow : Window
                 string.Equals(
                     action.RouteMode,
                     DurableApprovalRequestManager.ApprovalReviewRouteMode,
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(
+                    action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode,
                     StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(
                     action.RouteMode,
@@ -58699,6 +60471,7 @@ public partial class MainWindow : Window
             workspaceFolder: _currentWorkspace?.FolderPath,
             loadPlan: planId => _planStore?.Load(planId),
             onHumanReviewSelectionChanged: RecordHumanReviewChecklistSelection,
+            onHumanReviewResponseChanged: RecordHumanReviewChecklistResponse,
             resolveMessageFilePath: id => _inboxStore?.GetMessageFilePath(id),
             openInboxMessage: id => OpenOrFocusInboxMessage(id));
         win.Owner = CanShowOwnedWindow() ? this : null;
@@ -58882,8 +60655,6 @@ public partial class MainWindow : Window
                     label.Inlines.Add(icon);
                     label.Inlines.Add(descRun);
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    var capturedMsgId = att.InboxMessageId;
-                    label.MouseLeftButtonUp += (_, _) => OpenOrFocusInboxMessage(capturedMsgId);
                 }
                 else if (att.ImagePath != null)
                 {
@@ -58894,26 +60665,6 @@ public partial class MainWindow : Window
                     label.Inlines.Add(icon);
                     label.Inlines.Add(descRun);
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    var capturedImg    = capturedAtt;
-                    var capturedItemId = _activeTabId ?? "";
-                    label.MouseLeftButtonUp += (_, _) =>
-                    {
-                        var annotJsonPath = capturedImg.ImagePath + ".annotation.json";
-                        var sourcePngPath = capturedImg.ImagePath + ".source.png";
-                        var annotExists  = File.Exists(annotJsonPath);
-                        var sourceExists = File.Exists(sourcePngPath);
-                        SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Chip clicked: imagePath={capturedImg.ImagePath} annotJson={annotExists} sourcePng={sourceExists}");
-                        if (annotExists && sourceExists)
-                        {
-                            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Opening editor (sidecar present)");
-                            ReopenImageForEditing(capturedImg, capturedItemId);
-                        }
-                        else
-                        {
-                            SquadDashTrace.Write(TraceCategory.UI, $"[ImageReEdit] Opening plain viewer (no sidecar) annotJson={annotJsonPath} sourcePng={sourcePngPath}");
-                            PromptAttachmentViewerWindow.Show(new[] { capturedImg }, CanShowOwnedWindow() ? this : null);
-                        }
-                    };
                     if (File.Exists(att.ImagePath))
                     {
                         var bmp = new BitmapImage();
@@ -58963,8 +60714,6 @@ public partial class MainWindow : Window
                         label.Inlines.Add(descRun);
                         label.ToolTip = MakeThemedToolTip($"Plan: {resolvedPlan.Title ?? System.IO.Path.GetFileNameWithoutExtension(att.FileReferencePath)}");
                         label.Cursor = System.Windows.Input.Cursors.Hand;
-                        var capturedPlan = resolvedPlan;
-                        label.MouseLeftButtonUp += (_, _) => OpenPlanFromStore(capturedPlan);
                     }
                     else
                     {
@@ -58977,9 +60726,6 @@ public partial class MainWindow : Window
                         label.Inlines.Add(descRun);
                         label.ToolTip = MakeThemedToolTip(att.FileReferencePath);
                         label.Cursor  = System.Windows.Input.Cursors.Hand;
-                        var capturedPath = att.FileReferencePath;
-                        label.MouseLeftButtonUp += (_, _) =>
-                            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{capturedPath}\"");
                     }
                 }
                 else if (att.ContentBlock != null)
@@ -59016,29 +60762,6 @@ public partial class MainWindow : Window
                         label.Inlines.Add(descRun);
                     }
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    var capturedContent = capturedAtt;
-
-                    if (isInboxExcerpt)
-                    {
-                        // For inbox-excerpt: open the message window and select the excerpt
-                        SquadDashTrace.Write(TraceCategory.Inbox,
-                            $"FollowUpStrip.BuildItem: registering inbox-excerpt click handler for msgId={att.InboxMessageId}");
-                        label.MouseLeftButtonUp += (_, _) =>
-                        {
-                            SquadDashTrace.Write(TraceCategory.Inbox,
-                                $"FollowUpStrip.ExcerptChip.Click: clicked — inboxMessageId={capturedContent.InboxMessageId}");
-                            var excerptText = ExtractExcerptTextFromAttachment(capturedContent.ContentBlock!);
-                            SquadDashTrace.Write(TraceCategory.Inbox,
-                                $"FollowUpStrip.ExcerptChip.Click: extracted excerptText len={excerptText.Length} text='{excerptText[..Math.Min(80, excerptText.Length)]}'");
-                            OpenOrFocusInboxMessageAndSelectText(capturedContent.InboxMessageId!, excerptText);
-                        };
-                    }
-                    else
-                    {
-                        // For other content blocks: show the viewer window
-                        label.MouseLeftButtonUp += (_, _) =>
-                            PromptAttachmentViewerWindow.Show(new[] { capturedContent }, CanShowOwnedWindow() ? this : null, msgId => OpenOrFocusInboxMessage(msgId));
-                    }
                 }
                 else if (att.TranscriptQuote != null)
                 {
@@ -59049,16 +60772,36 @@ public partial class MainWindow : Window
                     label.Inlines.Add(prefix);
                     label.Inlines.Add(quoteRun);
                     label.Cursor = System.Windows.Input.Cursors.Hand;
-                    var capturedQuote = capturedAtt;
-                    label.MouseLeftButtonUp += (_, _) =>
-                        PromptAttachmentViewerWindow.Show(new[] { capturedQuote }, CanShowOwnedWindow() ? this : null);
                 }
                 else
                 {
                     AppendCommitFollowUpInlines(label, att);
                 }
 
-                row.Children.Add(label);
+                AttachmentStripRow.Populate(row, label, att, _ =>
+                    PromptAttachmentViewerWindow.Show(
+                        new[] { capturedAtt }, CanShowOwnedWindow() ? this : null,
+                        msgId => OpenOrFocusInboxMessage(msgId),
+                        notesChanged: (current, notes) =>
+                        {
+                            // Queueing moves the draft list to a new key while this viewer can remain open.
+                            var owner = _followUpAttachments.FirstOrDefault(entry => ReferenceEquals(entry.Value, list));
+                            var index = owner.Value?.FindIndex(candidate => ReferenceEquals(candidate, current)) ?? -1;
+                            if (index < 0)
+                            {
+                                SquadDashTrace.Write(TraceCategory.UI, "Attachment notes edit ignored: attachment was removed.");
+                                return current;
+                            }
+                            capturedAtt = current with { Notes = notes };
+                            owner.Value![index] = capturedAtt;
+                            if (owner.Key.Length == 0)
+                                PersistDraftFollowUp();
+                            else
+                                SyncQueuePanel();
+                            UpdateFollowUpStrip();
+                            return capturedAtt;
+                        },
+                        focusNotes: true));
                 FollowUpItemsPanel.Children.Add(row);
                 _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentRow{i}"]     = row;
                 _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentDismiss{i}"] = dismissBtn;
@@ -59144,12 +60887,8 @@ public partial class MainWindow : Window
         var prefix = new Run("↩ ");
         prefix.SetResourceReference(Run.ForegroundProperty, "SubtleText");
 
-        var shaRun = new Run(shaDisplay)
-        {
-            TextDecorations = TextDecorations.Underline,
-            Cursor          = System.Windows.Input.Cursors.Hand,
-        };
-        shaRun.SetResourceReference(Run.ForegroundProperty, "DocumentLinkText");
+        var shaRun = new Run(shaDisplay);
+        shaRun.SetResourceReference(Run.ForegroundProperty, "LabelText");
 
         var suffix = new Run($" — \"{att.Description}\"");
         suffix.SetResourceReference(Run.ForegroundProperty, "LabelText");
@@ -59158,18 +60897,6 @@ public partial class MainWindow : Window
             label.Inlines.Add(prefix);
         label.Inlines.Add(shaRun);
         label.Inlines.Add(suffix);
-
-        // Clicking the underlined SHA opens the commit on GitHub.
-        var capturedSha = att.CommitSha;
-        shaRun.MouseLeftButtonUp += (_, e) =>
-        {
-            e.Handled = true;
-            var commitUrl = _workspaceGitHubUrl is not null
-                ? $"{_workspaceGitHubUrl}/commit/{capturedSha}"
-                : null;
-            if (commitUrl is not null)
-                _ = OpenExternalLinkWithCommitCheckAsync(commitUrl);
-        };
     }
 
     // Clicking anywhere on the follow-up strip (not the dismiss buttons) scrolls the
@@ -59730,8 +61457,8 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Saves (or clears) the active-draft follow-up attachments to workspace settings
-    /// so they survive a restart.  Only the draft slot (key "") is persisted; queue items
-    /// are not persisted because the queue itself does not survive a restart.
+    /// so they survive a restart. The draft slot (key "") is stored in workspace settings;
+    /// queued attachments are persisted by TranscriptConversationManager.
     /// </summary>
     private void PersistDraftFollowUp()
     {
@@ -59751,6 +61478,8 @@ public partial class MainWindow : Window
                 FileReferencePath = a.FileReferencePath,
                 RequiresRemovalConfirmation = a.RequiresRemovalConfirmation,
                 RemovalWarning = a.RemovalWarning,
+                Notes = a.Notes,
+                TranscriptSource = a.TranscriptSource,
             }).ToList();
             _docsPanelState = state with
             {
@@ -59809,34 +61538,8 @@ public partial class MainWindow : Window
 
     private static string BuildFollowUpPrompt(
         string text,
-        IReadOnlyList<FollowUpAttachment> attachments)
-    {
-        if (attachments.Count == 0)
-            return text;
-
-        var headers = attachments.Select(att =>
-        {
-            if (att.ImagePath != null)
-                return $"[Attached image: {att.ImagePath}]";
-            if (att.ContentBlock != null)
-                return att.ContentBlock;
-            if (att.FileReferencePath != null)
-                return BuildTypedAttachmentBlock("file-reference", att.Description, att.FileReferencePath);
-            if (att.TranscriptQuote != null)
-                return $"Regarding this section of the transcript: \"{att.TranscriptQuote}\"";
-            var summaryHint = att.OriginalPrompt is { Length: > 0 } op
-                ? (op.Length > 120 ? op[..120] + "…" : op)
-                : att.Description;
-            return $"[Follow-up on {att.CommitSha} — \"{att.Description}\": {summaryHint}]";
-        }).ToList();
-
-        // When the user has any typed content/image attachments, prepend a one-liner so the AI
-        // understands the structure it is receiving.
-        bool hasTypedBlocks = attachments.Any(a => a.ContentBlock != null || a.ImagePath != null || a.FileReferencePath != null);
-        const string AttachmentPreamble = "The user has attached the following context items. Please refer to them as needed.";
-        var headerSection = string.Join("\n", headers);
-        return (hasTypedBlocks ? AttachmentPreamble + "\n" + headerSection : headerSection) + "\n\n" + text;
-    }
+        IReadOnlyList<FollowUpAttachment> attachments) =>
+        FollowUpPromptBuilder.Build(text, attachments);
 
     private void PersistApprovalPanelVisible()    {
         var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
@@ -59950,6 +61653,7 @@ public partial class MainWindow : Window
                 },
                 archivePlan: ArchivePlan,
                 pausePlan: RequestPlanPauseAfterCurrentStep,
+                togglePlanPause: TogglePlanPauseFromMenu,
                 abortPlan: AbortCurrentPlanWork,
                 isPromptRunning: () => _isPromptRunning,
                 attachFollowUp: plan => AttachPlanFollowUp(plan),
@@ -60378,6 +62082,89 @@ public partial class MainWindow : Window
             out error);
     }
 
+    /// <summary>
+    /// Plans-panel-row "Pause plan"/"Resume plan" toggle. Flips <see cref="Plan.IsPaused"/> durably
+    /// (persist before any presentation change) via <see cref="PlanPauseTransitionCoordinator"/>.
+    /// On pause: removes any live approval/review card and, if the plan is the actively running one,
+    /// requests a safe pause at the next step boundary (never kills mid-flight work). On resume:
+    /// clears the boundary request and restores an approval card only if one is actually warranted.
+    /// </summary>
+    private void TogglePlanPauseFromMenu(Plan plan)
+    {
+        var current = _planStore?.Load(plan.PlanId) ?? plan;
+        var pause = !current.IsPaused;
+
+        if (!TrySetPlanPauseState(current, pause, out var updated, out var error))
+        {
+            ReportPlanActionIssue(
+                plan.PlanId,
+                pause ? "Pause not saved" : "Resume not saved",
+                error ?? "SquadDash could not save the pause state. The plan was not changed.");
+            return;
+        }
+
+        ClearPlanActionIssue(plan.PlanId);
+
+        if (pause)
+        {
+            RemoveApprovalCardsForPausedPlan(plan.PlanId);
+            if (string.Equals(_activeDecomposeGroupId, plan.PlanId, StringComparison.Ordinal) &&
+                IsLoopRunning &&
+                !_pausePlanAfterCurrentStepRequested)
+            {
+                _pausePlanAfterCurrentStepRequested = true;
+                ShowPlanPauseRequestedEntry(updated);
+            }
+        }
+        else
+        {
+            _pausePlanAfterCurrentStepRequested = false;
+            RemovePlanPauseRequestedEntries(plan.PlanId);
+            RefreshHumanReviewSurfaces(updated);
+        }
+    }
+
+    /// <summary>
+    /// Fully removes any live approval/review surface for a plan from the coordinator transcript:
+    /// the tracked gate-approval card(s), any decompose-recovery surface, the modeless review window,
+    /// and the attention callout. Used when a plan is paused so no stale approval card lingers.
+    /// </summary>
+    private void RemoveApprovalCardsForPausedPlan(string planId)
+    {
+        if (_approvalTranscriptCards.Remove(planId, out var cards))
+        {
+            foreach (var card in cards)
+            {
+                if (card.Container.Parent is FlowDocument document)
+                    document.Blocks.Remove(card.Container);
+            }
+        }
+
+        TranscriptQuickReplyFactory.RemoveDecomposeRecoveryContainers(
+            CoordinatorThread.Document.Blocks, planId);
+
+        if (_openPlanApprovalReviewWindows.Remove(planId, out var reviewWindow))
+            reviewWindow.Close();
+
+        _approvalAttentionCallout?.Close();
+        _approvalAttentionCallout = null;
+
+        SquadDashTrace.Write("PlanPause",
+            $"Removed approval surface while plan is paused plan={planId}.");
+    }
+
+    /// <summary>
+    /// The single suppression gate every transcript approval/review-card insertion routes through.
+    /// Loads the durable plan and returns true when it is paused, so no card type can render — on a
+    /// live transition OR on startup rehydration — until the user explicitly resumes.
+    /// </summary>
+    private bool ShouldSuppressApprovalCardForPausedPlan(string planId)
+    {
+        if (string.IsNullOrWhiteSpace(planId))
+            return false;
+        return PlanPauseMenuPolicy.ShouldSuppressApprovalCard(_planStore?.Load(planId));
+    }
+
     private void RefreshOpenPlanViewersAfterPauseTransition(Plan plan)
         => RefreshOpenPlanViewers(plan, "pause state");
 
@@ -60678,10 +62465,14 @@ public partial class MainWindow : Window
             error = "The plan store is unavailable.";
             return false;
         }
-        return TryPublishPlanProgressCore(
+        var previousPlan = TryLoadPlanForCompletionTransition(plan.PlanId);
+        var published = TryPublishPlanProgressCore(
             plan,
             persisted => _planStore.Save(persisted),
             out error);
+        if (published)
+            QueueApprovedReviewNotesFollowUpOnCompletionTransition(previousPlan, plan);
+        return published;
     }
 
     private bool TryPublishPlanRecoveryProgress(
@@ -60720,7 +62511,26 @@ public partial class MainWindow : Window
             SquadDashTrace.Write(TraceCategory.General, $"PublishPlanRecoveryProgress event: {ex.Message}");
         }
         ReconcileDecomposeRecoveryInboxMessages(persistedPlan.PlanId);
+        QueueApprovedReviewNotesFollowUpOnCompletionTransition(expected, persistedPlan);
         return true;
+    }
+
+    private Plan? TryLoadPlanForCompletionTransition(string planId)
+    {
+        if (_planStore is null)
+            return null;
+
+        try
+        {
+            return _planStore.Load(planId);
+        }
+        catch (Exception ex)
+        {
+            SquadDashTrace.Write(
+                TraceCategory.General,
+                $"Could not load previous plan state before publish plan={planId}: {ex.Message}");
+            return null;
+        }
     }
 
     private bool TryPublishPlanProgressCore(
@@ -61176,8 +62986,12 @@ public partial class MainWindow : Window
                                             .ContinueWith(t => HandleUiCallbackException(nameof(SyncCodeHealthPanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
                 simulateIdle:           () => StartCodeHealthCycleAsync()
                                             .ContinueWith(t => HandleUiCallbackException(nameof(SyncCodeHealthPanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
-                onReviseWithAi:         (rtb, path) => ShowDocRevisePopup(rtb, path),
-                onDirectRevise:         (rtb, path, instructions) => DirectReviseRichTextBox(rtb, path, instructions));
+                configureMarkdownEditor: editor => {
+                    var context = BuildMarkdownCaptureContext();
+                    editor.ReviseWithAiCallback = context.ReviseWithAiCallback;
+                    editor.StartPttCallback = context.StartPttCallback;
+                    editor.StopPttCallback = context.StopPttCallback;
+                });
             _codeHealthPanel.ClearFilterAction = () => { if (CodeHealthFilterBox is not null) CodeHealthFilterBox.Text = string.Empty; };
 
             // Wire dynamic max-width hint so splitter snap targets content width
@@ -61382,6 +63196,17 @@ public partial class MainWindow : Window
                 if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
                     throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
                 await HandleApprovalClickAsync(payload.ToClickToken());
+                return true;
+            }
+
+            if (string.Equals(
+                    action.RouteMode,
+                    DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (!ApprovalInboxActionPayload.TryParse(action.Prompt, out var payload) || payload is null)
+                    throw new InvalidOperationException("This approval action is malformed and cannot be applied.");
+                AddressUnapprovedItemsFromInbox(payload.ToClickToken());
                 return true;
             }
 
@@ -65492,24 +67317,64 @@ public partial class MainWindow : Window
     {
         if (e.OriginalSource is TextBox or RichTextBox)
             _lastFocusedTextElement = (IInputElement)e.OriginalSource;
+        else if (DocSourceEditor?.Editor?.TextArea is { } textArea &&
+                 e.OriginalSource is DependencyObject source &&
+                 IsDescendantOf(source, DocSourceEditor))
+            _lastFocusedTextElement = textArea;
     }
 
     private void OnWindowFocusedElementChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (e.NewValue is TextBox or RichTextBox)
             _lastFocusedTextElement = (IInputElement)e.NewValue;
+        else if (DocSourceEditor?.Editor?.TextArea is { } textArea &&
+                 e.NewValue is DependencyObject source &&
+                 IsDescendantOf(source, DocSourceEditor))
+            _lastFocusedTextElement = textArea;
     }
 
     private bool LastFocusedIsPrompt() =>
         ReferenceEquals(_lastFocusedTextElement, PromptTextBox);
 
+    private bool LastFocusedIsDocSourceTextBox() =>
+        IsDocSourceVisible()
+        && DocSourceEditor?.Editor?.TextArea is { } textArea
+        && ReferenceEquals(_lastFocusedTextElement, textArea);
+
+    private bool IsDocSourceEditorFocused() =>
+        IsDocSourceVisible()
+        && DocSourceEditor is not null
+        && Keyboard.FocusedElement is DependencyObject focused
+        && IsDescendantOf(focused, DocSourceEditor);
+
     private bool LastFocusedIsMarkdownEditor() =>
-        _lastFocusedTextElement is RichTextBox;
+        _lastFocusedTextElement is RichTextBox ||
+        LastFocusedIsDocSourceTextBox();
 
     private bool LastFocusedHasSelection()
     {
         if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) return tb.SelectionLength > 0;
         if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) return !rtb.Selection.IsEmpty;
+        if (LastFocusedIsDocSourceTextBox()) return DocSourceEditor?.Editor.SelectionLength > 0;
+        return false;
+    }
+
+    private static bool IsDescendantOf(DependencyObject source, DependencyObject? potentialAncestor)
+    {
+        if (potentialAncestor is null)
+            return false;
+
+        DependencyObject? current = source;
+        while (current is not null)
+        {
+            if (ReferenceEquals(current, potentialAncestor))
+                return true;
+            var visualParent = (current is Visual || current is System.Windows.Media.Media3D.Visual3D)
+                ? VisualTreeHelper.GetParent(current)
+                : null;
+            current = visualParent ?? LogicalTreeHelper.GetParent(current);
+        }
+
         return false;
     }
 
@@ -65520,8 +67385,15 @@ public partial class MainWindow : Window
         bool isPrompt   = LastFocusedIsPrompt();
         bool isMdEditor = LastFocusedIsMarkdownEditor();
         bool hasSel     = LastFocusedHasSelection();
-        bool isText     = _lastFocusedTextElement is not null;
+        bool isText     = _lastFocusedTextElement is not null || LastFocusedIsDocSourceTextBox();
         bool hasQueuedTab = _activeTabId is not null;
+        // Otherwise leave command routing untouched, particularly the prompt's custom undo timeline.
+        IInputElement? commandTarget = LastFocusedIsDocSourceTextBox() ? DocSourceEditor.Editor.TextArea : null;
+        EditUndoMenuItem.CommandTarget = commandTarget;
+        EditRedoMenuItem.CommandTarget = commandTarget;
+        EditCutMenuItem.CommandTarget = commandTarget;
+        EditCopyMenuItem.CommandTarget = commandTarget;
+        EditPasteMenuItem.CommandTarget = commandTarget;
 
         EditPasteAsAttachmentMenuItem.IsEnabled = isPrompt;
         EditCopyAppendMenuItem.IsEnabled        = hasSel;
@@ -65553,7 +67425,7 @@ public partial class MainWindow : Window
 
     private void EditFindMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (DocsPanel.Visibility == Visibility.Visible && DocSourceTextBox != null)
+        if (DocsPanel.Visibility == Visibility.Visible && IsDocSourceVisible() && DocSourceEditor is not null)
         {
             ShowDocSourceFindBar();
             return;
@@ -65666,7 +67538,9 @@ public partial class MainWindow : Window
     private void EditCopyAppendMenuItem_Click(object sender, RoutedEventArgs e)
     {
         string? selected = null;
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
+        if (LastFocusedIsDocSourceTextBox())
+            selected = DocSourceEditor.Editor.SelectedText;
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
             selected = rtb.Selection.Text;
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb)
             selected = tb.SelectedText;
@@ -65687,19 +67561,27 @@ public partial class MainWindow : Window
 
     private void EditBoldMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBold(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyBold); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBold(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyBold(tb); tb.Focus(); }
     }
 
     private void EditItalicMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyItalic(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyItalic); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyItalic(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyItalic(tb); tb.Focus(); }
     }
 
     private void EditInlineCodeMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
+        if (LastFocusedIsDocSourceTextBox())
+        {
+            if (!TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyInlineCodeOrFence))
+                TryApplyDocSourceEditorMutation(MarkdownEditorCommands.InsertInlineCode);
+            DocSourceEditor.FocusEditor();
+        }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
         {
             if (!MarkdownEditorCommands.ApplyInlineCodeOrFence(rtb))
                 MarkdownEditorCommands.InsertInlineCode(rtb);
@@ -65715,7 +67597,20 @@ public partial class MainWindow : Window
 
     private void EditParenthesesMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
+        if (LastFocusedIsDocSourceTextBox())
+        {
+            if (!TryApplyDocSourceEditorMutation(tb => MarkdownEditorCommands.ApplyInlineParens(tb, "(")))
+            {
+                TryApplyDocSourceEditorMutation(tb =>
+                {
+                    var pos = tb.SelectionStart;
+                    tb.SelectedText = "()";
+                    tb.SelectionStart = pos + 1;
+                });
+            }
+            DocSourceEditor.FocusEditor();
+        }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb)
         {
             if (!MarkdownEditorCommands.ApplyInlineParens(rtb, "("))
             {
@@ -65740,7 +67635,8 @@ public partial class MainWindow : Window
 
     private void EditQuotesMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyInlineQuote(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyInlineQuote); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyInlineQuote(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyInlineQuote(tb); tb.Focus(); }
     }
 
@@ -65787,11 +67683,17 @@ public partial class MainWindow : Window
             rtb.ReplaceSelection(variants[idx]);
             rtb.Focus();
         }
+        else if (LastFocusedIsDocSourceTextBox())
+        {
+            DocSourceEditor.CycleCase(false);
+            DocSourceEditor.FocusEditor();
+        }
     }
 
     private void EditSmoothDictationMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { SmoothDictationHelper.ApplyToRichTextBox(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(SmoothDictationHelper.ApplyToTextBox); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { SmoothDictationHelper.ApplyToRichTextBox(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { SmoothDictationHelper.ApplyToTextBox(tb); tb.Focus(); }
     }
 
@@ -65811,23 +67713,24 @@ public partial class MainWindow : Window
 
     private void EditInsertBulletListMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBulletList(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyBulletList); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyBulletList(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyBulletList(tb); tb.Focus(); }
     }
 
     private void EditInsertHorizontalRuleMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (DocSourceTextBox?.IsKeyboardFocusWithin == true || ReferenceEquals(_lastFocusedTextElement, DocSourceTextBox))
+        if (LastFocusedIsDocSourceTextBox())
         {
-            MarkdownEditorCommands.InsertHorizontalRule(DocSourceTextBox!);
-            DocSourceTextBox!.Focus();
+            TryApplyDocSourceEditorMutation(MarkdownEditorCommands.InsertHorizontalRule);
+            DocSourceEditor.FocusEditor();
         }
     }
 
     private void EditInsertImageMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (DocSourceTextBox is not null && (DocSourceTextBox.IsKeyboardFocusWithin || ReferenceEquals(_lastFocusedTextElement, DocSourceTextBox)))
-            DocEditorToolbar_ImageInsertRequested(sender, e);
+        if (LastFocusedIsDocSourceTextBox())
+            DocSourceEditor_ImageInsertRequested(sender, e);
     }
 
     private void EditInsertLineBreakMenuItem_Click(object sender, RoutedEventArgs e)
@@ -65841,19 +67744,22 @@ public partial class MainWindow : Window
 
     private void EditInsertLinkMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertLink(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.InsertLink); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertLink(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.InsertLink(tb); tb.Focus(); }
     }
 
     private void EditInsertNumberedListMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyNumberedList(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.ApplyNumberedList); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.ApplyNumberedList(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.ApplyNumberedList(tb); tb.Focus(); }
     }
 
     private void EditInsertTableMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertTable(rtb); rtb.Focus(); }
+        if (LastFocusedIsDocSourceTextBox()) { TryApplyDocSourceEditorMutation(MarkdownEditorCommands.InsertTable); DocSourceEditor.FocusEditor(); }
+        else if (_lastFocusedTextElement is System.Windows.Controls.RichTextBox rtb) { MarkdownEditorCommands.InsertTable(rtb); rtb.Focus(); }
         else if (_lastFocusedTextElement is System.Windows.Controls.TextBox tb) { MarkdownEditorCommands.InsertTable(tb); tb.Focus(); }
     }
 

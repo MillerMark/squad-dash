@@ -216,7 +216,10 @@ internal static class PlanVerificationRecoveryPolicy
 {
     internal static bool CanResume(Plan plan, string taskId)
     {
-        if (plan.LifecycleStatus is not (PlanLifecycleStatus.Interrupted or PlanLifecycleStatus.Blocked))
+        if (plan.LifecycleStatus is not (
+                PlanLifecycleStatus.Interrupted or
+                PlanLifecycleStatus.Blocked or
+                PlanLifecycleStatus.WaitingForCleanWorktree))
             return false;
 
         var task = plan.Tasks.FirstOrDefault(candidate =>
@@ -242,7 +245,7 @@ internal static class PlanVerificationRecoveryPolicy
         error = null;
         if (!CanResume(plan, taskId))
         {
-            error = "The interrupted task does not have a verification-stage candidate handoff with passed build evidence.";
+            error = "The saved task does not have a verification-stage candidate handoff with passed build evidence.";
             return false;
         }
         if (!IsSafeGitCommitIdentifier(resolvedCommit))

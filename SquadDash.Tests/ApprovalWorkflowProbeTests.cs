@@ -218,7 +218,7 @@ internal sealed class ApprovalWorkflowProbeTests
         Assert.That(msgAfter, Is.Not.Null, "Message still exists after refresh");
         Assert.That(msgAfter!.Id, Is.EqualTo(id), "Message ID unchanged after evidence refresh");
         Assert.That(msgAfter.Actions, Is.Empty,
-            "The refreshed message keeps its unchecked review controls inline");
+            "The refreshed message keeps the unanswered review items inline without recreating the legacy fallback action.");
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -734,11 +734,12 @@ internal sealed class ApprovalWorkflowProbeTests
     }
 
     [Test]
-    public void BuildActions_UncheckedActiveGates_ReturnsNoSeparateReviewAction()
+    public void BuildActions_UncheckedActiveGates_ExposeAddressUnapprovedAction()
     {
         var plan = MakeProbePlan();
         var actions = DurableApprovalRequestManager.BuildActions(plan, ["GATE-1", "GATE-2"]);
-        Assert.That(actions, Is.Empty);
+        Assert.That(actions.Single().RouteMode,
+            Is.EqualTo(DurableApprovalRequestManager.ApprovalAddressUnapprovedRouteMode));
     }
 
     // ═══════════════════════════════════════════════════════════════════════

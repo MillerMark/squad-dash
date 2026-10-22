@@ -122,8 +122,6 @@ internal sealed class PlanRecoveryGitWiringTests
         var headReads = Regex.Matches(method, @"await\s+PlanRecoveryGit\.TryReadHeadAsync\s*\(");
         Assert.That(headReads, Has.Count.EqualTo(2), "Read HEAD before review and again before accepting it.");
         var validation = method.IndexOf("await ValidateHumanReviewStepAcceptanceAsync(", StringComparison.Ordinal);
-        var checkpointHead = method.IndexOf(
-            "PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead(", StringComparison.Ordinal);
         var checkpointCommits = method.IndexOf(
             "PlanHumanReviewCheckpointCommitPolicy.ResolveDurableCommits(", StringComparison.Ordinal);
         var checkpointAncestry = method.IndexOf(
@@ -134,11 +132,16 @@ internal sealed class PlanRecoveryGitWiringTests
         var durableReload = method.IndexOf("store.Load(plan.PlanId)", headReads[1].Index, StringComparison.Ordinal);
         var durableComparison = method.IndexOf("JsonSerializer.Serialize(latest)", StringComparison.Ordinal);
         var approval = method.IndexOf("_planApprovalRuntime.ApproveAsync(", StringComparison.Ordinal);
+        var branchChoice = method.IndexOf("await EnsurePlanContinuationBranchReadyAsync(plan)", StringComparison.Ordinal);
 
         Assert.Multiple(() =>
         {
-            Assert.That(checkpointHead, Is.GreaterThan(headReads[0].Index));
-            Assert.That(checkpointCommits, Is.GreaterThan(checkpointHead));
+            Assert.That(method, Does.Not.Contain("PlanHumanReviewCheckpointCommitPolicy.OwnsCurrentHead("),
+                "Human-review approval must allow host-owned commits after the reviewed checkpoint when the represented evidence remains reachable.");
+            Assert.That(branchChoice, Is.GreaterThanOrEqualTo(0));
+            Assert.That(branchChoice, Is.LessThan(headReads[0].Index),
+                "Human-review Complete & Continue must offer branch alignment before Git evidence validation can reject a resumed plan.");
+            Assert.That(checkpointCommits, Is.GreaterThan(headReads[0].Index));
             Assert.That(checkpointAncestry, Is.GreaterThan(checkpointCommits));
             Assert.That(validation, Is.GreaterThan(checkpointAncestry));
             Assert.That(validation, Is.GreaterThan(headReads[0].Index));
@@ -154,6 +157,55 @@ internal sealed class PlanRecoveryGitWiringTests
             Assert.That(method, Does.Contain("CancellationTokenSource"));
             Assert.That(method, Does.Not.Contain("RunGitAsync("));
             Assert.That(method, Does.Not.Contain("rev-parse"));
+        });
+    }
+
+    [Test]
+    public void ApprovalContinuation_UsesBranchChoiceBeforeImmediateAndDelayedStart()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var approval = ReadMember(source, "HandleApprovalClickAsync");
+        var retry = ReadMember(source, "ApprovalResumeRetryTimer_Tick");
+        var immediateChoice = approval.IndexOf(
+            "await EnsurePlanContinuationBranchReadyAsync(continuationPlan)", StringComparison.Ordinal);
+        var immediateStart = approval.IndexOf(
+            "StartDurablePlanExecutionAsync(continuationPlan)", StringComparison.Ordinal);
+        var delayedChoice = retry.IndexOf(
+            "await EnsurePlanContinuationBranchReadyAsync(plan)", StringComparison.Ordinal);
+        var delayedStart = retry.IndexOf(
+            "StartDurablePlanExecutionAsync(plan)", StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(immediateChoice, Is.GreaterThanOrEqualTo(0));
+            Assert.That(immediateChoice, Is.LessThan(immediateStart));
+            Assert.That(delayedChoice, Is.GreaterThanOrEqualTo(0));
+            Assert.That(delayedChoice, Is.LessThan(delayedStart));
+            Assert.That(approval, Does.Not.Contain("StartDecomposeLoopAsync(clickToken.PlanId)"));
+            Assert.That(retry, Does.Not.Contain("StartDecomposeLoopAsync(planId)"));
+        });
+    }
+
+    [Test]
+    public void ApprovalClick_WaitsForPendingHumanReviewWritesBeforeLoadingPlan()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var method = ReadMember(source, "HandleApprovalClickAsync");
+        var flush = method.IndexOf(
+            "await FlushPendingHumanReviewWritesAsync(clickToken.PlanId);",
+            StringComparison.Ordinal);
+        var load = method.IndexOf("_planStore.Load(clickToken.PlanId)", StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(flush, Is.GreaterThanOrEqualTo(0),
+                "A final Yes click can still be queued when Continue is clicked from the same card.");
+            Assert.That(load, Is.GreaterThan(flush),
+                "Approval must validate against the plan after pending checklist writes are durable.");
+            Assert.That(source, Does.Contain("private async Task FlushPendingHumanReviewWritesAsync(string planId)"));
+            Assert.That(source, Does.Contain("private readonly Dictionary<string, Task> _pendingHumanReviewWrites"));
+            Assert.That(source, Does.Contain("private void RecordHumanReviewChecklistResponse("));
+            Assert.That(source, Does.Not.Contain("private async void RecordHumanReviewChecklistResponse("));
         });
     }
 

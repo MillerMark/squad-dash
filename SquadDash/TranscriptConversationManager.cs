@@ -69,7 +69,7 @@ internal sealed class TranscriptConversationManager {
     // toward the top.  Never used for agent threads (they are lazy-rendered separately).
     private IReadOnlyList<TranscriptTurnRecord> _allCoordinatorTurns = [];
     private int _coordinatorRenderedFromIndex;            // index of the first currently-rendered turn
-    private const int InitialTurnWindow = 15;
+    private const int InitialTurnWindow = 6;
     private const int PrependBatchSize  = 20;
     private static readonly TimeSpan AgentThreadSnapshotPersistDebounce = TimeSpan.FromMilliseconds(1000);
     private bool _prependInProgress;
@@ -1867,6 +1867,8 @@ internal sealed class TranscriptConversationManager {
                             FileReferencePath = a.FileReferencePath,
                             RequiresRemovalConfirmation = a.RequiresRemovalConfirmation,
                             RemovalWarning = a.RemovalWarning,
+                            Notes = a.Notes,
+                            TranscriptSource = a.TranscriptSource,
                         })
                         .ToList();
                 }
@@ -1970,8 +1972,10 @@ internal sealed class TranscriptConversationManager {
                 a.OriginalPrompt   != b.OriginalPrompt ||
                 a.TranscriptQuote  != b.TranscriptQuote ||
                 a.ContentBlock     != b.ContentBlock ||
+                a.Notes            != b.Notes ||
                 a.ImagePath        != b.ImagePath ||
-                a.ImageSubmittedAt != b.ImageSubmittedAt)
+                a.ImageSubmittedAt != b.ImageSubmittedAt ||
+                !Equals(a.TranscriptSource, b.TranscriptSource))
                 return false;
         }
 

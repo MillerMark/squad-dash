@@ -30,13 +30,15 @@ internal sealed record PlanApprovalChangeActivityEvent(
 
 /// <summary>
 /// Live, non-durable state for a bounded conversational correction to one interrupted task.
-/// Drafting claims the recovery choice across surfaces; running additionally drives the task
+/// Drafting claims an editable recovery choice across surfaces, Submitted claims a direct
+/// review correction already sent to the queue, and Running additionally drives the task
 /// spinner without pretending that the paused plan runner itself has resumed.
 /// </summary>
 internal enum PlanTaskCorrectionActivityState
 {
     None,
     Drafting,
+    Submitted,
     Running,
 }
 

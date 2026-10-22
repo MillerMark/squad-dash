@@ -60,6 +60,26 @@ internal sealed class PlanViewerRefreshArchitectureTests
     }
 
     [Test]
+    public void PendingExecutionPreflight_HidesVisualizerApprovalActions()
+    {
+        var viewer = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
+        var main = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer, Does.Contain("_isPendingPlanExecutionPreflightActive?.Invoke(plan) == true")
+                .And.Contain("Start is waiting for a clean workspace")
+                .And.Contain("NotifyPendingPlanExecutionPreflightChanged"),
+                "An open Plan Visualizer must stop offering Add to Plans while the transcript owns the execution preflight retry.");
+            Assert.That(main, Does.Contain("isPendingPlanExecutionPreflightActive: IsPendingPlanExecutionPreflightActive")
+                .And.Contain("new PlanPreflightRecoveryTag(plan.Group.GroupId, plan.Revision, action)")
+                .And.Contain("RetirePlanExecutionPreflightAfterCollection(plan, collectedPlan)")
+                .And.Contain("TryResolveStalePlanPreflightReceipt"),
+                "The transcript card, collection path, and stale retry path must share one preflight identity.");
+        });
+    }
+
+    [Test]
     public void StagedEditing_RemainsInsideTheExistingInspectorAndGraphContextMenus()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "PlanViewerWindow.cs"));
@@ -462,7 +482,9 @@ internal sealed class PlanViewerRefreshArchitectureTests
                 .And.Contain("new PlanCollectionService(")
                 .And.Contain("pendingStore)"),
                 "The Add to Plans host action must supply the transient store so collection removes its proposal.");
-            Assert.That(normalizedMain, Does.Contain("RepairStalePlanExecutingState();\n        ReconcileCollectedPendingPlans();")
+            Assert.That(normalizedMain, Does.Contain(
+                    "TraceWorkspaceLoadPhase(\"stale-plan-repair\", () => RepairStalePlanExecutingState());\n" +
+                    "        TraceWorkspaceLoadPhase(\"collected-plan-reconcile\", () => ReconcileCollectedPendingPlans());")
                 .And.Contain("PendingPlanCollectionReconciler.Reconcile("),
                 "Workspace hydration must remove legacy same-revision pending proposals before rebuilding cards.");
         });

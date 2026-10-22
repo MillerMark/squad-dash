@@ -1653,13 +1653,15 @@ internal sealed class PreferencesWindow : Window {
         var rules = _voiceReplacementRules
             .Where(r => !string.IsNullOrWhiteSpace(r.Pattern))
             .Select(r => new VoiceReplacementRule(r.Pattern.Trim(), r.Replacement ?? string.Empty));
-        _settingsStore.SaveVoiceReplacementRules(rules);
+        var updated = _settingsStore.SaveVoiceReplacementRules(rules);
+        _onSaved(updated);
     }
 
     private void SaveSpeechProviderNow() {
         var provider = _openAiSpeechRadio.IsChecked == true ? SpeechProvider.OpenAI : SpeechProvider.Azure;
         var openAiKey = _openAiSpeechKeyPasswordBox.Password.Trim();
-        _settingsStore.SaveSpeechProvider(provider, string.IsNullOrWhiteSpace(openAiKey) ? null : openAiKey);
+        var updated = _settingsStore.SaveSpeechProvider(provider, string.IsNullOrWhiteSpace(openAiKey) ? null : openAiKey);
+        _onSaved(updated);
     }
 
     private UIElement BuildRemoteAccessPage() {

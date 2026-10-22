@@ -241,7 +241,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         _markdownBox = MakeTextBox(
             string.IsNullOrWhiteSpace(step.MarkdownText) ? step.Title : step.MarkdownText,
             multiLine: true);
-        _markdownBox.Height = 120;
+        _markdownBox.Height = 90;
         _markdownBox.FontFamily = new FontFamily("Consolas, Courier New, monospace");
         _markdownBox.AcceptsReturn = true;
         _markdownBox.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
@@ -301,7 +301,7 @@ internal sealed class FrmGuidedTourStepEditor : ChromedWindow
         double fontSizeBody = Application.Current.Resources.Contains("FontSizeBody")
             ? Convert.ToDouble(Application.Current.Resources["FontSizeBody"])
             : 13.0;
-        double cmdBoxHeight = ((fontSizeBody + 6) * 9 + 8) * 0.8;
+        double cmdBoxHeight = ((fontSizeBody + 6) * 9 + 8) * 0.6;
 
         _commandBeforeBox = new TextBox
         {

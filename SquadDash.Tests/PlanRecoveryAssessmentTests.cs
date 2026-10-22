@@ -807,6 +807,38 @@ internal sealed class PlanRecoveryAssessmentTests
     }
 
     [Test]
+    public void VerificationRecovery_ReconstructsCandidateFromCleanWorktreePauseAfterRestart()
+    {
+        var handoff = new PlanTaskHandoff(
+            "abcdef1",
+            "Implemented the completion footer.",
+            ["SquadDash/MainWindow.xaml.cs"],
+            new DecomposeStepVerification("passed", "dotnet build", "Build succeeded."),
+            DateTimeOffset.UtcNow,
+            [],
+            BaselineCommit: "1234567");
+        var task = new PlanTask(
+            "TASK-1", "Task", "Task", [], "high", PlanTaskStatus.VerificationPending,
+            Handoff: handoff);
+        var plan = new Plan(
+            "PLAN-1", "rev-1", PlanSource.Inbox, PlanLifecycleStatus.WaitingForCleanWorktree,
+            "Plan", "feature/plan", "Summary", [task], [], new PlanProgress(0, 1),
+            new PlanTimestamps(DateTimeOffset.UtcNow));
+
+        var created = PlanVerificationRecoveryPolicy.TryCreateCandidate(
+            plan, "TASK-1", "abcdef1234567890", out var candidate, out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(PlanVerificationRecoveryPolicy.CanResume(plan, "TASK-1"), Is.True);
+            Assert.That(created, Is.True, error);
+            Assert.That(candidate, Is.Not.Null);
+            Assert.That(candidate!.Commit, Is.EqualTo("abcdef1234567890"));
+            Assert.That(candidate.Verification?.Status, Is.EqualTo("passed"));
+        });
+    }
+
+    [Test]
     public void VerificationRecovery_ReconstructsVerifiedNoOpWithoutInventingTaskCommit()
     {
         var evidence = new PlanTaskNoOpEvidence(

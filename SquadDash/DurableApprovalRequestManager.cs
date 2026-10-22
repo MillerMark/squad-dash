@@ -51,6 +51,7 @@ internal sealed class DurableApprovalRequestManager
     internal const string AttachmentType = "approval-gate";
     internal const string ApprovalRouteMode = "approval-gate";
     internal const string ApprovalReviewRouteMode = "approval-gate-review";
+    internal const string ApprovalAddressUnapprovedRouteMode = "approval-gate-address-unapproved";
     internal const string RunbookAttachmentType = "inbox-message-ref";
     internal const string OperatorGuideAttachmentType = "approval-operator-guide";
     internal const string ApprovalRunbookLink = "app://open-approval-runbook";
@@ -102,11 +103,17 @@ internal sealed class DurableApprovalRequestManager
                 var updatedGateIds = state is not null
                     ? state.ActiveGateIds.Append(gate.GateId).Distinct(StringComparer.Ordinal).ToList()
                     : new List<string> { gate.GateId };
+                var resolvedCheckpoints = state is not null
+                    ? state.ResolvedCheckpoints
+                        .Where(entry => !string.Equals(entry.GateId, gate.GateId, StringComparison.Ordinal))
+                        .ToList()
+                    : [];
 
                 var newState = (state ?? new DurableApprovalState(plan.PlanId, [], []))
                     with
                     {
                         ActiveGateIds = updatedGateIds,
+                        ResolvedCheckpoints = resolvedCheckpoints,
                         LastNotifiedAt = null,
                         Archived = false,
                         Version = (state?.Version ?? 0) + 1,
@@ -239,6 +246,26 @@ internal sealed class DurableApprovalRequestManager
                 Attachments = BuildAttachments(
                     state, snapshot, existing.Attachments, plan),
             });
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    internal async Task SuppressActionsAsync(
+        string planId,
+        CancellationToken cancellationToken = default)
+    {
+        var sem = GetLock(planId);
+        await sem.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var existing = _inbox.GetById(BuildMessageId(planId));
+            if (existing is null || existing.Actions.Count == 0)
+                return;
+
+            _inbox.Save(existing with { Actions = [] });
         }
         finally
         {
@@ -854,7 +881,11 @@ internal sealed class DurableApprovalRequestManager
     {
         var guide = ResolveOperatorGuide(plan, state.ActiveGateIds, existingAttachments);
         if (string.IsNullOrWhiteSpace(guide))
-            return BuildActions(plan, state);
+            return BuildActions(
+                plan,
+                state,
+                approvalSetupValid: true,
+                suppressIncompleteChecklistActions: true);
 
         var gates = state.ActiveGateIds
             .Select(gateId => plan.ApprovalGates.FirstOrDefault(gate =>
@@ -867,7 +898,7 @@ internal sealed class DurableApprovalRequestManager
         var setupValid = !composed.Contains(
             ManualTestKitChecklistComposer.SetupErrorMarker,
             StringComparison.Ordinal);
-        return BuildActions(plan, state, setupValid);
+        return BuildActions(plan, state, setupValid, suppressIncompleteChecklistActions: true);
     }
 
     internal static string BuildBody(
@@ -1073,12 +1104,13 @@ internal sealed class DurableApprovalRequestManager
     internal static IReadOnlyList<InboxAction> BuildActions(
         Plan plan,
         DurableApprovalState state)
-        => BuildActions(plan, state, approvalSetupValid: true);
+        => BuildActions(plan, state, approvalSetupValid: true, suppressIncompleteChecklistActions: false);
 
     private static IReadOnlyList<InboxAction> BuildActions(
         Plan plan,
         DurableApprovalState state,
-        bool approvalSetupValid)
+        bool approvalSetupValid,
+        bool suppressIncompleteChecklistActions = false)
     {
         if (state.ActiveGateIds.Count == 0)
             return [];
@@ -1097,6 +1129,23 @@ internal sealed class DurableApprovalRequestManager
             .Cast<PlanApprovalGate>()
             .ToArray();
         var checklist = PlanHumanReviewChecklist.Build(plan, activeGates);
+        var hasIncompleteChecklist = checklist.Count > 0 && checklist.Any(item => !item.IsChecked);
+        var suppressIncompleteAction =
+            suppressIncompleteChecklistActions &&
+            hasIncompleteChecklist;
+        if (approvalSetupValid &&
+            hasIncompleteChecklist &&
+            !suppressIncompleteAction)
+        {
+            actions.Add(new InboxAction
+            {
+                Label = PlanReviewActionPresentation.AddressUnapprovedItemsLabel,
+                RouteMode = ApprovalAddressUnapprovedRouteMode,
+                Prompt = JsonSerializer.Serialize(payload, StateSerializerOptions),
+                Hint = PlanReviewActionPresentation.AddressUnapprovedItemsToolTip,
+            });
+        }
+
         if (approvalSetupValid && (checklist.Count == 0 || checklist.All(item => item.IsChecked)))
         {
             actions.Add(new InboxAction
