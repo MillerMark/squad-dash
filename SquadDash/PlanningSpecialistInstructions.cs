@@ -72,6 +72,11 @@ internal static class PlanningSpecialistInstructions
                Calibrate plan detail to the approval decision: capture observable outcomes, constraints,
                cross-task contracts, risks, and validation boundaries. Leave local implementation choices
                to the executing agent unless a verified compatibility or safety boundary requires them.
+               Omitted `verificationLevel` means lightweight verification. Prefer that default for bounded,
+               reversible, locally testable work. Select standard only when the plan names a concrete
+               integration or correctness risk that task-owned evidence does not sufficiently cover. Select
+               enhanced only when the plan names a high-risk failure mode requiring deeper counterexample
+               and negative-case scrutiny.
                Do not prescribe speculative class names, helper breakdowns, file-by-file edits, exact test
                counts, or exhaustive test-case inventories; describe the behaviors and failure modes that
                must be proven. Treat each task as a bounded execution contract, not a pseudo-implementation.

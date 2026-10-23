@@ -30,7 +30,7 @@ internal sealed class PlanTaskExecutionPolicyTests
             Assert.That(PlanTaskExecutionPolicy.IsVerificationOnly(verification), Is.True);
             Assert.That(PlanTaskExecutionPolicy.RequiresIndependentVerification(verification), Is.False);
             Assert.That(PlanTaskExecutionPolicy.IsVerificationOnly(implementation), Is.False);
-            Assert.That(PlanTaskExecutionPolicy.RequiresIndependentVerification(implementation), Is.True);
+            Assert.That(PlanTaskExecutionPolicy.RequiresIndependentVerification(implementation), Is.False);
         });
     }
 
@@ -48,18 +48,31 @@ internal sealed class PlanTaskExecutionPolicyTests
     }
 
     [Test]
-    public void VerificationLevel_DefaultsToStandard_AndRoundTripsEnhanced()
+    public void VerificationLevel_DefaultsToLightweight_AndRoundTripsExplicitLevels()
     {
         var defaultTask = MakeTask("Implement feature", PlanTaskExecutionMode.Implementation);
-        var enhancedTask = defaultTask with { VerificationLevel = PlanTaskVerificationLevel.Enhanced };
+        var standardTask = defaultTask with { VerificationLevel = PlanTaskVerificationLevel.Standard };
+        var enhancedTask = defaultTask with
+        {
+            Id = "VERIFY-20260813-002",
+            VerificationLevel = PlanTaskVerificationLevel.Enhanced,
+        };
 
         Assert.That(PlanTaskVerificationLevel.Normalize(defaultTask.VerificationLevel),
-            Is.EqualTo(PlanTaskVerificationLevel.Standard));
+            Is.EqualTo(PlanTaskVerificationLevel.Lightweight));
+        var group = MakeGroup(standardTask) with { Tasks = [standardTask, enhancedTask] };
         var durable = PendingDecomposePlanAdapter.ToPlan(
-            new PendingDecomposePlan("revision", MakeGroup(enhancedTask)), DateTimeOffset.UtcNow);
+            new PendingDecomposePlan("revision", group), DateTimeOffset.UtcNow);
         var restored = PendingDecomposePlanAdapter.FromPlan(durable);
-        Assert.That(restored.Group.Tasks.Single().VerificationLevel,
-            Is.EqualTo(PlanTaskVerificationLevel.Enhanced));
+        Assert.Multiple(() =>
+        {
+            Assert.That(restored.Group.Tasks[0].VerificationLevel,
+                Is.EqualTo(PlanTaskVerificationLevel.Standard));
+            Assert.That(restored.Group.Tasks[1].VerificationLevel,
+                Is.EqualTo(PlanTaskVerificationLevel.Enhanced));
+            Assert.That(PlanTaskExecutionPolicy.RequiresIndependentVerification(defaultTask), Is.False);
+            Assert.That(PlanTaskExecutionPolicy.RequiresIndependentVerification(standardTask), Is.True);
+        });
     }
 
     [Test]

@@ -15,8 +15,9 @@ internal static class PlanTaskVerificationLevel
     internal static string Normalize(string? value) => value?.Trim().ToLowerInvariant() switch
     {
         Lightweight => Lightweight,
+        Standard => Standard,
         Enhanced => Enhanced,
-        _ => Standard,
+        _ => Lightweight,
     };
 
     internal static bool IsValid(string? value) =>

@@ -86,6 +86,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(charter, Does.Contain("exactly one accountable primary agent"));
             Assert.That(charter, Does.Contain("separate dependent"));
             Assert.That(charter, Does.Contain("Never hide required execution in prose"));
+            Assert.That(charter, Does.Contain("Omission means\n  lightweight verification"));
+            Assert.That(charter, Does.Contain("Select standard only when the plan names a concrete"));
+            Assert.That(charter, Does.Contain("Select enhanced only when the plan names a high-risk failure"));
         });
     }
 
@@ -147,6 +150,9 @@ internal sealed class PlanningSpecialistInstructionsTests
             Assert.That(guidance, Does.Contain("never a SquadDash session, config, cache, or state directory"));
             Assert.That(guidance, Does.Contain("executor must verify every resolved target exists before delivery"));
             Assert.That(guidance, Does.Contain("absolute path"));
+            Assert.That(guidance, Does.Contain("Omitted `verificationLevel` means lightweight verification"));
+            Assert.That(guidance, Does.Contain("Select standard only when the plan names a concrete"));
+            Assert.That(guidance, Does.Contain("Select\n   enhanced only when the plan names a high-risk failure mode"));
         });
     }
 

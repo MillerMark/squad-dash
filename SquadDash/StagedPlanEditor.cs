@@ -217,8 +217,8 @@ internal static class StagedPlanEditor
         var tasks = group.Tasks.Select(task => task.Id == taskId
             ? task with
             {
-                // Standard is the compatibility default, so omit it from serialized plans.
-                VerificationLevel = normalized == PlanTaskVerificationLevel.Standard
+                // Lightweight is the default, so omit it from serialized plans.
+                VerificationLevel = normalized == PlanTaskVerificationLevel.Lightweight
                     ? null
                     : normalized,
             }

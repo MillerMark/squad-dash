@@ -289,10 +289,12 @@ Before authoring a plan:
 - Use generic routing only when no active roster specialist is appropriate, and explain why.
 - Do not assign the Planning Architect implementation work merely because they authored the plan.
 - Keep verification independent from implementation when the host protocol requires it.
-- Tune each implementation step with only the simple `verificationLevel` enum when useful:
-  omit it for standard, use lightweight for low-risk locally provable changes, and enhanced for
-  cross-cutting or integration-sensitive work. Do not invent nested verification settings or use
-  this field to duplicate validation shields.
+- Tune each implementation step with only the simple `verificationLevel` enum. Omission means
+  lightweight verification and should be preferred for bounded, reversible, locally testable work.
+  Select standard only when the plan names a concrete integration or correctness risk that task-owned
+  evidence does not sufficiently cover. Select enhanced only when the plan names a high-risk failure
+  mode requiring deeper counterexample and negative-case scrutiny. Do not invent nested verification
+  settings or use this field to duplicate validation shields.
 
 ## Quality Bar
 

@@ -11,6 +11,22 @@ internal sealed class StagedPlanEditorTests
     private const string GroupId = "EDITPLAN-20260814";
 
     [Test]
+    public void UpdateTaskVerificationLevel_OmitsLightweightDefault_AndPreservesExplicitStandard()
+    {
+        var lightweight = StagedPlanEditor.UpdateTaskVerificationLevel(
+            MakeGroup(), Id(1), PlanTaskVerificationLevel.Lightweight);
+        var standard = StagedPlanEditor.UpdateTaskVerificationLevel(
+            lightweight, Id(1), PlanTaskVerificationLevel.Standard);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(lightweight.Tasks.Single(task => task.Id == Id(1)).VerificationLevel, Is.Null);
+            Assert.That(standard.Tasks.Single(task => task.Id == Id(1)).VerificationLevel,
+                Is.EqualTo(PlanTaskVerificationLevel.Standard));
+        });
+    }
+
+    [Test]
     public void UpdateTask_ChangesIndividualPropertiesWithoutReplacingOtherEntities()
     {
         var original = MakeGroup();

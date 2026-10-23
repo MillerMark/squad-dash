@@ -295,10 +295,12 @@ not required. Use the exact property names below; do not substitute familiar sho
   work or `"verification"` for non-mutating proof work. Verification tasks must declare at least one
   `proofRequirements` entry and must not create a commit merely to satisfy plan bookkeeping.
 - `tasks[].verificationLevel`: optional single string for implementation work. Omit it for the default
-  `"standard"` independent review. Use `"lightweight"` only for low-risk, locally provable work where
-  host checks of commands, evidence, commit scope, and changed files are sufficient; the host may
-  upgrade it when the actual diff is riskier. Use `"enhanced"` when cross-cutting, integration, safety,
-  or test-sensitivity risk warrants deeper counterexample and negative-case scrutiny. Do not add a
+  `"lightweight"` verification, where the implementing agent supplies task-owned checks and the host
+  validates commands, evidence, commit scope, and changed files without a separate Fact Checker call.
+  Use `"standard"` only when a named integration or correctness risk is not sufficiently covered by
+  task-owned evidence and therefore justifies an independent review. Use `"enhanced"` only when a named
+  high-risk failure mode warrants deeper counterexample and negative-case scrutiny. The host may upgrade
+  lightweight verification when the actual priority or changed files reveal elevated risk. Do not add a
   nested verification object. This setting has no effect on `executionMode: "verification"` steps.
 - `tasks[].agentRoutingMode`: required; either `"assigned"` or `"generic"`. Never omit this to obtain a fallback.
 - `tasks[].agentAssignments`: required with exactly one `{ "agentHandle", "role", "allowGenericChildren" }` object when `agentRoutingMode` is `"assigned"`; omit it for `"generic"`. `agentHandle` and `role` are required non-empty strings; `allowGenericChildren` is a required boolean. Use an exact active handle from `.squad/team.md`. Set `allowGenericChildren` to `true` unless the task has a specific reason to prefer direct execution. Generic children remain subordinate read-only research helpers: they never satisfy or replace the named primary assignment, and the named agent must synthesize their work. Multiple primary assignments are not executable; represent separately accountable work as dependent tasks. Exact example: `"agentAssignments":[{"agentHandle":"arjun-sen","role":"Implement the persistence service","allowGenericChildren":true}]`.
