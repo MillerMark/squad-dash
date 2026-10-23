@@ -61652,6 +61652,7 @@ public partial class MainWindow : Window
                     if (awaitingGate is not null) ApproveCurrentPlan(plan);
                 },
                 archivePlan: ArchivePlan,
+                restorePlan: ReactivatePlan,
                 pausePlan: RequestPlanPauseAfterCurrentStep,
                 togglePlanPause: TogglePlanPauseFromMenu,
                 abortPlan: AbortCurrentPlanWork,
@@ -61935,14 +61936,34 @@ public partial class MainWindow : Window
 
     private void ArchivePlan(Plan plan)
     {
-        if (_planStore is null) return;
-        var archived = PlanStoreUpdater.ApplyArchived(plan);
-        if (ReferenceEquals(archived, plan))
+        if (_planStore is null)
         {
-            AppendLine("A running plan must be paused or ended before it can be archived.");
+            AppendLine("Plan could not be archived: the plan store is unavailable.");
             return;
         }
-        if (!TryPublishPlanProgress(archived, out var error))
+        var current = _planStore.Load(plan.PlanId);
+        if (current is null)
+        {
+            AppendLine("Plan could not be archived: the plan no longer exists or could not be loaded.");
+            return;
+        }
+        if (!PlanArchivePolicy.IsAvailable(current))
+        {
+            AppendLine("The plan is already archived or must be paused or ended before it can be archived.");
+            return;
+        }
+        if (!PlanArchivePolicy.ConfirmArchive(current, () => MessageBox.Show(
+                this,
+                $"This plan is not complete. Archive anyway?\n\n{current.DisplayName}\n\nTask progress will be preserved.",
+                "Archive Plan",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No) == MessageBoxResult.Yes))
+            return;
+
+        var archived = PlanStoreUpdater.ApplyArchived(current);
+        // A modal confirmation pumps the dispatcher; do not overwrite progress changed meanwhile.
+        if (!TryPublishPlanRecoveryProgress(current, archived, out _, out var error))
         {
             AppendLine($"⚠ Plan could not be archived: {error}");
             return;
@@ -61950,6 +61971,37 @@ public partial class MainWindow : Window
         ArchivePlanFamilyArtifacts(archived.PlanId);
         if (PlansShowArchivedCheckBox is not null)
             PlansShowArchivedCheckBox.IsChecked = true;
+    }
+
+    private void ReactivatePlan(Plan plan)
+    {
+        if (_planStore is null)
+        {
+            AppendLine("Plan could not be reactivated: the plan store is unavailable.");
+            return;
+        }
+        var current = _planStore.Load(plan.PlanId);
+        if (current is null)
+        {
+            AppendLine("Plan could not be reactivated: the plan no longer exists or could not be loaded.");
+            return;
+        }
+        if (current.LifecycleStatus != PlanLifecycleStatus.Archived)
+        {
+            AppendLine("Plan could not be reactivated: it is no longer archived.");
+            return;
+        }
+
+        var restored = PlanStoreUpdater.ApplyRestoredForRevision(current);
+        // Restoring visibility is not a completion transition and must not queue follow-up work.
+        if (!TryPublishPlanProgressCore(restored, persisted => _planStore.Save(persisted), out var error))
+        {
+            AppendLine($"Plan could not be reactivated: {error}");
+            return;
+        }
+        if (PlanLifecycleStatus.IsTerminal(restored.LifecycleStatus) && PlansShowCompletedCheckBox is not null)
+            PlansShowCompletedCheckBox.IsChecked = true;
+        _plansPanelController?.RevealCollectedPlan(restored);
     }
 
     private bool IsDurablePlanArchived(string planId)

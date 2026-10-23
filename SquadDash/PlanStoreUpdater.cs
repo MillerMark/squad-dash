@@ -771,13 +771,13 @@ internal static class PlanStoreUpdater
     /// <summary>Archives a non-running plan without deleting its durable history.</summary>
     internal static Plan ApplyArchived(Plan existing)
     {
-        if (existing.LifecycleStatus is PlanLifecycleStatus.Executing or PlanLifecycleStatus.AwaitingApproval)
+        if (!PlanArchivePolicy.IsAvailable(existing))
             return existing;
 
         return existing with
         {
+            PreArchiveLifecycleStatus = existing.LifecycleStatus,
             LifecycleStatus = PlanLifecycleStatus.Archived,
-            Progress = existing.Progress with { ExecutingTaskId = null },
             Timestamps = existing.Timestamps with { ArchivedAt = DateTimeOffset.UtcNow },
         };
     }
@@ -792,17 +792,18 @@ internal static class PlanStoreUpdater
         if (existing.LifecycleStatus != PlanLifecycleStatus.Archived)
             return existing;
 
-        var restoredStatus = existing.Timestamps.CompletedAt is not null
+        var restoredStatus = existing.PreArchiveLifecycleStatus ?? (existing.Timestamps.CompletedAt is not null
             ? PlanLifecycleStatus.Completed
             : existing.Timestamps.StoppedAt is not null
                 ? PlanLifecycleStatus.Stopped
                 : existing.InterruptionData is not null
                     ? PlanLifecycleStatus.Interrupted
-                    : PlanLifecycleStatus.Approved;
+                    : PlanLifecycleStatus.Approved);
 
         return existing with
         {
             LifecycleStatus = restoredStatus,
+            PreArchiveLifecycleStatus = null,
             Timestamps = existing.Timestamps with { ArchivedAt = null },
         };
     }

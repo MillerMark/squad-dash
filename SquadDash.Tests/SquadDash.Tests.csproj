@@ -64,6 +64,7 @@
     <Compile Include="..\SquadDash\PlanExecutionTransitionService.cs" Link="Source\PlanExecutionTransitionService.cs" />
     <Compile Include="..\SquadDash\PlanPauseTransitionCoordinator.cs" Link="Source\PlanPauseTransitionCoordinator.cs" />
     <Compile Include="..\SquadDash\PlanPauseMenuPolicy.cs" Link="Source\PlanPauseMenuPolicy.cs" />
+    <Compile Include="..\SquadDash\PlanArchivePolicy.cs" Link="Source\PlanArchivePolicy.cs" />
     <Compile Include="..\SquadDash\PlanApprovalControlLockPolicy.cs" Link="Source\PlanApprovalControlLockPolicy.cs" />
     <Compile Include="..\SquadDash\PlanApprovalHistoricalPresentationPolicy.cs" Link="Source\PlanApprovalHistoricalPresentationPolicy.cs" />
     <Compile Include="..\SquadDash\PlanConnectorAnchorDistributor.cs" Link="Source\PlanConnectorAnchorDistributor.cs" />
@@ -446,6 +447,8 @@
     <Compile Include="..\SquadDash\MarkdownDocumentTabState.cs" Link="Source\MarkdownDocumentTabState.cs" />
     <Compile Include="..\SquadDash\MarkdownEditorCommands.cs" Link="Source\MarkdownEditorCommands.cs" />
     <Compile Include="..\SquadDash\RichTextBoxExtensions.cs" Link="Source\RichTextBoxExtensions.cs" />
+    <Compile Include="..\SquadDash\PromptTextTokenParser.cs" Link="Source\PromptTextTokenParser.cs" />
+    <Compile Include="..\SquadDash\PromptTextStyling.cs" Link="Source\PromptTextStyling.cs" />
     <Compile Include="..\SquadDash\RevisionPendingIndicator.cs" Link="Source\RevisionPendingIndicator.cs" />
     <Compile Include="..\SquadDash\MarkdownHtmlBuilder.cs" Link="Source\MarkdownHtmlBuilder.cs" />
     <Compile Include="..\SquadDash\TasksStatusWindow.cs" Link="Source\TasksStatusWindow.cs" />

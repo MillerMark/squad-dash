@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -41,12 +42,19 @@ internal sealed class PlansPanelControllerTests
                     StackPanel activePanel,
                     StackPanel completedPanel,
                     List<bool> visibilityCalls)
-        BuildController(Func<bool>? isPromptRunning = null)
+        BuildController(
+            Func<bool>? isPromptRunning = null,
+            Action<Plan>? archivePlan = null,
+            Action<Plan>? startPlan = null,
+            Action<Plan>? resumePlan = null,
+            Func<string, bool>? isSimulationOverlayPlanId = null,
+            Action<Plan>? restorePlan = null,
+            StackPanel? archivedPanel = null)
     {
         var activePanel    = new StackPanel();
         var completedPanel = new StackPanel();
         var completedSection = new Border();
-        var archivedPanel = new StackPanel();
+        archivedPanel ??= new StackPanel();
         var archivedSection = new Border();
         var visibilityCalls  = new List<bool>();
 
@@ -60,9 +68,226 @@ internal sealed class PlansPanelControllerTests
             syncBorderVisibility: v => visibilityCalls.Add(v),
             setMenuChecked:       _ => { },
             persistVisibility:    () => { },
-            isPromptRunning:      isPromptRunning);
+            isPromptRunning:      isPromptRunning,
+            archivePlan:          archivePlan,
+            startPlan:            startPlan,
+            resumePlan:           resumePlan,
+            restorePlan:          restorePlan,
+            isSimulationOverlayPlanId: isSimulationOverlayPlanId);
 
         return (controller, activePanel, completedPanel, visibilityCalls);
+    }
+
+    [TestCase(PlanLifecycleStatus.Archived, false, true, true)]
+    [TestCase(PlanLifecycleStatus.Archived, true, true, false)]
+    [TestCase(PlanLifecycleStatus.Archived, false, false, false)]
+    [TestCase(PlanLifecycleStatus.Approved, false, true, false)]
+    [TestCase(PlanLifecycleStatus.Interrupted, false, true, false)]
+    [TestCase(PlanLifecycleStatus.Completed, false, true, false)]
+    public void ReactivateMenu_OnlyAvailableForDurableArchivedPlans(
+        string status, bool simulation, bool canRestore, bool expected) =>
+        WpfTestContext.Run(() =>
+        {
+            var archived = new StackPanel();
+            var (controller, active, completed, _) = BuildController(
+                restorePlan: canRestore ? _ => { } : null,
+                archivedPanel: archived,
+                isSimulationOverlayPlanId: _ => simulation);
+            controller.Refresh([MakePlan(status: status)]);
+
+            var row = active.Children.OfType<Border>()
+                .Concat(completed.Children.OfType<Border>())
+                .Concat(archived.Children.OfType<Border>()).Single();
+            Assert.That(row.ContextMenu!.Items.OfType<MenuItem>()
+                .Any(item => Equals(item.Header, "Reactivate")), Is.EqualTo(expected));
+        });
+
+    [TestCase(PlanLifecycleStatus.Staged, false)]
+    [TestCase(PlanLifecycleStatus.Approved, false)]
+    [TestCase(PlanLifecycleStatus.Interrupted, false)]
+    [TestCase(PlanLifecycleStatus.WaitingForCleanWorktree, false)]
+    [TestCase(PlanLifecycleStatus.Blocked, false)]
+    [TestCase(PlanLifecycleStatus.Stopped, true)]
+    [TestCase(PlanLifecycleStatus.Completed, true)]
+    public void ReactivateMenu_RestoresPersistedLifecycleAndGroupingWithoutExecution(
+        string status, bool terminal) =>
+        WpfTestContext.Run(() =>
+        {
+            var folder = Path.Combine(Path.GetTempPath(), "SquadDashReactivateTests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                var store = new PlanStore(folder);
+                var original = MakePlan(status: status) with
+                {
+                    Tasks =
+                    [
+                        new PlanTask("t1", "Task 1", "Accepted work", [], "normal", PlanTaskStatus.Complete),
+                        new PlanTask("t2", "Task 2", "Remaining work", [], "normal",
+                            terminal ? PlanTaskStatus.Complete : PlanTaskStatus.Pending),
+                    ],
+                    Progress = new PlanProgress(terminal ? 2 : 1, 2),
+                    IsPaused = status == PlanLifecycleStatus.Interrupted,
+                };
+                store.Save(PlanStoreUpdater.ApplyArchived(original));
+                var archivedPlan = store.Load(original.PlanId)!;
+                var archived = new StackPanel();
+                var restoreCalls = 0;
+                Plan? restored = null;
+                var (controller, active, completed, _) = BuildController(
+                    archivedPanel: archived,
+                    archivePlan: _ => Assert.Fail("Reactivate must not archive."),
+                    startPlan: _ => Assert.Fail("Reactivate must not start execution."),
+                    resumePlan: _ => Assert.Fail("Reactivate must not resume execution."),
+                    restorePlan: plan =>
+                    {
+                        restoreCalls++;
+                        Assert.That(plan, Is.SameAs(archivedPlan));
+                        var current = store.Load(plan.PlanId)!;
+                        restored = store.Save(PlanStoreUpdater.ApplyRestoredForRevision(current));
+                    });
+                controller.Refresh([archivedPlan]);
+                controller.SetShowArchived(true);
+
+                var menu = archived.Children.OfType<Border>().Single().ContextMenu!;
+                var headers = menu.Items.OfType<MenuItem>().Select(item => item.Header).ToArray();
+                Assert.That(headers, Does.Not.Contain("Start Plan"));
+                Assert.That(headers, Does.Not.Contain("Resume Plan"));
+                Assert.That(headers, Does.Not.Contain("Assess && Continue"));
+                menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, "Reactivate"))
+                    .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+                Assert.That(restoreCalls, Is.EqualTo(1));
+                Assert.That(restored, Is.Not.Null);
+                var reloaded = store.Load(original.PlanId)!;
+                Assert.That(reloaded.LifecycleStatus, Is.EqualTo(status));
+                Assert.That(reloaded.LifecycleStatus, Is.Not.EqualTo(PlanLifecycleStatus.Executing));
+                Assert.That(reloaded.Progress, Is.EqualTo(original.Progress));
+                Assert.That(JsonSerializer.Serialize(reloaded.Tasks), Is.EqualTo(JsonSerializer.Serialize(original.Tasks)));
+                Assert.That(reloaded.IsPaused, Is.EqualTo(original.IsPaused));
+                Assert.That(reloaded.Timestamps, Is.EqualTo(original.Timestamps));
+                Assert.That(reloaded.PreArchiveLifecycleStatus, Is.Null);
+
+                controller.OnPlanChanged(reloaded);
+                Assert.That(archived.Children.OfType<Border>(), Is.Empty);
+                Assert.That((terminal ? completed : active).Children.OfType<Border>().Single().Tag,
+                    Is.EqualTo(original.PlanId));
+                controller.Refresh(store.LoadAll());
+                Assert.That(archived.Children.OfType<Border>(), Is.Empty);
+                Assert.That((terminal ? completed : active).Children.OfType<Border>().Single().Tag,
+                    Is.EqualTo(original.PlanId));
+            }
+            finally
+            {
+                if (Directory.Exists(folder))
+                    Directory.Delete(folder, recursive: true);
+            }
+        });
+
+    [TestCase(PlanLifecycleStatus.Staged, "Archive…")]
+    [TestCase(PlanLifecycleStatus.Approved, "Archive…")]
+    [TestCase(PlanLifecycleStatus.Interrupted, "Archive…")]
+    [TestCase(PlanLifecycleStatus.WaitingForCleanWorktree, "Archive…")]
+    [TestCase(PlanLifecycleStatus.Blocked, "Archive…")]
+    [TestCase(PlanLifecycleStatus.Stopped, "Archive…")]
+    [TestCase(PlanLifecycleStatus.Completed, "Archive Plan")]
+    [TestCase(PlanLifecycleStatus.Executing, null)]
+    [TestCase(PlanLifecycleStatus.AwaitingApproval, null)]
+    public void ArchiveMenu_VisibilityDoesNotDependOnResume(string status, string? expectedHeader) =>
+        WpfTestContext.Run(() =>
+        {
+            Plan? archived = null;
+            var (controller, active, completed, _) = BuildController(archivePlan: plan => archived = plan);
+            var plan = MakePlan(status: status);
+            controller.Refresh([plan]);
+
+            var row = active.Children.OfType<Border>().Concat(completed.Children.OfType<Border>()).Single();
+            var archiveItem = row.ContextMenu!.Items.OfType<MenuItem>()
+                .SingleOrDefault(item => item.Header is string header && header.StartsWith("Archive"));
+            Assert.That(archiveItem?.Header, Is.EqualTo(expectedHeader));
+            if (archiveItem is not null)
+            {
+                archiveItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                Assert.That(archived, Is.SameAs(plan));
+            }
+        });
+
+    [TestCase(PlanLifecycleStatus.Interrupted, false, "Assess && Continue")]
+    [TestCase(PlanLifecycleStatus.Interrupted, true, "Resume Plan")]
+    [TestCase(PlanLifecycleStatus.WaitingForCleanWorktree, false, "Resume Plan")]
+    public void ArchiveMenu_CoexistsWithUnchangedResumeAction(string status, bool safeRework, string resumeHeader) =>
+        WpfTestContext.Run(() =>
+        {
+            Plan? resumed = null;
+            Plan? assessed = null;
+            var (controller, active, _, _) = BuildController(
+                archivePlan: _ => { },
+                startPlan: plan => resumed = plan,
+                resumePlan: plan => assessed = plan);
+            var plan = MakePlan(status: status) with
+            {
+                InterruptionData = safeRework
+                    ? new PlanInterruptionData(PlanRecoveryResumePolicy.BuildReworkPreflightReason("Blocked"),
+                        PlanRecoveryState.PendingRecovery, 1)
+                    : null,
+            };
+            controller.Refresh([plan]);
+
+            var menu = active.Children.OfType<Border>().Single().ContextMenu!;
+            Assert.That(menu.Items.OfType<MenuItem>().Any(item => Equals(item.Header, "Archive…")), Is.True);
+            menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, resumeHeader))
+                .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            Assert.That(resumeHeader == "Resume Plan" ? resumed : assessed, Is.SameAs(plan));
+            Assert.That(resumeHeader == "Resume Plan" ? assessed : resumed, Is.Null);
+        });
+
+    [Test]
+    public void ArchiveMenu_SimulationOverlayIsNotArchivable() =>
+        WpfTestContext.Run(() =>
+        {
+            var (controller, active, _, _) = BuildController(
+                archivePlan: _ => Assert.Fail("Simulation must not archive durable plans."),
+                isSimulationOverlayPlanId: _ => true);
+            controller.Refresh([MakePlan(status: PlanLifecycleStatus.Interrupted)]);
+
+            var menu = active.Children.OfType<Border>().Single().ContextMenu!;
+            Assert.That(menu.Items.OfType<MenuItem>()
+                .Any(item => item.Header is string header && header.StartsWith("Archive")), Is.False);
+        });
+
+    [TestCase(PlanLifecycleStatus.Staged)]
+    [TestCase(PlanLifecycleStatus.Approved)]
+    [TestCase(PlanLifecycleStatus.Interrupted)]
+    [TestCase(PlanLifecycleStatus.WaitingForCleanWorktree)]
+    [TestCase(PlanLifecycleStatus.Blocked)]
+    [TestCase(PlanLifecycleStatus.Stopped)]
+    public void ArchiveConfirmation_IncompletePlanRequiresExplicitConsent(string status)
+    {
+        var plan = MakePlan(status: status);
+        foreach (var consent in new[] { false, true })
+        {
+            var confirmationCount = 0;
+            var allowed = PlanArchivePolicy.ConfirmArchive(plan, () =>
+            {
+                confirmationCount++;
+                return consent;
+            });
+            Assert.That(confirmationCount, Is.EqualTo(1));
+            Assert.That(allowed, Is.EqualTo(consent));
+        }
+    }
+
+    [TestCase(PlanLifecycleStatus.Completed, true)]
+    [TestCase(PlanLifecycleStatus.Executing, false)]
+    [TestCase(PlanLifecycleStatus.AwaitingApproval, false)]
+    [TestCase(PlanLifecycleStatus.Archived, false)]
+    public void ArchiveConfirmation_CompletedOrUnavailablePlanDoesNotPrompt(string status, bool expected)
+    {
+        var allowed = PlanArchivePolicy.ConfirmArchive(MakePlan(status: status), () =>
+        {
+            Assert.Fail("This plan must not show an incomplete-plan confirmation.");
+            return false;
+        });
+        Assert.That(allowed, Is.EqualTo(expected));
     }
 
     // ── Hidden panel is revealed ──────────────────────────────────────────────

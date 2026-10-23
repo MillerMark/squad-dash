@@ -1,0 +1,424 @@
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
+using System.Windows.Threading;
+
+namespace SquadDash;
+
+internal static class PromptTextStyling
+{
+    public static readonly DependencyProperty IsEnabledProperty = DependencyProperty.RegisterAttached(
+        "IsEnabled", typeof(bool), typeof(PromptTextStyling),
+        new PropertyMetadata(false, OnIsEnabledChanged));
+
+    private static readonly DependencyProperty AdornerProperty = DependencyProperty.RegisterAttached(
+        "Adorner", typeof(PromptTextAdorner), typeof(PromptTextStyling));
+
+    public static bool GetIsEnabled(DependencyObject target) => (bool)target.GetValue(IsEnabledProperty);
+    public static void SetIsEnabled(DependencyObject target, bool value) => target.SetValue(IsEnabledProperty, value);
+
+    private static void OnIsEnabledChanged(DependencyObject target, DependencyPropertyChangedEventArgs e)
+    {
+        if (target is not RichTextBox editor)
+            throw new ArgumentException("Prompt text styling requires a RichTextBox.", nameof(target));
+
+        if ((bool)e.NewValue)
+        {
+            editor.Loaded += OnLoaded;
+            editor.Unloaded += OnUnloaded;
+            if (editor.IsLoaded)
+                Attach(editor);
+        }
+        else
+        {
+            editor.Loaded -= OnLoaded;
+            editor.Unloaded -= OnUnloaded;
+            Detach(editor);
+        }
+    }
+
+    private static void OnLoaded(object sender, RoutedEventArgs e) => Attach((RichTextBox)sender);
+    private static void OnUnloaded(object sender, RoutedEventArgs e) => Detach((RichTextBox)sender);
+
+    private static void Attach(RichTextBox editor)
+    {
+        if (editor.GetValue(AdornerProperty) is PromptTextAdorner)
+            return;
+        var layer = AdornerLayer.GetAdornerLayer(editor)
+            ?? throw new InvalidOperationException("Prompt text styling requires an AdornerLayer.");
+        var adorner = new PromptTextAdorner(editor);
+        editor.SetValue(AdornerProperty, adorner);
+        layer.Add(adorner);
+    }
+
+    private static void Detach(RichTextBox editor)
+    {
+        if (editor.GetValue(AdornerProperty) is not PromptTextAdorner adorner)
+            return;
+        adorner.Dispose();
+        (VisualTreeHelper.GetParent(adorner) as AdornerLayer)?.Remove(adorner);
+        editor.ClearValue(AdornerProperty);
+    }
+}
+
+/// <summary>
+/// Token accents are paint only: no formatting edits, synthetic text, or inline controls
+/// enter the prompt's selection, serialization, IME, or shared undo timeline.
+/// </summary>
+internal sealed class PromptTextAdorner : Adorner, IDisposable
+{
+    private static readonly DependencyProperty MarkerBrushProperty = DependencyProperty.Register(
+        "MarkerBrush", typeof(Brush), typeof(PromptTextAdorner),
+        new FrameworkPropertyMetadata(Brushes.SteelBlue, FrameworkPropertyMetadataOptions.AffectsRender));
+    private static readonly DependencyProperty BorderBrushProperty = DependencyProperty.Register(
+        "BorderBrush", typeof(Brush), typeof(PromptTextAdorner),
+        new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    private sealed record ParagraphTokens(string Text, IReadOnlyList<PromptTextToken> Tokens);
+    private sealed record Glyph(TextPointer Start, TextPointer End, PromptTextTokenKind Kind, Brush? Color);
+    private sealed record Ink(Geometry Geometry, Brush Brush, double FontSize);
+    private readonly record struct FontLayout(
+        FontFamily Family, double Size, FontStyle Style, FontWeight Weight,
+        FontStretch Stretch, FlowDirection Direction, Thickness Padding, double PageWidth,
+        Brush Foreground, Brush Background);
+
+    private readonly RichTextBox _editor;
+    private readonly Dictionary<Paragraph, ParagraphTokens> _paragraphs = [];
+    private readonly List<Glyph> _glyphs = [];
+    private readonly HashSet<Visual> _embeddedVisuals = [];
+    private Dictionary<int, List<Ink>>? _inkRows;
+    private DispatcherOperation? _refresh;
+    private bool _disposed;
+    private bool _layoutDirty;
+    private FontLayout _fontLayout;
+
+    internal PromptTextAdorner(RichTextBox editor) : base(editor)
+    {
+        _editor = editor;
+        IsHitTestVisible = false;
+        Focusable = false;
+        SetResourceReference(MarkerBrushProperty, "DocumentLinkText");
+        SetResourceReference(BorderBrushProperty, "LabelText");
+        editor.TextChanged += OnTextChanged;
+        editor.SizeChanged += OnSizeChanged;
+        editor.LayoutUpdated += OnLayoutUpdated;
+        editor.SelectionChanged += OnSelectionChanged;
+        editor.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(OnScrollChanged), true);
+        ScheduleRefresh();
+    }
+
+    private void OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!ReferenceEquals(e.OriginalSource, _editor))
+            return;
+        _glyphs.Clear();
+        InvalidateVisual();
+        ScheduleRefresh();
+    }
+
+    private void ScheduleRefresh()
+    {
+        if (_refresh is not null)
+            return;
+        _refresh = Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+        {
+            _refresh = null;
+            RefreshTokens();
+        });
+    }
+
+    internal void RefreshTokens()
+    {
+        if (_disposed)
+            return;
+        _glyphs.Clear();
+        _inkRows = null;
+        _embeddedVisuals.Clear();
+        foreach (var block in _editor.Document.Blocks.OfType<BlockUIContainer>())
+            if (block.Child is { } child)
+                _embeddedVisuals.Add(child);
+        var present = new HashSet<Paragraph>();
+        // Deliberately never traverse BlockUIContainer children (the fenced region editors).
+        foreach (var paragraph in _editor.Document.Blocks.OfType<Paragraph>())
+        {
+            present.Add(paragraph);
+            foreach (var inline in paragraph.Inlines.OfType<InlineUIContainer>())
+                if (inline.Child is { } child)
+                    _embeddedVisuals.Add(child);
+            var text = RichTextBoxExtensions.GetParagraphText(paragraph);
+            if (!_paragraphs.TryGetValue(paragraph, out var cached) || cached.Text != text)
+            {
+                cached = new ParagraphTokens(text, PromptTextTokenParser.Parse(text));
+                _paragraphs[paragraph] = cached;
+            }
+            AddGlyphs(paragraph, cached.Text.Length, cached.Tokens);
+        }
+        foreach (var paragraph in _paragraphs.Keys.Where(p => !present.Contains(p)).ToArray())
+            _paragraphs.Remove(paragraph);
+        _layoutDirty = true;
+        InvalidateVisual();
+    }
+
+    private void AddGlyphs(Paragraph paragraph, int length, IReadOnlyList<PromptTextToken> tokens)
+    {
+        if (tokens.Count == 0)
+            return;
+        var boldChanges = new int[length + 1];
+        var markers = new HashSet<int>();
+        var colors = new Dictionary<int, Brush>();
+        foreach (var token in tokens)
+        {
+            switch (token.Kind)
+            {
+                case PromptTextTokenKind.BoldContent:
+                    boldChanges[token.Start]++;
+                    boldChanges[token.Start + token.Length]--;
+                    break;
+                case PromptTextTokenKind.HexColor:
+                    var brush = new SolidColorBrush(token.Color);
+                    brush.Freeze();
+                    colors[token.Start] = brush;
+                    break;
+                case PromptTextTokenKind.HeadingMarker:
+                    for (var i = token.Start; i < token.Start + token.Length; i++)
+                        markers.Add(i);
+                    break;
+            }
+        }
+        for (var i = 1; i < boldChanges.Length; i++)
+            boldChanges[i] += boldChanges[i - 1];
+
+        var offset = 0;
+        foreach (var inline in paragraph.Inlines)
+        {
+            if (inline is LineBreak)
+            {
+                offset++;
+                continue;
+            }
+            if (inline is not Run run)
+                continue;
+            for (var i = 0; i < run.Text.Length; i++)
+            {
+                var position = offset + i;
+                var isColor = colors.TryGetValue(position, out var color);
+                var kind = isColor ? PromptTextTokenKind.HexColor
+                    : boldChanges[position] > 0 ? PromptTextTokenKind.BoldContent
+                    : PromptTextTokenKind.HeadingMarker;
+                if (!isColor && boldChanges[position] == 0 && !markers.Contains(position))
+                    continue;
+                var start = run.ContentStart.GetPositionAtOffset(i)!;
+                _glyphs.Add(new Glyph(start, start.GetPositionAtOffset(1)!, kind, color));
+            }
+            offset += run.Text.Length;
+        }
+    }
+
+    private void OnSizeChanged(object sender, SizeChangedEventArgs e) => _layoutDirty = true;
+    private void OnScrollChanged(object sender, ScrollChangedEventArgs e) => _layoutDirty = true;
+    private void OnSelectionChanged(object sender, RoutedEventArgs e)
+    {
+        _inkRows = null;
+        InvalidateVisual();
+    }
+
+    private void OnLayoutUpdated(object? sender, EventArgs e)
+    {
+        var fontLayout = new FontLayout(_editor.FontFamily, _editor.FontSize, _editor.FontStyle,
+            _editor.FontWeight, _editor.FontStretch, _editor.FlowDirection, _editor.Padding,
+            _editor.Document.PageWidth, _editor.Foreground, _editor.Background);
+        // Font changes can move glyphs without changing the scroll extent. Repaint after
+        // layout, not during TextChanged, and only once for each layout change.
+        if (!_layoutDirty && fontLayout == _fontLayout)
+            return;
+        _fontLayout = fontLayout;
+        _layoutDirty = false;
+        _inkRows = null;
+        InvalidateVisual();
+    }
+
+    protected override void OnRender(DrawingContext drawingContext)
+    {
+        if (_disposed || _glyphs.Count == 0)
+            return;
+        var bounds = new Rect(_editor.RenderSize);
+        if (_editor.Template.FindName("PART_ContentHost", _editor) is ScrollViewer scrollViewer &&
+            scrollViewer.Template.FindName("PART_ScrollContentPresenter", scrollViewer) is FrameworkElement viewport)
+            bounds.Intersect(viewport.TransformToAncestor(_editor).TransformBounds(new Rect(viewport.RenderSize)));
+
+        Geometry clip = new RectangleGeometry(bounds);
+        if (_editor.Selection.IsEmpty && _editor.CaretPosition.HasValidLayout)
+        {
+            var caret = _editor.CaretPosition.GetCharacterRect(_editor.CaretPosition.LogicalDirection);
+            // Exclude the native caret from every overlay, including the taller swatch.
+            if (!caret.IsEmpty)
+                clip = new CombinedGeometry(GeometryCombineMode.Exclude, clip,
+                    new RectangleGeometry(new Rect(caret.Left - 1, caret.Top, 2, caret.Height)));
+        }
+        drawingContext.PushClip(clip);
+        var markerBrush = (Brush)GetValue(MarkerBrushProperty);
+        var borderPen = new Pen((Brush)GetValue(BorderBrushProperty), 0.5);
+        var ink = _inkRows ??= IndexInk(ReadInk(_editor));
+        var background = FindOpaqueBackground();
+        foreach (var glyph in _glyphs)
+        {
+            if (!glyph.Start.HasValidLayout || !glyph.End.HasValidLayout)
+                continue;
+            var start = glyph.Start.GetCharacterRect(LogicalDirection.Forward);
+            if (start.IsEmpty || start.Bottom < bounds.Top || start.Top > bounds.Bottom)
+                continue;
+            var end = glyph.End.GetCharacterRect(LogicalDirection.Backward);
+            if (end.IsEmpty)
+                continue;
+            var left = Math.Min(start.Left, end.Left);
+            var width = Math.Abs(end.Left - start.Left);
+            if (width <= 0)
+                continue;
+            var rect = new Rect(left, start.Top, width, start.Height);
+            var selected = _editor.Selection.Start.CompareTo(glyph.End) < 0 &&
+                _editor.Selection.End.CompareTo(glyph.Start) > 0;
+            if (glyph.Color is not null)
+            {
+                // Leave selected glyphs to WPF, including its high-contrast selection rendering.
+                if (!selected && background is not null)
+                {
+                    drawingContext.PushClip(new RectangleGeometry(rect));
+                    drawingContext.DrawRectangle(background, null, rect);
+                    // Keep the superscript top-aligned and tuck it toward the following hex digits.
+                    drawingContext.PushTransform(new ScaleTransform(0.84, 0.84, rect.Right, rect.Top));
+                    DrawInk(drawingContext, ink, rect, false);
+                    drawingContext.Pop();
+                    drawingContext.Pop();
+                }
+                drawingContext.DrawRectangle(glyph.Color, borderPen,
+                    new Rect(left, start.Bottom - 6, width, 6));
+            }
+            else if (glyph.Kind == PromptTextTokenKind.BoldContent)
+            {
+                if (!selected)
+                    DrawInk(drawingContext, ink, rect, true);
+            }
+            else
+            {
+                drawingContext.PushOpacity(0.18);
+                drawingContext.DrawRectangle(markerBrush, null, rect);
+                drawingContext.Pop();
+                drawingContext.DrawRectangle(markerBrush, null,
+                    new Rect(left, start.Bottom - 1.5, width, 1.5));
+            }
+        }
+        drawingContext.Pop();
+    }
+
+    private static Dictionary<int, List<Ink>> IndexInk(IEnumerable<Ink> ink)
+    {
+        var rows = new Dictionary<int, List<Ink>>();
+        foreach (var item in ink)
+        {
+            var bounds = item.Geometry.Bounds;
+            if (bounds.IsEmpty)
+                continue;
+            for (var row = (int)Math.Floor(bounds.Top / 64); row <= (int)Math.Floor(bounds.Bottom / 64); row++)
+            {
+                if (!rows.TryGetValue(row, out var items))
+                    rows[row] = items = [];
+                items.Add(item);
+            }
+        }
+        return rows;
+    }
+
+    private static void DrawInk(DrawingContext context, Dictionary<int, List<Ink>> ink, Rect rect, bool bold)
+    {
+        context.PushClip(new RectangleGeometry(rect));
+        var drawn = new HashSet<Ink>();
+        for (var row = (int)Math.Floor(rect.Top / 64); row <= (int)Math.Floor(rect.Bottom / 64); row++)
+        {
+            if (!ink.TryGetValue(row, out var items))
+                continue;
+            foreach (var item in items)
+            {
+                if (!item.Geometry.Bounds.IntersectsWith(rect) || !drawn.Add(item))
+                    continue;
+                // Embolden native outlines without changing shaping, advances, or caret hit targets.
+                context.DrawGeometry(item.Brush, bold ? new Pen(item.Brush, item.FontSize / 24) : null, item.Geometry);
+            }
+        }
+        context.Pop();
+    }
+
+    private IEnumerable<Ink> ReadInk(Visual visual)
+    {
+        if (_embeddedVisuals.Contains(visual))
+            yield break;
+        var transform = visual.TransformToAncestor(_editor);
+        var origin = transform.Transform(new Point());
+        var x = transform.Transform(new Point(1, 0));
+        var y = transform.Transform(new Point(0, 1));
+        var matrix = new Matrix(x.X - origin.X, x.Y - origin.Y, y.X - origin.X, y.Y - origin.Y, origin.X, origin.Y);
+        foreach (var ink in ReadDrawing(VisualTreeHelper.GetDrawing(visual), matrix))
+            yield return ink;
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(visual); i++)
+        {
+            if (VisualTreeHelper.GetChild(visual, i) is Visual child)
+                foreach (var ink in ReadInk(child))
+                    yield return ink;
+        }
+    }
+
+    private static IEnumerable<Ink> ReadDrawing(Drawing? drawing, Matrix matrix)
+    {
+        if (drawing is GlyphRunDrawing { GlyphRun: { } run, ForegroundBrush: { } brush })
+        {
+            var geometry = run.BuildGeometry().CloneCurrentValue();
+            var transform = geometry.Transform?.Value ?? Matrix.Identity;
+            transform.Append(matrix);
+            geometry.Transform = new MatrixTransform(transform);
+            yield return new Ink(geometry, brush, run.FontRenderingEmSize);
+        }
+        else if (drawing is DrawingGroup group)
+        {
+            var transform = group.Transform?.Value ?? Matrix.Identity;
+            transform.Append(matrix);
+            foreach (var child in group.Children)
+                foreach (var ink in ReadDrawing(child, transform))
+                    yield return ink;
+        }
+    }
+
+    private Brush? FindOpaqueBackground()
+    {
+        for (DependencyObject? current = _editor; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            var brush = current switch
+            {
+                Control control => control.Background,
+                Border border => border.Background,
+                Panel panel => panel.Background,
+                _ => null,
+            };
+            if (brush is SolidColorBrush { Color.A: 255, Opacity: 1 })
+                return brush;
+        }
+        return null;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        _refresh?.Abort();
+        _refresh = null;
+        _editor.TextChanged -= OnTextChanged;
+        _editor.SizeChanged -= OnSizeChanged;
+        _editor.LayoutUpdated -= OnLayoutUpdated;
+        _editor.SelectionChanged -= OnSelectionChanged;
+        _editor.RemoveHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(OnScrollChanged));
+        _paragraphs.Clear();
+        _glyphs.Clear();
+        _embeddedVisuals.Clear();
+        _inkRows = null;
+    }
+}

@@ -773,7 +773,12 @@ internal sealed record Plan(
     /// </summary>
     [property: JsonPropertyName("isPaused")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-                                                    bool IsPaused = false)
+                                                    bool IsPaused = false,
+
+    /// <summary>The exact lifecycle to restore after archiving; absent on legacy archives.</summary>
+    [property: JsonPropertyName("preArchiveLifecycleStatus")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+                                                    string? PreArchiveLifecycleStatus = null)
 {
     [JsonIgnore]
     internal string DisplayName =>

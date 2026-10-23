@@ -24,6 +24,7 @@ internal sealed class PlansPanelController
     private readonly Action<Plan>? _endPlan;
     private readonly Action<Plan>? _approveGate;
     private readonly Action<Plan>? _archivePlan;
+    private readonly Action<Plan>? _restorePlan;
     private readonly Func<Plan, bool>? _pausePlan;
     private readonly Action<Plan>? _togglePlanPause;
     private readonly Action<Plan>? _abortPlan;
@@ -81,7 +82,8 @@ internal sealed class PlansPanelController
         Func<Plan, string>? getPlanFilePath = null,
         Action<Plan>? revisePlan = null,
         Func<Plan, string, Plan>? renamePlan = null,
-        Func<string, bool>? isSimulationOverlayPlanId = null)
+        Func<string, bool>? isSimulationOverlayPlanId = null,
+        Action<Plan>? restorePlan = null)
     {
         _activePanel          = activePanel;
         _completedPanel       = completedPanel;
@@ -94,6 +96,7 @@ internal sealed class PlansPanelController
         _endPlan              = endPlan;
         _approveGate          = approveGate;
         _archivePlan          = archivePlan;
+        _restorePlan          = restorePlan;
         _pausePlan            = pausePlan;
         _togglePlanPause      = togglePlanPause;
         _abortPlan            = abortPlan;
@@ -745,19 +748,33 @@ internal sealed class PlansPanelController
         }
 
         if (!isSimulationOverlay &&
-            plan.LifecycleStatus != PlanLifecycleStatus.Archived &&
-            plan.LifecycleStatus is not (PlanLifecycleStatus.Executing or PlanLifecycleStatus.AwaitingApproval) &&
+            PlanArchivePolicy.IsAvailable(plan) &&
             _archivePlan is not null)
         {
             var archiveItem = new MenuItem
             {
-                Header = "Archive Plan",
+                Header = PlanArchivePolicy.RequiresConfirmation(plan) ? "Archive…" : "Archive Plan",
                 ToolTip = ToolTipHelper.MakeThemedToolTip(
                     "Hide this plan without deleting its task, approval, or validation history."),
             };
             archiveItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
             archiveItem.Click += (_, _) => _archivePlan(plan);
             menu.Items.Add(archiveItem);
+        }
+
+        if (!isSimulationOverlay &&
+            plan.LifecycleStatus == PlanLifecycleStatus.Archived &&
+            _restorePlan is not null)
+        {
+            var reactivateItem = new MenuItem
+            {
+                Header = "Reactivate",
+                ToolTip = ToolTipHelper.MakeThemedToolTip(
+                    "Restore this plan's previous status and visibility without starting or resuming execution."),
+            };
+            reactivateItem.SetResourceReference(MenuItem.StyleProperty, "ThemedMenuItemStyle");
+            reactivateItem.Click += (_, _) => _restorePlan(plan);
+            menu.Items.Add(reactivateItem);
         }
 
         if (!isSimulationOverlay && _getPlanFilePath is not null)

@@ -365,6 +365,83 @@ internal sealed class PlanStoreTests
         });
     }
 
+    [TestCase(PlanLifecycleStatus.Staged)]
+    [TestCase(PlanLifecycleStatus.Approved)]
+    [TestCase(PlanLifecycleStatus.Interrupted)]
+    [TestCase(PlanLifecycleStatus.WaitingForCleanWorktree)]
+    [TestCase(PlanLifecycleStatus.Blocked)]
+    [TestCase(PlanLifecycleStatus.Stopped)]
+    public void ArchiveRestore_PersistedRoundTripPreservesPartialProgressAndLifecycle(string status)
+    {
+        var original = MakePlan("PROJ-20260101");
+        var plan = original with
+        {
+            LifecycleStatus = status,
+            Tasks =
+            [
+                original.Tasks[0] with
+                {
+                    Status = PlanTaskStatus.Complete,
+                    Commit = "cafe1234",
+                    CompletedAt = DateTimeOffset.UtcNow.AddHours(-1),
+                    CompletionSummary = "First step accepted.",
+                },
+                original.Tasks[1] with { Status = PlanTaskStatus.Partial },
+            ],
+            Progress = new PlanProgress(1, 2, original.Tasks[1].TaskId),
+            InterruptionData = new PlanInterruptionData(
+                "Work paused", PlanRecoveryState.PendingRecovery, 2,
+                InterruptedTaskId: original.Tasks[1].TaskId,
+                LastCompletedTaskId: original.Tasks[0].TaskId),
+            IsPaused = true,
+        };
+        _store.Save(PlanStoreUpdater.ApplyArchived(plan));
+        var archived = _store.Load(plan.PlanId)!;
+
+        Assert.That(archived.LifecycleStatus, Is.EqualTo(PlanLifecycleStatus.Archived));
+        Assert.That(archived.PreArchiveLifecycleStatus, Is.EqualTo(status));
+        Assert.That(archived.Progress, Is.EqualTo(plan.Progress));
+        Assert.That(JsonSerializer.Serialize(archived.Tasks), Is.EqualTo(JsonSerializer.Serialize(plan.Tasks)));
+        Assert.That(archived.Timestamps.CompletedAt, Is.Null);
+        Assert.That(PlanStoreUpdater.ApplyArchived(archived), Is.SameAs(archived));
+
+        _store.Save(PlanStoreUpdater.ApplyRestoredForRevision(archived));
+        var restored = _store.Load(plan.PlanId)!;
+        Assert.That(JsonSerializer.Serialize(restored), Is.EqualTo(JsonSerializer.Serialize(plan)));
+
+        _store.Save(PlanStoreUpdater.ApplyArchived(restored));
+        var restoredAgain = PlanStoreUpdater.ApplyRestoredForRevision(_store.Load(plan.PlanId)!);
+        Assert.That(JsonSerializer.Serialize(restoredAgain), Is.EqualTo(JsonSerializer.Serialize(plan)));
+    }
+
+    [TestCase(PlanLifecycleStatus.Completed)]
+    [TestCase(PlanLifecycleStatus.Stopped)]
+    [TestCase(PlanLifecycleStatus.Interrupted)]
+    [TestCase(PlanLifecycleStatus.Approved)]
+    public void RestoreLegacyArchive_PreservesExistingStateInference(string expectedStatus)
+    {
+        var original = MakePlan("PROJ-20260101");
+        var archived = original with
+        {
+            LifecycleStatus = PlanLifecycleStatus.Archived,
+            Timestamps = original.Timestamps with
+            {
+                ArchivedAt = DateTimeOffset.UtcNow,
+                CompletedAt = expectedStatus == PlanLifecycleStatus.Completed ? DateTimeOffset.UtcNow : null,
+                StoppedAt = expectedStatus == PlanLifecycleStatus.Stopped ? DateTimeOffset.UtcNow : null,
+            },
+            InterruptionData = expectedStatus == PlanLifecycleStatus.Interrupted
+                ? new PlanInterruptionData("Interrupted", PlanRecoveryState.PendingRecovery, 1)
+                : null,
+        };
+        _store.Save(archived);
+        var restored = PlanStoreUpdater.ApplyRestoredForRevision(_store.Load(archived.PlanId)!);
+
+        Assert.That(restored.LifecycleStatus, Is.EqualTo(expectedStatus));
+        Assert.That(restored.Timestamps.ArchivedAt, Is.Null);
+        Assert.That(restored.Progress, Is.EqualTo(archived.Progress));
+    }
+
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     private static Plan MakePlan(string planId) => new(
