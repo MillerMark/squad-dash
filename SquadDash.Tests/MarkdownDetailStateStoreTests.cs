@@ -10,6 +10,7 @@ namespace SquadDash.Tests;
 [TestFixture]
 [NonParallelizable]
 internal sealed class MarkdownDetailStateStoreTests {
+    private static readonly JsonFileCommitRetrySettings FastCommitRetries = new(2, _ => 0);
     private TestWorkspace _workspace = null!;
     private MarkdownDetailStateStore _store = null!;
     private ILiveTraceTarget? _previousTraceTarget;
@@ -18,7 +19,9 @@ internal sealed class MarkdownDetailStateStoreTests {
     [SetUp]
     public void SetUp() {
         _workspace = new TestWorkspace();
-        _store = new MarkdownDetailStateStore(_workspace.GetPath("preferences", "markdown-detail-state.json"));
+        _store = new MarkdownDetailStateStore(
+            _workspace.GetPath("preferences", "markdown-detail-state.json"),
+            commitRetrySettings: FastCommitRetries);
         _trace.Clear();
         _previousTraceTarget = SquadDashTrace.TraceTarget;
         SquadDashTrace.TraceTarget = new CapturingTraceTarget(_trace);
@@ -269,8 +272,12 @@ internal sealed class MarkdownDetailStateStoreTests {
         using var child = Process.Start(start)!;
         try {
             Assert.That(await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(15)), Is.EqualTo("ready"));
-            var read = _store.Load(Key());
-            var write = _store.Save(Key(), false);
+            var contendedStore = new MarkdownDetailStateStore(
+                _store.FilePath,
+                mutexTimeout: TimeSpan.FromMilliseconds(25),
+                commitRetrySettings: FastCommitRetries);
+            var read = contendedStore.Load(Key());
+            var write = contendedStore.Save(Key(), false);
             Assert.Multiple(() => {
                 Assert.That(read.Succeeded, Is.False);
                 Assert.That(read.IsExpanded, Is.False);

@@ -5,20 +5,48 @@ using System.Threading;
 
 namespace SquadDash;
 
+internal sealed class JsonFileCommitRetrySettings {
+    private readonly Func<int, int> _delayMillisecondsForAttempt;
+
+    public static JsonFileCommitRetrySettings Default { get; } =
+        new(20, attempt => Math.Min(10 * attempt, 250));
+
+    public int MaxAttempts { get; }
+
+    public JsonFileCommitRetrySettings(int maxAttempts, Func<int, int> delayMillisecondsForAttempt) {
+        if (maxAttempts < 1)
+            throw new ArgumentOutOfRangeException(nameof(maxAttempts));
+        ArgumentNullException.ThrowIfNull(delayMillisecondsForAttempt);
+        MaxAttempts = maxAttempts;
+        _delayMillisecondsForAttempt = delayMillisecondsForAttempt;
+    }
+
+    public int GetDelayMilliseconds(int attempt) {
+        if (attempt < 1)
+            throw new ArgumentOutOfRangeException(nameof(attempt));
+        var delay = _delayMillisecondsForAttempt(attempt);
+        return delay >= 0
+            ? delay
+            : throw new InvalidOperationException("A commit retry delay cannot be negative.");
+    }
+}
+
 internal static partial class JsonFileStorage {
     // Windows ReplaceFile/MoveFile can transiently fail with IOException
     // ("Unable to remove the file to be replaced") or UnauthorizedAccessException when the
     // destination is briefly locked by another process (antivirus, Search indexer, Explorer,
     // or a lingering read handle) even though the caller has serialized its own writers.
     // A bounded retry-with-backoff absorbs these transient locks without masking real errors.
-    private const int CommitMaxAttempts = 20;
-
     /// <summary>
     /// Opt-in replace-only commit: a failed write leaves the previous destination intact.
     /// Unlike AtomicWrite, this never falls back to overwriting the destination in place.
     /// The caller must serialize writers and create the containing directory.
     /// </summary>
-    public static void AtomicWritePreservingPrevious<T>(string path, T payload) {
+    public static void AtomicWritePreservingPrevious<T>(
+        string path,
+        T payload,
+        JsonFileCommitRetrySettings? retrySettings = null) {
+        retrySettings ??= JsonFileCommitRetrySettings.Default;
         var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try {
             using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
@@ -26,7 +54,7 @@ internal static partial class JsonFileStorage {
                 stream.Flush(flushToDisk: true);
             }
 
-            CommitReplacingPrevious(temporaryPath, path);
+            CommitReplacingPrevious(temporaryPath, path, retrySettings);
         }
         finally {
             try {
@@ -42,7 +70,10 @@ internal static partial class JsonFileStorage {
     // Commits the already-written temp file onto the destination, retrying transient Windows
     // sharing locks. On failure the destination is left untouched (ReplaceFile/MoveFile do not
     // modify the destination when they throw), preserving the "previous destination intact" guarantee.
-    private static void CommitReplacingPrevious(string temporaryPath, string path) {
+    private static void CommitReplacingPrevious(
+        string temporaryPath,
+        string path,
+        JsonFileCommitRetrySettings retrySettings) {
         for (var attempt = 1; ; attempt++) {
             try {
                 if (File.Exists(path))
@@ -51,8 +82,8 @@ internal static partial class JsonFileStorage {
                     File.Move(temporaryPath, path);
                 return;
             }
-            catch (Exception ex) when (attempt < CommitMaxAttempts && IsTransientCommitLock(ex)) {
-                Thread.Sleep(BackoffDelayMilliseconds(attempt));
+            catch (Exception ex) when (attempt < retrySettings.MaxAttempts && IsTransientCommitLock(ex)) {
+                Thread.Sleep(retrySettings.GetDelayMilliseconds(attempt));
             }
         }
     }
@@ -62,7 +93,4 @@ internal static partial class JsonFileStorage {
     private static bool IsTransientCommitLock(Exception ex) =>
         ex is UnauthorizedAccessException ||
         (ex is IOException and not FileNotFoundException and not DirectoryNotFoundException);
-
-    private static int BackoffDelayMilliseconds(int attempt) =>
-        Math.Min(10 * attempt, 250);
 }

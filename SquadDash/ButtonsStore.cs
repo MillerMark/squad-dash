@@ -21,11 +21,15 @@ internal sealed class ButtonConflictException(string message) : InvalidOperation
 internal sealed class ButtonsStore {
     private readonly string _stateDirectory;
     private readonly string _mutexName;
+    private readonly JsonFileCommitRetrySettings _commitRetrySettings;
 
     public string FilePath { get; }
 
-    public ButtonsStore(string workspaceStateDirectory) {
+    public ButtonsStore(
+        string workspaceStateDirectory,
+        JsonFileCommitRetrySettings? commitRetrySettings = null) {
         _stateDirectory = ValidateStateDirectory(workspaceStateDirectory);
+        _commitRetrySettings = commitRetrySettings ?? JsonFileCommitRetrySettings.Default;
         FilePath = Path.Combine(_stateDirectory, "buttons.json");
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(FilePath.ToUpperInvariant())));
         _mutexName = $@"Local\SquadDash.Buttons.{hash}";
@@ -155,7 +159,10 @@ internal sealed class ButtonsStore {
 
     private void SaveCore(List<ButtonDefinition> items) {
         Directory.CreateDirectory(_stateDirectory);
-        JsonFileStorage.AtomicWritePreservingPrevious(FilePath, new ButtonsDocument(1, items));
+        JsonFileStorage.AtomicWritePreservingPrevious(
+            FilePath,
+            new ButtonsDocument(1, items),
+            _commitRetrySettings);
     }
 
     private static int FindCurrent(List<ButtonDefinition> items, Guid id, long expectedContentRevision) {

@@ -8,6 +8,16 @@ namespace SquadDash.Tests;
 [TestFixture]
 internal sealed class JsonFileStorageStrictWriteTests {
     [Test]
+    public void CommitRetryDefaults_PreserveProductionAttemptBudgetAndBackoff() {
+        var settings = JsonFileCommitRetrySettings.Default;
+        Assert.Multiple(() => {
+            Assert.That(settings.MaxAttempts, Is.EqualTo(20));
+            Assert.That(settings.GetDelayMilliseconds(1), Is.EqualTo(10));
+            Assert.That(settings.GetDelayMilliseconds(19), Is.EqualTo(190));
+        });
+    }
+
+    [Test]
     public void AtomicWrite_CreatesThenReplacesCompleteDocument() {
         using var workspace = new TestWorkspace();
         var path = workspace.GetPath("document.json");
@@ -80,12 +90,20 @@ internal sealed class JsonFileStorageStrictWriteTests {
         var destinationPath = workspace.GetPath("document.json");
 
         var commit = typeof(JsonFileStorage).GetMethod(
-            "CommitReplacingPrevious", BindingFlags.NonPublic | BindingFlags.Static);
+            "CommitReplacingPrevious",
+            BindingFlags.NonPublic | BindingFlags.Static,
+            binder: null,
+            [typeof(string), typeof(string), typeof(JsonFileCommitRetrySettings)],
+            modifiers: null);
         Assert.That(commit, Is.Not.Null, "CommitReplacingPrevious should exist for retry-behavior coverage");
 
         var stopwatch = Stopwatch.StartNew();
         var error = Assert.Throws<TargetInvocationException>(
-            () => commit!.Invoke(null, new object[] { missingTemporaryPath, destinationPath }));
+            () => commit!.Invoke(null, new object[] {
+                missingTemporaryPath,
+                destinationPath,
+                JsonFileCommitRetrySettings.Default
+            }));
         stopwatch.Stop();
 
         Assert.Multiple(() => {

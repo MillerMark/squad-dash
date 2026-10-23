@@ -33,12 +33,21 @@ internal sealed class MarkdownDetailStateStore {
     internal sealed record Changed(string FilePath, string Key, bool IsExpanded);
     internal static WeakEventBroker Changes { get; } = new();
     private readonly string _mutexName;
+    private readonly TimeSpan _mutexTimeout;
+    private readonly JsonFileCommitRetrySettings _commitRetrySettings;
     public string FilePath { get; }
 
     public MarkdownDetailStateStore() : this(Path.Combine(SquadDashPaths.AppData, "markdown-detail-state.json")) { }
 
-    internal MarkdownDetailStateStore(string filePath) {
+    internal MarkdownDetailStateStore(
+        string filePath,
+        TimeSpan? mutexTimeout = null,
+        JsonFileCommitRetrySettings? commitRetrySettings = null) {
         ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        _mutexTimeout = mutexTimeout ?? TimeSpan.FromSeconds(2);
+        if (_mutexTimeout < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(mutexTimeout));
+        _commitRetrySettings = commitRetrySettings ?? JsonFileCommitRetrySettings.Default;
         FilePath = Path.GetFullPath(filePath);
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(FilePath.ToUpperInvariant())));
         _mutexName = $@"Local\SquadDash.MarkdownDetailState.{hash}";
@@ -81,7 +90,10 @@ internal sealed class MarkdownDetailStateStore {
             var entries = ReadCore();
             if (mutate(entries)) {
                 Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-                JsonFileStorage.AtomicWritePreservingPrevious(FilePath, new StateDocument(1, entries));
+                JsonFileStorage.AtomicWritePreservingPrevious(
+                    FilePath,
+                    new StateDocument(1, entries),
+                    _commitRetrySettings);
             }
             return new();
         }
@@ -92,7 +104,7 @@ internal sealed class MarkdownDetailStateStore {
     }
 
     private MutexLease AcquireMutex() {
-        if (!MutexLease.TryAcquire(_mutexName, TimeSpan.FromSeconds(2), out var lease) || lease is null)
+        if (!MutexLease.TryAcquire(_mutexName, _mutexTimeout, out var lease) || lease is null)
             throw new TimeoutException("Timed out waiting for Markdown detail state storage.");
         return lease;
     }

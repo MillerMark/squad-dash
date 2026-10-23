@@ -5,6 +5,7 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class ButtonsStoreTests {
+    private static readonly JsonFileCommitRetrySettings FastCommitRetries = new(2, _ => 0);
     private TestWorkspace _workspace = null!;
     private ButtonsStore _store = null!;
     private string _stateDirectory = null!;
@@ -13,7 +14,7 @@ internal sealed class ButtonsStoreTests {
     public void SetUp() {
         _workspace = new TestWorkspace();
         _stateDirectory = SquadDashPaths.WorkspaceStateDirectory(_workspace.RootPath);
-        _store = new ButtonsStore(_stateDirectory);
+        _store = new ButtonsStore(_stateDirectory, FastCommitRetries);
     }
 
     [TearDown]
