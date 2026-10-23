@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Windows;
 using System.Windows.Threading;
 
 namespace SquadDash.Tests;
@@ -16,6 +17,8 @@ internal static class WpfTestContext
     internal static void Run(Action action)
     {
         Exception? caught = null;
+        using var completed = new ManualResetEventSlim();
+        var keepDispatcherAlive = false;
         var thread = new Thread(() =>
         {
             var dispatcher = Dispatcher.CurrentDispatcher;
@@ -33,15 +36,26 @@ internal static class WpfTestContext
                 }
                 finally
                 {
-                    dispatcher.InvokeShutdown();
+                    // Application.Current is process-wide and permanently belongs to the
+                    // dispatcher on which it was created. Shutting that dispatcher down
+                    // leaves later WPF tests with a singleton whose owner thread is dead;
+                    // Dispatcher.Invoke then waits forever. Keep that one dispatcher pumping
+                    // for the lifetime of the test host and shut down all other per-call ones.
+                    keepDispatcherAlive = ReferenceEquals(Application.Current?.Dispatcher, dispatcher);
+                    if (!keepDispatcherAlive)
+                        dispatcher.InvokeShutdown();
+                    completed.Set();
                 }
             });
 
             Dispatcher.Run();
         });
         thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
         thread.Start();
-        thread.Join();
+        completed.Wait();
+        if (!keepDispatcherAlive)
+            thread.Join();
         if (caught != null)
             ExceptionDispatchInfo.Capture(caught).Throw();
     }
