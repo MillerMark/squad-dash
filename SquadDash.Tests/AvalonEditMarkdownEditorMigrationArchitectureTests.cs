@@ -77,7 +77,7 @@ internal sealed class AvalonEditMarkdownEditorMigrationArchitectureTests
         Assert.Multiple(() =>
         {
             Assert.That(source, Does.Contain("private readonly AvalonEditMarkdownEditor _instructionsPanel;")
-                .And.Contain("var panel = new AvalonEditMarkdownEditor { ShowHrButton = false };")
+                .And.Contain("var panel = new AvalonEditMarkdownEditor { ShowHrButton = false, GrammarName = \"MarkdownDirectives\" };")
                 .And.Contain("panel.SetText(_task.Instructions ?? \"\");")
                 .And.Contain("var instructionsText = _instructionsPanel.GetText().TrimEnd('\\r', '\\n');"),
                 "Instructions should be seeded and saved through AvalonEdit with the HR button hidden.");

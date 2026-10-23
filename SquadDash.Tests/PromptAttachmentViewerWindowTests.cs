@@ -508,7 +508,7 @@ internal sealed class PromptAttachmentViewerWindowTests
     }
 
     private static IReadOnlyList<PromptAttachmentViewerWindow> GetOpenViewerWindows() =>
-        Application.Current.Windows.OfType<PromptAttachmentViewerWindow>().Where(window => window.IsVisible).ToArray();
+        GetTrackedViewerWindows().Where(IsWindowVisible).ToArray();
 
     private static void AssertFocusedNotesEditor(PromptAttachmentViewerWindow window, string automationName)
     {
@@ -526,11 +526,13 @@ internal sealed class PromptAttachmentViewerWindowTests
 
     private static void CloseViewerWindows()
     {
-        if (Application.Current is null)
-            return;
-
-        foreach (var window in Application.Current.Windows.OfType<PromptAttachmentViewerWindow>().ToArray())
-            window.Close();
+        foreach (var window in GetTrackedViewerWindows().ToArray())
+        {
+            if (window.Dispatcher.CheckAccess())
+                window.Close();
+            else
+                window.Dispatcher.Invoke(window.Close);
+        }
         Pump();
     }
 
@@ -555,29 +557,56 @@ internal sealed class PromptAttachmentViewerWindowTests
     private static void EnsureResources()
     {
         var app = Application.Current ?? new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        app.Resources["FontSizeBody"] = 14.0;
-        app.Resources["FontSizeSmall"] = 11.0;
-        app.Resources["FontSizeNormal"] = 14.0;
-        app.Resources["ImportantText"] = new SolidColorBrush(Colors.OrangeRed);
-        app.Resources["SubtleText"] = new SolidColorBrush(Colors.Gray);
-        app.Resources["LabelText"] = new SolidColorBrush(Colors.White);
-        app.Resources["InputSurface"] = new SolidColorBrush(Colors.Black);
-        app.Resources["InputBorder"] = new SolidColorBrush(Colors.DimGray);
-        app.Resources["PanelBorder"] = new SolidColorBrush(Colors.DimGray);
-        app.Resources["WindowBorderGlow"] = new SolidColorBrush(Colors.CornflowerBlue);
-        app.Resources["AppSurface"] = new SolidColorBrush(Colors.Black);
-        app.Resources["CaptionCloseButtonStyle"] = new Style(typeof(Button));
-        app.Resources["ThemedIconButtonStyle"] = new Style(typeof(Button));
-        app.Resources["ThemedButtonStyle"] = new Style(typeof(Button));
-        app.Resources["ThemedTabControlStyle"] = new Style(typeof(TabControl));
-        app.Resources["ThemedTabItemStyle"] = new Style(typeof(TabItem));
-        app.Resources["RosterScrollViewerStyle"] = new Style(typeof(ScrollViewer));
+        void ApplyResources()
+        {
+            app.Resources["FontSizeBody"] = 14.0;
+            app.Resources["FontSizeSmall"] = 11.0;
+            app.Resources["FontSizeNormal"] = 14.0;
+            app.Resources["ImportantText"] = new SolidColorBrush(Colors.OrangeRed);
+            app.Resources["SubtleText"] = new SolidColorBrush(Colors.Gray);
+            app.Resources["LabelText"] = new SolidColorBrush(Colors.White);
+            app.Resources["InputSurface"] = new SolidColorBrush(Colors.Black);
+            app.Resources["InputBorder"] = new SolidColorBrush(Colors.DimGray);
+            app.Resources["PanelBorder"] = new SolidColorBrush(Colors.DimGray);
+            app.Resources["WindowBorderGlow"] = new SolidColorBrush(Colors.CornflowerBlue);
+            app.Resources["AppSurface"] = new SolidColorBrush(Colors.Black);
+            app.Resources["CaptionCloseButtonStyle"] = new Style(typeof(Button));
+            app.Resources["ThemedIconButtonStyle"] = new Style(typeof(Button));
+            app.Resources["ThemedButtonStyle"] = new Style(typeof(Button));
+            app.Resources["ThemedTabControlStyle"] = new Style(typeof(TabControl));
+            app.Resources["ThemedTabItemStyle"] = new Style(typeof(TabItem));
+            app.Resources["RosterScrollViewerStyle"] = new Style(typeof(ScrollViewer));
+        }
+
+        if (app.Dispatcher.CheckAccess())
+            ApplyResources();
+        else
+            app.Dispatcher.Invoke(ApplyResources);
     }
 
     private static void Pump()
     {
-        if (Application.Current is null)
-            return;
-        Application.Current.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+    }
+
+    private static IReadOnlyList<PromptAttachmentViewerWindow> GetTrackedViewerWindows()
+    {
+        var field = typeof(PromptAttachmentViewerWindow)
+            .GetField("s_openViewers", BindingFlags.Static | BindingFlags.NonPublic);
+        if (field?.GetValue(null) is not IEnumerable<WeakReference<PromptAttachmentViewerWindow>> weakRefs)
+            return [];
+
+        var windows = new List<PromptAttachmentViewerWindow>();
+        foreach (var weakRef in weakRefs)
+            if (weakRef.TryGetTarget(out var window))
+                windows.Add(window);
+        return windows;
+    }
+
+    private static bool IsWindowVisible(Window window)
+    {
+        if (window.Dispatcher.CheckAccess())
+            return window.IsVisible;
+        return window.Dispatcher.Invoke(() => window.IsVisible);
     }
 }

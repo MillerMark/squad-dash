@@ -16,9 +16,20 @@ internal sealed class AttachmentReadOnlyViewerTests
     [SetUp]
     public void SetUp()
     {
-        var application = Application.Current ?? new Application();
-        application.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        application.Resources["FontSizeNormal"] = 14.0;
+        var application = Application.Current;
+        if (application is null)
+        {
+            application = new Application();
+            application.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            application.Resources["FontSizeNormal"] = 14.0;
+            return;
+        }
+
+        if (application.Dispatcher.CheckAccess())
+        {
+            application.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            application.Resources["FontSizeNormal"] = 14.0;
+        }
     }
 
     [TestCase("cs", "C#")]
