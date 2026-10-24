@@ -2,7 +2,7 @@
   "planId": "AVALONEDIT-20261014",
   "revision": "2fc843326d241ca2",
   "source": "tasks_json",
-  "lifecycleStatus": "executing",
+  "lifecycleStatus": "awaiting-approval",
   "title": "AvalonEdit Region Editor \u0026 Language Picker",
   "branch": "feature/avalonedit-region-editor",
   "summary": "Replace the plain TextBox in SquadDash\u0027s inline embedded code-region editor with AvalonEdit, make the region\u0027s language label a clickable picker, and add theme-aware syntax highlighting for built-in plus bundled custom grammars. Each stage must leave the prompt editor fully usable, re-prove the native selection/copy/arrow-navigation behavior stabilized in commit 811809a0, and gate every human-observable outcome (selection, caret, copy/paste, popup placement, live highlighting, light/dark color correctness) behind a human approval checkpoint. Keep the editor host reusable and the highlighting palette pluggable for a future Markdown-editing reuse, but add no v2 tasks.",
@@ -1525,8 +1525,10 @@
       "beforeTaskIds": [
         "AVALONEDIT-20261014-005"
       ],
-      "status": "pending",
+      "status": "awaiting-approval",
+      "requestedAt": "2026-10-19T02:34:11.0878989+00:00",
       "planRevision": "2fc843326d241ca2",
+      "notifiedAt": "2026-10-19T02:34:11.0878989+00:00",
       "presentationAnchor": "task-after:AVALONEDIT-20261014-AMD-001",
       "reworkCount": 1,
       "lastReworkRequestedAt": "2026-10-19T00:51:50.6497553+00:00",
@@ -1807,7 +1809,7 @@
     "acceptedAt": "2026-10-14T21:33:35.2850529+00:00",
     "startedAt": "2026-10-14T21:33:35.9201922+00:00",
     "interruptedAt": "2026-10-19T02:18:53.1607111+00:00",
-    "lastRunAt": "2026-10-19T02:34:10.2906183+00:00"
+    "lastRunAt": "2026-10-19T02:34:11.5025335+00:00"
   },
   "hostRevision": "2fc843326d241ca2",
   "validations": [],
