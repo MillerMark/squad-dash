@@ -221,6 +221,47 @@ internal sealed class PromptTextBoxRichTextBoxMigrationTests
     }
 
     [Test, Apartment(ApartmentState.STA)]
+    public void RebaseIfCurrentTextDiffers_LoadedDraftCannotUndoToPreLoadEmptyState()
+    {
+        var rtb = new RichTextBox();
+        var history = new PromptUndoHistory(rtb);
+        history.CaptureBaseline();
+
+        // Startup restores the persisted draft under undo-capture suppression, so the timeline is
+        // still baselined against the previously empty box until the load path synchronizes it.
+        var loadedDraft = string.Join('\n', Enumerable.Repeat("large persisted prompt", 800));
+        rtb.SetPlainText(loadedDraft);
+        Assert.That(history.RebaseIfCurrentTextDiffers(), Is.True);
+
+        rtb.SetPlainText(loadedDraft + "\n");
+        history.PushSnapshot();
+
+        Assert.That(history.Undo(), Is.True);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo(loadedDraft));
+        Assert.That(history.CanUndo, Is.False, "the stale empty pre-load state must not survive");
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void RebaseIfCurrentTextDiffers_MatchingTabPreservesRedoChain()
+    {
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before");
+        var history = new PromptUndoHistory(rtb);
+        history.CaptureBaseline();
+        rtb.SetPlainText("after");
+        history.PushSnapshot();
+        Assert.That(history.Undo(), Is.True);
+        Assert.That(history.CanRedo, Is.True);
+
+        // Loading the same tab text must not discard its preserved history.
+        rtb.SetPlainText("before");
+        Assert.That(history.RebaseIfCurrentTextDiffers(), Is.False);
+        Assert.That(history.CanRedo, Is.True);
+        Assert.That(history.Redo(), Is.True);
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("after"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
     public void SelectRange_LineBreakBeforeLaterParagraph_PreservesSingleCharacterSelection()
     {
         var rtb = new RichTextBox();

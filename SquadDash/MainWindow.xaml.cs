@@ -28708,13 +28708,19 @@ public partial class MainWindow : Window
         }
 
         // Re-point the active timeline at the tab now shown in the box (creating + baselining a fresh
-        // one the first time a tab is seen), then — on send/steering — clear it so the just-sent
-        // prompt leaves no stale undo history behind.
+        // one the first time a tab is seen). Preserve a matching tab's undo/redo chain, but rebaseline
+        // any stale timeline whose current entry differs from the authoritative loaded text. This is
+        // especially important during startup: the Active Draft history is initially created while
+        // the box is empty, before the persisted draft is restored.
         if (_promptUndoReady && !_suppressPromptUndoCapture)
         {
             ActivatePromptUndoHistoryForCurrentTab();
             if (resetUndoHistory)
                 _promptUndoHistory.Clear();
+            else if (_promptUndoHistory.RebaseIfCurrentTextDiffers())
+                SquadDashTrace.Write(
+                    "PromptUndo",
+                    $"PROMPT_UNDO_REBASE reason={reason} key={CurrentUndoKey} textLen={text.Length}");
         }
 
         var undoWasEnabled = PromptTextBox.IsUndoEnabled;

@@ -338,6 +338,37 @@ public sealed class PromptUndoHistory
     }
 
     /// <summary>
+    /// Synchronizes this timeline after the host has replaced the prompt programmatically. When
+    /// the loaded text is the same as the timeline's current entry (the normal tab-switch case),
+    /// the existing undo/redo chain is retained and only the live selection is refreshed. When it
+    /// differs (for example, the Active Draft timeline was baselined while empty before startup
+    /// restoration loaded its persisted text), the loaded prompt becomes a new baseline so Undo
+    /// can never expose an unrelated pre-load state.
+    /// </summary>
+    /// <returns><see langword="true"/> when a stale timeline was rebased.</returns>
+    public bool RebaseIfCurrentTextDiffers()
+    {
+        var snapshot = PromptUndoManager.CaptureSnapshot(_prompt);
+        if (_index < 0 ||
+            !string.Equals(_entries[_index].SerializedText, snapshot.SerializedText, StringComparison.Ordinal))
+        {
+            _entries.Clear();
+            _entries.Add(snapshot);
+            _index = 0;
+            _coalesceOpen = false;
+            _coalesceIndex = -1;
+            return true;
+        }
+
+        // A programmatic load is a hard edit-burst boundary. Keep the chain (including any redo
+        // tail), but make its current caret/selection agree with the buffer now on screen.
+        _entries[_index] = snapshot;
+        _coalesceOpen = false;
+        _coalesceIndex = -1;
+        return false;
+    }
+
+    /// <summary>
     /// Refreshes the current entry BEFORE an edit without committing text or discarding redo.
     /// Host SelectionChanged also fires during edits: a text mismatch must never overwrite the
     /// pre-edit entry with post-edit offsets. Region update-start notifications identify their
