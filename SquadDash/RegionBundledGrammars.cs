@@ -19,6 +19,9 @@ internal static class RegionBundledGrammars
         Register(engine, "Go", "Go", "go", "golang");
         Register(engine, "Rust", "Rust", "rust", "rs");
         Register(engine, "Bash", "Bash", "bash", "sh", "shell");
+        var xaml = new Lazy<IHighlightingDefinition>(() => Load("XAML"));
+        engine.Register(new RegionLanguageOption("xaml", "XAML", "XAML"),
+            () => xaml.Value, aliases: new[] { ".xaml" });
         var markdown = new Lazy<IHighlightingDefinition>(() => Load("Markdown"));
         engine.Register(new RegionLanguageOption("markdown", "Markdown", "Markdown"),
             () => markdown.Value, CreateMarkdownPalette, "md");
@@ -56,7 +59,7 @@ internal static class RegionBundledGrammars
             DtdProcessing = DtdProcessing.Prohibit,
             XmlResolver = null,
         });
-        return HighlightingLoader.Load(reader, null);
+        return HighlightingLoader.Load(reader, HighlightingManager.Instance);
     }
 
     private static IReadOnlyDictionary<string, HighlightingColor> CreatePalette(bool isDark) =>

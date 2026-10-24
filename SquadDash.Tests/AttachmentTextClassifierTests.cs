@@ -83,6 +83,23 @@ internal sealed class AttachmentTextClassifierTests
     }
 
     [Test]
+    public void Attachment_Classify_XamlContentOrFence_UsesXamlGrammarAndLabel()
+    {
+        var content = RegionGrammarAutoDetectTests.XamlSample.Replace("\r\n", "\n");
+        foreach (var text in new[] { content, "```xaml\n" + content + "\n```", "```\n" + content + "\n```" })
+        {
+            var result = AttachmentTextClassifier.Classify(text);
+            Assert.Multiple(() =>
+            {
+                Assert.That(result.Mode, Is.EqualTo(AttachmentTextRenderMode.WholeCode));
+                Assert.That(result.Content, Is.EqualTo(content));
+                Assert.That(result.Grammar, Is.EqualTo("XAML"));
+                Assert.That(result.LanguageLabel, Is.EqualTo("XAML"));
+            });
+        }
+    }
+
+    [Test]
     public void Attachment_Classify_WholeFenceExplicitToken_UsesResolvedGrammarAndLabel()
     {
         const string text = "```csharp\nConsole.WriteLine(1);\n```";

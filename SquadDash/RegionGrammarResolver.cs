@@ -89,6 +89,10 @@ public static class RegionGrammarResolver
         @"<!DOCTYPE\s+html|<(html|head|body|div|span|table|ul|ol|li|p|a|h[1-6]|section|article|main|script|style|button|form|input)\b|</(html|head|body|div|span|table|ul|ol|li|p|a|h[1-6]|section|article|main|script|style|button|form)>",
         ignoreCase: true);
     private static readonly Regex XmlDeclarationSignature = Make(@"^\s*<\?xml\b", ignoreCase: true);
+    private static readonly Regex MarkupRoot = Make(
+        @"\A[\s\uFEFF]*(?:<\?xml\b[^?]*\?>\s*|<!--(?:[^-]|-[^-])*-->\s*)*<(?<name>[A-Za-z_][\w.:-]*)(?<attributes>(?:\s+[A-Za-z_][\w.:-]*\s*=\s*(?:""[^""]*""|'[^']*'))*)\s*/?(?:>|$)");
+    private static readonly Regex MarkupAttribute = Make(
+        @"(?<name>[A-Za-z_][\w.:-]*)\s*=\s*(?:""(?<value>[^""]*)""|'(?<value>[^']*)')");
     private static readonly Regex BashSignature = Make(
         @"^#![ \t]*/(bin/bash|usr/bin/bash|usr/bin/env[ \t]+(-S[ \t]+)?bash)([ \t]|\r?\n|$)");
     private static readonly Regex TsqlSpecificMarker = Make(
@@ -333,6 +337,8 @@ public static class RegionGrammarResolver
             return Available("PHP");
         if (IsMatch(AspXhtmlSignature, sample))
             return Available("ASP/XHTML");
+        if (IsXamlRoot(sample))
+            return Available("XAML") ?? Available("XML");
         if (IsMatch(HtmlSignature, sample))
             return Available("HTML");
         if (IsMatch(XmlDeclarationSignature, sample) || IsXmlDocument(sample))
@@ -429,6 +435,38 @@ public static class RegionGrammarResolver
         {
             return false;
         }
+    }
+
+    private static bool IsXamlRoot(string sample)
+    {
+        // Inspect only the opening element, not XAML examples in prose, comments or attribute values.
+        // A complete document is not required while a user is editing a fragment.
+        var root = MarkupRoot.Match(sample);
+        if (!root.Success)
+            return false;
+
+        var name = root.Groups["name"].Value;
+        var attributes = MarkupAttribute.Matches(root.Groups["attributes"].Value);
+        string? AttributeValue(string attribute) => attributes
+            .FirstOrDefault(match => match.Groups["name"].Value == attribute)?.Groups["value"].Value;
+        var separator = name.IndexOf(':');
+        var namespaceAttribute = separator < 0 ? "xmlns" : "xmlns:" + name[..separator];
+        var rootNamespace = AttributeValue(namespaceAttribute);
+        if (rootNamespace is "http://schemas.microsoft.com/winfx/2006/xaml/presentation" or
+            "http://schemas.microsoft.com/winfx/2006/xaml" or "http://schemas.microsoft.com/winfx/2009/xaml")
+            return true;
+        var xNamespace = AttributeValue("xmlns:x");
+        if ((xNamespace is null or "http://schemas.microsoft.com/winfx/2006/xaml" or
+            "http://schemas.microsoft.com/winfx/2009/xaml") &&
+            (string.IsNullOrEmpty(rootNamespace) || rootNamespace.StartsWith("clr-namespace:", StringComparison.Ordinal)) &&
+            attributes.Any(attribute => attribute.Groups["name"].Value is "x:Class" or "x:Name" or "x:Key"))
+            return true;
+        if (!string.IsNullOrEmpty(rootNamespace))
+            return false;
+
+        return name is "Window" or "UserControl" or "ResourceDictionary" or "Application" or "Page" or
+            "Grid" or "StackPanel" or "DockPanel" or "WrapPanel" or "TextBlock" or "TextBox" or
+            "DataTemplate" or "ControlTemplate";
     }
 
     private readonly record struct WeightedLanguageMarker(Regex Regex, int Weight);

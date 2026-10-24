@@ -78,6 +78,20 @@ internal sealed class TranscriptCodeBlockPreviewTests
     }
 
     [Test]
+    public void ResolveGrammar_XamlIsExplicit_WithoutChangingAbsentOrPlainTextBehavior()
+    {
+        var engine = new RegionHighlightingEngine();
+        const string content = RegionGrammarAutoDetectTests.XamlSample;
+        Assert.Multiple(() =>
+        {
+            Assert.That(TranscriptCodeBlockPreview.ResolveGrammar("xaml", content, engine), Is.EqualTo("XAML"));
+            Assert.That(TranscriptCodeBlockPreview.ResolveGrammar("xml", content, engine), Is.EqualTo("XML"));
+            Assert.That(TranscriptCodeBlockPreview.ResolveGrammar("text", content, engine), Is.Null);
+            Assert.That(TranscriptCodeBlockPreview.ResolveGrammar("", content, engine), Is.Null);
+        });
+    }
+
+    [Test]
     public void ResolveGrammar_EnforcesCharacterCap_InclusiveAndExclusive()
     {
         var engine = new RegionHighlightingEngine();

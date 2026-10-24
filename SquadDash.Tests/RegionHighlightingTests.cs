@@ -69,7 +69,7 @@ public sealed class RegionHighlightingTests
 
         installed.Remove("MarkDown");
         installed.Remove("MarkDownWithFontSize");
-        installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message" });
+        installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message", "XAML" });
         Assert.That(grammarOptions, Has.Count.EqualTo(installed.Count),
             "one option per included built-in or bundled grammar, with no duplicate JSON entry");
         Assert.That(grammarOptions.Select(o => o.GrammarName!).ToHashSet(StringComparer.Ordinal),
@@ -133,6 +133,7 @@ public sealed class RegionHighlightingTests
     [TestCase("Bash", "Bash", "bash")]
     [TestCase("Markdown", "Markdown", "markdown")]
     [TestCase("ErrorMessage", "Error message", "error")]
+    [TestCase("XAML", "XAML", "xaml")]
     public void BundledGrammar_LoadsEmbeddedResource_AndExposesPickerOption(
         string resource, string name, string token)
     {
@@ -140,7 +141,7 @@ public sealed class RegionHighlightingTests
             .GetManifestResourceStream($"SquadDash.Grammars.{resource}.xshd");
         Assert.That(stream, Is.Not.Null);
         using var reader = XmlReader.Create(stream!);
-        var definition = HighlightingLoader.Load(reader, null);
+        var definition = HighlightingLoader.Load(reader, HighlightingManager.Instance);
         Assert.That(definition.Name, Is.EqualTo(name));
         Assert.That(RegionLanguagePicker.Options.Single(o => o.FenceToken == token),
             Is.EqualTo(new RegionLanguageOption(token, resource == "ErrorMessage" ? name : resource, name)));
@@ -171,6 +172,10 @@ public sealed class RegionHighlightingTests
     [TestCase("md", "Markdown")]
     [TestCase("error", "Error message")]
     [TestCase("ERROR", "Error message")]
+    [TestCase("xaml", "XAML")]
+    [TestCase("XAML", "XAML")]
+    [TestCase(".xaml", "XAML")]
+    [TestCase(".XAML", "XAML")]
     public void BundledGrammar_ExplicitTokensResolveToOwnDefinition(string token, string name)
     {
         var engine = new RegionHighlightingEngine();
@@ -190,6 +195,7 @@ public sealed class RegionHighlightingTests
     [TestCase(RegionGrammarAutoDetectTests.BashSample, "Bash")]
     [TestCase(RegionGrammarAutoDetectTests.MarkdownSample, "Markdown")]
     [TestCase(RegionGrammarAutoDetectTests.ReviewerErrorMessageSample, "Error message")]
+    [TestCase(RegionGrammarAutoDetectTests.XamlSample, "XAML")]
     public void AutoDetect_ResolvesAndAppliesExpectedGrammarInBothThemes(string content, string expected)
     {
         var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();
@@ -457,7 +463,7 @@ public sealed class RegionHighlightingTests
             ("cpp", "C++"), ("cxx", "C++"), ("cc", "C++"), ("c", "C++"),
             ("ps", "PowerShell"), ("ps1", "PowerShell"),
             ("vb", "VB"), ("visualbasic", "VB"),
-            ("xaml", "XML"),
+            ("xaml", "XAML"), (".xaml", "XAML"),
             ("htm", "HTML"),
             ("aspx", "ASP/XHTML"), ("xhtml", "ASP/XHTML"),
             ("latex", "TeX"),
@@ -469,6 +475,56 @@ public sealed class RegionHighlightingTests
             foreach (var (alias, grammar) in expected)
                 Assert.That(engine.ResolveFenceToken(alias), Is.EqualTo(grammar), $"alias '{alias}'");
         });
+    }
+
+    [Test]
+    public void Xaml_ReusesXmlTokenColorsAndRecolorsImportedRulesWithoutLeaking()
+    {
+        var engine = new RegionHighlightingEngine();
+        var document = new TextDocument(RegionGrammarAutoDetectTests.XamlSample);
+        var sharedXml = HighlightingManager.Instance.GetDefinition("XML");
+        var sharedBefore = SnapshotSections(HighlightAll(document, sharedXml));
+        var xaml = engine.CreateDefinition("XAML", PaletteFrom(engine, false));
+        var sibling = engine.CreateDefinition("XAML", PaletteFrom(engine, false));
+        var lightBefore = SnapshotSections(HighlightAll(document, xaml));
+
+        foreach (var isDark in new[] { true, false })
+        {
+            var palette = PaletteFrom(engine, isDark);
+            xaml.ApplyPalette(palette);
+            var sections = HighlightAll(document, xaml);
+            var xml = engine.CreateDefinition("XML", palette);
+            Assert.That(SnapshotSections(sections), Is.EqualTo(SnapshotSections(HighlightAll(document, xml))));
+            Assert.That(sections.Select(section => ColorOf(section.Color)).Distinct().Count(),
+                Is.GreaterThanOrEqualTo(3), "tags, attributes and strings must have distinct colors");
+            foreach (var token in new[] { "Window", "x:Class", "Demo.MainWindow", "{Binding Caption}", "<!-- A XAML control" })
+            {
+                var start = document.Text.IndexOf(token, StringComparison.Ordinal);
+                Assert.That(sections.Any(section => section.Offset <= start &&
+                    section.Offset + section.Length >= start + token.Length &&
+                    ColorOf(section.Color) is not null), Is.True, token);
+            }
+            if (isDark)
+                Assert.That(SnapshotSections(sections), Is.Not.EqualTo(lightBefore));
+            else
+                Assert.That(SnapshotSections(sections), Is.EqualTo(lightBefore));
+            Assert.That(SnapshotSections(HighlightAll(document, sibling)), Is.EqualTo(lightBefore));
+            Assert.That(SnapshotSections(HighlightAll(document, sharedXml)), Is.EqualTo(sharedBefore));
+        }
+    }
+
+    [TestCase(@"C:\Views\MainWindow.xaml")]
+    [TestCase(@"C:\Views\Resources.XAML")]
+    public void Xaml_FileExtensionResolvesToDistinctSelectableLanguage(string path)
+    {
+        var engine = new RegionHighlightingEngine();
+        var grammar = engine.ResolveFenceToken(System.IO.Path.GetExtension(path));
+        Assert.That(grammar, Is.EqualTo("XAML"));
+        Assert.That(RegionLanguagePicker.Options.Single(option => option.GrammarName == grammar),
+            Is.EqualTo(new RegionLanguageOption("xaml", "XAML", "XAML")));
+        Assert.That(RegionLanguagePicker.GetLabel("xaml"), Is.EqualTo("XAML"));
+        Assert.That(RegionLanguagePicker.GetLabel("", grammar), Is.EqualTo("Auto detect -- XAML"));
+        Assert.That(engine.ResolveFenceToken("xml"), Is.EqualTo("XML"));
     }
 
     [Test]

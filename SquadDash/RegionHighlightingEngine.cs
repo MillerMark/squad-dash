@@ -45,7 +45,6 @@ public sealed class RegionHighlightingEngine
         AddAliases("JavaScript", "js", "javascript");
         AddAliases("PowerShell", "ps", "ps1");
         AddAliases("VB", "vb", "visualbasic");
-        AddAliases("XML", "xaml");
         AddAliases("HTML", "htm");
         AddAliases("ASP/XHTML", "asp", "aspx", "xhtml");
         AddAliases("TeX", "latex");

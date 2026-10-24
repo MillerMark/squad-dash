@@ -240,6 +240,16 @@ public sealed class RegionGrammarAutoDetectTests
     private const string XmlSample =
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<root><child>x</child></root>";
 
+    internal const string XamlSample = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <Window x:Class="Demo.MainWindow"
+                xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+            <!-- A XAML control, not an HTML button. -->
+            <Grid><Button Content="{Binding Caption}" /></Grid>
+        </Window>
+        """;
+
     private const string PhpSample =
         "<?php\n$name = 'world';\necho \"Hello $name\";\n?>";
 
@@ -359,6 +369,30 @@ public sealed class RegionGrammarAutoDetectTests
     [TestCase(PhpSnippetSample, "PHP")]
     [TestCase(HtmlSample, "HTML")]
     [TestCase(XmlSample, "XML")]
+    [TestCase(XamlSample, "XAML")]
+    [TestCase("<Window />", "XAML")]
+    [TestCase("<UserControl><StackPanel><TextBlock Text=\"Hello\" /></StackPanel></UserControl>", "XAML")]
+    [TestCase("<ResourceDictionary><Style TargetType=\"Button\" /></ResourceDictionary>", "XAML")]
+    [TestCase("<Grid><Button Content=\"OK\" /></Grid>", "XAML")]
+    [TestCase("<Page x:Class=\"Demo.Page\">", "XAML")]
+    [TestCase("<local:View x:Class='Demo.View' />", "XAML")]
+    [TestCase("<local:View xmlns:local='clr-namespace:Demo' x:Class='Demo.View' />", "XAML")]
+    [TestCase("<Button xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' Content='OK' />", "XAML")]
+    [TestCase("<p:Button xmlns:p='http://schemas.microsoft.com/winfx/2006/xaml/presentation' />", "XAML")]
+    [TestCase("<Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button' />", "XAML")]
+    [TestCase("\uFEFF<?xml version='1.0'?>\n<!-- view -->\n<Window />", "XAML")]
+    [TestCase("<Window\n    x:Class=\"Demo.Window\"", "XAML")]
+    [TestCase("<Window Width='1' Width='2' />", "XAML")]
+    [TestCase("<root><child>x</child></root>", "XML")]
+    [TestCase("<Grid xmlns='urn:inventory' />", "XML")]
+    [TestCase("<View xmlns:x='urn:other' x:Class='Inventory' />", "XML")]
+    [TestCase("<window />", "XML")]
+    [TestCase("<WindowSettings />", "XML")]
+    [TestCase("<button>OK</button>", "HTML")]
+    [TestCase("<style>button { color: red; }</style>", "HTML")]
+    [TestCase("<html><body><pre>&lt;Window x:Class='Demo.Window' /&gt;</pre></body></html>", "HTML")]
+    [TestCase("<?xml version='1.0'?><root><!-- <Window /> --></root>", "XML")]
+    [TestCase("<root note=\"x:Class='Demo.Window'\" />", "XML")]
     [TestCase(JsonSample, "Json")]
     [TestCase(PythonSample, "Python")]
     [TestCase("package demo;\nimport java.util.List;\nclass Demo { }", "Java")]
@@ -381,6 +415,7 @@ public sealed class RegionGrammarAutoDetectTests
     [TestCase(RustSample, "Rust")]
     [TestCase(BashSample, "Bash")]
     [TestCase(MarkdownSample, "Markdown")]
+    [TestCase(XamlSample, "XAML")]
     public void Detect_UsesOnlyCallerProvidedGrammarAvailability(string content, string expected)
     {
         var normalized = content.Replace("\r\n", "\n");
@@ -395,6 +430,7 @@ public sealed class RegionGrammarAutoDetectTests
     [TestCase(RustSample)]
     [TestCase(BashSample)]
     [TestCase(MarkdownSample)]
+    [TestCase(XamlSample)]
     [Apartment(ApartmentState.STA)]
     public void Resolve_BundledDetection_PreservesScanLimitAndSignaturePrecedence(string content)
     {
@@ -402,6 +438,22 @@ public sealed class RegionGrammarAutoDetectTests
         var normalized = content.Replace("\r\n", "\n");
         Assert.That(engine.Resolve("", new string(' ', RegionGrammarResolver.MaxScanLength) + normalized), Is.Null);
         Assert.That(engine.Resolve("", "<?php\n" + normalized), Is.EqualTo("PHP"));
+    }
+
+    [Test]
+    [Apartment(ApartmentState.STA)]
+    public void Xaml_PreservesExplicitXmlPlainTextAndBuiltInFallback()
+    {
+        var engine = new RegionHighlightingEngine();
+        Assert.Multiple(() =>
+        {
+            Assert.That(engine.Resolve("xml", XamlSample), Is.EqualTo("XML"));
+            Assert.That(engine.Resolve("text", XamlSample), Is.Null);
+            Assert.That(engine.Resolve("xaml", XmlSample), Is.EqualTo("XAML"));
+            Assert.That(RegionGrammarResolver.DetectBuiltIn(XamlSample), Is.EqualTo("XML"));
+            Assert.That(RegionGrammarResolver.Detect(XamlSample, name => name == "XML"), Is.EqualTo("XML"));
+            Assert.That(engine.Resolve("", "Use <Window x:Class='Demo.Window' /> for a XAML view."), Is.Null);
+        });
     }
 
     [TestCase("Notes:\n- a markdown list item\n- another item")]
