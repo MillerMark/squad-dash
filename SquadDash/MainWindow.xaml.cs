@@ -59800,17 +59800,19 @@ public partial class MainWindow : Window
             return false;
 
         List<FollowUpAttachment>? list = null;
+        var wasAdded = false;
         return TranscriptAnnotationShortcut.TryStart(transcript, typedText, startDictation,
             box =>
             {
                 if (TryBuildTranscriptFollowUpAttachment(box) is not { } attachment)
                     return null;
                 list = GetOrCreateFollowUpList(_activeTabId ?? "");
-                return EnsureTranscriptFollowUp(attachment);
+                return EnsureTranscriptFollowUp(attachment, out wasAdded);
             },
             (attachment, text, dictate) => PromptAttachmentViewerWindow.ShowForAnnotation(
                 attachment, CanShowOwnedWindow() ? this : null,
-                (current, notes) => UpdateAttachmentNotes(list!, current, notes), text, dictate));
+                (current, notes) => UpdateAttachmentNotes(list!, current, notes), text, dictate,
+                discardNewAttachment: wasAdded ? current => RemoveCancelledTranscriptAttachment(list!, current) : null));
     }
 
     private void AttachTranscriptFollowUp(RichTextBox rtb)
@@ -59892,11 +59894,14 @@ public partial class MainWindow : Window
         EnsureTranscriptFollowUp(attachment);
     }
 
-    private FollowUpAttachment? EnsureTranscriptFollowUp(FollowUpAttachment attachment)
+    private FollowUpAttachment? EnsureTranscriptFollowUp(FollowUpAttachment attachment) =>
+        EnsureTranscriptFollowUp(attachment, out _);
+
+    private FollowUpAttachment? EnsureTranscriptFollowUp(FollowUpAttachment attachment, out bool wasAdded)
     {
         var list = GetOrCreateFollowUpList(_activeTabId ?? "");
         var count = list.Count;
-        var ensured = TranscriptAnnotationShortcut.EnsureAttachment(list, attachment);
+        var ensured = TranscriptAnnotationShortcut.EnsureAttachment(list, attachment, out wasAdded);
         if (ensured is null)
             SquadDashTrace.Write(TraceCategory.UI, "Transcript attachment not added: attachment limit reached.");
         if (list.Count == count)
@@ -61008,7 +61013,26 @@ public partial class MainWindow : Window
         }
     }
 
-    private FollowUpAttachment UpdateAttachmentNotes(List<FollowUpAttachment> list, FollowUpAttachment current, string notes)
+    private void RemoveCancelledTranscriptAttachment(List<FollowUpAttachment> list, FollowUpAttachment current)
+    {
+        var owner = _followUpAttachments.FirstOrDefault(entry => ReferenceEquals(entry.Value, list));
+        var index = owner.Value?.FindIndex(candidate => ReferenceEquals(candidate, current)) ?? -1;
+        if (index < 0)
+        {
+            SquadDashTrace.Write(TraceCategory.UI, "Cancelled transcript attachment was already removed.");
+            return;
+        }
+
+        owner.Value!.RemoveAt(index);
+        if (owner.Value.Count == 0)
+            _guidedTourCoordinator.RaiseAllAttachmentsRemoved();
+        if (owner.Key.Length == 0)
+            PersistDraftFollowUp();
+        UpdateFollowUpStrip();
+        SyncQueuePanel();
+    }
+
+    private FollowUpAttachment UpdateAttachmentNotes(List<FollowUpAttachment> list, FollowUpAttachment current, string? notes)
     {
         // Queueing moves the draft list to a new key while this viewer can remain open.
         var owner = _followUpAttachments.FirstOrDefault(entry => ReferenceEquals(entry.Value, list));

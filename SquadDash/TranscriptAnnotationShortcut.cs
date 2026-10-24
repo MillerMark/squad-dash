@@ -26,8 +26,13 @@ internal static class TranscriptAnnotationShortcut
     }
 
     internal static FollowUpAttachment? EnsureAttachment(
-        List<FollowUpAttachment> attachments, FollowUpAttachment attachment)
+        List<FollowUpAttachment> attachments, FollowUpAttachment attachment) =>
+        EnsureAttachment(attachments, attachment, out _);
+
+    internal static FollowUpAttachment? EnsureAttachment(
+        List<FollowUpAttachment> attachments, FollowUpAttachment attachment, out bool wasAdded)
     {
+        wasAdded = false;
         var existing = attachments.FirstOrDefault(item => item.TranscriptQuote == attachment.TranscriptQuote);
         if (existing is not null)
             return existing;
@@ -35,6 +40,7 @@ internal static class TranscriptAnnotationShortcut
             return null;
 
         attachments.Add(attachment);
+        wasAdded = true;
         return attachment;
     }
 }

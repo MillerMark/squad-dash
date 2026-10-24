@@ -15,9 +15,14 @@ namespace SquadDash.Tests;
 [NonParallelizable]
 internal sealed class PromptAttachmentViewerWindowTests
 {
+    private readonly List<PromptAttachmentViewerWindow> _ownedViewers = [];
+    private SynchronizationContext? _previousContext;
+
     [SetUp]
     public void SetUp()
     {
+        _previousContext = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         EnsureResources();
         CloseViewerWindows();
     }
@@ -25,7 +30,14 @@ internal sealed class PromptAttachmentViewerWindowTests
     [TearDown]
     public void TearDown()
     {
-        CloseViewerWindows();
+        try
+        {
+            CloseViewerWindows();
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(_previousContext);
+        }
     }
 
     [TestCase("user", "2026-10-22T12:00:00Z", "From user \u2022 2m ago")]
@@ -125,7 +137,7 @@ internal sealed class PromptAttachmentViewerWindowTests
         var attachment = new FollowUpAttachment("", "first", null, ContentBlock: "body", Notes: null);
         var callbackCurrents = new List<FollowUpAttachment>();
         var callbackReturns = new List<FollowUpAttachment>();
-        FollowUpAttachment UpdateNotes(FollowUpAttachment current, string notes)
+        FollowUpAttachment UpdateNotes(FollowUpAttachment current, string? notes)
         {
             callbackCurrents.Add(current);
             var updated = current with { Notes = notes };
@@ -170,6 +182,7 @@ internal sealed class PromptAttachmentViewerWindowTests
         notesEditor.Text = "second edit";
         Assert.Multiple(() =>
         {
+            Assert.That(firstWindow.HasNoteChanges, Is.True);
             Assert.That(callbackCurrents, Has.Count.EqualTo(2));
             Assert.That(ReferenceEquals(callbackCurrents[0], attachment), Is.True);
             Assert.That(ReferenceEquals(callbackCurrents[1], callbackReturns[0]), Is.True);
@@ -180,6 +193,8 @@ internal sealed class PromptAttachmentViewerWindowTests
         Assert.Multiple(() =>
         {
             Assert.That(GetOpenViewerWindows().Single(), Is.SameAs(firstWindow));
+            Assert.That(firstWindow.HasNoteChanges, Is.False);
+            Assert.That(FindNoteActions(firstWindow).Visibility, Is.EqualTo(Visibility.Collapsed));
             Assert.That(notesEditor.IsKeyboardFocused, Is.True);
             Assert.That(notesEditor.SelectionLength, Is.EqualTo(0));
             Assert.That(notesEditor.CaretIndex, Is.EqualTo(notesEditor.Text.Length));
@@ -219,7 +234,7 @@ internal sealed class PromptAttachmentViewerWindowTests
     {
         var first = new FollowUpAttachment("", "first tab", null, ContentBlock: "first", Notes: "a");
         var second = new FollowUpAttachment("", "second tab", null, ContentBlock: "second", Notes: "b");
-        FollowUpAttachment Update(FollowUpAttachment current, string notes) => current with { Notes = notes };
+        FollowUpAttachment Update(FollowUpAttachment current, string? notes) => current with { Notes = notes };
 
         PromptAttachmentViewerWindow.Show([first, second], owner: null, notesChanged: Update, focusNotes: false);
         Pump();
@@ -350,10 +365,12 @@ internal sealed class PromptAttachmentViewerWindowTests
     }
 
     [Test]
-    public void EnterWhileEditingNotes_DoesNotCloseWindow()
+    public void EnterWhileEditingNotes_AcceptsPersistedEditsAndClosesWindow()
     {
         var attachment = new FollowUpAttachment("", "editable", null, ContentBlock: "body", Notes: "line1");
-        PromptAttachmentViewerWindow.Show([attachment], owner: null, notesChanged: (current, notes) => current with { Notes = notes }, focusNotes: true);
+        var persisted = attachment;
+        PromptAttachmentViewerWindow.Show([attachment], owner: null,
+            notesChanged: (current, notes) => persisted = current with { Notes = notes }, focusNotes: true);
         Pump();
 
         var window = GetOpenViewerWindows().Single();
@@ -363,10 +380,16 @@ internal sealed class PromptAttachmentViewerWindowTests
         Keyboard.Focus(editor);
         Pump();
 
-        window.RaiseEvent(KeyDownEvent(window, Key.Enter, editor));
+        editor.Text = "accepted edits";
+        var key = RaisePreviewKey(editor, Keyboard.PreviewKeyDownEvent, Key.Enter);
         Pump();
 
-        Assert.That(window.IsVisible, Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(key.Handled, Is.True);
+            Assert.That(WaitFor(() => !window.IsVisible), Is.True);
+            Assert.That(persisted.Notes, Is.EqualTo("accepted edits"));
+        });
     }
 
     [Test]
@@ -481,7 +504,7 @@ internal sealed class PromptAttachmentViewerWindowTests
         });
     }
 
-    private static PromptAttachmentViewerWindow ShowVoiceViewer(Action onDictationStart, bool editable, bool multipleTabs = false)
+    private PromptAttachmentViewerWindow ShowVoiceViewer(Action onDictationStart, bool editable, bool multipleTabs = false)
     {
         var first = new FollowUpAttachment("", "first", null, ContentBlock: "body", Notes: "saved notes");
         var second = new FollowUpAttachment("", "second", null, ContentBlock: "second body", Notes: "saved notes");
@@ -493,6 +516,7 @@ internal sealed class PromptAttachmentViewerWindowTests
                 // Exercise the real gesture/start path without credentials, audio capture, or network access.
                 return ApplicationSettingsSnapshot.Empty with { SpeechProvider = SpeechProvider.OpenAI, OpenAiSpeechApiKey = null };
             });
+        _ownedViewers.Add(window);
         window.Show();
         Pump();
         return window;
@@ -724,7 +748,8 @@ internal sealed class PromptAttachmentViewerWindowTests
         }
         finally
         {
-            viewer?.Close();
+            if (viewer is not null)
+                AcceptAndClose(viewer);
             owner.Close();
             Pump();
         }
@@ -742,6 +767,476 @@ internal sealed class PromptAttachmentViewerWindowTests
         return transcript;
     }
 
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("  \r\n\t")]
+    [TestCase("saved notes")]
+    public void NoteActions_CompareAgainstOpeningSnapshot_AndHideWhenEditsAreUndone(string? baseline)
+    {
+        var attachments = QuoteAttachments(baseline);
+        var viewer = ShowEditableViewer(attachments);
+        var editor = FindNotesEditor(viewer);
+        var actions = FindNoteActions(viewer);
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer.HasNoteChanges, Is.False);
+            Assert.That(actions.Visibility, Is.EqualTo(Visibility.Collapsed));
+            Assert.That(actions.HorizontalAlignment, Is.EqualTo(HorizontalAlignment.Right));
+            Assert.That(DockPanel.GetDock(actions), Is.EqualTo(Dock.Bottom));
+            Assert.That(actions.Children.OfType<Button>().Select(button => button.Content),
+                Is.EqualTo(new[] { "OK", "Cancel" }));
+        });
+
+        editor.Text = (baseline ?? "") + " changed";
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer.HasNoteChanges, Is.True);
+            Assert.That(actions.Visibility, Is.EqualTo(Visibility.Visible));
+            Assert.That(attachments[0].Notes, Is.EqualTo(editor.Text));
+        });
+        editor.Text = baseline ?? "";
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer.HasNoteChanges, Is.False);
+            Assert.That(actions.Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+    }
+
+    [TestCase("cancel")]
+    [TestCase("escape")]
+    [TestCase("close")]
+    public void DiscardNo_KeepsEditsOpen_ThenYesRestoresExactPersistedBaseline(string action)
+    {
+        var attachments = QuoteAttachments("original \r\n notes ");
+        var original = attachments[0];
+        var confirmed = false;
+        var prompts = 0;
+        var viewer = ShowEditableViewer(attachments, () => { prompts++; return confirmed; });
+        var editor = FindNotesEditor(viewer);
+        editor.Text = "first replacement";
+        editor.Text = "second replacement";
+
+        void Cancel()
+        {
+            if (action == "close")
+                viewer.Close();
+            else if (action == "escape")
+                Assert.That(RaisePreviewKey(editor, Keyboard.PreviewKeyDownEvent, Key.Escape).Handled, Is.True);
+            else
+                FindNoteActions(viewer).Children.OfType<Button>().Single(button => Equals(button.Content, "Cancel"))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Pump();
+        }
+
+        Cancel();
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompts, Is.EqualTo(1));
+            Assert.That(viewer.IsVisible, Is.True);
+            Assert.That(editor.Text, Is.EqualTo("second replacement"));
+            Assert.That(attachments.Single().Notes, Is.EqualTo(editor.Text));
+            Assert.That(viewer.HasNoteChanges, Is.True);
+        });
+        confirmed = true;
+        Cancel();
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompts, Is.EqualTo(2), "Each attempt should prompt once, not again in Closing.");
+            Assert.That(viewer.IsVisible, Is.False);
+            Assert.That(attachments.Single(), Is.EqualTo(original));
+            Assert.That(attachments.Single(), Is.Not.SameAs(original), "Rollback must use the latest replacement identity.");
+        });
+        editor.Text = "late edit on closed editor";
+        Assert.That(attachments.Single().Notes, Is.EqualTo(original.Notes));
+    }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase(" \r\n\t ")]
+    public void DiscardYes_RestoresNullEmptyAndWhitespaceWithoutNormalization(string? baseline)
+    {
+        var attachments = QuoteAttachments(baseline);
+        var viewer = ShowEditableViewer(attachments);
+        FindNotesEditor(viewer).Text = "new notes";
+        viewer.CancelNotes();
+        Assert.Multiple(() =>
+        {
+            Assert.That(attachments.Single().Notes, Is.EqualTo(baseline));
+            Assert.That(viewer.IsVisible, Is.False);
+        });
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Accept_KeepsNewAttachmentAndNotes_WithoutDiscardConfirmation(bool clickOk)
+    {
+        var attachments = QuoteAttachments(null);
+        var viewer = ShowEditableViewer(attachments,
+            () => throw new AssertionException("Acceptance must not ask to discard."),
+            _ => Assert.Fail("Acceptance must never remove the newly attached quote."));
+        FindNotesEditor(viewer).Text = "accepted";
+        if (clickOk)
+            FindNoteActions(viewer).Children.OfType<Button>().Single(button => Equals(button.Content, "OK"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        else
+            RaisePreviewKey(FindNotesEditor(viewer), Keyboard.PreviewKeyDownEvent, Key.Enter);
+        Assert.That(WaitFor(() => !viewer.IsVisible), Is.True);
+        Assert.That(attachments.Single().Notes, Is.EqualTo("accepted"));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void PristineCancel_PromptsEvenWithoutVisibleActions_AndNoKeepsProvisionalAttachment(bool provisional)
+    {
+        var attachments = QuoteAttachments(null);
+        var prompts = 0;
+        var viewer = ShowEditableViewer(attachments, () => { prompts++; return false; },
+            provisional ? current => attachments.Remove(current) : null);
+        viewer.CancelNotes();
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompts, Is.EqualTo(1));
+            Assert.That(viewer.IsVisible, Is.True);
+            Assert.That(attachments, Has.Count.EqualTo(1));
+            Assert.That(FindNoteActions(viewer).Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+    }
+
+    [TestCase(false, 0)]
+    [TestCase(true, 1)]
+    public void PristineClose_PromptsOnlyForCurrentProvisionalAttachment(bool provisional, int expectedPrompts)
+    {
+        var attachments = QuoteAttachments(null);
+        var prompts = 0;
+        var viewer = ShowEditableViewer(attachments, () => { prompts++; return true; },
+            provisional ? current => attachments.Remove(current) : null);
+        viewer.Close();
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompts, Is.EqualTo(expectedPrompts));
+            Assert.That(viewer.IsVisible, Is.False);
+            Assert.That(attachments, Has.Count.EqualTo(provisional ? 0 : 1));
+        });
+    }
+
+    [TestCase(false, false)]
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    [TestCase(true, true)]
+    public void TranscriptProvenance_CancelRemovesOnlyQuoteAddedByThisInvocation(bool existing, bool voice)
+    {
+        var attachments = existing ? QuoteAttachments("saved") : new List<FollowUpAttachment>();
+        var untouched = new FollowUpAttachment("", "other", null, TranscriptQuote: "other quote");
+        attachments.Add(untouched);
+        var quote = TranscriptAnnotationShortcut.EnsureAttachment(attachments, QuoteAttachments(null)[0], out var wasAdded)!;
+        Assert.That(wasAdded, Is.EqualTo(!existing));
+        var speech = new AnnotationSpeechService();
+        FollowUpAttachment? removed = null;
+        var viewer = ShowEditableViewer(attachments, discard: wasAdded ? current =>
+        {
+            removed = current;
+            var index = attachments.FindIndex(item => ReferenceEquals(item, current));
+            Assert.That(index, Is.GreaterThanOrEqualTo(0));
+            attachments.RemoveAt(index);
+        } : null, speech: speech, displayed: [quote]);
+        viewer.BeginAnnotation(voice ? null : "typed", voice);
+        if (voice)
+            speech.Emit("spoken");
+        Pump();
+        viewer.CancelNotes();
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer.IsVisible, Is.False);
+            Assert.That(attachments.Any(item => ReferenceEquals(item, untouched)), Is.True);
+            Assert.That(attachments, Has.Count.EqualTo(existing ? 2 : 1));
+            if (existing)
+                Assert.That(attachments[0].Notes, Is.EqualTo("saved"));
+            else
+            {
+                Assert.That(removed, Is.Not.Null);
+                Assert.That(removed!.Notes, Is.Null, "Rollback must precede removal of the final replacement.");
+                Assert.That(removed, Is.Not.SameAs(quote));
+            }
+        });
+    }
+
+    [Test]
+    public void TranscriptProvenance_DedupeAtCapacityIsNotNew_AndCapacityFailureResetsOutFlag()
+    {
+        var attachments = QuoteAttachments("saved");
+        attachments.AddRange(Enumerable.Range(1, 14).Select(index =>
+            new FollowUpAttachment("", $"quote {index}", null, TranscriptQuote: $"quote {index}")));
+        var reused = TranscriptAnnotationShortcut.EnsureAttachment(attachments, QuoteAttachments(null)[0], out var wasAdded);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reused, Is.SameAs(attachments[0]));
+            Assert.That(wasAdded, Is.False);
+        });
+        wasAdded = true;
+        var rejected = TranscriptAnnotationShortcut.EnsureAttachment(attachments,
+            new FollowUpAttachment("", "overflow", null, TranscriptQuote: "overflow"), out wasAdded);
+        Assert.Multiple(() =>
+        {
+            Assert.That(rejected, Is.Null);
+            Assert.That(wasAdded, Is.False);
+            Assert.That(attachments, Has.Count.EqualTo(15));
+        });
+    }
+
+    [Test]
+    public void Reinvocation_ResetsSnapshotAndClearsOriginalShortcutRemovalProvenance()
+    {
+        var attachments = QuoteAttachments(null);
+        var viewer = ShowEditableViewer(attachments,
+            discard: _ => Assert.Fail("The old invocation must not retain removal authority."));
+        var editor = FindNotesEditor(viewer);
+        editor.Text = "previous invocation";
+        viewer.BeginEditingInvocation();
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer.HasNoteChanges, Is.False);
+            Assert.That(FindNoteActions(viewer).Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+        editor.Text = "new invocation";
+        viewer.CancelNotes();
+        Assert.That(attachments.Single().Notes, Is.EqualTo("previous invocation"));
+
+        var reopened = ShowEditableViewer(attachments);
+        Assert.That(reopened.HasNoteChanges, Is.False);
+        FindNotesEditor(reopened).Text = "reopened edit";
+        reopened.CancelNotes();
+        Assert.That(attachments.Single().Notes, Is.EqualTo("previous invocation"));
+    }
+
+    [Test]
+    public void DiscardAcrossTabs_RestoresEverySnapshot_AndIgnoresImageNotes()
+    {
+        var attachments = QuoteAttachments("first");
+        attachments.Add(new FollowUpAttachment("", "image", null, ImagePath: @"C:\missing.png", Notes: "image notes"));
+        attachments.Add(new FollowUpAttachment("", "second", null, ContentBlock: "second", Notes: null));
+        var original = attachments.ToArray();
+        var viewer = ShowEditableViewer(attachments);
+        FindNotesEditor(viewer).Text = "first changed";
+        var tabs = FindVisualDescendants<TabControl>(viewer).Single();
+        tabs.SelectedIndex = 2;
+        Pump();
+        var second = FindVisualDescendants<TextBox>(viewer).Single(box => AutomationProperties.GetName(box) == "Notes for second");
+        second.Text = "second changed";
+        tabs.SelectedIndex = 1;
+        Pump();
+        Assert.That(FindNoteActions(viewer).Visibility, Is.EqualTo(Visibility.Visible));
+        viewer.CancelNotes();
+        Assert.That(attachments, Is.EqualTo(original));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void HistoricalViewer_CloseAndEscapeNeverPromptOrEnableNoteActions(bool escape)
+    {
+        var viewer = new PromptAttachmentViewerWindow(QuoteAttachments("historical notes"), null,
+            confirmDiscardNotes: () => throw new AssertionException("Read-only notes must not ask to discard."));
+        _ownedViewers.Add(viewer);
+        viewer.Show();
+        Pump();
+        var editor = FindNotesEditor(viewer);
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor.IsReadOnly, Is.True);
+            Assert.That(viewer.HasNoteChanges, Is.False);
+            Assert.That(FindNoteActions(viewer).Visibility, Is.EqualTo(Visibility.Collapsed));
+        });
+        if (escape)
+            RaisePreviewKey(editor, Keyboard.PreviewKeyDownEvent, Key.Escape);
+        else
+            viewer.Close();
+        Assert.That(viewer.IsVisible, Is.False);
+    }
+
+    [Test]
+    public void Deactivation_RetainsLiveEditsAndCurrentInvocationRemovalProvenance()
+    {
+        var attachments = QuoteAttachments(null);
+        var prompts = 0;
+        var removed = 0;
+        var viewer = ShowEditableViewer(attachments, () => { prompts++; return true; }, _ => removed++);
+        FindNotesEditor(viewer).Text = "keep until explicit decision";
+        typeof(Window).GetMethod("OnDeactivated", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(viewer, [EventArgs.Empty]);
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompts, Is.Zero);
+            Assert.That(removed, Is.Zero);
+            Assert.That(viewer.IsVisible, Is.True);
+            Assert.That(viewer.HasNoteChanges, Is.True);
+            Assert.That(attachments.Single().Notes, Is.EqualTo("keep until explicit decision"));
+        });
+        viewer.CancelNotes();
+        Assert.That(removed, Is.EqualTo(1));
+    }
+
+    [Test]
+    public void DiscardConfirmation_NestedDispatcherSpeechAndRepeatedCancelStillRollBackOnce()
+    {
+        var attachments = QuoteAttachments("saved");
+        var speech = new AnnotationSpeechService();
+        PromptAttachmentViewerWindow? viewer = null;
+        var prompts = 0;
+        viewer = ShowEditableViewer(attachments, () =>
+        {
+            prompts++;
+            speech.Emit("during confirmation");
+            Pump();
+            viewer!.CancelNotes();
+            viewer.Close();
+            Assert.That(viewer.IsVisible, Is.True);
+            Assert.That(attachments[0].Notes, Does.Contain("during confirmation"));
+            return true;
+        }, speech: speech);
+        viewer.BeginAnnotation(null, startDictation: true);
+        viewer.CancelNotes();
+        Assert.Multiple(() =>
+        {
+            Assert.That(prompts, Is.EqualTo(1));
+            Assert.That(viewer.IsVisible, Is.False);
+            Assert.That(attachments.Single().Notes, Is.EqualTo("saved"));
+        });
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Discard_BlocksQueuedAndLateSpeech_EvenDuringPendingServiceOperation(bool stopping)
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var speech = new AnnotationSpeechService
+        {
+            StartCompletion = stopping ? Task.CompletedTask : gate.Task,
+            StopCompletion = stopping ? gate.Task : Task.CompletedTask
+        };
+        var attachments = QuoteAttachments("saved");
+        var viewer = ShowEditableViewer(attachments, speech: speech);
+        var editor = FindNotesEditor(viewer);
+        try
+        {
+            viewer.BeginAnnotation(null, startDictation: true);
+            speech.Emit("accepted before cancel");
+            Pump();
+            Assert.That(attachments[0].Notes, Does.Contain("accepted before cancel"));
+            if (stopping)
+            {
+                RaisePreviewKey(editor, Keyboard.PreviewKeyUpEvent, Key.LeftCtrl);
+                Assert.That(WaitFor(() => speech.Stops == 1), Is.True);
+            }
+            speech.Emit("queued before cancel");
+            viewer.CancelNotes();
+            speech.Emit("late after cancel");
+            gate.SetResult();
+            Pump();
+            Assert.That(WaitFor(() => !stopping || speech.Disposals > 0), Is.True);
+            Assert.Multiple(() =>
+            {
+                Assert.That(viewer.IsVisible, Is.False);
+                Assert.That(attachments.Single().Notes, Is.EqualTo("saved"));
+                Assert.That(editor.Text, Does.Not.Contain("queued before cancel").And.Not.Contain("late after cancel"));
+            });
+        }
+        finally
+        {
+            gate.TrySetResult();
+            Pump();
+        }
+    }
+
+    [Test]
+    public void DiscardNo_DoesNotDisposeSpeech_AndLaterAcceptanceKeepsFinalPhrase()
+    {
+        var attachments = QuoteAttachments("saved");
+        var speech = new AnnotationSpeechService();
+        var viewer = ShowEditableViewer(attachments, () => false, speech: speech);
+        viewer.BeginAnnotation(null, startDictation: true);
+        viewer.CancelNotes();
+        Assert.That(speech.Disposals, Is.Zero);
+        speech.Emit("kept speech");
+        Pump();
+        AcceptAndClose(viewer);
+        Assert.Multiple(() =>
+        {
+            Assert.That(attachments.Single().Notes, Is.EqualTo("saved kept speech final phrase"));
+            Assert.That(speech.Stops, Is.EqualTo(1));
+        });
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Acceptance_DrainsPendingDictation_AndJoinsAnAlreadyStoppingSession(bool releaseFirst)
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var speech = new AnnotationSpeechService { StopCompletion = gate.Task };
+        var attachments = QuoteAttachments(null);
+        var viewer = ShowEditableViewer(attachments,
+            () => throw new AssertionException("Do not prompt while acceptance drains dictation."), speech: speech);
+        try
+        {
+            viewer.BeginAnnotation(null, startDictation: true);
+            if (releaseFirst)
+            {
+                RaisePreviewKey(FindNotesEditor(viewer), Keyboard.PreviewKeyUpEvent, Key.LeftCtrl);
+                Assert.That(WaitFor(() => speech.Stops == 1), Is.True);
+            }
+            var accepted = viewer.AcceptNotesAsync();
+            Assert.That(WaitFor(() => speech.Stops == 1), Is.True);
+            viewer.Close();
+            viewer.CancelNotes();
+            Assert.Multiple(() =>
+            {
+                Assert.That(viewer.IsVisible, Is.True);
+                Assert.That(accepted.IsCompleted, Is.False);
+                Assert.That(FindNoteActions(viewer).IsEnabled, Is.False);
+                Assert.That(speech.Stops, Is.EqualTo(1));
+            });
+            gate.SetResult();
+            Assert.That(WaitFor(() => accepted.IsCompleted), Is.True);
+            accepted.GetAwaiter().GetResult();
+            speech.Emit("too late");
+            Pump();
+            Assert.Multiple(() =>
+            {
+                Assert.That(viewer.IsVisible, Is.False);
+                Assert.That(attachments.Single().Notes, Is.EqualTo("final phrase"));
+                Assert.That(speech.Stops, Is.EqualTo(1));
+            });
+        }
+        finally
+        {
+            gate.TrySetResult();
+            Pump();
+        }
+    }
+
+    private static List<FollowUpAttachment> QuoteAttachments(string? notes) =>
+        [new FollowUpAttachment("", "quote", null, TranscriptQuote: "selected quote", Notes: notes)];
+
+    private PromptAttachmentViewerWindow ShowEditableViewer(
+        List<FollowUpAttachment> attachments, Func<bool>? confirm = null,
+        Action<FollowUpAttachment>? discard = null, AnnotationSpeechService? speech = null,
+        IReadOnlyList<FollowUpAttachment>? displayed = null)
+    {
+        var viewer = new PromptAttachmentViewerWindow(displayed ?? attachments, null,
+            notesChanged: (current, notes) => SaveNotes(attachments, current, notes),
+            confirmDiscardNotes: confirm ?? (() => true), discardNewAttachment: discard,
+            settingsProvider: () => ApplicationSettingsSnapshot.Empty with
+            {
+                SpeechProvider = SpeechProvider.OpenAI,
+                OpenAiSpeechApiKey = "test-only-not-a-credential"
+            }, speechServiceFactory: () => speech ?? throw new AssertionException("Unexpected dictation."));
+        _ownedViewers.Add(viewer);
+        viewer.Show();
+        Pump();
+        return viewer;
+    }
+
+    private static StackPanel FindNoteActions(PromptAttachmentViewerWindow viewer) =>
+        (StackPanel)FindVisualDescendants<Button>(viewer).Single(button => Equals(button.Content, "OK")).Parent;
+
     private static Window ShowTranscript(RichTextBox transcript)
     {
         var owner = new Window { Content = transcript, Width = 400, Height = 200, ShowInTaskbar = false };
@@ -757,7 +1252,7 @@ internal sealed class PromptAttachmentViewerWindowTests
         TranscriptAnnotationShortcut.EnsureAttachment(attachments,
             new FollowUpAttachment("", "quote", null, TranscriptQuote: TranscriptCopyService.BuildSelectionText(transcript)));
 
-    private static FollowUpAttachment SaveNotes(List<FollowUpAttachment> attachments, FollowUpAttachment current, string notes)
+    private static FollowUpAttachment SaveNotes(List<FollowUpAttachment> attachments, FollowUpAttachment current, string? notes)
     {
         var index = attachments.FindIndex(item => ReferenceEquals(item, current));
         Assert.That(index, Is.GreaterThanOrEqualTo(0));
@@ -774,20 +1269,23 @@ internal sealed class PromptAttachmentViewerWindowTests
         public event EventHandler<string>? RecognitionError { add { } remove { } }
         public int Starts { get; private set; }
         public int Stops { get; private set; }
+        public int Disposals { get; private set; }
+        public Task StartCompletion { get; init; } = Task.CompletedTask;
+        public Task StopCompletion { get; init; } = Task.CompletedTask;
         public Task StartAsync(string key, string regionOrEndpoint, IEnumerable<string>? phraseHints = null, string? language = null)
         {
             Starts++;
-            return Task.CompletedTask;
+            return StartCompletion;
         }
-        public Task StopAsync()
+        public async Task StopAsync()
         {
             Stops++;
+            await StopCompletion;
             Emit("final phrase");
-            return Task.CompletedTask;
         }
         public void Emit(string text) => PhraseRecognized?.Invoke(this, text);
         public void WriteAudioData(byte[] buffer, int count) { }
-        public void Dispose() { }
+        public void Dispose() => Disposals++;
     }
 
     private static IReadOnlyList<PromptAttachmentViewerWindow> GetOpenViewerWindows() =>
@@ -807,16 +1305,24 @@ internal sealed class PromptAttachmentViewerWindowTests
         });
     }
 
-    private static void CloseViewerWindows()
+    private void CloseViewerWindows()
     {
-        foreach (var window in GetTrackedViewerWindows().ToArray())
+        foreach (var window in GetTrackedViewerWindows().Concat(_ownedViewers).Distinct().ToArray())
         {
             if (window.Dispatcher.CheckAccess())
-                window.Close();
+                AcceptAndClose(window);
             else
-                window.Dispatcher.Invoke(window.Close);
+                window.Dispatcher.Invoke(() => AcceptAndClose(window));
         }
+        _ownedViewers.Clear();
         Pump();
+    }
+
+    private static void AcceptAndClose(PromptAttachmentViewerWindow window)
+    {
+        var accepted = window.AcceptNotesAsync();
+        Assert.That(WaitFor(() => accepted.IsCompleted), Is.True, "Viewer cleanup must not open a discard dialog.");
+        accepted.GetAwaiter().GetResult();
     }
 
     private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root) where T : DependencyObject
@@ -829,13 +1335,6 @@ internal sealed class PromptAttachmentViewerWindowTests
                 yield return child;
         }
     }
-
-    private static KeyEventArgs KeyDownEvent(Visual sourceVisual, Key key, object source) =>
-        new(Keyboard.PrimaryDevice, PresentationSource.FromVisual(sourceVisual)!, Environment.TickCount, key)
-        {
-            RoutedEvent = Keyboard.KeyDownEvent,
-            Source = source
-        };
 
     private static void EnsureResources()
     {

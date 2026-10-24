@@ -119,15 +119,81 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(shortcut, Does.Contain("TranscriptAnnotationShortcut.TryStart("));
             Assert.That(shortcut, Does.Contain("TryBuildTranscriptFollowUpAttachment(box)"));
             Assert.That(shortcut, Does.Contain("GetOrCreateFollowUpList(_activeTabId ?? \"\")"));
-            Assert.That(shortcut, Does.Contain("EnsureTranscriptFollowUp(attachment)"));
+            Assert.That(shortcut, Does.Contain("EnsureTranscriptFollowUp(attachment, out wasAdded)"));
             Assert.That(shortcut, Does.Contain("PromptAttachmentViewerWindow.ShowForAnnotation("));
             Assert.That(shortcut, Does.Contain("UpdateAttachmentNotes(list!, current, notes)"));
-            Assert.That(ensure, Does.Contain("TranscriptAnnotationShortcut.EnsureAttachment(list, attachment)"));
+            Assert.That(shortcut, Does.Contain("discardNewAttachment: wasAdded ? current => RemoveCancelledTranscriptAttachment(list!, current) : null"));
+            Assert.That(ensure, Does.Contain("TranscriptAnnotationShortcut.EnsureAttachment(list, attachment, out wasAdded)"));
             Assert.That(ensure, Does.Contain("PersistDraftFollowUp()"));
             Assert.That(ensure, Does.Contain("SyncQueuePanel()"));
             Assert.That(voice.IndexOf("TryStartTranscriptAnnotation(null, startDictation: true)", StringComparison.Ordinal),
                 Is.LessThan(voice.IndexOf("focusedRichTextBox == ActiveTranscriptBox", StringComparison.Ordinal)));
             Assert.That(voice, Does.Contain("ResetPttState();\r\n            return;").Or.Contain("ResetPttState();\n            return;"));
+        });
+    }
+
+    [Test]
+    public void CancelledTranscriptRemoval_FollowsListAndReplacementIdentity_WithoutRecreatingMissingAttachments()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var removal = SourceRegion(source, "private void RemoveCancelledTranscriptAttachment(", "private FollowUpAttachment UpdateAttachmentNotes(");
+        var update = SourceRegion(source, "private FollowUpAttachment UpdateAttachmentNotes(", "private void ReopenImageForEditing(");
+        var click = SourceRegion(source, "private void AttachTranscriptFollowUp(", "private FollowUpAttachment? TryBuildTranscriptFollowUpAttachment(");
+        var strip = SourceRegion(source, "private void UpdateFollowUpStripCore()", "private void RemoveCancelledTranscriptAttachment(");
+        Assert.Multiple(() =>
+        {
+            foreach (var method in new[] { removal, update })
+            {
+                Assert.That(method, Does.Contain("_followUpAttachments.FirstOrDefault(entry => ReferenceEquals(entry.Value, list))"));
+                Assert.That(method, Does.Contain("FindIndex(candidate => ReferenceEquals(candidate, current))"));
+                Assert.That(method, Does.Contain("if (index < 0)"));
+                Assert.That(method, Does.Contain("SquadDashTrace.Write("));
+                Assert.That(method, Does.Contain("if (owner.Key.Length == 0)"));
+                Assert.That(method, Does.Contain("PersistDraftFollowUp();"));
+                Assert.That(method, Does.Contain("SyncQueuePanel();"));
+                Assert.That(method, Does.Contain("UpdateFollowUpStrip();"));
+                Assert.That(method, Does.Not.Contain("GetOrCreateFollowUpList("));
+                Assert.That(method, Does.Not.Contain(".Add("));
+            }
+            Assert.That(removal, Does.Contain("owner.Value!.RemoveAt(index);"));
+            Assert.That(removal, Does.Contain("_guidedTourCoordinator.RaiseAllAttachmentsRemoved();"));
+            Assert.That(click, Does.Not.Contain("discardNewAttachment"));
+            Assert.That(strip, Does.Not.Contain("discardNewAttachment"));
+        });
+    }
+
+    [Test]
+    public void EnqueueAndPrioritize_KeepTheListIdentityCapturedByTheOpenNotesViewer()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var enqueue = SourceRegion(source, "private void EnqueueCurrentPrompt(", "private void EnqueueRcPrompt(");
+        var prioritize = SourceRegion(source, "private void PrioritizeActiveTabToFront()", "private void ShowPriorityFeedback(");
+        Assert.Multiple(() =>
+        {
+            foreach (var method in new[] { enqueue, prioritize })
+            {
+                Assert.That(method, Does.Contain("_followUpAttachments.Remove(\"\");"));
+                Assert.That(method, Does.Contain("_followUpAttachments[item.Id] = draftList;"));
+                Assert.That(method, Does.Contain("PersistDraftFollowUp();"));
+                Assert.That(method, Does.Contain("SyncQueuePanel();"));
+            }
+        });
+    }
+
+    [Test]
+    public void NotesConfirmationAndKeyboard_SourceUsesExactPromptSafeDefaultAndShiftEnterPassThrough()
+    {
+        var source = ReadSource("PromptAttachmentViewerWindow.cs");
+        Assert.Multiple(() =>
+        {
+            Assert.That(PromptAttachmentViewerWindow.DiscardNotesPrompt,
+                Is.EqualTo("Are you sure you want to lose your note edits?"));
+            Assert.That(source, Does.Contain("MessageBox.Show(this, DiscardNotesPrompt, \"Discard Notes?\","));
+            Assert.That(source, Does.Contain("MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes"));
+            Assert.That(source, Does.Contain("e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None"));
+            Assert.That(source, Does.Contain("Closing += OnClosing;"));
+            Assert.That(source, Does.Not.Contain("Deactivated +="));
+            Assert.That(source, Does.Contain("existing.BeginEditingInvocation(discardNewAttachment);"));
         });
     }
 

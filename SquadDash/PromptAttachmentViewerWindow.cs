@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -26,16 +28,28 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     private static readonly List<WeakReference<PromptAttachmentViewerWindow>> s_openViewers = [];
 
     private readonly FollowUpAttachment[] _attachments;
-    private readonly Func<FollowUpAttachment, string, FollowUpAttachment>? _notesChanged;
+    private readonly Func<FollowUpAttachment, string?, FollowUpAttachment>? _notesChanged;
     private readonly List<TextBox?> _notesEditors = [];
     private readonly PttTextBoxAttachment _notesDictation;
     private readonly Func<DateTimeOffset> _nowProvider;
     private readonly List<(int Index, TextBlock Line)> _originLines = [];
     private readonly DispatcherTimer _originRefreshTimer;
     private TabControl? _tabs;
+    private readonly StackPanel _noteActions;
+    private readonly Func<bool> _confirmDiscardNotes;
+    private string?[] _baselineNotes;
+    private Action<FollowUpAttachment>? _discardNewAttachment;
+    private bool _completingNotes;
+    private bool _confirmingDiscard;
+    private bool _notesCompleted;
+
+    internal const string DiscardNotesPrompt = "Are you sure you want to lose your note edits?";
+    internal bool HasNoteChanges => _notesEditors.Where((editor, index) =>
+        editor is { IsReadOnly: false } &&
+        !string.Equals(editor.Text, _baselineNotes[index] ?? string.Empty, StringComparison.Ordinal)).Any();
 
     internal static void Show(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null,
-        Func<FollowUpAttachment, string, FollowUpAttachment>? notesChanged = null, bool focusNotes = false)
+        Func<FollowUpAttachment, string?, FollowUpAttachment>? notesChanged = null, bool focusNotes = false)
     {
         var win = GetOrShow(attachments, owner, openInboxMessage, notesChanged);
         if (focusNotes)
@@ -43,14 +57,16 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     }
 
     internal static void ShowForAnnotation(FollowUpAttachment attachment, Window? owner,
-        Func<FollowUpAttachment, string, FollowUpAttachment> notesChanged, string? typedText, bool startDictation)
+        Func<FollowUpAttachment, string?, FollowUpAttachment> notesChanged, string? typedText, bool startDictation,
+        Action<FollowUpAttachment>? discardNewAttachment = null)
     {
-        var win = GetOrShow([attachment], owner, null, notesChanged)!;
+        var win = GetOrShow([attachment], owner, null, notesChanged, discardNewAttachment)!;
         win.BeginAnnotation(typedText, startDictation);
     }
 
     private static PromptAttachmentViewerWindow? GetOrShow(IReadOnlyList<FollowUpAttachment> attachments, Window? owner,
-        Action<string>? openInboxMessage, Func<FollowUpAttachment, string, FollowUpAttachment>? notesChanged)
+        Action<string>? openInboxMessage, Func<FollowUpAttachment, string?, FollowUpAttachment>? notesChanged,
+        Action<FollowUpAttachment>? discardNewAttachment = null)
     {
         if (attachments.Count == 0) return null;
 
@@ -63,6 +79,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             if (SameAttachments(existing._attachments, attachments) &&
                 (existing._notesChanged is null) == (notesChanged is null))
             {
+                existing.BeginEditingInvocation(discardNewAttachment);
                 if (existing.WindowState == WindowState.Minimized)
                     existing.WindowState = WindowState.Normal;
                 existing.Activate();
@@ -70,7 +87,8 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             }
         }
 
-        var win = new PromptAttachmentViewerWindow(attachments, owner, openInboxMessage, notesChanged);
+        var win = new PromptAttachmentViewerWindow(attachments, owner, openInboxMessage, notesChanged,
+            discardNewAttachment: discardNewAttachment);
         if (owner is not null)
             win.Owner = owner;
         s_openViewers.Add(new WeakReference<PromptAttachmentViewerWindow>(win));
@@ -95,14 +113,40 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     private readonly Action<string>? _openInboxMessage;
 
     internal PromptAttachmentViewerWindow(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null,
-        Func<FollowUpAttachment, string, FollowUpAttachment>? notesChanged = null,
+        Func<FollowUpAttachment, string?, FollowUpAttachment>? notesChanged = null,
         Func<ApplicationSettingsSnapshot>? settingsProvider = null,
         Func<DateTimeOffset>? nowProvider = null,
-        Func<ISpeechRecognitionService>? speechServiceFactory = null)
+        Func<ISpeechRecognitionService>? speechServiceFactory = null,
+        Func<bool>? confirmDiscardNotes = null,
+        Action<FollowUpAttachment>? discardNewAttachment = null)
         : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.CanResize)
     {
         _attachments      = attachments.ToArray();
         _notesChanged     = notesChanged;
+        _baselineNotes = _attachments.Select(attachment => attachment.Notes).ToArray();
+        _discardNewAttachment = discardNewAttachment;
+        _confirmDiscardNotes = confirmDiscardNotes ?? (() =>
+            MessageBox.Show(this, DiscardNotesPrompt, "Discard Notes?",
+                MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes);
+        _noteActions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(4, 4, 4, 6),
+            Visibility = Visibility.Collapsed
+        };
+        var okButton = new Button { Content = "OK", MinWidth = 75, Padding = new Thickness(10, 4, 10, 4) };
+        okButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        okButton.Click += async (_, _) => await AcceptNotesAsync();
+        var cancelButton = new Button
+        {
+            Content = "Cancel", MinWidth = 75, Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(6, 0, 0, 0)
+        };
+        cancelButton.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+        cancelButton.Click += (_, _) => CancelNotes();
+        _noteActions.Children.Add(okButton);
+        _noteActions.Children.Add(cancelButton);
         _openInboxMessage = openInboxMessage;
         _nowProvider = nowProvider ?? (() => DateTimeOffset.Now);
         _originRefreshTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
@@ -118,8 +162,25 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         };
         _notesDictation = new PttTextBoxAttachment(
             settingsProvider ?? (() => new ApplicationSettingsStore().Load()), this, Dispatcher, speechServiceFactory);
-        PreviewKeyDown += (_, e) =>
+        PreviewKeyDown += async (_, e) =>
         {
+            if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                CancelNotes();
+                return;
+            }
+            if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                e.Handled = true;
+                await AcceptNotesAsync();
+                return;
+            }
+            if (_completingNotes || _confirmingDiscard)
+            {
+                e.Handled = true;
+                return;
+            }
             var editor = _notesEditors.FirstOrDefault(editor =>
                 editor is { IsKeyboardFocusWithin: true, IsReadOnly: false });
             if (_notesDictation.HandlePreviewKeyDown(e, editor))
@@ -132,10 +193,12 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         };
         Closed += (_, _) =>
         {
+            _notesCompleted = true;
             _originRefreshTimer.Stop();
             _originRefreshTimer.Tick -= RefreshOriginLines;
             _notesDictation.Dispose();
         };
+        Closing += OnClosing;
         Title         = attachments.Count == 1
             ? (attachments[0].ImagePath is not null ? "Image Attachment" : "Text Attachment")
             : (attachments.All(a => a.ImagePath is not null) ? "Image Attachments"
@@ -146,18 +209,6 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         ShowInTaskbar = false;
         ShowActivated = true;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-
-        KeyDown += (_, e) =>
-        {
-            if (e.Key is Key.Return or Key.Enter &&
-                _notesEditors.Any(editor => editor is { IsKeyboardFocusWithin: true, IsReadOnly: false }))
-                return;
-            if (e.Key is Key.Escape or Key.Return or Key.Enter)
-            {
-                Close();
-                e.Handled = true;
-            }
-        };
 
         UIElement content;
         BitmapImage? singleImage = null;
@@ -182,7 +233,11 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(content, true);
         var contentBorder = ApplyOuterBorder(titleText: Title);
-        contentBorder.Child = content;
+        var layout = new DockPanel();
+        DockPanel.SetDock(_noteActions, Dock.Bottom);
+        layout.Children.Add(_noteActions);
+        layout.Children.Add(content);
+        contentBorder.Child = layout;
 
         // Auto-size the window to the image when we have a single image attachment.
         if (singleImage is not null)
@@ -194,6 +249,93 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         {
             Width  = 600;
             Height = 420;
+        }
+    }
+
+    internal void BeginEditingInvocation(Action<FollowUpAttachment>? discardNewAttachment = null)
+    {
+        // Bringing an existing viewer forward is a new invocation, not a continuation
+        // of the original transcript-add gesture.
+        _baselineNotes = _attachments.Select(attachment => attachment.Notes).ToArray();
+        _discardNewAttachment = discardNewAttachment;
+        UpdateNoteActions();
+    }
+
+    private void UpdateNoteActions() =>
+        _noteActions.Visibility = HasNoteChanges ? Visibility.Visible : Visibility.Collapsed;
+
+    internal async Task AcceptNotesAsync()
+    {
+        if (_completingNotes || _confirmingDiscard || _notesCompleted)
+            return;
+
+        _completingNotes = true;
+        _noteActions.IsEnabled = false;
+        try
+        {
+            // Join even an already-stopping Ctrl-release session so its final phrase
+            // is persisted before the window closes.
+            await _notesDictation.StopAsync();
+            _notesCompleted = true;
+            _discardNewAttachment = null;
+            Close();
+        }
+        finally
+        {
+            _completingNotes = false;
+            _noteActions.IsEnabled = true;
+        }
+    }
+
+    internal void CancelNotes()
+    {
+        if (_completingNotes || _confirmingDiscard || _notesCompleted)
+            return;
+        if (_notesEditors.Any(editor => editor is { IsReadOnly: false }) && !TryDiscardNotes())
+            return;
+        Close();
+    }
+
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (_notesCompleted)
+            return;
+        if (_completingNotes || _confirmingDiscard)
+        {
+            e.Cancel = true;
+            return;
+        }
+        if (HasNoteChanges || _discardNewAttachment is not null || _notesDictation.IsActive)
+            e.Cancel = !TryDiscardNotes();
+    }
+
+    private bool TryDiscardNotes()
+    {
+        _confirmingDiscard = true;
+        try
+        {
+            if (!_confirmDiscardNotes())
+                return false;
+
+            // Stop queued speech callbacks before restoring the live-persisted notes.
+            _notesDictation.Dispose();
+            if (_notesChanged is not null)
+            {
+                for (var index = 0; index < _attachments.Length; index++)
+                {
+                    if (_notesEditors[index] is { IsReadOnly: false } &&
+                        !string.Equals(_attachments[index].Notes, _baselineNotes[index], StringComparison.Ordinal))
+                        _attachments[index] = _notesChanged(_attachments[index], _baselineNotes[index]);
+                }
+            }
+            _discardNewAttachment?.Invoke(_attachments[0]);
+            _discardNewAttachment = null;
+            _notesCompleted = true;
+            return true;
+        }
+        finally
+        {
+            _confirmingDiscard = false;
         }
     }
 
@@ -307,8 +449,9 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 
         var notesPanel = AttachmentNotesEditor.Create(att, notes =>
         {
-            if (_notesChanged is not null)
+            if (_notesChanged is not null && !_notesCompleted)
                 _attachments[index] = _notesChanged(_attachments[index], notes);
+            UpdateNoteActions();
         })!;
         var editor = notesPanel.Children.OfType<TextBox>().Single();
         editor.IsReadOnly = _notesChanged is null;

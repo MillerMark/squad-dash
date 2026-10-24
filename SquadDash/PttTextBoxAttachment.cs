@@ -41,12 +41,14 @@ internal sealed class PttTextBoxAttachment : IDisposable {
     private TextBox?                   _target;
     private int                        _caretIndex;
     private int                        _selectionLength;
+    private Task                       _stopTask = Task.CompletedTask;
+    private bool                       _disposed;
 
     // ── Gesture tracker ───────────────────────────────────────────────────────
     private readonly CtrlDoubleTapGestureTracker _gesture =
         new(maxTapHoldMs: 250, doubleTapGapMs: 350);
 
-    internal bool IsActive => _service is not null || _pttWindow is not null;
+    internal bool IsActive => _service is not null || _pttWindow is not null || !_stopTask.IsCompleted;
 
     // ── Constructor ────────────────────────────────────────────────────────────
     internal PttTextBoxAttachment(
@@ -109,6 +111,7 @@ internal sealed class PttTextBoxAttachment : IDisposable {
     }
 
     internal async Task StartAsync(TextBox target) {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         var settings = _settingsProvider();
         string key, region;
         if (settings.SpeechProvider == SpeechProvider.OpenAI) {
@@ -183,7 +186,13 @@ internal sealed class PttTextBoxAttachment : IDisposable {
         }
     }
 
-    internal async Task StopAsync() {
+    internal Task StopAsync() {
+        if (!_stopTask.IsCompleted)
+            return _stopTask;
+        return _stopTask = StopCoreAsync();
+    }
+
+    private async Task StopCoreAsync() {
         await _dispatcher.InvokeAsync(() => {
             _pttWindow?.Close();
             _pttWindow = null;
@@ -208,6 +217,7 @@ internal sealed class PttTextBoxAttachment : IDisposable {
     // ── Speech text insertion ─────────────────────────────────────────────────
 
     private void AppendSpeech(string text) {
+        if (_disposed) return;
         var tb = _target;
         if (tb is null) return;
 
@@ -244,6 +254,8 @@ internal sealed class PttTextBoxAttachment : IDisposable {
     // ── IDisposable ────────────────────────────────────────────────────────────
 
     public void Dispose() {
+        _disposed = true;
+        _target = null;
         var service = _service;
         _service = null;
         service?.Dispose();
