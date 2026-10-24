@@ -155,6 +155,24 @@ internal sealed class PromptTextStylingTests
     }
 
     [Test]
+    public void Styling_ReusesDocumentGeometryForSmallScrollsAndSelectionChanges()
+    {
+        using var host = new Host("## Heading **bold** #f00\n" +
+            string.Join("\n", Enumerable.Repeat("plain line", 80)));
+        host.Enable();
+        _ = host.Drawings();
+        var initialBuilds = host.Adorner.InkCacheBuildCount;
+
+        host.Editor.ScrollToVerticalOffset(32);
+        host.Drain();
+        host.Editor.SelectRange(3, 7);
+        host.Drain();
+        _ = host.Drawings();
+
+        Assert.That(host.Adorner.InkCacheBuildCount, Is.EqualTo(initialBuilds));
+    }
+
+    [Test]
     public void Styling_IsOptIn_AndReloadDoesNotDuplicateAdorners()
     {
         using var host = new Host("#abc");

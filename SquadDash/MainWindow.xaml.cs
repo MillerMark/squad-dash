@@ -711,6 +711,8 @@ public partial class MainWindow : Window
 
     private string? _lastAgentImageFolder;
     private ScrollViewer? _transcriptScrollViewer;
+    private readonly Dictionary<TranscriptThreadState, PromptNavigationGeometryCache> _promptNavGeometryCaches = [];
+    private DispatcherOperation? _promptNavGeometryRefreshOperation;
     private DispatcherTimer? _coordinatorIntentDebounceTimer;
     private readonly Dictionary<string, DispatcherTimer> _agentIntentDebounceTimers = new();
 
@@ -3375,7 +3377,10 @@ public partial class MainWindow : Window
             if (targetThread.PromptNavIndex >= steeringInsertIndex)
                 targetThread.PromptNavIndex++;
             if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, targetThread))
-                SyncPromptNavButtons();
+            {
+                SyncPromptNavButtons(allowGeometry: false);
+                SchedulePromptNavGeometryRefresh();
+            }
             _conversationManager.PersistTranscriptTurnSnapshot(
                 targetThread,
                 targetTurn,
@@ -3580,7 +3585,10 @@ public partial class MainWindow : Window
             if (thread.PromptNavIndex >= systemSteeringInsertIndex)
                 thread.PromptNavIndex++;
             if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
-                SyncPromptNavButtons();
+            {
+                SyncPromptNavButtons(allowGeometry: false);
+                SchedulePromptNavGeometryRefresh();
+            }
             _conversationManager.PersistTranscriptTurnSnapshot(thread, turn, "system-steering-accepted");
             ScrollToEndIfAtBottom(thread);
             SquadDashTrace.Write("SystemSteering",
@@ -46192,7 +46200,11 @@ public partial class MainWindow : Window
             else
                 RestartAgentIntentDebounce(thread);
             if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))
-                SyncPromptNavButtons(allowGeometry: !IsBulkTranscriptDocumentLoadActive(thread));
+            {
+                SyncPromptNavButtons(allowGeometry: false);
+                if (!IsBulkTranscriptDocumentLoadActive(thread))
+                    SchedulePromptNavGeometryRefresh();
+            }
         }
 
         var narrativeSection = new Section();
@@ -49275,7 +49287,8 @@ public partial class MainWindow : Window
                 $"targetOffset={targetOffset:F1} scrollableHeight={sv.ScrollableHeight:F1} rect.IsEmpty={rect.IsEmpty}");
             ActiveScrollController.ScrollToOffset(targetOffset);
 
-            SyncPromptNavButtons();
+            SyncPromptNavButtons(refreshGeometry: false);
+            SchedulePromptNavGeometryRefresh();
         });
     }
 
@@ -49439,7 +49452,13 @@ public partial class MainWindow : Window
         // or viewport height changes — the last two cover window resize, maximize,
         // and F11 full-transcript mode toggling.
         if (e.VerticalChange != 0 || e.ExtentHeightChange != 0 || e.ViewportHeightChange != 0)
-            SyncPromptNavButtons();
+        {
+            // Absolute prompt anchors do not change during vertical scrolling. Reuse the
+            // cache synchronously so wheel input stays cheap, then coalesce any missing
+            // geometry (new prompts or width reflow) into one dispatcher operation.
+            SyncPromptNavButtons(refreshGeometry: false);
+            SchedulePromptNavGeometryRefresh();
+        }
 
         // Ensure search highlights repaint on every scroll.  The SearchHighlightAdorner
         // already subscribes to the same ScrollViewer, but that subscription can miss
@@ -49482,9 +49501,10 @@ public partial class MainWindow : Window
     ///   below it to fill the remaining viewport height).
     ///   -1 if no such prompt exists.
     /// </param>
-    private void GetScrollBasedNavState(
+    private bool GetScrollBasedNavState(
         out bool canGoUp, out bool canGoDown,
-        out int nearestAboveIdx, out int nearestBelowIdx)
+        out int nearestAboveIdx, out int nearestBelowIdx,
+        bool refreshGeometry = true)
     {
         canGoUp       = false;
         canGoDown     = false;
@@ -49493,21 +49513,32 @@ public partial class MainWindow : Window
 
         var thread = _selectedTranscriptThread ?? CoordinatorThread;
         if (_transcriptScrollViewer is null || thread.PromptParagraphs.Count == 0)
-            return;
+            return false;
 
         var sv         = _transcriptScrollViewer;
         var viewportTop    = sv.VerticalOffset;
         var scrollableMax  = sv.ScrollableHeight; // ExtentHeight − ViewportHeight
 
-        // Project each prompt onto its absolute document-space Y. Unmeasurable prompts
-        // are passed through as NaN so the pure math skips them.
-        var promptAbsYs = new double[thread.PromptParagraphs.Count];
-        for (int i = 0; i < thread.PromptParagraphs.Count; i++)
-        {
-            var para = thread.PromptParagraphs[i].Paragraph;
-            var rect = para.ContentStart.GetCharacterRect(System.Windows.Documents.LogicalDirection.Forward);
-            promptAbsYs[i] = rect.IsEmpty ? double.NaN : viewportTop + rect.Top;
-        }
+        if (!_promptNavGeometryCaches.TryGetValue(thread, out var geometryCache))
+            _promptNavGeometryCaches[thread] = geometryCache = new PromptNavigationGeometryCache();
+
+        // GetCharacterRect can force a complete FlowDocument format. Measure only when
+        // the prompt order, viewport width, or font size invalidates the document-space
+        // cache; ordinary scrolling and transcript extent growth reuse the stored values.
+        Func<Paragraph, double>? measure = refreshGeometry
+            ? paragraph =>
+            {
+                var rect = paragraph.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+                return rect.IsEmpty ? double.NaN : viewportTop + rect.Top;
+            }
+            : null;
+        var promptAbsYs = geometryCache.GetAbsoluteYs(
+            thread.PromptParagraphs,
+            sv.ViewportWidth,
+            ActiveTranscriptBox.FontSize,
+            measure);
+        if (!promptAbsYs.Any(y => !double.IsNaN(y) && !double.IsInfinity(y)))
+            return false;
 
         var navState = PromptScrollNavMath.Compute(promptAbsYs, viewportTop, scrollableMax);
         nearestAboveIdx = navState.NearestAboveIdx;
@@ -49521,18 +49552,23 @@ public partial class MainWindow : Window
             $"nearestAbove={nearestAboveIdx} (absY={(nearestAboveIdx >= 0 ? promptAbsYs[nearestAboveIdx] : double.NaN):F1}) " +
             $"nearestBelow={nearestBelowIdx} (absY={(nearestBelowIdx >= 0 ? promptAbsYs[nearestBelowIdx] : double.NaN):F1}) " +
             $"canGoUp={canGoUp} canGoDown={canGoDown}");
+        return true;
     }
 
     private void SchedulePromptNavGeometryRefresh()
     {
-        _ = Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
+        if (_promptNavGeometryRefreshOperation is { Status: DispatcherOperationStatus.Pending or DispatcherOperationStatus.Executing })
+            return;
+
+        _promptNavGeometryRefreshOperation = Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
         {
-            try { SyncPromptNavButtons(allowGeometry: true); }
+            _promptNavGeometryRefreshOperation = null;
+            try { SyncPromptNavButtons(allowGeometry: true, refreshGeometry: true); }
             catch (Exception ex) { HandleUiCallbackException(nameof(SchedulePromptNavGeometryRefresh), ex); }
         });
     }
 
-    private void SyncPromptNavButtons(bool allowGeometry = true)
+    private void SyncPromptNavButtons(bool allowGeometry = true, bool refreshGeometry = true)
     {
         var thread = _selectedTranscriptThread ?? CoordinatorThread;
         var count = thread.PromptParagraphs.Count;
@@ -49545,7 +49581,7 @@ public partial class MainWindow : Window
 
         bool canGoUp;
         bool canGoDown;
-        if (allowGeometry)
+        if (allowGeometry && refreshGeometry)
         {
             // Re-resolve the live content-host ScrollViewer before reading geometry. An
             // in-place template rebuild (e.g. embedded code regions) or a transcript-box
@@ -49556,11 +49592,11 @@ public partial class MainWindow : Window
             RefreshActiveTranscriptScrollViewer();
         }
 
-        if (allowGeometry && _transcriptScrollViewer is not null)
+        if (allowGeometry && _transcriptScrollViewer is not null &&
+            GetScrollBasedNavState(out canGoUp, out canGoDown, out _, out _, refreshGeometry))
         {
             // Base enabled state on scroll position so that manual scrolling keeps
             // both buttons in sync — not just on which button was last clicked.
-            GetScrollBasedNavState(out canGoUp, out canGoDown, out _, out _);
         }
         else
         {

@@ -80,8 +80,30 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
 
     private sealed record ParagraphTokens(string Text, IReadOnlyList<PromptTextToken> Tokens);
-    private sealed record Glyph(TextPointer Start, TextPointer End, PromptTextTokenKind Kind, Brush? Color);
+    private sealed class Glyph(
+        TextPointer start,
+        TextPointer end,
+        PromptTextTokenKind kind,
+        Brush? color)
+    {
+        internal TextPointer Start { get; } = start;
+        internal TextPointer End { get; } = end;
+        internal PromptTextTokenKind Kind { get; } = kind;
+        internal Brush? Color { get; } = color;
+        internal Rect DocumentRect { get; set; } = Rect.Empty;
+    }
     private sealed record Ink(Geometry Geometry, Brush Brush, double FontSize);
+    private readonly record struct ViewportState(
+        Rect Bounds,
+        double HorizontalOffset,
+        double VerticalOffset)
+    {
+        internal Rect DocumentBounds => new(
+            Bounds.X + HorizontalOffset,
+            Bounds.Y + VerticalOffset,
+            Bounds.Width,
+            Bounds.Height);
+    }
     private readonly record struct FontLayout(
         FontFamily Family, double Size, FontStyle Style, FontWeight Weight,
         FontStretch Stretch, FlowDirection Direction, Thickness Padding, double PageWidth,
@@ -92,11 +114,14 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     private readonly List<Glyph> _glyphs = [];
     private readonly HashSet<Visual> _embeddedVisuals = [];
     private Dictionary<int, List<Ink>>? _inkRows;
+    private Rect _inkCoverage = Rect.Empty;
     private DispatcherOperation? _refresh;
+    private DispatcherOperation? _inkRefresh;
     private bool _disposed;
     private bool _layoutDirty;
     private FontLayout _fontLayout;
     internal bool IsApplyingFormatting { get; private set; }
+    internal int InkCacheBuildCount { get; private set; }
 
     internal PromptTextAdorner(RichTextBox editor) : base(editor)
     {
@@ -118,6 +143,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         if (!ReferenceEquals(e.OriginalSource, _editor) || IsApplyingFormatting)
             return;
         _glyphs.Clear();
+        InvalidateInkCache();
         InvalidateVisual();
         ScheduleRefresh();
     }
@@ -138,7 +164,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         if (_disposed)
             return;
         _glyphs.Clear();
-        _inkRows = null;
+        InvalidateInkCache();
         _embeddedVisuals.Clear();
         foreach (var block in _editor.Document.Blocks.OfType<BlockUIContainer>())
             if (block.Child is { } child)
@@ -267,11 +293,26 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         }
     }
 
-    private void OnSizeChanged(object sender, SizeChangedEventArgs e) => _layoutDirty = true;
-    private void OnScrollChanged(object sender, ScrollChangedEventArgs e) => _layoutDirty = true;
+    private void OnSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Height changes only reveal or hide document-coordinate geometry. Width changes
+        // reflow the document and therefore invalidate every cached glyph position.
+        if (e.WidthChanged)
+            _layoutDirty = true;
+        ScheduleInkRefresh();
+        InvalidateVisual();
+    }
+
+    private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        // Scrolling changes only the projection from document to viewport coordinates.
+        // Keep the expensive glyph outlines and coalesce any cache-extension work.
+        ScheduleInkRefresh();
+        InvalidateVisual();
+    }
+
     private void OnSelectionChanged(object sender, RoutedEventArgs e)
     {
-        _inkRows = null;
         InvalidateVisual();
     }
 
@@ -288,7 +329,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             ScheduleRefresh();
         _fontLayout = fontLayout;
         _layoutDirty = false;
-        _inkRows = null;
+        InvalidateInkCache();
+        ScheduleInkRefresh();
         InvalidateVisual();
     }
 
@@ -296,10 +338,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     {
         if (_disposed || _glyphs.Count == 0)
             return;
-        var bounds = new Rect(_editor.RenderSize);
-        if (_editor.Template.FindName("PART_ContentHost", _editor) is ScrollViewer scrollViewer &&
-            scrollViewer.Template.FindName("PART_ScrollContentPresenter", scrollViewer) is FrameworkElement viewport)
-            bounds.Intersect(viewport.TransformToAncestor(_editor).TransformBounds(new Rect(viewport.RenderSize)));
+        var viewport = GetViewportState();
+        var bounds = viewport.Bounds;
+        EnsureInkCache(viewport);
 
         Geometry clip = new RectangleGeometry(bounds);
         if (_editor.Selection.IsEmpty && _editor.CaretPosition.HasValidLayout)
@@ -313,23 +354,13 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         drawingContext.PushClip(clip);
         var markerBrush = (Brush)GetValue(MarkerBrushProperty);
         var borderPen = new Pen((Brush)GetValue(BorderBrushProperty), 0.5);
-        var ink = _inkRows ??= IndexInk(ReadInk(_editor));
+        var ink = _inkRows;
         var background = FindOpaqueBackground();
         foreach (var glyph in _glyphs)
         {
-            if (!glyph.Start.HasValidLayout || !glyph.End.HasValidLayout)
+            var rect = GetGlyphRect(glyph, viewport);
+            if (rect.IsEmpty || rect.Bottom < bounds.Top || rect.Top > bounds.Bottom)
                 continue;
-            var start = glyph.Start.GetCharacterRect(LogicalDirection.Forward);
-            if (start.IsEmpty || start.Bottom < bounds.Top || start.Top > bounds.Bottom)
-                continue;
-            var end = glyph.End.GetCharacterRect(LogicalDirection.Backward);
-            if (end.IsEmpty)
-                continue;
-            var left = Math.Min(start.Left, end.Left);
-            var width = Math.Abs(end.Left - start.Left);
-            if (width <= 0)
-                continue;
-            var rect = new Rect(left, start.Top, width, start.Height);
             var selected = _editor.Selection.Start.CompareTo(glyph.End) < 0 &&
                 _editor.Selection.End.CompareTo(glyph.Start) > 0;
             if (glyph.Color is not null)
@@ -341,17 +372,17 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     drawingContext.DrawRectangle(background, null, rect);
                     // Keep the superscript top-aligned and tuck it toward the following hex digits.
                     drawingContext.PushTransform(new ScaleTransform(0.84, 0.84, rect.Right, rect.Top));
-                    DrawInk(drawingContext, ink, rect, false);
+                    DrawInk(drawingContext, ink, rect, viewport, false);
                     drawingContext.Pop();
                     drawingContext.Pop();
                 }
                 drawingContext.DrawRectangle(glyph.Color, borderPen,
-                    new Rect(left, start.Bottom - 6, width, 6));
+                    new Rect(rect.Left, rect.Bottom - 6, rect.Width, 6));
             }
             else if (glyph.Kind == PromptTextTokenKind.BoldContent)
             {
                 if (!selected)
-                    DrawInk(drawingContext, ink, rect, true);
+                    DrawInk(drawingContext, ink, rect, viewport, true);
             }
             else
             {
@@ -359,10 +390,35 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 drawingContext.DrawRectangle(markerBrush, null, rect);
                 drawingContext.Pop();
                 drawingContext.DrawRectangle(markerBrush, null,
-                    new Rect(left, start.Bottom - 1.5, width, 1.5));
+                    new Rect(rect.Left, rect.Bottom - 1.5, rect.Width, 1.5));
             }
         }
         drawingContext.Pop();
+    }
+
+    private Rect GetGlyphRect(Glyph glyph, ViewportState viewport)
+    {
+        if (glyph.DocumentRect.IsEmpty)
+        {
+            if (!glyph.Start.HasValidLayout || !glyph.End.HasValidLayout)
+                return Rect.Empty;
+            var start = glyph.Start.GetCharacterRect(LogicalDirection.Forward);
+            var end = glyph.End.GetCharacterRect(LogicalDirection.Backward);
+            if (start.IsEmpty || end.IsEmpty)
+                return Rect.Empty;
+            var width = Math.Abs(end.Left - start.Left);
+            if (width <= 0)
+                return Rect.Empty;
+            glyph.DocumentRect = new Rect(
+                Math.Min(start.Left, end.Left) + viewport.HorizontalOffset,
+                start.Top + viewport.VerticalOffset,
+                width,
+                start.Height);
+        }
+
+        var rect = glyph.DocumentRect;
+        rect.Offset(-viewport.HorizontalOffset, -viewport.VerticalOffset);
+        return rect;
     }
 
     private static Dictionary<int, List<Ink>> IndexInk(IEnumerable<Ink> ink)
@@ -383,26 +439,37 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         return rows;
     }
 
-    private static void DrawInk(DrawingContext context, Dictionary<int, List<Ink>> ink, Rect rect, bool bold)
+    private static void DrawInk(
+        DrawingContext context,
+        Dictionary<int, List<Ink>>? ink,
+        Rect rect,
+        ViewportState viewport,
+        bool bold)
     {
+        if (ink is null)
+            return;
+        var documentRect = rect;
+        documentRect.Offset(viewport.HorizontalOffset, viewport.VerticalOffset);
         context.PushClip(new RectangleGeometry(rect));
+        context.PushTransform(new TranslateTransform(-viewport.HorizontalOffset, -viewport.VerticalOffset));
         var drawn = new HashSet<Ink>();
-        for (var row = (int)Math.Floor(rect.Top / 64); row <= (int)Math.Floor(rect.Bottom / 64); row++)
+        for (var row = (int)Math.Floor(documentRect.Top / 64); row <= (int)Math.Floor(documentRect.Bottom / 64); row++)
         {
             if (!ink.TryGetValue(row, out var items))
                 continue;
             foreach (var item in items)
             {
-                if (!item.Geometry.Bounds.IntersectsWith(rect) || !drawn.Add(item))
+                if (!item.Geometry.Bounds.IntersectsWith(documentRect) || !drawn.Add(item))
                     continue;
                 // Embolden native outlines without changing shaping, advances, or caret hit targets.
                 context.DrawGeometry(item.Brush, bold ? new Pen(item.Brush, item.FontSize / 24) : null, item.Geometry);
             }
         }
         context.Pop();
+        context.Pop();
     }
 
-    private IEnumerable<Ink> ReadInk(Visual visual)
+    private IEnumerable<Ink> ReadInk(Visual visual, Rect visibleBounds)
     {
         if (_embeddedVisuals.Contains(visual))
             yield break;
@@ -411,20 +478,23 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var x = transform.Transform(new Point(1, 0));
         var y = transform.Transform(new Point(0, 1));
         var matrix = new Matrix(x.X - origin.X, x.Y - origin.Y, y.X - origin.X, y.Y - origin.Y, origin.X, origin.Y);
-        foreach (var ink in ReadDrawing(VisualTreeHelper.GetDrawing(visual), matrix))
+        foreach (var ink in ReadDrawing(VisualTreeHelper.GetDrawing(visual), matrix, visibleBounds))
             yield return ink;
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(visual); i++)
         {
             if (VisualTreeHelper.GetChild(visual, i) is Visual child)
-                foreach (var ink in ReadInk(child))
+                foreach (var ink in ReadInk(child, visibleBounds))
                     yield return ink;
         }
     }
 
-    private static IEnumerable<Ink> ReadDrawing(Drawing? drawing, Matrix matrix)
+    private static IEnumerable<Ink> ReadDrawing(Drawing? drawing, Matrix matrix, Rect visibleBounds)
     {
         if (drawing is GlyphRunDrawing { GlyphRun: { } run, ForegroundBrush: { } brush })
         {
+            var runBounds = new MatrixTransform(matrix).TransformBounds(run.ComputeInkBoundingBox());
+            if (!runBounds.IntersectsWith(visibleBounds))
+                yield break;
             var geometry = run.BuildGeometry().CloneCurrentValue();
             var transform = geometry.Transform?.Value ?? Matrix.Identity;
             transform.Append(matrix);
@@ -436,9 +506,76 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             var transform = group.Transform?.Value ?? Matrix.Identity;
             transform.Append(matrix);
             foreach (var child in group.Children)
-                foreach (var ink in ReadDrawing(child, transform))
+                foreach (var ink in ReadDrawing(child, transform, visibleBounds))
                     yield return ink;
         }
+    }
+
+    private ViewportState GetViewportState()
+    {
+        var bounds = new Rect(_editor.RenderSize);
+        var horizontalOffset = 0.0;
+        var verticalOffset = 0.0;
+        if (_editor.Template.FindName("PART_ContentHost", _editor) is ScrollViewer scrollViewer)
+        {
+            horizontalOffset = scrollViewer.HorizontalOffset;
+            verticalOffset = scrollViewer.VerticalOffset;
+            if (scrollViewer.Template.FindName("PART_ScrollContentPresenter", scrollViewer) is FrameworkElement viewport)
+                bounds.Intersect(viewport.TransformToAncestor(_editor).TransformBounds(new Rect(viewport.RenderSize)));
+        }
+        return new ViewportState(bounds, horizontalOffset, verticalOffset);
+    }
+
+    private void EnsureInkCache(ViewportState viewport)
+    {
+        if (_inkRows is not null && Contains(_inkCoverage, viewport.DocumentBounds))
+            return;
+
+        var editorCoverage = viewport.Bounds;
+        editorCoverage.Inflate(32, Math.Max(128, viewport.Bounds.Height));
+        var documentOffset = new Vector(viewport.HorizontalOffset, viewport.VerticalOffset);
+        var visibleInk = ReadInk(_editor, editorCoverage)
+            .Select(item => TranslateInk(item, documentOffset));
+        _inkRows = IndexInk(visibleInk);
+        InkCacheBuildCount++;
+        _inkCoverage = editorCoverage;
+        _inkCoverage.Offset(documentOffset.X, documentOffset.Y);
+    }
+
+    private static Ink TranslateInk(Ink ink, Vector offset)
+    {
+        var geometry = ink.Geometry.CloneCurrentValue();
+        var transform = geometry.Transform?.Value ?? Matrix.Identity;
+        transform.Translate(offset.X, offset.Y);
+        geometry.Transform = new MatrixTransform(transform);
+        return ink with { Geometry = geometry };
+    }
+
+    private static bool Contains(Rect outer, Rect inner) =>
+        !outer.IsEmpty &&
+        outer.Left <= inner.Left && outer.Top <= inner.Top &&
+        outer.Right >= inner.Right && outer.Bottom >= inner.Bottom;
+
+    private void ScheduleInkRefresh()
+    {
+        if (_disposed || _inkRefresh is not null)
+            return;
+        _inkRefresh = Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
+        {
+            _inkRefresh = null;
+            if (_disposed)
+                return;
+            EnsureInkCache(GetViewportState());
+            InvalidateVisual();
+        });
+    }
+
+    private void InvalidateInkCache()
+    {
+        _inkRows = null;
+        _inkCoverage = Rect.Empty;
+        foreach (var glyph in _glyphs)
+            glyph.DocumentRect = Rect.Empty;
     }
 
     private Brush? FindOpaqueBackground()
@@ -465,6 +602,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _disposed = true;
         _refresh?.Abort();
         _refresh = null;
+        _inkRefresh?.Abort();
+        _inkRefresh = null;
         _editor.TextChanged -= OnTextChanged;
         _editor.SizeChanged -= OnSizeChanged;
         _editor.LayoutUpdated -= OnLayoutUpdated;
@@ -486,5 +625,6 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _glyphs.Clear();
         _embeddedVisuals.Clear();
         _inkRows = null;
+        _inkCoverage = Rect.Empty;
     }
 }

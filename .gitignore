@@ -410,3 +410,4 @@ Squad.SDK/tsconfig.tsbuildinfo
 .squad/.cache/
 /.profiles
 /.profiles
+/perf-traces

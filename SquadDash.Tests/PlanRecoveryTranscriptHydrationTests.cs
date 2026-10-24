@@ -170,7 +170,7 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
         Assert.Multiple(() =>
         {
             Assert.That(source, Does.Contain("private bool IsBulkTranscriptDocumentLoadActive(TranscriptThreadState thread)"));
-            Assert.That(source, Does.Contain("SyncPromptNavButtons(allowGeometry: !IsBulkTranscriptDocumentLoadActive(thread));"));
+            Assert.That(source, Does.Contain("SyncPromptNavButtons(allowGeometry: false);\r\n                if (!IsBulkTranscriptDocumentLoadActive(thread))\r\n                    SchedulePromptNavGeometryRefresh();"));
             Assert.That(source, Does.Contain("box.EndChange();\r\n        if (ReferenceEquals(_selectedTranscriptThread ?? CoordinatorThread, thread))\r\n            SchedulePromptNavGeometryRefresh();"));
         });
     }
