@@ -32,6 +32,7 @@ internal sealed class PttTextBoxAttachment : IDisposable {
     private readonly Func<ApplicationSettingsSnapshot> _settingsProvider;
     private readonly Window    _ownerWindow;
     private readonly Dispatcher _dispatcher;
+    private readonly Func<ISpeechRecognitionService>? _speechServiceFactory;
 
     // ── Per-session state ─────────────────────────────────────────────────────
     private ISpeechRecognitionService? _service;
@@ -51,10 +52,12 @@ internal sealed class PttTextBoxAttachment : IDisposable {
     internal PttTextBoxAttachment(
         Func<ApplicationSettingsSnapshot> settingsProvider,
         Window ownerWindow,
-        Dispatcher dispatcher) {
+        Dispatcher dispatcher,
+        Func<ISpeechRecognitionService>? speechServiceFactory = null) {
         _settingsProvider = settingsProvider;
         _ownerWindow      = ownerWindow;
         _dispatcher       = dispatcher;
+        _speechServiceFactory = speechServiceFactory;
     }
 
     // ── Key event handlers ────────────────────────────────────────────────────
@@ -70,8 +73,7 @@ internal sealed class PttTextBoxAttachment : IDisposable {
         if (action != CtrlDoubleTapGestureAction.Triggered) return false;
 
         if (_service is null) {
-            _stopOnCtrlRelease = true;
-            _ = StartAsync(activeTextBox);
+            StartFromGesture(activeTextBox);
         }
         else {
             _ = StopAsync();
@@ -97,6 +99,15 @@ internal sealed class PttTextBoxAttachment : IDisposable {
 
     // ── PTT session lifecycle ─────────────────────────────────────────────────
 
+    internal void StartFromGesture(TextBox target) {
+        if (IsActive) {
+            SquadDashTrace.Write(TraceCategory.UI, "PTT gesture reused the active notes dictation session.");
+            return;
+        }
+        _stopOnCtrlRelease = true;
+        _ = StartAsync(target);
+    }
+
     internal async Task StartAsync(TextBox target) {
         var settings = _settingsProvider();
         string key, region;
@@ -120,9 +131,9 @@ internal sealed class PttTextBoxAttachment : IDisposable {
         _caretIndex      = target.SelectionStart;
         _selectionLength = target.SelectionLength;
 
-        _service = settings.SpeechProvider == SpeechProvider.OpenAI
+        _service = _speechServiceFactory?.Invoke() ?? (settings.SpeechProvider == SpeechProvider.OpenAI
             ? new WhisperSpeechRecognitionService()
-            : new AzureSpeechRecognitionService();
+            : new AzureSpeechRecognitionService());
 
         _service.PhraseRecognized += (_, text) =>
             _dispatcher.BeginInvoke(() => AppendSpeech(text));

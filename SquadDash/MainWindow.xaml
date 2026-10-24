@@ -13,6 +13,7 @@
         WindowStyle="None"
         Background="{DynamicResource AppSurface}"
         PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewTextInput="Window_PreviewTextInput"
         PreviewKeyUp="Window_PreviewKeyUp"
         PreviewMouseWheel="Window_PreviewMouseWheel"
         Deactivated="Window_Deactivated"

@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -507,6 +508,288 @@ internal sealed class PromptAttachmentViewerWindowTests
         return args;
     }
 
+    [TestCase("a")]
+    [TestCase("already typed")]
+    [TestCase("\u00e9\u4e2d")]
+    [TestCase(" ")]
+    public void TranscriptAnnotation_KeyboardPreservesSeedAndContinuesTyping(string seed)
+    {
+        var transcript = CreateSelectedTranscript();
+        var owner = ShowTranscript(transcript);
+        var attachments = new List<FollowUpAttachment>();
+        try
+        {
+            owner.PreviewTextInput += (_, e) =>
+            {
+                if (TranscriptAnnotationShortcut.TryStart(transcript, e.Text, false,
+                    box => EnsureQuote(box, attachments),
+                    (attachment, text, dictate) => PromptAttachmentViewerWindow.ShowForAnnotation(
+                        attachment, owner, (current, notes) => SaveNotes(attachments, current, notes), text, dictate)))
+                    e.Handled = true;
+            };
+            Assert.That(TextCompositionManager.StartComposition(
+                new TextComposition(InputManager.Current, transcript, seed)), Is.True);
+
+            // The first composition must already be inserted before dispatcher focus repair.
+            var viewer = GetOpenViewerWindows().Single();
+            var notes = FindNotesEditor(viewer);
+            Assert.That(notes.Text, Is.EqualTo(seed));
+            Pump();
+            AssertFocusedNotesEditor(viewer, "Notes for quote");
+            notes.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice,
+                new TextComposition(InputManager.Current, notes, " next"))
+            {
+                RoutedEvent = TextCompositionManager.TextInputEvent
+            });
+            Pump();
+            Assert.Multiple(() =>
+            {
+                Assert.That(attachments, Has.Count.EqualTo(1));
+                Assert.That(attachments[0].TranscriptQuote, Is.EqualTo("selected quote"));
+                Assert.That(attachments[0].Notes, Is.EqualTo(seed + " next"));
+                Assert.That(notes.CaretIndex, Is.EqualTo(notes.Text.Length));
+                Assert.That(transcript.Selection.Text, Is.EqualTo("selected quote"));
+            });
+        }
+        finally
+        {
+            CloseViewerWindows();
+            owner.Close();
+        }
+    }
+
+    [Test]
+    public void TranscriptAnnotation_ExistingQuoteAndViewerAreReusedAfterNotesReplacement()
+    {
+        var transcript = CreateSelectedTranscript();
+        var owner = ShowTranscript(transcript);
+        var original = new FollowUpAttachment("", "quote", null, TranscriptQuote: "selected quote", Notes: "saved ");
+        var attachments = new List<FollowUpAttachment> { original };
+        // Dedupe must take precedence over the attachment limit.
+        attachments.AddRange(Enumerable.Range(1, 14).Select(i =>
+            new FollowUpAttachment("", $"other {i}", null, TranscriptQuote: $"other {i}")));
+        try
+        {
+            void Open(FollowUpAttachment attachment, string? text, bool dictate) =>
+                PromptAttachmentViewerWindow.ShowForAnnotation(attachment, owner,
+                    (current, notes) => SaveNotes(attachments, current, notes), text, dictate);
+            Assert.That(TranscriptAnnotationShortcut.EnsureAttachment(attachments, original with { Notes = null }),
+                Is.SameAs(original));
+            Assert.That(TranscriptAnnotationShortcut.TryStart(transcript, "first", false,
+                box => EnsureQuote(box, attachments), Open), Is.True);
+            Pump();
+            var viewer = GetOpenViewerWindows().Single();
+            FindNotesEditor(viewer).SelectAll();
+            owner.Activate();
+            Keyboard.Focus(transcript);
+            Assert.That(TranscriptAnnotationShortcut.TryStart(transcript, " second", false,
+                box => EnsureQuote(box, attachments), Open), Is.True);
+            Pump();
+            Assert.Multiple(() =>
+            {
+                Assert.That(GetOpenViewerWindows().Single(), Is.SameAs(viewer));
+                Assert.That(attachments, Has.Count.EqualTo(15));
+                Assert.That(attachments[0].Notes, Is.EqualTo("saved first second"));
+                Assert.That(FindNotesEditor(viewer).CaretIndex, Is.EqualTo("saved first second".Length));
+            });
+        }
+        finally
+        {
+            CloseViewerWindows();
+            owner.Close();
+        }
+    }
+
+    [TestCase(false, true, false)]
+    [TestCase(true, false, false)]
+    [TestCase(false, false, false)]
+    [TestCase(false, true, true)]
+    [TestCase(true, false, true)]
+    [TestCase(false, false, true)]
+    public void TranscriptAnnotation_RequiresFocusAndSelection(bool focused, bool selected, bool voice)
+    {
+        var transcript = CreateSelectedTranscript();
+        var owner = ShowTranscript(transcript);
+        try
+        {
+            if (!selected)
+                transcript.Selection.Select(transcript.Document.ContentStart, transcript.Document.ContentStart);
+            if (!focused)
+                Keyboard.ClearFocus();
+            var ensured = 0;
+            var opened = 0;
+            Assert.That(TranscriptAnnotationShortcut.TryStart(transcript, voice ? null : "typed", voice,
+                _ => { ensured++; return new FollowUpAttachment("", "quote", null); },
+                (_, _, _) => opened++), Is.False);
+            Assert.Multiple(() =>
+            {
+                Assert.That(ensured, Is.Zero);
+                Assert.That(opened, Is.Zero);
+            });
+        }
+        finally { owner.Close(); }
+    }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("\u0003")]
+    [TestCase("\r")]
+    public void TranscriptAnnotation_NonTextKeyboardInputDoesNotAttach(string? text)
+    {
+        var transcript = CreateSelectedTranscript();
+        var owner = ShowTranscript(transcript);
+        try
+        {
+            Assert.That(TranscriptAnnotationShortcut.TryStart(transcript, text, false,
+                _ => throw new AssertionException("Should not ensure attachment"),
+                (_, _, _) => Assert.Fail("Should not open viewer")), Is.False);
+        }
+        finally { owner.Close(); }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void TranscriptAnnotation_FullContextWithoutMatchingQuoteDoesNotOpenViewer(bool voice)
+    {
+        var transcript = CreateSelectedTranscript();
+        var owner = ShowTranscript(transcript);
+        var attachments = Enumerable.Range(0, 15).Select(i =>
+            new FollowUpAttachment("", $"other {i}", null, TranscriptQuote: $"other {i}")).ToList();
+        try
+        {
+            Assert.That(TranscriptAnnotationShortcut.TryStart(transcript, voice ? null : "typed", voice,
+                box => EnsureQuote(box, attachments),
+                (_, _, _) => Assert.Fail("Should not open unattached editor")), Is.False);
+            Assert.That(attachments, Has.Count.EqualTo(15));
+        }
+        finally { owner.Close(); }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void TranscriptAnnotation_VoiceUsesExistingDictationAndStopsOnCtrlRelease(bool existing)
+    {
+        var transcript = CreateSelectedTranscript();
+        var owner = ShowTranscript(transcript);
+        var attachments = new List<FollowUpAttachment>();
+        if (existing)
+            attachments.Add(new FollowUpAttachment("", "quote", null, TranscriptQuote: "selected quote", Notes: "Existing."));
+        var speech = new AnnotationSpeechService();
+        PromptAttachmentViewerWindow? viewer = null;
+        try
+        {
+            Assert.That(TranscriptAnnotationShortcut.TryStart(transcript, null, true,
+                box => EnsureQuote(box, attachments),
+                (attachment, text, dictate) =>
+                {
+                    viewer = new PromptAttachmentViewerWindow([attachment], owner,
+                        notesChanged: (current, notes) => SaveNotes(attachments, current, notes),
+                        settingsProvider: () => ApplicationSettingsSnapshot.Empty with
+                        {
+                            SpeechProvider = SpeechProvider.OpenAI,
+                            OpenAiSpeechApiKey = "test-only-not-a-credential"
+                        },
+                        speechServiceFactory: () => speech);
+                    viewer.Owner = owner;
+                    viewer.Show();
+                    viewer.BeginAnnotation(text, dictate);
+                }), Is.True);
+            Pump();
+            var notes = FindNotesEditor(viewer!);
+            Assert.That(speech.Starts, Is.EqualTo(1));
+            viewer!.BeginAnnotation(null, startDictation: true);
+            Assert.That(speech.Starts, Is.EqualTo(1), "Reusing an active viewer must not start a second recognizer.");
+            speech.Emit("hello there");
+            Pump();
+            var expected = existing ? "Existing. hello there" : "hello there";
+            Assert.Multiple(() =>
+            {
+                Assert.That(attachments, Has.Count.EqualTo(1));
+                Assert.That(attachments[0].Notes, Is.EqualTo(expected));
+                Assert.That(notes.Text, Is.EqualTo(expected));
+                Assert.That(notes.CaretIndex, Is.EqualTo(expected.Length));
+                Assert.That(notes.IsKeyboardFocused, Is.True);
+            });
+            var release = RaisePreviewKey(notes, Keyboard.PreviewKeyUpEvent, Key.LeftCtrl);
+            Pump();
+            Assert.That(WaitFor(() => speech.Stops == 1), Is.True, "Expected Ctrl release to stop dictation.");
+            Assert.Multiple(() =>
+            {
+                Assert.That(release.Handled, Is.True);
+                Assert.That(speech.Stops, Is.EqualTo(1));
+                Assert.That(notes.Text, Is.EqualTo(expected + " final phrase"));
+                Assert.That(attachments[0].Notes, Is.EqualTo(notes.Text));
+                Assert.That(notes.CaretIndex, Is.EqualTo(notes.Text.Length));
+            });
+        }
+        finally
+        {
+            viewer?.Close();
+            owner.Close();
+            Pump();
+        }
+    }
+
+    private static RichTextBox CreateSelectedTranscript()
+    {
+        var run = new Run("selected quote");
+        var transcript = new ThrottledScrollRichTextBox
+        {
+            Document = new FlowDocument(new Paragraph(run)),
+            IsReadOnly = true
+        };
+        transcript.Selection.Select(run.ContentStart, run.ContentEnd);
+        return transcript;
+    }
+
+    private static Window ShowTranscript(RichTextBox transcript)
+    {
+        var owner = new Window { Content = transcript, Width = 400, Height = 200, ShowInTaskbar = false };
+        owner.Show();
+        owner.Activate();
+        Keyboard.Focus(transcript);
+        Pump();
+        Assert.That(transcript.IsKeyboardFocusWithin, Is.True);
+        return owner;
+    }
+
+    private static FollowUpAttachment? EnsureQuote(RichTextBox transcript, List<FollowUpAttachment> attachments) =>
+        TranscriptAnnotationShortcut.EnsureAttachment(attachments,
+            new FollowUpAttachment("", "quote", null, TranscriptQuote: TranscriptCopyService.BuildSelectionText(transcript)));
+
+    private static FollowUpAttachment SaveNotes(List<FollowUpAttachment> attachments, FollowUpAttachment current, string notes)
+    {
+        var index = attachments.FindIndex(item => ReferenceEquals(item, current));
+        Assert.That(index, Is.GreaterThanOrEqualTo(0));
+        return attachments[index] = current with { Notes = notes };
+    }
+
+    private static TextBox FindNotesEditor(PromptAttachmentViewerWindow viewer) =>
+        FindVisualDescendants<TextBox>(viewer).Single(box => AutomationProperties.GetName(box) == "Notes for quote");
+
+    private sealed class AnnotationSpeechService : ISpeechRecognitionService
+    {
+        public event EventHandler<string>? PhraseRecognized;
+        public event EventHandler<double>? VolumeChanged { add { } remove { } }
+        public event EventHandler<string>? RecognitionError { add { } remove { } }
+        public int Starts { get; private set; }
+        public int Stops { get; private set; }
+        public Task StartAsync(string key, string regionOrEndpoint, IEnumerable<string>? phraseHints = null, string? language = null)
+        {
+            Starts++;
+            return Task.CompletedTask;
+        }
+        public Task StopAsync()
+        {
+            Stops++;
+            Emit("final phrase");
+            return Task.CompletedTask;
+        }
+        public void Emit(string text) => PhraseRecognized?.Invoke(this, text);
+        public void WriteAudioData(byte[] buffer, int count) { }
+        public void Dispose() { }
+    }
+
     private static IReadOnlyList<PromptAttachmentViewerWindow> GetOpenViewerWindows() =>
         GetTrackedViewerWindows().Where(IsWindowVisible).ToArray();
 
@@ -587,6 +870,21 @@ internal sealed class PromptAttachmentViewerWindowTests
     private static void Pump()
     {
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+    }
+
+    private static bool WaitFor(Func<bool> condition, int timeoutMs = 1000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            Pump();
+            if (condition())
+                return true;
+            Thread.Sleep(10);
+        }
+
+        Pump();
+        return condition();
     }
 
     private static IReadOnlyList<PromptAttachmentViewerWindow> GetTrackedViewerWindows()

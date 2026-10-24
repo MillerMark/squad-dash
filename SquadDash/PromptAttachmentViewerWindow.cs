@@ -37,7 +37,22 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     internal static void Show(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null,
         Func<FollowUpAttachment, string, FollowUpAttachment>? notesChanged = null, bool focusNotes = false)
     {
-        if (attachments.Count == 0) return;
+        var win = GetOrShow(attachments, owner, openInboxMessage, notesChanged);
+        if (focusNotes)
+            win?.FocusNotes();
+    }
+
+    internal static void ShowForAnnotation(FollowUpAttachment attachment, Window? owner,
+        Func<FollowUpAttachment, string, FollowUpAttachment> notesChanged, string? typedText, bool startDictation)
+    {
+        var win = GetOrShow([attachment], owner, null, notesChanged)!;
+        win.BeginAnnotation(typedText, startDictation);
+    }
+
+    private static PromptAttachmentViewerWindow? GetOrShow(IReadOnlyList<FollowUpAttachment> attachments, Window? owner,
+        Action<string>? openInboxMessage, Func<FollowUpAttachment, string, FollowUpAttachment>? notesChanged)
+    {
+        if (attachments.Count == 0) return null;
 
         // Prune dead references and check if a window already showing exactly these
         // attachment objects is still open — if so, bring it to front.
@@ -51,9 +66,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
                 if (existing.WindowState == WindowState.Minimized)
                     existing.WindowState = WindowState.Normal;
                 existing.Activate();
-                if (focusNotes)
-                    existing.FocusNotes();
-                return;
+                return existing;
             }
         }
 
@@ -62,8 +75,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             win.Owner = owner;
         s_openViewers.Add(new WeakReference<PromptAttachmentViewerWindow>(win));
         win.Show();
-        if (focusNotes)
-            win.FocusNotes();
+        return win;
     }
 
     private static bool SameAttachments(IReadOnlyList<FollowUpAttachment> a, IReadOnlyList<FollowUpAttachment> b)
@@ -85,7 +97,8 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     internal PromptAttachmentViewerWindow(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null,
         Func<FollowUpAttachment, string, FollowUpAttachment>? notesChanged = null,
         Func<ApplicationSettingsSnapshot>? settingsProvider = null,
-        Func<DateTimeOffset>? nowProvider = null)
+        Func<DateTimeOffset>? nowProvider = null,
+        Func<ISpeechRecognitionService>? speechServiceFactory = null)
         : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.CanResize)
     {
         _attachments      = attachments.ToArray();
@@ -104,7 +117,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
                 _originRefreshTimer.Start();
         };
         _notesDictation = new PttTextBoxAttachment(
-            settingsProvider ?? (() => new ApplicationSettingsStore().Load()), this, Dispatcher);
+            settingsProvider ?? (() => new ApplicationSettingsStore().Load()), this, Dispatcher, speechServiceFactory);
         PreviewKeyDown += (_, e) =>
         {
             var editor = _notesEditors.FirstOrDefault(editor =>
@@ -344,6 +357,29 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
                 editor.ScrollToEnd();
             }
         }));
+    }
+
+    internal void BeginAnnotation(string? typedText, bool startDictation)
+    {
+        var editor = _notesEditors[_tabs?.SelectedIndex ?? 0];
+        if (editor is null || editor.IsReadOnly)
+            throw new InvalidOperationException("Annotation requires an editable attachment notes textbox.");
+
+        // Seed the composed text synchronously before another keyboard event can arrive.
+        Activate();
+        FocusManager.SetFocusedElement(this, editor);
+        editor.Focus();
+        Keyboard.Focus(editor);
+        editor.Select(editor.Text.Length, 0);
+        if (!string.IsNullOrEmpty(typedText))
+        {
+            editor.SelectedText = typedText;
+            editor.Select(editor.Text.Length, 0);
+        }
+        editor.ScrollToEnd();
+        FocusNotes();
+        if (startDictation)
+            _notesDictation.StartFromGesture(editor);
     }
 
     private static UIElement BuildAttachmentContentCore(FollowUpAttachment att, out BitmapImage? loadedImage, Action<string>? openInboxMessage = null)

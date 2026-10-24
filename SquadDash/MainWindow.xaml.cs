@@ -30112,6 +30112,12 @@ public partial class MainWindow : Window
 
     private void TryStartPushToTalkFromFocusedTarget(double secondTapGapMs)
     {
+        if (TryStartTranscriptAnnotation(null, startDictation: true))
+        {
+            ResetPttState();
+            return;
+        }
+
         // Resolve the target at activation time — prefer a focused RichTextBox
         // (e.g. PromptTextBox) over the fallback TextBox path.
         var focusedTextBox     = Keyboard.FocusedElement as TextBox;
@@ -59778,6 +59784,35 @@ public partial class MainWindow : Window
 
     // ── Transcript follow-up attachment ──────────────────────────────────────
 
+    private void Window_PreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if (!e.Handled && TryStartTranscriptAnnotation(e.Text, startDictation: false))
+            e.Handled = true;
+    }
+
+    private bool TryStartTranscriptAnnotation(string? typedText, bool startDictation)
+    {
+        var transcript = Keyboard.FocusedElement as RichTextBox;
+        if (transcript is null ||
+            !(ReferenceEquals(transcript, OutputTextBox) ||
+              _primaryAgentTranscriptHosts.Values.Any(host => ReferenceEquals(host.TranscriptBox, transcript)) ||
+              _secondaryTranscripts.Any(host => ReferenceEquals(host.TranscriptBox, transcript))))
+            return false;
+
+        List<FollowUpAttachment>? list = null;
+        return TranscriptAnnotationShortcut.TryStart(transcript, typedText, startDictation,
+            box =>
+            {
+                if (TryBuildTranscriptFollowUpAttachment(box) is not { } attachment)
+                    return null;
+                list = GetOrCreateFollowUpList(_activeTabId ?? "");
+                return EnsureTranscriptFollowUp(attachment);
+            },
+            (attachment, text, dictate) => PromptAttachmentViewerWindow.ShowForAnnotation(
+                attachment, CanShowOwnedWindow() ? this : null,
+                (current, notes) => UpdateAttachmentNotes(list!, current, notes), text, dictate));
+    }
+
     private void AttachTranscriptFollowUp(RichTextBox rtb)
     {
         if (TryBuildTranscriptFollowUpAttachment(rtb) is { } attachment)
@@ -59854,14 +59889,23 @@ public partial class MainWindow : Window
 
     private void AddTranscriptFollowUp(FollowUpAttachment attachment)
     {
-        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
-        if (list.Count >= 15 || list.Any(a => a.TranscriptQuote == attachment.TranscriptQuote))
-            return;
+        EnsureTranscriptFollowUp(attachment);
+    }
 
-        list.Add(attachment);
+    private FollowUpAttachment? EnsureTranscriptFollowUp(FollowUpAttachment attachment)
+    {
+        var list = GetOrCreateFollowUpList(_activeTabId ?? "");
+        var count = list.Count;
+        var ensured = TranscriptAnnotationShortcut.EnsureAttachment(list, attachment);
+        if (ensured is null)
+            SquadDashTrace.Write(TraceCategory.UI, "Transcript attachment not added: attachment limit reached.");
+        if (list.Count == count)
+            return ensured;
+
         UpdateFollowUpStrip();
         SyncQueuePanel();
         if (_activeTabId is null) PersistDraftFollowUp();
+        return ensured;
     }
 
     /// <summary>
@@ -60943,25 +60987,7 @@ public partial class MainWindow : Window
                     PromptAttachmentViewerWindow.Show(
                         new[] { capturedAtt }, CanShowOwnedWindow() ? this : null,
                         msgId => OpenOrFocusInboxMessage(msgId),
-                        notesChanged: (current, notes) =>
-                        {
-                            // Queueing moves the draft list to a new key while this viewer can remain open.
-                            var owner = _followUpAttachments.FirstOrDefault(entry => ReferenceEquals(entry.Value, list));
-                            var index = owner.Value?.FindIndex(candidate => ReferenceEquals(candidate, current)) ?? -1;
-                            if (index < 0)
-                            {
-                                SquadDashTrace.Write(TraceCategory.UI, "Attachment notes edit ignored: attachment was removed.");
-                                return current;
-                            }
-                            capturedAtt = current with { Notes = notes };
-                            owner.Value![index] = capturedAtt;
-                            if (owner.Key.Length == 0)
-                                PersistDraftFollowUp();
-                            else
-                                SyncQueuePanel();
-                            UpdateFollowUpStrip();
-                            return capturedAtt;
-                        },
+                        notesChanged: (current, notes) => capturedAtt = UpdateAttachmentNotes(list, current, notes),
                         focusNotes: true));
                 FollowUpItemsPanel.Children.Add(row);
                 _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentRow{i}"]     = row;
@@ -60980,6 +61006,26 @@ public partial class MainWindow : Window
                 .ToList();
             foreach (var k in staleKeys) _guidedTourCoordinator.NamedElements.Remove(k);
         }
+    }
+
+    private FollowUpAttachment UpdateAttachmentNotes(List<FollowUpAttachment> list, FollowUpAttachment current, string notes)
+    {
+        // Queueing moves the draft list to a new key while this viewer can remain open.
+        var owner = _followUpAttachments.FirstOrDefault(entry => ReferenceEquals(entry.Value, list));
+        var index = owner.Value?.FindIndex(candidate => ReferenceEquals(candidate, current)) ?? -1;
+        if (index < 0)
+        {
+            SquadDashTrace.Write(TraceCategory.UI, "Attachment notes edit ignored: attachment was removed.");
+            return current;
+        }
+        var updated = current with { Notes = notes };
+        owner.Value![index] = updated;
+        if (owner.Key.Length == 0)
+            PersistDraftFollowUp();
+        else
+            SyncQueuePanel();
+        UpdateFollowUpStrip();
+        return updated;
     }
 
     /// <summary>

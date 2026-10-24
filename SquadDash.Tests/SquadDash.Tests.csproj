@@ -385,6 +385,7 @@
     <Compile Include="..\SquadDash\TranscriptAttachmentSourceFactory.cs" Link="Source\TranscriptAttachmentSourceFactory.cs" />
     <Compile Include="..\SquadDash\FollowUpPromptBuilder.cs" Link="Source\FollowUpPromptBuilder.cs" />
     <Compile Include="..\SquadDash\AttachmentNotesEditor.cs" Link="Source\AttachmentNotesEditor.cs" />
+    <Compile Include="..\SquadDash\TranscriptAnnotationShortcut.cs" Link="Source\TranscriptAnnotationShortcut.cs" />
     <Compile Include="..\SquadDash\AttachmentStripRow.cs" Link="Source\AttachmentStripRow.cs" />
     <Compile Include="..\SquadDash\PromptAttachmentViewerWindow.cs" Link="Source\PromptAttachmentViewerWindow.cs" />
     <Compile Include="..\SquadDash\WorkspaceConversationStore.cs" Link="Source\WorkspaceConversationStore.cs" />

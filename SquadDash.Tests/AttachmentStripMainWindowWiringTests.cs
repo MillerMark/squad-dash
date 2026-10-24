@@ -31,6 +31,7 @@ internal sealed class AttachmentStripMainWindowWiringTests
     {
         var source = ReadSource("MainWindow.xaml.cs");
         var method = SourceRegion(source, "private void UpdateFollowUpStripCore()", "private void ReopenImageForEditing(");
+        var persistence = SourceRegion(source, "private FollowUpAttachment UpdateAttachmentNotes(", "private void ReopenImageForEditing(");
 
         Assert.Multiple(() =>
         {
@@ -44,8 +45,9 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(method, Does.Contain("PersistDraftFollowUp();"));
             Assert.That(method, Does.Contain("SyncQueuePanel();"));
             Assert.That(method, Does.Contain("notesChanged: (current, notes) =>"));
-            Assert.That(method, Does.Contain("capturedAtt = current with { Notes = notes };"));
-            Assert.That(method, Does.Contain("owner.Value![index] = capturedAtt;"));
+            Assert.That(method, Does.Contain("capturedAtt = UpdateAttachmentNotes(list, current, notes)"));
+            Assert.That(persistence, Does.Contain("var updated = current with { Notes = notes };"));
+            Assert.That(persistence, Does.Contain("owner.Value![index] = updated;"));
             Assert.That(method, Does.Contain("focusNotes: true"));
             Assert.That(method, Does.Not.Contain("focusNotes: focusNotes"));
         });
@@ -81,8 +83,9 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(showMethod, Does.Contain("existing.WindowState = WindowState.Normal;"));
             Assert.That(showMethod, Does.Contain("existing.Activate();"));
             Assert.That(showMethod, Does.Contain("if (focusNotes)"));
-            Assert.That(showMethod, Does.Contain("existing.FocusNotes();"));
-            Assert.That(showMethod, Does.Contain("win.FocusNotes();"));
+            Assert.That(showMethod, Does.Contain("var win = GetOrShow(attachments, owner, openInboxMessage, notesChanged);"));
+            Assert.That(showMethod, Does.Contain("win?.FocusNotes();"));
+            Assert.That(showMethod, Does.Contain("return existing;"));
 
             Assert.That(focusMethod, Does.Contain("Dispatcher.BeginInvoke(DispatcherPriority.Input"));
             Assert.That(focusMethod, Does.Contain("if (!IsVisible)"));
@@ -93,6 +96,38 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(focusMethod, Does.Contain("editor.Select(editor.Text.Length, 0);"));
             Assert.That(focusMethod, Does.Contain("editor.ScrollToEnd();"));
             Assert.That(source, Does.Contain("ShowActivated = true;"));
+        });
+    }
+
+    [Test]
+    public void TranscriptAnnotation_WiresTextCompositionAndExistingVoiceStartBeforePromptFallback()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var keyboard = SourceRegion(source, "private void Window_PreviewTextInput(", "private bool TryStartTranscriptAnnotation(");
+        var shortcut = SourceRegion(source, "private bool TryStartTranscriptAnnotation(", "private void AttachTranscriptFollowUp(");
+        var voice = SourceRegion(source, "private void TryStartPushToTalkFromFocusedTarget(", "private void Window_Deactivated(");
+        var ensure = SourceRegion(source, "private FollowUpAttachment? EnsureTranscriptFollowUp(", "private void AddTranscriptSelectionToNewChat(");
+        Assert.Multiple(() =>
+        {
+            Assert.That(ReadSource("MainWindow.xaml"), Does.Contain("PreviewTextInput=\"Window_PreviewTextInput\""));
+            Assert.That(keyboard, Does.Contain("!e.Handled && TryStartTranscriptAnnotation(e.Text, startDictation: false)"));
+            Assert.That(keyboard, Does.Contain("e.Handled = true;"));
+            Assert.That(shortcut, Does.Contain("Keyboard.FocusedElement as RichTextBox"));
+            Assert.That(shortcut, Does.Contain("ReferenceEquals(transcript, OutputTextBox)"));
+            Assert.That(shortcut, Does.Contain("_primaryAgentTranscriptHosts.Values.Any("));
+            Assert.That(shortcut, Does.Contain("_secondaryTranscripts.Any("));
+            Assert.That(shortcut, Does.Contain("TranscriptAnnotationShortcut.TryStart("));
+            Assert.That(shortcut, Does.Contain("TryBuildTranscriptFollowUpAttachment(box)"));
+            Assert.That(shortcut, Does.Contain("GetOrCreateFollowUpList(_activeTabId ?? \"\")"));
+            Assert.That(shortcut, Does.Contain("EnsureTranscriptFollowUp(attachment)"));
+            Assert.That(shortcut, Does.Contain("PromptAttachmentViewerWindow.ShowForAnnotation("));
+            Assert.That(shortcut, Does.Contain("UpdateAttachmentNotes(list!, current, notes)"));
+            Assert.That(ensure, Does.Contain("TranscriptAnnotationShortcut.EnsureAttachment(list, attachment)"));
+            Assert.That(ensure, Does.Contain("PersistDraftFollowUp()"));
+            Assert.That(ensure, Does.Contain("SyncQueuePanel()"));
+            Assert.That(voice.IndexOf("TryStartTranscriptAnnotation(null, startDictation: true)", StringComparison.Ordinal),
+                Is.LessThan(voice.IndexOf("focusedRichTextBox == ActiveTranscriptBox", StringComparison.Ordinal)));
+            Assert.That(voice, Does.Contain("ResetPttState();\r\n            return;").Or.Contain("ResetPttState();\n            return;"));
         });
     }
 
