@@ -42,6 +42,14 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     private bool _completingNotes;
     private bool _confirmingDiscard;
     private bool _notesCompleted;
+    private NotesCloseIntent _notesCloseIntent;
+
+    private enum NotesCloseIntent
+    {
+        None,
+        Accept,
+        Discard
+    }
 
     internal const string DiscardNotesPrompt = "Are you sure you want to lose your note edits?";
     internal bool HasNoteChanges => _notesEditors.Where((editor, index) =>
@@ -79,6 +87,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             if (SameAttachments(existing._attachments, attachments) &&
                 (existing._notesChanged is null) == (notesChanged is null))
             {
+                existing.Owner = owner;
                 existing.BeginEditingInvocation(discardNewAttachment);
                 if (existing.WindowState == WindowState.Minimized)
                     existing.WindowState = WindowState.Normal;
@@ -89,8 +98,6 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 
         var win = new PromptAttachmentViewerWindow(attachments, owner, openInboxMessage, notesChanged,
             discardNewAttachment: discardNewAttachment);
-        if (owner is not null)
-            win.Owner = owner;
         s_openViewers.Add(new WeakReference<PromptAttachmentViewerWindow>(win));
         win.Show();
         return win;
@@ -121,13 +128,12 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         Action<FollowUpAttachment>? discardNewAttachment = null)
         : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.CanResize)
     {
+        Owner = owner;
         _attachments      = attachments.ToArray();
         _notesChanged     = notesChanged;
         _baselineNotes = _attachments.Select(attachment => attachment.Notes).ToArray();
         _discardNewAttachment = discardNewAttachment;
-        _confirmDiscardNotes = confirmDiscardNotes ?? (() =>
-            MessageBox.Show(this, DiscardNotesPrompt, "Discard Notes?",
-                MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes);
+        _confirmDiscardNotes = confirmDiscardNotes ?? ConfirmDiscardNotes;
         _noteActions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -266,7 +272,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 
     internal async Task AcceptNotesAsync()
     {
-        if (_completingNotes || _confirmingDiscard || _notesCompleted)
+        if (_completingNotes || _confirmingDiscard || _notesCompleted || _notesCloseIntent != NotesCloseIntent.None)
             return;
 
         _completingNotes = true;
@@ -276,12 +282,12 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             // Join even an already-stopping Ctrl-release session so its final phrase
             // is persisted before the window closes.
             await _notesDictation.StopAsync();
-            _notesCompleted = true;
-            _discardNewAttachment = null;
+            _notesCloseIntent = NotesCloseIntent.Accept;
             Close();
         }
         finally
         {
+            _notesCloseIntent = NotesCloseIntent.None;
             _completingNotes = false;
             _noteActions.IsEnabled = true;
         }
@@ -289,53 +295,149 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 
     internal void CancelNotes()
     {
-        if (_completingNotes || _confirmingDiscard || _notesCompleted)
+        if (_completingNotes || _confirmingDiscard || _notesCompleted || _notesCloseIntent != NotesCloseIntent.None)
             return;
-        if (_notesEditors.Any(editor => editor is { IsReadOnly: false }) && !TryDiscardNotes())
+        if (!TryConfirmDiscardNotes())
             return;
-        Close();
+        _notesCloseIntent = NotesCloseIntent.Discard;
+        try
+        {
+            Close();
+        }
+        finally
+        {
+            _notesCloseIntent = NotesCloseIntent.None;
+        }
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        base.OnClosing(e);
+        if (e.Cancel)
+            return;
+
+        // Closing subscribers may veto even a confirmed discard or drained acceptance.
+        // Keep the live editor, dictation, and attachment intact until they all agree.
+        if (!_notesCompleted)
+        {
+            if (_notesCloseIntent != NotesCloseIntent.Accept)
+                DiscardNotes();
+            _discardNewAttachment = null;
+            _notesCompleted = true;
+        }
+
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished ||
+            !IsActive || !WindowHelper.IsForegroundWindow(this) ||
+            Owner is not { IsVisible: true, IsEnabled: true } owner ||
+            owner.WindowState == WindowState.Minimized)
+            return;
+
+        // ShowDialog restores activation to this viewer, not its owner. Destroying
+        // it next can activate an unrelated window even with the correct HWND owner.
+        // Hand off after all Closing handlers agree, before native destruction.
+        if (!owner.Activate())
+            SquadDashTrace.Write(TraceCategory.UI, "Attachment viewer close: owner activation was declined.");
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
     {
-        if (_notesCompleted)
+        if (_notesCompleted || _notesCloseIntent != NotesCloseIntent.None)
             return;
         if (_completingNotes || _confirmingDiscard)
         {
             e.Cancel = true;
             return;
         }
-        if (HasNoteChanges || _discardNewAttachment is not null || _notesDictation.IsActive)
-            e.Cancel = !TryDiscardNotes();
+        e.Cancel = !TryConfirmDiscardNotes();
     }
 
-    private bool TryDiscardNotes()
+    private bool TryConfirmDiscardNotes()
     {
         _confirmingDiscard = true;
         try
         {
-            if (!_confirmDiscardNotes())
+            if (HasNoteChanges && !_confirmDiscardNotes())
                 return false;
-
-            // Stop queued speech callbacks before restoring the live-persisted notes.
-            _notesDictation.Dispose();
-            if (_notesChanged is not null)
-            {
-                for (var index = 0; index < _attachments.Length; index++)
-                {
-                    if (_notesEditors[index] is { IsReadOnly: false } &&
-                        !string.Equals(_attachments[index].Notes, _baselineNotes[index], StringComparison.Ordinal))
-                        _attachments[index] = _notesChanged(_attachments[index], _baselineNotes[index]);
-                }
-            }
-            _discardNewAttachment?.Invoke(_attachments[0]);
-            _discardNewAttachment = null;
-            _notesCompleted = true;
             return true;
         }
         finally
         {
             _confirmingDiscard = false;
+        }
+    }
+
+    private void DiscardNotes()
+    {
+        // Stop queued speech callbacks before restoring the live-persisted notes.
+        _notesDictation.Dispose();
+        if (_notesChanged is not null)
+        {
+            for (var index = 0; index < _attachments.Length; index++)
+            {
+                if (_notesEditors[index] is { IsReadOnly: false } &&
+                    !string.Equals(_attachments[index].Notes, _baselineNotes[index], StringComparison.Ordinal))
+                    _attachments[index] = _notesChanged(_attachments[index], _baselineNotes[index]);
+            }
+        }
+        _discardNewAttachment?.Invoke(_attachments[0]);
+    }
+
+    private bool ConfirmDiscardNotes()
+    {
+        // WPF owns the modal enable/activation lifecycle for the whole window chain.
+        // Do not activate the viewer while its confirmation is still modal.
+        var confirmed = CreateDiscardNotesConfirmation().ShowDialog() == true;
+        if (!confirmed && IsActive && _notesEditors[_tabs?.SelectedIndex ?? 0] is { } editor)
+        {
+            FocusManager.SetFocusedElement(this, editor);
+            editor.Focus();
+        }
+        return confirmed;
+    }
+
+    internal Window CreateDiscardNotesConfirmation() => new DiscardNotesConfirmationWindow(this);
+
+    private sealed class DiscardNotesConfirmationWindow : ChromedWindow
+    {
+        internal DiscardNotesConfirmationWindow(Window owner)
+            : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.NoResize, resizeBorderThickness: 0)
+        {
+            Owner = owner;
+            Title = "Discard Notes?";
+            Width = 420;
+            SizeToContent = SizeToContent.Height;
+            ShowInTaskbar = false;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            var content = new StackPanel { Margin = new Thickness(20) };
+            var prompt = new TextBlock
+            {
+                Text = DiscardNotesPrompt,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 16)
+            };
+            prompt.SetResourceReference(TextBlock.ForegroundProperty, "BodyText");
+            prompt.SetResourceReference(TextBlock.FontSizeProperty, "FontSizeBody");
+            content.Children.Add(prompt);
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            var yes = new Button { Content = "Yes", MinWidth = 75, Padding = new Thickness(10, 4, 10, 4) };
+            yes.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+            yes.Click += (_, _) => DialogResult = true;
+            var no = new Button
+            {
+                Content = "No", MinWidth = 75, Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(6, 0, 0, 0), IsDefault = true, IsCancel = true
+            };
+            no.SetResourceReference(Control.StyleProperty, "ThemedButtonStyle");
+            no.Click += (_, _) => DialogResult = false;
+            buttons.Children.Add(yes);
+            buttons.Children.Add(no);
+            content.Children.Add(buttons);
+            ApplyOuterBorder(titleText: Title).Child = content;
+            Loaded += (_, _) => no.Focus();
         }
     }
 
@@ -486,7 +588,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     {
         Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
         {
-            if (!IsVisible)
+            if (!IsVisible || _confirmingDiscard || _completingNotes || _notesCompleted)
                 return;
             var index = _tabs?.SelectedIndex ?? 0;
             if (index >= 0 && _notesEditors[index] is { } editor)

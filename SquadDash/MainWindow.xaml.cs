@@ -59810,7 +59810,7 @@ public partial class MainWindow : Window
                 return EnsureTranscriptFollowUp(attachment, out wasAdded);
             },
             (attachment, text, dictate) => PromptAttachmentViewerWindow.ShowForAnnotation(
-                attachment, CanShowOwnedWindow() ? this : null,
+                attachment, Window.GetWindow(transcript) ?? (CanShowOwnedWindow() ? this : null),
                 (current, notes) => UpdateAttachmentNotes(list!, current, notes), text, dictate,
                 discardNewAttachment: wasAdded ? current => RemoveCancelledTranscriptAttachment(list!, current) : null));
     }
@@ -60990,7 +60990,7 @@ public partial class MainWindow : Window
 
                 AttachmentStripRow.Populate(row, label, att, _ =>
                     PromptAttachmentViewerWindow.Show(
-                        new[] { capturedAtt }, CanShowOwnedWindow() ? this : null,
+                        new[] { capturedAtt }, Window.GetWindow(row) ?? (CanShowOwnedWindow() ? this : null),
                         msgId => OpenOrFocusInboxMessage(msgId),
                         notesChanged: (current, notes) => capturedAtt = UpdateAttachmentNotes(list, current, notes),
                         focusNotes: true));

@@ -39,7 +39,7 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(method, Does.Not.Contain("label.MouseLeftButtonUp +="));
             Assert.That(method, Does.Contain("AttachmentStripRow.Populate(row, label, att, _ =>"));
             Assert.That(method, Does.Contain("PromptAttachmentViewerWindow.Show("));
-            Assert.That(method, Does.Contain("new[] { capturedAtt }, CanShowOwnedWindow() ? this : null"));
+            Assert.That(method, Does.Contain("new[] { capturedAtt }, Window.GetWindow(row) ?? (CanShowOwnedWindow() ? this : null)"));
             Assert.That(method, Does.Contain("_followUpAttachments.FirstOrDefault(entry => ReferenceEquals(entry.Value, list))"));
             Assert.That(method, Does.Contain("if (owner.Key.Length == 0)"));
             Assert.That(method, Does.Contain("PersistDraftFollowUp();"));
@@ -88,7 +88,7 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(showMethod, Does.Contain("return existing;"));
 
             Assert.That(focusMethod, Does.Contain("Dispatcher.BeginInvoke(DispatcherPriority.Input"));
-            Assert.That(focusMethod, Does.Contain("if (!IsVisible)"));
+            Assert.That(focusMethod, Does.Contain("if (!IsVisible || _confirmingDiscard || _completingNotes || _notesCompleted)"));
             Assert.That(focusMethod, Does.Contain("Activate();"));
             Assert.That(focusMethod, Does.Contain("FocusManager.SetFocusedElement(this, editor);"));
             Assert.That(focusMethod, Does.Contain("editor.Focus();"));
@@ -121,6 +121,7 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(shortcut, Does.Contain("GetOrCreateFollowUpList(_activeTabId ?? \"\")"));
             Assert.That(shortcut, Does.Contain("EnsureTranscriptFollowUp(attachment, out wasAdded)"));
             Assert.That(shortcut, Does.Contain("PromptAttachmentViewerWindow.ShowForAnnotation("));
+            Assert.That(shortcut, Does.Contain("attachment, Window.GetWindow(transcript) ?? (CanShowOwnedWindow() ? this : null)"));
             Assert.That(shortcut, Does.Contain("UpdateAttachmentNotes(list!, current, notes)"));
             Assert.That(shortcut, Does.Contain("discardNewAttachment: wasAdded ? current => RemoveCancelledTranscriptAttachment(list!, current) : null"));
             Assert.That(ensure, Does.Contain("TranscriptAnnotationShortcut.EnsureAttachment(list, attachment, out wasAdded)"));
@@ -129,6 +130,31 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(voice.IndexOf("TryStartTranscriptAnnotation(null, startDictation: true)", StringComparison.Ordinal),
                 Is.LessThan(voice.IndexOf("focusedRichTextBox == ActiveTranscriptBox", StringComparison.Ordinal)));
             Assert.That(voice, Does.Contain("ResetPttState();\r\n            return;").Or.Contain("ResetPttState();\n            return;"));
+        });
+    }
+
+    [Test]
+    public void ViewerCloseHandoff_SourceRunsAfterClosingHandlers_WithForegroundAndOwnerSafetyGuards()
+    {
+        var source = ReadSource("PromptAttachmentViewerWindow.cs");
+        var closing = SourceRegion(source, "protected override void OnClosing(CancelEventArgs e)",
+            "private void OnClosing(object? sender, CancelEventArgs e)");
+        var baseCall = closing.IndexOf("base.OnClosing(e);", StringComparison.Ordinal);
+        var guard = closing.IndexOf("if (e.Cancel", StringComparison.Ordinal);
+        var activation = closing.IndexOf("owner.Activate()", StringComparison.Ordinal);
+        Assert.Multiple(() =>
+        {
+            Assert.That(baseCall, Is.GreaterThanOrEqualTo(0));
+            Assert.That(guard, Is.GreaterThan(baseCall));
+            Assert.That(activation, Is.GreaterThan(guard));
+            Assert.That(closing, Does.Contain("Dispatcher.HasShutdownStarted").And.Contain("Dispatcher.HasShutdownFinished"));
+            Assert.That(closing, Does.Contain("!IsActive || !WindowHelper.IsForegroundWindow(this)"));
+            Assert.That(closing, Does.Contain("Owner is not { IsVisible: true, IsEnabled: true } owner"));
+            Assert.That(closing, Does.Contain("owner.WindowState == WindowState.Minimized"));
+            Assert.That(closing[guard..activation], Does.Contain("return;"));
+            Assert.That(closing, Does.Not.Contain("BeginInvoke").And.Not.Contain("SetForegroundWindow")
+                .And.Not.Contain("Topmost").And.Not.Contain("Keyboard.Focus"));
+            Assert.That(closing, Does.Contain("if (!owner.Activate())").And.Contain("SquadDashTrace.Write"));
         });
     }
 
@@ -184,12 +210,16 @@ internal sealed class AttachmentStripMainWindowWiringTests
     public void NotesConfirmationAndKeyboard_SourceUsesExactPromptSafeDefaultAndShiftEnterPassThrough()
     {
         var source = ReadSource("PromptAttachmentViewerWindow.cs");
+        var confirmation = SourceRegion(source, "private bool ConfirmDiscardNotes()", "internal Window CreateDiscardNotesConfirmation()");
         Assert.Multiple(() =>
         {
             Assert.That(PromptAttachmentViewerWindow.DiscardNotesPrompt,
                 Is.EqualTo("Are you sure you want to lose your note edits?"));
-            Assert.That(source, Does.Contain("MessageBox.Show(this, DiscardNotesPrompt, \"Discard Notes?\","));
-            Assert.That(source, Does.Contain("MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) == MessageBoxResult.Yes"));
+            Assert.That(source, Does.Contain("if (HasNoteChanges && !_confirmDiscardNotes())"));
+            Assert.That(source, Does.Contain("IsDefault = true, IsCancel = true"));
+            Assert.That(confirmation, Does.Contain("CreateDiscardNotesConfirmation().ShowDialog() == true"));
+            Assert.That(confirmation, Does.Contain("!confirmed && IsActive"));
+            Assert.That(confirmation, Does.Not.Contain("Activate()").And.Not.Contain("Keyboard.Focus("));
             Assert.That(source, Does.Contain("e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None"));
             Assert.That(source, Does.Contain("Closing += OnClosing;"));
             Assert.That(source, Does.Not.Contain("Deactivated +="));
