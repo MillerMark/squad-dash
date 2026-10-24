@@ -12,6 +12,13 @@ namespace SquadDash.Tests;
 internal sealed class PromptTextStylingTests
 {
     [Test]
+    public void Styling_EmptyInkBoundsRemainEmptyWhenTranslated()
+    {
+        Assert.DoesNotThrow(() => PromptTextAdorner.OffsetInkBounds(Rect.Empty, new Vector(25, 50)));
+        Assert.That(PromptTextAdorner.OffsetInkBounds(Rect.Empty, new Vector(25, 50)), Is.EqualTo(Rect.Empty));
+    }
+
+    [Test]
     public void Styling_DrawsMarkersAndRgbChips_WithoutChangingDocumentOrSelection()
     {
         using var host = new Host("## Heading **bold** #aBc #123456");
@@ -33,7 +40,8 @@ internal sealed class PromptTextStylingTests
             Assert.That(drawings.Count(d => d.Brush is SolidColorBrush b && b.Color == Color.FromRgb(0x12, 0x34, 0x56)), Is.EqualTo(1));
             Assert.That(drawings.Count(d => ReferenceEquals(d.Brush, host.MarkerBrush)), Is.EqualTo(4),
                 "Only heading markers get a tint and underline; bold content is emboldened directly.");
-            Assert.That(drawings.Count(d => d.Pen?.Thickness == editor.FontSize / 24), Is.EqualTo(4));
+            Assert.That(drawings.Count(d => d.Pen?.Thickness == editor.FontSize / 24), Is.EqualTo(1),
+                "One contiguous bold word should require one native-ink draw.");
             Assert.That(drawings.All(d => d.Bounds.Width > 0 && d.Bounds.Height > 0), Is.True);
             Assert.That(editor.GetPlainText(), Is.EqualTo(originalText));
             Assert.That(editor.Document.Blocks.ToArray(), Is.EqualTo(blocks));
@@ -70,7 +78,8 @@ internal sealed class PromptTextStylingTests
             Assert.That(host.Editor.GetPlainText(), Is.EqualTo("**bold**\n## #f00"));
             Assert.That(host.Drawings().Count(d => d.Brush is SolidColorBrush b && b.Color == Colors.Red), Is.EqualTo(1));
             Assert.That(host.Drawings().Count(d => ReferenceEquals(d.Brush, host.MarkerBrush)), Is.EqualTo(4));
-            Assert.That(host.Drawings().Count(d => d.Pen?.Thickness == host.Editor.FontSize / 24), Is.EqualTo(4));
+            Assert.That(host.Drawings().Count(d => d.Pen?.Thickness == host.Editor.FontSize / 24), Is.EqualTo(1),
+                "The contiguous bold word should draw once even when its document content is split across runs.");
         });
     }
 
@@ -288,6 +297,24 @@ internal sealed class PromptTextStylingTests
         Assert.That(host.Editor.GetSelectedText(), Is.EqualTo(text.Substring(start, length)));
         Assert.That(host.Drawings().Any(d => d.Pen?.Thickness == host.Editor.FontSize / 24), Is.False,
             "Native selected text must not be overpainted with normal foreground ink.");
+    }
+
+    [Test]
+    public void Styling_BoldContent_CoalescesEachVisibleUnselectedLineSpan()
+    {
+        using var host = new Host("**abcdef**");
+        host.Enable();
+        Assert.That(host.Drawings().Count(d => d.Pen?.Thickness == host.Editor.FontSize / 24), Is.EqualTo(1));
+
+        // Selecting the middle two letters leaves two disjoint native-ink spans. They must not be
+        // merged across the selection because WPF owns the selected glyph rendering.
+        host.Editor.SelectRange(4, 2);
+        host.Drain();
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Editor.GetSelectedText(), Is.EqualTo("cd"));
+            Assert.That(host.Drawings().Count(d => d.Pen?.Thickness == host.Editor.FontSize / 24), Is.EqualTo(2));
+        });
     }
 
     [Test]

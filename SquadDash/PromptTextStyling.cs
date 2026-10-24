@@ -92,7 +92,10 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         internal Brush? Color { get; } = color;
         internal Rect DocumentRect { get; set; } = Rect.Empty;
     }
-    private sealed record Ink(Geometry Geometry, Brush Brush, double FontSize);
+    // Geometry.Bounds is deceptively expensive for the GlyphRun-generated GeometryGroups used
+    // here: WPF expands their child paths every time the property is queried. Keep the bounds that
+    // were already calculated while reading the GlyphRun and translate them with the geometry.
+    private sealed record Ink(Geometry Geometry, Rect Bounds, Brush Brush, double FontSize);
     private readonly record struct ViewportState(
         Rect Bounds,
         double HorizontalOffset,
@@ -356,6 +359,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var borderPen = new Pen((Brush)GetValue(BorderBrushProperty), 0.5);
         var ink = _inkRows;
         var background = FindOpaqueBackground();
+        var boldSpans = new List<Rect>();
         foreach (var glyph in _glyphs)
         {
             var rect = GetGlyphRect(glyph, viewport);
@@ -382,7 +386,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             else if (glyph.Kind == PromptTextTokenKind.BoldContent)
             {
                 if (!selected)
-                    DrawInk(drawingContext, ink, rect, viewport, true);
+                    AddBoldSpan(boldSpans, rect);
             }
             else
             {
@@ -393,7 +397,32 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     new Rect(rect.Left, rect.Bottom - 1.5, rect.Width, 1.5));
             }
         }
+        // Bold tokens are indexed per character so selection can exclude individual cells, but
+        // drawing the native ink once per character repeats the same GeometryGroup traversal for
+        // every letter. Coalesce adjacent, unselected cells on each visual line and paint the ink
+        // once per contiguous span instead.
+        foreach (var span in boldSpans)
+            DrawInk(drawingContext, ink, span, viewport, true);
         drawingContext.Pop();
+    }
+
+    private static void AddBoldSpan(List<Rect> spans, Rect rect)
+    {
+        const double layoutTolerance = 0.5;
+        if (spans.Count > 0)
+        {
+            var previous = spans[^1];
+            var sameLine = Math.Abs(previous.Top - rect.Top) <= layoutTolerance &&
+                Math.Abs(previous.Height - rect.Height) <= layoutTolerance;
+            var adjacent = rect.Left <= previous.Right + layoutTolerance &&
+                rect.Right >= previous.Left - layoutTolerance;
+            if (sameLine && adjacent)
+            {
+                spans[^1] = Rect.Union(previous, rect);
+                return;
+            }
+        }
+        spans.Add(rect);
     }
 
     private Rect GetGlyphRect(Glyph glyph, ViewportState viewport)
@@ -426,7 +455,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var rows = new Dictionary<int, List<Ink>>();
         foreach (var item in ink)
         {
-            var bounds = item.Geometry.Bounds;
+            var bounds = item.Bounds;
             if (bounds.IsEmpty)
                 continue;
             for (var row = (int)Math.Floor(bounds.Top / 64); row <= (int)Math.Floor(bounds.Bottom / 64); row++)
@@ -459,7 +488,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 continue;
             foreach (var item in items)
             {
-                if (!item.Geometry.Bounds.IntersectsWith(documentRect) || !drawn.Add(item))
+                if (!item.Bounds.IntersectsWith(documentRect) || !drawn.Add(item))
                     continue;
                 // Embolden native outlines without changing shaping, advances, or caret hit targets.
                 context.DrawGeometry(item.Brush, bold ? new Pen(item.Brush, item.FontSize / 24) : null, item.Geometry);
@@ -499,7 +528,10 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             var transform = geometry.Transform?.Value ?? Matrix.Identity;
             transform.Append(matrix);
             geometry.Transform = new MatrixTransform(transform);
-            yield return new Ink(geometry, brush, run.FontRenderingEmSize);
+            // BuildGeometry carries GlyphRun positioning (including its baseline origin) that is
+            // not always represented in ComputeInkBoundingBox when WPF splits a line into runs.
+            // Pay for the accurate bounds walk once here; every scroll-frame lookup reuses it.
+            yield return new Ink(geometry, geometry.Bounds, brush, run.FontRenderingEmSize);
         }
         else if (drawing is DrawingGroup group)
         {
@@ -535,6 +567,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         editorCoverage.Inflate(32, Math.Max(128, viewport.Bounds.Height));
         var documentOffset = new Vector(viewport.HorizontalOffset, viewport.VerticalOffset);
         var visibleInk = ReadInk(_editor, editorCoverage)
+            // Whitespace/control GlyphRuns can have layout bounds but no drawable outline.
+            // Their built geometry reports Rect.Empty and must be discarded before translation.
+            .Where(item => !item.Bounds.IsEmpty)
             .Select(item => TranslateInk(item, documentOffset));
         _inkRows = IndexInk(visibleInk);
         InkCacheBuildCount++;
@@ -548,7 +583,19 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var transform = geometry.Transform?.Value ?? Matrix.Identity;
         transform.Translate(offset.X, offset.Y);
         geometry.Transform = new MatrixTransform(transform);
-        return ink with { Geometry = geometry };
+        if (geometry.CanFreeze)
+            geometry.Freeze();
+        var bounds = OffsetInkBounds(ink.Bounds, offset);
+        return ink with { Geometry = geometry, Bounds = bounds };
+    }
+
+    internal static Rect OffsetInkBounds(Rect bounds, Vector offset)
+    {
+        // Rect.Empty.Offset throws InvalidOperationException. Keep this defensive even though
+        // EnsureInkCache filters empty ink so future callers cannot reintroduce the startup crash.
+        if (!bounds.IsEmpty)
+            bounds.Offset(offset.X, offset.Y);
+        return bounds;
     }
 
     private static bool Contains(Rect outer, Rect inner) =>
