@@ -18,6 +18,9 @@ internal static class PromptTextStyling
     public static bool GetIsEnabled(DependencyObject target) => (bool)target.GetValue(IsEnabledProperty);
     public static void SetIsEnabled(DependencyObject target, bool value) => target.SetValue(IsEnabledProperty, value);
 
+    internal static bool IsApplyingFormatting(RichTextBox editor) =>
+        editor.GetValue(AdornerProperty) is PromptTextAdorner { IsApplyingFormatting: true };
+
     private static void OnIsEnabledChanged(DependencyObject target, DependencyPropertyChangedEventArgs e)
     {
         if (target is not RichTextBox editor)
@@ -63,11 +66,12 @@ internal static class PromptTextStyling
 }
 
 /// <summary>
-/// Token accents are paint only: no formatting edits, synthetic text, or inline controls
-/// enter the prompt's selection, serialization, IME, or shared undo timeline.
+/// Token accents are paint only except for inline-code font families, which use native
+/// text layout so glyph advances, caret positions, and selection geometry agree.
 /// </summary>
 internal sealed class PromptTextAdorner : Adorner, IDisposable
 {
+    private static readonly FontFamily CodeFont = new("Consolas");
     private static readonly DependencyProperty MarkerBrushProperty = DependencyProperty.Register(
         "MarkerBrush", typeof(Brush), typeof(PromptTextAdorner),
         new FrameworkPropertyMetadata(Brushes.SteelBlue, FrameworkPropertyMetadataOptions.AffectsRender));
@@ -92,6 +96,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     private bool _disposed;
     private bool _layoutDirty;
     private FontLayout _fontLayout;
+    internal bool IsApplyingFormatting { get; private set; }
 
     internal PromptTextAdorner(RichTextBox editor) : base(editor)
     {
@@ -110,7 +115,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
 
     private void OnTextChanged(object sender, TextChangedEventArgs e)
     {
-        if (!ReferenceEquals(e.OriginalSource, _editor))
+        if (!ReferenceEquals(e.OriginalSource, _editor) || IsApplyingFormatting)
             return;
         _glyphs.Clear();
         InvalidateVisual();
@@ -140,7 +145,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 _embeddedVisuals.Add(child);
         var present = new HashSet<Paragraph>();
         // Deliberately never traverse BlockUIContainer children (the fenced region editors).
-        foreach (var paragraph in _editor.Document.Blocks.OfType<Paragraph>())
+        foreach (var paragraph in _editor.Document.Blocks.OfType<Paragraph>().ToArray())
         {
             present.Add(paragraph);
             foreach (var inline in paragraph.Inlines.OfType<InlineUIContainer>())
@@ -152,12 +157,59 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 cached = new ParagraphTokens(text, PromptTextTokenParser.Parse(text));
                 _paragraphs[paragraph] = cached;
             }
+            ApplyInlineCodeFonts(paragraph, cached.Text.Length, cached.Tokens);
             AddGlyphs(paragraph, cached.Text.Length, cached.Tokens);
         }
         foreach (var paragraph in _paragraphs.Keys.Where(p => !present.Contains(p)).ToArray())
             _paragraphs.Remove(paragraph);
         _layoutDirty = true;
         InvalidateVisual();
+    }
+
+    private void ApplyInlineCodeFonts(Paragraph paragraph, int length, IReadOnlyList<PromptTextToken> tokens)
+    {
+        var code = new bool[length];
+        foreach (var token in tokens)
+            if (token.Kind == PromptTextTokenKind.InlineCodeContent)
+                Array.Fill(code, true, token.Start, token.Length);
+
+        var changes = new List<(TextRange Range, FontFamily Font)>();
+        var offset = 0;
+        foreach (var inline in paragraph.Inlines)
+        {
+            if (inline is LineBreak)
+                offset++;
+            if (inline is not Run run)
+                continue;
+            for (var start = 0; start < run.Text.Length;)
+            {
+                var end = start + 1;
+                while (end < run.Text.Length && code[offset + end] == code[offset + start])
+                    end++;
+                var font = code[offset + start] ? CodeFont : _editor.FontFamily;
+                if (!run.FontFamily.Equals(font))
+                    changes.Add((new TextRange(run.ContentStart.GetPositionAtOffset(start)!,
+                        run.ContentStart.GetPositionAtOffset(end)!), font));
+                start = end;
+            }
+            offset += run.Text.Length;
+        }
+        if (changes.Count == 0)
+            return;
+
+        IsApplyingFormatting = true;
+        try
+        {
+            // No document rebuild or undo toggle. The prompt's shared history records text,
+            // not these derived fonts; sizes remain inherited from the prompt.
+            using (_editor.DeclareChangeBlock())
+                foreach (var (range, font) in changes)
+                    range.ApplyPropertyValue(TextElement.FontFamilyProperty, font);
+        }
+        finally
+        {
+            IsApplyingFormatting = false;
+        }
     }
 
     private void AddGlyphs(Paragraph paragraph, int length, IReadOnlyList<PromptTextToken> tokens)
@@ -232,6 +284,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         // layout, not during TextChanged, and only once for each layout change.
         if (!_layoutDirty && fontLayout == _fontLayout)
             return;
+        if (!Equals(fontLayout.Family, _fontLayout.Family))
+            ScheduleRefresh();
         _fontLayout = fontLayout;
         _layoutDirty = false;
         _inkRows = null;
@@ -416,6 +470,18 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _editor.LayoutUpdated -= OnLayoutUpdated;
         _editor.SelectionChanged -= OnSelectionChanged;
         _editor.RemoveHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(OnScrollChanged));
+        IsApplyingFormatting = true;
+        try
+        {
+            using (_editor.DeclareChangeBlock())
+                foreach (var run in _editor.Document.Blocks.OfType<Paragraph>()
+                    .SelectMany(p => p.Inlines).OfType<Run>().ToArray())
+                    run.ClearValue(TextElement.FontFamilyProperty);
+        }
+        finally
+        {
+            IsApplyingFormatting = false;
+        }
         _paragraphs.Clear();
         _glyphs.Clear();
         _embeddedVisuals.Clear();

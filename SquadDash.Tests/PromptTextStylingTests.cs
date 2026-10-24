@@ -355,6 +355,184 @@ internal sealed class PromptTextStylingTests
         });
     }
 
+    [TestCase(12)]
+    [TestCase(24)]
+    public void Styling_InlineCode_UsesNativeMonospaceMetricsAndInheritedSize(double size)
+    {
+        using var host = new Host("plain `WiWi` **bold**");
+        var editor = host.Editor;
+        editor.FontFamily = new FontFamily("Segoe UI");
+        editor.IsUndoEnabled = false;
+        editor.SelectRange(7, 4);
+        var before = PromptUndoManager.CaptureSnapshot(editor);
+        host.Enable();
+        editor.FontSize = size;
+        host.Drain();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(FontAt(editor, 7).Source, Is.EqualTo("Consolas"));
+            Assert.That(FontAt(editor, 0), Is.EqualTo(editor.FontFamily));
+            Assert.That(FontAt(editor, 6), Is.EqualTo(editor.FontFamily), "Opening delimiter is not code content.");
+            Assert.That(FontAt(editor, 11), Is.EqualTo(editor.FontFamily), "Closing delimiter is not code content.");
+            Assert.That(new TextRange(editor.GetTextPointerAt(7), editor.GetTextPointerAt(11))
+                .GetPropertyValue(TextElement.FontSizeProperty), Is.EqualTo(size));
+            Assert.That(PromptUndoManager.CaptureSnapshot(editor), Is.EqualTo(before));
+            Assert.That(host.Drawings().Any(d => d.Pen?.Thickness == size / 24), Is.True,
+                "Bold must retain its existing paint path next to natively formatted code.");
+        });
+        var cells = Enumerable.Range(7, 4).Select(offset =>
+        {
+            var start = editor.GetTextPointerAt(offset).GetCharacterRect(LogicalDirection.Forward);
+            var end = editor.GetTextPointerAt(offset + 1).GetCharacterRect(LogicalDirection.Backward);
+            return new Rect(start.Left, start.Top, end.Left - start.Left, start.Height);
+        }).ToArray();
+        Assert.That(cells[0].Width, Is.GreaterThan(0));
+        foreach (var cell in cells)
+            Assert.That(cell.Width, Is.EqualTo(cells[0].Width).Within(0.01), "W and i must have equal native advances.");
+        for (var i = 0; i < cells.Length; i++)
+        {
+            var cell = cells[i];
+            var pointer = editor.GetPositionFromPoint(new Point(cell.Left + cell.Width * 0.2, cell.Top + cell.Height / 2), true)!;
+            Assert.That(editor.GetCharOffset(pointer), Is.EqualTo(7 + i), "Native hit testing must follow the code glyphs.");
+        }
+        for (var offset = 0; offset <= before.SerializedText.Length; offset++)
+            Assert.That(editor.GetCharOffset(editor.GetTextPointerAt(offset)), Is.EqualTo(offset));
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Styling_InlineCode_PreservesSelectionDirectionAndResetsRemovedDelimiters(bool backward)
+    {
+        using var host = new Host("before `code` after");
+        var editor = host.Editor;
+        editor.IsUndoEnabled = false;
+        editor.Selection.Select(editor.GetTextPointerAt(backward ? 12 : 8), editor.GetTextPointerAt(backward ? 8 : 12));
+        var before = PromptUndoManager.CaptureSnapshot(editor);
+        host.Enable();
+        Assert.That(PromptUndoManager.CaptureSnapshot(editor), Is.EqualTo(before));
+        editor.SelectRange(12, 1);
+        editor.ReplaceSelection("");
+        host.Drain();
+        Assert.That(FontAt(editor, 8), Is.EqualTo(editor.FontFamily));
+        editor.SelectRange(12, 0);
+        editor.ReplaceSelection("`");
+        host.Drain();
+        Assert.That(FontAt(editor, 8).Source, Is.EqualTo("Consolas"));
+        editor.SelectRange(8, 4);
+        editor.ReplaceSelection("new");
+        host.Drain();
+        Assert.That(editor.GetPlainText(), Is.EqualTo("before `new` after"));
+        Assert.That(FontAt(editor, 8).Source, Is.EqualTo("Consolas"));
+        editor.SelectRange(12, 0);
+        editor.ReplaceSelection("plain");
+        host.Drain();
+        Assert.That(FontAt(editor, 12), Is.EqualTo(editor.FontFamily), "Typing outside code must not leak its font.");
+        editor.FontFamily = new FontFamily("Arial");
+        host.Drain();
+        Assert.That(FontAt(editor, 12), Is.EqualTo(editor.FontFamily));
+        Assert.That(FontAt(editor, 8).Source, Is.EqualTo("Consolas"));
+    }
+
+    [Test]
+    public void Styling_InlineCode_HandlesSplitRunsLineBreaksAndInlineUi()
+    {
+        using var host = new Host("");
+        var editor = host.Editor;
+        editor.IsUndoEnabled = false;
+        var inlineUi = new InlineUIContainer(new Border { Width = 8, Height = 8 });
+        var paragraph = new Paragraph();
+        paragraph.Inlines.Add(new Run("`fi"));
+        paragraph.Inlines.Add(inlineUi);
+        paragraph.Inlines.Add(new Run("rst"));
+        paragraph.Inlines.Add(new LineBreak());
+        paragraph.Inlines.Add(new Run("second` plain"));
+        editor.Document.Blocks.Clear();
+        editor.Document.Blocks.Add(paragraph);
+        host.Enable();
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor.GetPlainText(), Is.EqualTo("`first\nsecond` plain"));
+            Assert.That(FontAt(editor, 1).Source, Is.EqualTo("Consolas"));
+            Assert.That(FontAt(editor, 7).Source, Is.EqualTo("Consolas"));
+            Assert.That(FontAt(editor, 14), Is.EqualTo(editor.FontFamily));
+            Assert.That(paragraph.Inlines.Contains(inlineUi), Is.True);
+        });
+        editor.Width = 100;
+        host.Drain();
+        Assert.That(editor.GetCharOffset(editor.GetTextPointerAt(10)), Is.EqualTo(10));
+    }
+
+    [Test]
+    public void Styling_InlineCode_PreservesSharedUndoRedoAndTypingCoalescing()
+    {
+        using var host = new Host("`code");
+        var editor = host.Editor;
+        editor.IsUndoEnabled = false;
+        editor.SelectRange(5, 0);
+        var history = new PromptUndoHistory(editor);
+        history.CaptureBaseline();
+        editor.TextChanged += (_, _) =>
+        {
+            if (!PromptTextStyling.IsApplyingFormatting(editor))
+                history.PushSnapshot();
+        };
+        host.Enable();
+        Assert.That(history.Count, Is.EqualTo(1), "Initial formatting must not become an edit.");
+        editor.ReplaceSelection("`");
+        host.Drain();
+        editor.SelectRange(5, 0);
+        editor.ReplaceSelection("1");
+        host.Drain();
+        editor.SelectRange(6, 0);
+        editor.ReplaceSelection("2");
+        host.Drain();
+        Assert.That(history.Count, Is.EqualTo(2), "Formatting must not break a typing burst.");
+        var edited = editor.GetPlainText();
+        Assert.That(edited, Is.EqualTo("`code12`"));
+        Assert.That(history.Undo(), Is.True);
+        host.Drain();
+        Assert.That(editor.GetPlainText(), Is.EqualTo("`code"));
+        Assert.That(history.CanUndo, Is.False);
+        Assert.That(FontAt(editor, 1), Is.EqualTo(editor.FontFamily));
+        Assert.That(history.CanRedo, Is.True, "Deferred formatting must preserve the redo tail.");
+        Assert.That(history.Redo(), Is.True);
+        host.Drain();
+        Assert.That(editor.GetPlainText(), Is.EqualTo(edited));
+        Assert.That(history.Count, Is.EqualTo(2));
+        Assert.That(FontAt(editor, 1).Source, Is.EqualTo("Consolas"));
+        Assert.That(editor.IsUndoEnabled, Is.False);
+    }
+
+    [Test]
+    public void Styling_InlineCode_DisablingRestoresInheritedFont_AndReloadReappliesCodeFont()
+    {
+        using var host = new Host("`code` plain");
+        var editor = host.Editor;
+        editor.IsUndoEnabled = false;
+        host.Enable();
+        Assert.That(FontAt(editor, 1).Source, Is.EqualTo("Consolas"));
+        var changes = 0;
+        editor.TextChanged += (_, _) => changes++;
+        host.Adorner.RefreshTokens();
+        host.Drain();
+        Assert.That(changes, Is.Zero, "Unchanged font ranges should not be reformatted.");
+
+        PromptTextStyling.SetIsEnabled(editor, false);
+        editor.FontFamily = new FontFamily("Arial");
+        host.Drain();
+        Assert.That(FontAt(editor, 1), Is.EqualTo(editor.FontFamily));
+        Assert.That(FontAt(editor, 8), Is.EqualTo(editor.FontFamily));
+        host.Enable();
+        Assert.That(FontAt(editor, 1).Source, Is.EqualTo("Consolas"));
+        Assert.That(FontAt(editor, 8), Is.EqualTo(editor.FontFamily));
+        Assert.That(editor.GetPlainText(), Is.EqualTo("`code` plain"));
+    }
+
+    private static FontFamily FontAt(RichTextBox editor, int offset) =>
+        (FontFamily)new TextRange(editor.GetTextPointerAt(offset), editor.GetTextPointerAt(offset + 1))
+            .GetPropertyValue(TextElement.FontFamilyProperty);
+
     private static IEnumerable<DrawingGroup> Groups(Drawing drawing)
     {
         if (drawing is not DrawingGroup group)

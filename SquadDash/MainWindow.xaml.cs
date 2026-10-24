@@ -580,12 +580,15 @@ public partial class MainWindow : Window
     private bool _programmaticExpanderChange;
     private DeferredShutdownMode _deferredShutdown;
     private bool _transcriptFullScreenEnabled;
+    private bool _promptFullScreenEnabled;
+    private double _prePromptFullScreenMaxHeight;
+    private Thickness _prePromptFullScreenMargin;
     private bool _fullScreenPromptVisible;
     private bool _promptPanelOnTop;
     private WindowState _preFullScreenWindowState;
     private Rect _preFullScreenBounds;
 
-    // Zone column widths saved when entering fullscreen transcript mode, so they can
+    // Zone column widths saved when entering either fullscreen mode, so they can
     // be restored exactly when exiting. 0.0 means "was already collapsed before entering".
     private double _preFullScreenLeftZoneW;
     private double _preFullScreenLeft2ZoneW;
@@ -2041,7 +2044,13 @@ public partial class MainWindow : Window
         // affects agent-card layout.
         _fixtureLoaderRegistry.Register("viewMode", new ViewModeFixtureLoader(
             getTranscriptFullScreen: () => _transcriptFullScreenEnabled,
-            setTranscriptFullScreen: v => { _transcriptFullScreenEnabled = v; ApplyViewMode(); },
+            setTranscriptFullScreen: v =>
+            {
+                if (v)
+                    SetPromptFullScreen(false);
+                _transcriptFullScreenEnabled = v;
+                ApplyViewMode();
+            },
             dispatcher: Dispatcher));
 
         // agentOrder must come after viewMode (panel visibility is set) and before agentCard
@@ -2278,7 +2287,7 @@ public partial class MainWindow : Window
 
             _startupInitialized = true;
 
-            // Global shortcut: F12 → toggle UI Reveal on the active window.
+            // Global shortcuts: F12 → prompt fullscreen; Shift+F12 → UI Reveal on the active window.
             // The InputManager routing lambda was already subscribed to the static
             // InputManager.Current.PreProcessInput in the constructor; here we just
             // register the GlobalPreProcessInput handler with the broker.
@@ -2787,6 +2796,8 @@ public partial class MainWindow : Window
     {
         try
         {
+            SetPromptFullScreen(false);
+
             if (_steeringPromptInProgress || IsActiveQueueItemLocked())
                 return;
 
@@ -31137,6 +31148,9 @@ public partial class MainWindow : Window
 
     private void PromptTextBox_TextChanged(object sender, TextChangedEventArgs e)
     {
+        if (PromptTextStyling.IsApplyingFormatting(PromptTextBox))
+            return;
+
         var sw = Stopwatch.StartNew();
         var phaseStart = Stopwatch.GetTimestamp();
         void MarkPhase(PromptTextChangedPhase phase)
@@ -33428,7 +33442,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Activates or deactivates UI Reveal on the given window.
-    /// Called from both the menu item and the global F12 shortcut.
+    /// Called from both the menu item and the global Shift+F12 shortcut.
     /// </summary>
     private void ToggleUiReveal(Window targetWindow)
     {
@@ -33441,7 +33455,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Global input handler registered on <see cref="InputManager.PreProcessInput"/>.
-    /// Fires for every WPF window on this thread before dispatch, so F12
+    /// Fires for every WPF window on this thread before dispatch, so F12 and Shift+F12
     /// works even when a floating window (hint overlay, doc window, etc.) has keyboard focus.
     /// </summary>
     private void OnGlobalPreProcessInput(object sender, PreProcessInputEventArgs e)
@@ -33508,12 +33522,20 @@ public partial class MainWindow : Window
 
             if (key != Key.F12 && key != Key.F11 && key != Key.F6 && key != Key.F5) return;
 
-            // F6 and F12 require no modifiers; F11 variants handle full-screen and other toggles.
+            // F5/F6 require no modifiers; F12 toggles prompt fullscreen, Shift+F12 reveals UI.
             bool isCtrl      = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
             bool isShift     = (Keyboard.Modifiers & ModifierKeys.Shift)   == ModifierKeys.Shift;
             bool noMods      = Keyboard.Modifiers == ModifierKeys.None;
             bool isCtrlOnly  = isCtrl && !isShift;
             bool isCtrlShift = isCtrl && isShift;
+
+            if (key == Key.F12 && noMods)
+            {
+                if (!keyArgs.IsRepeat)
+                    SetPromptFullScreen(!_promptFullScreenEnabled);
+                keyArgs.Handled = true;
+                return;
+            }
 
             // Bare F11 is handled here (not deferred to Window_PreviewKeyDown) so it works
             // even when a menu popup has focus and Window_PreviewKeyDown never fires.
@@ -33530,7 +33552,8 @@ public partial class MainWindow : Window
                 keyArgs.Handled = true;
                 return;
             }
-            if (key != Key.F11 && !noMods) return;
+            if (key != Key.F11 && !noMods
+                && !(key == Key.F12 && Keyboard.Modifiers == ModifierKeys.Shift)) return;
 
             // Find the WPF window that currently has focus; fall back to MainWindow.
             var target = Application.Current.Windows
@@ -33561,9 +33584,10 @@ public partial class MainWindow : Window
                 ShowAgentAvatarsMenuItem.IsChecked = !ShowAgentAvatarsMenuItem.IsChecked;
                 ShowAgentAvatarsMenuItem_Click(this, new RoutedEventArgs());
             }
-            else if (key == Key.F12)
+            else if (key == Key.F12 && Keyboard.Modifiers == ModifierKeys.Shift)
             {
-                ToggleUiReveal(target);
+                if (!keyArgs.IsRepeat)
+                    ToggleUiReveal(target);
             }
             keyArgs.Handled = true;
         }
@@ -38200,14 +38224,7 @@ public partial class MainWindow : Window
         if (RestoreLayoutSlot3MenuItem is not null)
             RestoreLayoutSlot3MenuItem.IsEnabled = _layoutPresetManager.HasPreset(2);
 
-        // In full-screen mode these two items reflect unchecked regardless of backing state.
-        // Avatars also show unchecked when panels are hidden (focus mode on) since they aren't visible.
-        if (FocusModeMenuItem is not null)
-            FocusModeMenuItem.IsChecked = !_agentsPanelFocusModeEnabled && !_transcriptFullScreenEnabled;
-        if (ShowAgentAvatarsMenuItem is not null)
-            ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars
-                                                 && !_transcriptFullScreenEnabled
-                                                 && !_agentsPanelFocusModeEnabled;
+        UpdateViewModeMenuChecks();
     }
 
     private readonly PanelMenuItemSorter _panelMenuItemSorter = new();
@@ -38296,6 +38313,7 @@ public partial class MainWindow : Window
     {
         try
         {
+            SetPromptFullScreen(false);
             SetTranscriptFullScreen(false);
         }
         catch (Exception ex)
@@ -38313,6 +38331,18 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             HandleUiCallbackException(nameof(FullScreenTranscriptMenuItem_Click), ex);
+        }
+    }
+
+    private void FullScreenPromptMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SetPromptFullScreen(!_promptFullScreenEnabled);
+        }
+        catch (Exception ex)
+        {
+            HandleUiCallbackException(nameof(FullScreenPromptMenuItem_Click), ex);
         }
     }
 
@@ -38358,6 +38388,9 @@ public partial class MainWindow : Window
 
     private void SetTranscriptFullScreen(bool enabled)
     {
+        if (enabled)
+            SetPromptFullScreen(false);
+
         if (_transcriptFullScreenEnabled == enabled)
             return;
 
@@ -38381,6 +38414,62 @@ public partial class MainWindow : Window
         else
             _guidedTourCoordinator.RaiseExitFullScreenTranscript(this);
 
+        ApplyFullScreenWindowLayout(enabled);
+
+        // Capture before ApplyViewMode changes the layout (and possibly the scroll extent).
+        bool wasAtBottom = !ActiveScrollController.IsUserScrolledAway;
+
+        ApplyViewMode();
+
+        // When exiting fullscreen while at the bottom, re-anchor after layout settles so
+        // the newly-visible status panel / prompt area doesn't leave a gap at the bottom.
+        if (!enabled && wasAtBottom)
+            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
+                (Action)(() => ActiveScrollController.ScrollToBottom()));
+
+        // Persist fullscreen state per workspace.
+        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
+        _docsPanelState = state with { FullScreenTranscript = enabled };
+        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
+    }
+
+    private void SetPromptFullScreen(bool enabled)
+    {
+        if (_promptFullScreenEnabled == enabled)
+            return;
+
+        if (enabled)
+        {
+            SetTranscriptFullScreen(false);
+            SetAgentsPanelFocusMode(false);
+            _prePromptFullScreenMaxHeight = PromptTextBox.MaxHeight;
+            _prePromptFullScreenMargin = PromptBorder.Margin;
+        }
+        else
+        {
+            PromptTextBox.MaxHeight = _prePromptFullScreenMaxHeight;
+            PromptBorder.Margin = _prePromptFullScreenMargin;
+        }
+
+        _promptFullScreenEnabled = enabled;
+        _fullScreenPromptVisible = false;
+        bool wasAtBottom = !ActiveScrollController.IsUserScrolledAway;
+        ApplyFullScreenWindowLayout(enabled);
+        ApplyViewMode();
+
+        if (enabled)
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, () =>
+            {
+                if (_promptFullScreenEnabled)
+                    PromptTextBox.Focus();
+            });
+        else if (wasAtBottom)
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
+                (Action)(() => ActiveScrollController.ScrollToBottom()));
+    }
+
+    private void ApplyFullScreenWindowLayout(bool enabled)
+    {
         if (enabled)
         {
             _preFullScreenWindowState = WindowState;
@@ -38391,7 +38480,7 @@ public partial class MainWindow : Window
             if (WindowState != WindowState.Maximized)
                 WindowState = WindowState.Maximized;
 
-            // Save and collapse all occupied docking zone columns so the transcript fills
+            // Save and collapse all occupied docking zone columns so the fullscreen panel fills
             // the full width. Splitter columns are zeroed alongside their zone columns.
             _preFullScreenLeftZoneW   = LeftZoneColumn.Width.IsAbsolute   ? LeftZoneColumn.Width.Value   : 0;
             _preFullScreenLeft2ZoneW  = Left2ZoneColumn.Width.IsAbsolute  ? Left2ZoneColumn.Width.Value  : 0;
@@ -38508,27 +38597,18 @@ public partial class MainWindow : Window
             UpdateMainGridSideMargins();
         }
 
-        // Capture before ApplyViewMode changes the layout (and possibly the scroll extent).
-        bool wasAtBottom = !ActiveScrollController.IsUserScrolledAway;
-
-        ApplyViewMode();
-
-        // When exiting fullscreen while at the bottom, re-anchor after layout settles so
-        // the newly-visible status panel / prompt area doesn't leave a gap at the bottom.
-        if (!enabled && wasAtBottom)
-            Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
-                (Action)(() => ActiveScrollController.ScrollToBottom()));
-
-        // Persist fullscreen state per workspace.
-        var state = _docsPanelState ?? _settingsStore.GetDocsPanelState(_currentWorkspace?.FolderPath);
-        _docsPanelState = state with { FullScreenTranscript = enabled };
-        _settingsManager.Replace(_settingsStore.SaveDocsPanelState(_currentWorkspace?.FolderPath, _docsPanelState));
     }
 
     private void FocusModeMenuItem_Click(object sender, RoutedEventArgs e)
     {
         try
         {
+            if (_promptFullScreenEnabled)
+            {
+                SetPromptFullScreen(false);
+                return;
+            }
+
             if (_transcriptFullScreenEnabled)
             {
                 // In full-screen: just exit. If panels were also hidden (focus mode on),
@@ -38550,10 +38630,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (_transcriptFullScreenEnabled)
+            if (_transcriptFullScreenEnabled || _promptFullScreenEnabled)
             {
                 // In full-screen: just exit. If avatars were off, turn them on so they
                 // become visible. Don't toggle if already on (would hide them).
+                SetPromptFullScreen(false);
                 SetTranscriptFullScreen(false);
                 if (!_settingsSnapshot.ShowAgentAvatars)
                 {
@@ -38595,6 +38676,9 @@ public partial class MainWindow : Window
     /// </summary>
     private void SetAgentsPanelFocusMode(bool enabled)
     {
+        if (enabled)
+            SetPromptFullScreen(false);
+
         if (_agentsPanelFocusModeEnabled == enabled)
             return;
 
@@ -38670,18 +38754,18 @@ public partial class MainWindow : Window
         if (_promptPanelOnTop == onTop) return;
         _promptPanelOnTop = onTop;
 
-        // Row 3 is the transcript (Height="*"), Row 4 is the prompt (Height="Auto").
+        // Row 4 is the transcript (Height="*"), Row 5 is the prompt (Height="Auto").
         // Swap Grid.Row assignments and also swap the RowDefinition heights so that
         // whichever panel is in the star-height slot stretches to fill available space.
         if (TranscriptPanelsGrid is null || PromptBorder is null || MainGrid is null) return;
 
-        var transcriptRow = MainGrid.RowDefinitions[3];
-        var promptRow     = MainGrid.RowDefinitions[4];
+        var transcriptRow = MainGrid.RowDefinitions[4];
+        var promptRow     = MainGrid.RowDefinitions[5];
 
         if (onTop)
         {
-            Grid.SetRow(PromptBorder,        3);
-            Grid.SetRow(TranscriptPanelsGrid, 4);
+            Grid.SetRow(PromptBorder,        4);
+            Grid.SetRow(TranscriptPanelsGrid, 5);
             transcriptRow.Height = new GridLength(1, GridUnitType.Auto);
             promptRow.Height     = new GridLength(1, GridUnitType.Star);
             PromptBorder.Margin        = new Thickness(0, 0, 0, 14);
@@ -38689,12 +38773,18 @@ public partial class MainWindow : Window
         }
         else
         {
-            Grid.SetRow(PromptBorder,        4);
-            Grid.SetRow(TranscriptPanelsGrid, 3);
+            Grid.SetRow(PromptBorder,        5);
+            Grid.SetRow(TranscriptPanelsGrid, 4);
             transcriptRow.Height = new GridLength(1, GridUnitType.Star);
             promptRow.Height     = new GridLength(1, GridUnitType.Auto);
             PromptBorder.Margin        = new Thickness(0);
             TranscriptPanelsGrid.Margin = new Thickness(0, 6, 0, 6);
+        }
+
+        if (_promptFullScreenEnabled)
+        {
+            _prePromptFullScreenMargin = PromptBorder.Margin;
+            ApplyViewMode();
         }
 
         // Persist per workspace.
@@ -41763,30 +41853,58 @@ public partial class MainWindow : Window
         };
     }
 
-    private void ApplyViewMode()
+    private void UpdateViewModeMenuChecks()
     {
         if (FullScreenTranscriptMenuItem is not null)
             FullScreenTranscriptMenuItem.IsChecked = _transcriptFullScreenEnabled;
 
+        if (FullScreenPromptMenuItem is not null)
+            FullScreenPromptMenuItem.IsChecked = _promptFullScreenEnabled;
+
         if (FocusModeMenuItem is not null)
-            FocusModeMenuItem.IsChecked = !_agentsPanelFocusModeEnabled && !_transcriptFullScreenEnabled;
+            FocusModeMenuItem.IsChecked = !_agentsPanelFocusModeEnabled
+                                         && !_transcriptFullScreenEnabled && !_promptFullScreenEnabled;
 
         if (ShowAgentAvatarsMenuItem is not null)
             ShowAgentAvatarsMenuItem.IsChecked = _settingsSnapshot.ShowAgentAvatars
                                                  && !_transcriptFullScreenEnabled
+                                                 && !_promptFullScreenEnabled
                                                  && !_agentsPanelFocusModeEnabled;
+    }
+
+    private void ApplyViewMode()
+    {
+        UpdateViewModeMenuChecks();
 
         if (ToolsRepoDocumentationMenuItem is not null)
             ToolsRepoDocumentationMenuItem.IsChecked = _documentationModeEnabled;
 
         if (StatusPanelBorder is not null)
-            StatusPanelBorder.Visibility = (_transcriptFullScreenEnabled || _agentsPanelFocusModeEnabled)
+            StatusPanelBorder.Visibility = (_transcriptFullScreenEnabled || _promptFullScreenEnabled || _agentsPanelFocusModeEnabled)
                 ? Visibility.Collapsed : Visibility.Visible;
 
         if (PromptBorder is not null)
             PromptBorder.Visibility = (_transcriptFullScreenEnabled && !_fullScreenPromptVisible)
                 ? Visibility.Collapsed
                 : Visibility.Visible;
+
+        if (TranscriptPanelsGrid is not null && PromptBorder is not null && MainGrid is not null)
+        {
+            TranscriptPanelsGrid.Visibility = _promptFullScreenEnabled ? Visibility.Collapsed : Visibility.Visible;
+            MainGrid.RowDefinitions[Grid.GetRow(TranscriptPanelsGrid)].Height = _promptFullScreenEnabled
+                ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+            MainGrid.RowDefinitions[Grid.GetRow(PromptBorder)].Height = _promptFullScreenEnabled
+                ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        }
+
+        if (PromptEditorRow is not null)
+            PromptEditorRow.Height = _promptFullScreenEnabled ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+
+        if (_promptFullScreenEnabled && PromptBorder is not null)
+        {
+            PromptTextBox.MaxHeight = double.PositiveInfinity;
+            PromptBorder.Margin = new Thickness(0);
+        }
 
         // In fullscreen both status panel and prompt are hidden — zero out top/bottom margin so
         // the transcript sits flush against the outer 14 px MainGrid margin on all four sides.
@@ -41800,7 +41918,7 @@ public partial class MainWindow : Window
                     : new Thickness(0, 6, 0, 6);
 
         // Documentation mode: show docs panel whenever documentation mode is active
-        var docsVisible = _documentationModeEnabled;
+        var docsVisible = _documentationModeEnabled && !_promptFullScreenEnabled;
 
         if (DocsSplitter is not null)
             DocsSplitter.Visibility = docsVisible ? Visibility.Visible : Visibility.Collapsed;
@@ -41983,6 +42101,7 @@ public partial class MainWindow : Window
         _workspaceOwnershipLease = workspaceLease;
         _startupWorkspaceLease = null;
 
+        SetPromptFullScreen(false);
         InvalidateButtonsWorkspace();
         _currentWorkspace = targetWorkspace;
         AgentArtifactStore.CleanupExpiredArchives(

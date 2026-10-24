@@ -8,6 +8,7 @@ internal enum PromptTextTokenKind {
     HeadingMarker,
     BoldContent,
     HexColor,
+    InlineCodeContent,
 }
 
 internal readonly record struct PromptTextToken(
@@ -28,6 +29,7 @@ internal static class PromptTextTokenParser {
 
         var inInlineCode = false;
         var inlineCodeDelimiterLength = 0;
+        var inlineCodeStart = 0;
 
         var i = 0;
         while (i < text.Length) {
@@ -77,11 +79,14 @@ internal static class PromptTextTokenParser {
                 if (!inInlineCode) {
                     inInlineCode = true;
                     inlineCodeDelimiterLength = tickCount;
+                    inlineCodeStart = i + tickCount;
                     i += tickCount;
                     continue;
                 }
 
                 if (tickCount == inlineCodeDelimiterLength) {
+                    if (i > inlineCodeStart)
+                        tokens.Add(new PromptTextToken(inlineCodeStart, i - inlineCodeStart, PromptTextTokenKind.InlineCodeContent));
                     inInlineCode = false;
                     inlineCodeDelimiterLength = 0;
                 }

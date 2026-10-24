@@ -752,6 +752,11 @@
                               IsCheckable="True"
                               InputGestureText="F11"
                               Click="FullScreenTranscriptMenuItem_Click" />
+                    <MenuItem x:Name="FullScreenPromptMenuItem"
+                              Header="Full Screen _Prompt"
+                              IsCheckable="True"
+                              InputGestureText="F12"
+                              Click="FullScreenPromptMenuItem_Click" />
                     <MenuItem x:Name="FocusModeMenuItem"
                               Header="_Agents and Top Panels"
                               IsCheckable="True"
@@ -909,7 +914,7 @@
                           ItemContainerStyle="{StaticResource ThemedMenuItemStyle}"
                           Visibility="Collapsed">
                     <MenuItem Header="_UI Reveal"
-                              InputGestureText="F12"
+                              InputGestureText="Shift+F12"
                               Click="UiRevealMenuItem_Click" />
                     <MenuItem Header="_Theme Reveal"
                               InputGestureText="Ctrl+Shift+F11"
@@ -3349,7 +3354,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
+                    <RowDefinition x:Name="PromptEditorRow" Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>

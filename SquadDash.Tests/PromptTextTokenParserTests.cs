@@ -142,6 +142,24 @@ internal sealed class PromptTextTokenParserTests {
             Is.EqualTo(new[] { (text.LastIndexOf("**bold**", System.StringComparison.Ordinal) + 2, 4) }));
     }
 
+    [TestCase("before `code` after", "code")]
+    [TestCase("``code ` with tick``", "code ` with tick")]
+    [TestCase("`` code ``` **not bold** `` **bold**", " code ``` **not bold** ")]
+    [TestCase("`first\nsecond`", "first\nsecond")]
+    [TestCase("`**literal** #abc`", "**literal** #abc")]
+    public void Parse_InlineCodeContent_ExcludesMatchingBacktickDelimiters(string text, string content) {
+        var token = PromptTextTokenParser.Parse(text).Single(t => t.Kind == PromptTextTokenKind.InlineCodeContent);
+        Assert.That(text.Substring(token.Start, token.Length), Is.EqualTo(content));
+    }
+
+    [TestCase("`unfinished")]
+    [TestCase("`mismatched``")]
+    [TestCase(@"\\\`escaped\`")]
+    [TestCase("``")]
+    public void Parse_UnpairedOrEscapedBackticks_EmitNoCodeContent(string text) {
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.InlineCodeContent), Is.Empty);
+    }
+
     [TestCase("**unfinished")]
     [TestCase("__unfinished")]
     [TestCase("** **")]
