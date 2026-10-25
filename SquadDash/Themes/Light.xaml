@@ -66,6 +66,7 @@
     <SolidColorBrush x:Key="ApprovalSelectedSurface" Color="#80E8E0D4"/>
     <SolidColorBrush x:Key="TranscriptSurface" Color="#FFFCF8"/>
     <SolidColorBrush x:Key="TextBoxBackground" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="PromptQuotedText" Color="#800020"/>
     <SolidColorBrush x:Key="InputSurface" Color="#F8F2E8"/>
     <!-- InputSurface blended 50% toward light-theme polarity (white). -->
     <SolidColorBrush x:Key="ApprovalFieldSurface" Color="#FCF9F4"/>

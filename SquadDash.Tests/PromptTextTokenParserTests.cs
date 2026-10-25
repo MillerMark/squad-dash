@@ -5,6 +5,115 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class PromptTextTokenParserTests {
+    [TestCase("before \"quoted prose\" after", "quoted prose")]
+    [TestCase("before \u201Ccurly prose\u201D after", "curly prose")]
+    [TestCase("\" don't 'change' apostrophes \u2019 \"", " don't 'change' apostrophes \u2019 ")]
+    [TestCase("\"outer \u201Cinner\u201D tail\"", "outer \u201Cinner\u201D tail")]
+    [TestCase("\u201Couter \"inner\" tail\u201D", "outer \"inner\" tail")]
+    [TestCase("\"say \\\"hello\\\" now\"", "say \\\"hello\\\" now")]
+    [TestCase("\u201Cescaped \\\u201D inside\u201D", "escaped \\\u201D inside")]
+    public void Parse_QuotedContent_ExcludesOnlyMatchedOuterDelimiters(string text, string content) {
+        var token = PromptTextTokenParser.Parse(text).Single(t => t.Kind == PromptTextTokenKind.QuotedContent);
+        Assert.Multiple(() => {
+            Assert.That(token.Start, Is.EqualTo(text.IndexOf(content, System.StringComparison.Ordinal)));
+            Assert.That(token.Length, Is.EqualTo(content.Length));
+            Assert.That(text.Substring(token.Start, token.Length), Is.EqualTo(content));
+        });
+    }
+
+    [TestCase("\"unfinished")]
+    [TestCase("\u201Cunfinished")]
+    [TestCase("\"mismatched\u201D")]
+    [TestCase("\u201Cmismatched\"")]
+    [TestCase("\u201Dreversed\u201C")]
+    [TestCase("\"\"")]
+    [TestCase("\u201C \t\u00A0\u201D")]
+    [TestCase("'single' don't users' \u2018curly single\u2019")]
+    [TestCase("\\\"escaped\\\"")]
+    [TestCase("\"first\nsecond\"")]
+    [TestCase("\"first\rsecond\"")]
+    [TestCase("\u201Cfirst\r\nsecond\u201D")]
+    [TestCase("`\"inside code\"`")]
+    [TestCase("``\u201Cinside ` code\u201D``")]
+    [TestCase("```csharp\n\"inside fence\"\n```")]
+    [TestCase("`unfinished \"still code\"")]
+    public void Parse_InvalidOrCodeQuotes_EmitNoQuotedContent(string text) {
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.QuotedContent), Is.Empty);
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    [TestCase(3)]
+    [TestCase(32)]
+    [TestCase(33)]
+    public void Parse_QuoteEscapes_UseBackslashParityAtBothDelimiters(int backslashes) {
+        var slashes = new string('\\', backslashes);
+        var opening = slashes + "\"word\"";
+        var closing = "\"word" + slashes + "\"";
+        var expectedCount = backslashes % 2 == 0 ? 1 : 0;
+        Assert.Multiple(() => {
+            Assert.That(PromptTextTokenParser.Parse(opening).Count(t => t.Kind == PromptTextTokenKind.QuotedContent),
+                Is.EqualTo(expectedCount), "Escaped opening quote must remain literal.");
+            var tokens = PromptTextTokenParser.Parse(closing).Where(t => t.Kind == PromptTextTokenKind.QuotedContent).ToArray();
+            Assert.That(tokens, Has.Length.EqualTo(expectedCount), "Escaped closing quote must not complete the pair.");
+            if (expectedCount == 1)
+                Assert.That(tokens.Single(), Is.EqualTo(new PromptTextToken(1, 4 + backslashes, PromptTextTokenKind.QuotedContent)));
+        });
+    }
+
+    [TestCase("\n")]
+    [TestCase("\r")]
+    [TestCase("\r\n")]
+    public void Parse_HardBreak_DiscardsUnfinishedQuoteAndRecoversOnNextLine(string lineBreak) {
+        var text = "\"unfinished" + lineBreak + "\"next\" \u201Cpair\u201D";
+        var tokens = PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.QuotedContent).ToArray();
+        Assert.That(tokens.Select(t => (t.Start, text.Substring(t.Start, t.Length))),
+            Is.EqualTo(new[] { (text.IndexOf("next", System.StringComparison.Ordinal), "next"),
+                (text.IndexOf("pair", System.StringComparison.Ordinal), "pair") }));
+    }
+
+    [TestCase("\"before `code \"literal\"` after\"")]
+    [TestCase("\"before ``code ` \"literal\"`` after\"")]
+    public void Parse_QuotesAroundCode_EmitOverlappingRangeForPainterToMask(string text) {
+        var tokens = PromptTextTokenParser.Parse(text);
+        var quote = tokens.Single(t => t.Kind == PromptTextTokenKind.QuotedContent);
+        var code = tokens.Single(t => t.Kind == PromptTextTokenKind.InlineCodeContent);
+        Assert.Multiple(() => {
+            Assert.That(quote, Is.EqualTo(new PromptTextToken(1, text.Length - 2, PromptTextTokenKind.QuotedContent)));
+            Assert.That(code.Start, Is.GreaterThan(quote.Start));
+            Assert.That(code.Start + code.Length, Is.LessThan(quote.Start + quote.Length));
+            Assert.That(tokens, Is.Ordered.By(nameof(PromptTextToken.Start)));
+        });
+    }
+
+    [Test]
+    public void Parse_QuotedBoldAndHex_PreserveAllOverlappingTokenKinds() {
+        const string text = "\"**bold #abc**\"";
+        var tokens = PromptTextTokenParser.Parse(text);
+        Assert.That(tokens, Is.EqualTo(new[] {
+            new PromptTextToken(1, 13, PromptTextTokenKind.QuotedContent),
+            new PromptTextToken(3, 9, PromptTextTokenKind.BoldContent),
+            new PromptTextToken(8, 4, PromptTextTokenKind.HexColor, Color.FromRgb(0xAA, 0xBB, 0xCC)),
+        }));
+    }
+
+    [Test]
+    public void Parse_LongIncompleteQuoteAndEscapes_CompletesWithinGenerousRegressionBudget() {
+        var text = "\"" + string.Concat(Enumerable.Repeat(new string('\\', 63) + "\" prose ", 16000)) + "#A1B2C3";
+        _ = PromptTextTokenParser.Parse("\"warmup\"");
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var tokens = PromptTextTokenParser.Parse(text);
+        watch.Stop();
+        Assert.Multiple(() => {
+            Assert.That(tokens.Where(t => t.Kind == PromptTextTokenKind.QuotedContent), Is.Empty);
+            Assert.That(tokens.Single(t => t.Kind == PromptTextTokenKind.HexColor).Start, Is.EqualTo(text.Length - 7));
+            Assert.That(watch.Elapsed, Is.LessThan(System.TimeSpan.FromSeconds(5)),
+                "Over one million characters of incomplete escaped prose must not trigger pathological scanning.");
+        });
+        TestContext.Out.WriteLine($"Parsed {text.Length:N0} incomplete characters in {watch.Elapsed.TotalMilliseconds:F1} ms.");
+    }
+
     [Test]
     public void Parse_PlainText_ReturnsNoTokens() {
         Assert.That(PromptTextTokenParser.Parse("plain text only"), Is.Empty);

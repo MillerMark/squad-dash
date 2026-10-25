@@ -2,8 +2,10 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Xml.Linq;
 
 namespace SquadDash.Tests;
 
@@ -11,6 +13,324 @@ namespace SquadDash.Tests;
 [Apartment(ApartmentState.STA)]
 internal sealed class PromptTextStylingTests
 {
+    [TestCase("Light", "#800020", "#FFFFFF", 10.832)]
+    [TestCase("Dark", "#E6A0B4", "#131110", 9.012)]
+    public void Styling_Quotes_UseRealThemeForegroundAndPromptBackgroundWithAccessibleContrast(
+        string theme, string foreground, string background, double expectedContrast)
+    {
+        using var host = new Host("before \"quoted prose\" after");
+        host.SetTheme(theme);
+        host.Enable();
+        var quoteBrush = host.QuoteBrush;
+        var actualBackground = (SolidColorBrush)host.Editor.Background;
+        var contrast = ContrastRatio(quoteBrush.Color, actualBackground.Color);
+        Assert.Multiple(() =>
+        {
+            Assert.That(quoteBrush.Color, Is.EqualTo(ColorConverter.ConvertFromString(foreground)));
+            Assert.That(actualBackground.Color, Is.EqualTo(ColorConverter.ConvertFromString(background)));
+            Assert.That(quoteBrush.Color.A, Is.EqualTo(255));
+            Assert.That(actualBackground.Color.A, Is.EqualTo(255));
+            Assert.That(contrast, Is.GreaterThanOrEqualTo(4.5));
+            Assert.That(contrast, Is.EqualTo(expectedContrast).Within(0.001));
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, quoteBrush)), Is.True,
+                "Contrast must use the brush actually selected by the painter, not an unused theme token.");
+        });
+        AssertQuoteCells(host, i => i >= 8 && i < 20);
+        TestContext.Out.WriteLine($"{theme}: {quoteBrush.Color} on {actualBackground.Color}: {contrast:F3}:1.");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void Styling_Quotes_PreserveSourceRunsSelectionDirectionCaretAndUndo(bool backward)
+    {
+        using var host = new Host("before \"quoted prose\" after");
+        host.SetTheme("Light");
+        var editor = host.Editor;
+        editor.Selection.Select(editor.GetTextPointerAt(backward ? 14 : 9), editor.GetTextPointerAt(backward ? 9 : 14));
+        var snapshot = PromptUndoManager.CaptureSnapshot(editor);
+        var blocks = editor.Document.Blocks.ToArray();
+        var runs = editor.Document.Blocks.OfType<Paragraph>().SelectMany(p => p.Inlines).ToArray();
+        var positions = Enumerable.Range(0, snapshot.SerializedText.Length)
+            .Select(i => editor.GetTextPointerAt(i).GetCharacterRect(LogicalDirection.Forward)).ToArray();
+        var changes = 0;
+        editor.TextChanged += (_, _) => changes++;
+        host.Enable();
+        Assert.Multiple(() =>
+        {
+            Assert.That(PromptUndoManager.CaptureSnapshot(editor), Is.EqualTo(snapshot));
+            Assert.That(editor.Document.Blocks.ToArray(), Is.EqualTo(blocks));
+            Assert.That(editor.Document.Blocks.OfType<Paragraph>().SelectMany(p => p.Inlines), Is.EqualTo(runs));
+            Assert.That(Enumerable.Range(0, snapshot.SerializedText.Length)
+                .Select(i => editor.GetTextPointerAt(i).GetCharacterRect(LogicalDirection.Forward)), Is.EqualTo(positions));
+            Assert.That(changes, Is.Zero);
+            Assert.That(editor.CanUndo, Is.False);
+        });
+        for (var i = 0; i <= snapshot.SerializedText.Length; i++)
+            Assert.That(editor.GetCharOffset(editor.GetTextPointerAt(i)), Is.EqualTo(i));
+    }
+
+    [TestCase("Light")]
+    [TestCase("Dark")]
+    public void Styling_QuotedSelection_LeavesSelectedCellsToNativeForeground(string theme)
+    {
+        using var host = new Host("\"abcdef\"");
+        host.SetTheme(theme);
+        host.Enable();
+        var selectionBrush = host.Editor.SelectionBrush;
+        var foreground = new TextRange(host.Editor.Document.ContentStart, host.Editor.Document.ContentEnd)
+            .GetPropertyValue(TextElement.ForegroundProperty);
+        host.Editor.SelectRange(3, 2);
+        host.Drain();
+        AssertQuoteCells(host, i => i is 1 or 2 or 5 or 6);
+        host.Editor.SelectRange(1, 6);
+        host.Drain();
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Drawings(), Is.Empty, "No quote mask or ink may overwrite native selected text.");
+            Assert.That(host.Editor.SelectionBrush, Is.SameAs(selectionBrush));
+            Assert.That(new TextRange(host.Editor.Document.ContentStart, host.Editor.Document.ContentEnd)
+                .GetPropertyValue(TextElement.ForegroundProperty), Is.EqualTo(foreground));
+            Assert.That(host.Editor.GetSelectedText(), Is.EqualTo("abcdef"));
+        });
+        host.Editor.SelectRange(0, 0);
+        host.Drain();
+        AssertQuoteCells(host, i => i >= 1 && i <= 6);
+    }
+
+    [Test]
+    public void Styling_QuotedCaret_IsExcludedFromOverlay()
+    {
+        using var host = new Host("\"abcdef\"");
+        host.SetTheme("Light");
+        host.Editor.SelectRange(4, 0);
+        host.Enable();
+        var caret = host.Editor.CaretPosition.GetCharacterRect(host.Editor.CaretPosition.LogicalDirection);
+        var clip = Groups(VisualTreeHelper.GetDrawing(host.Adorner)!)
+            .Select(g => g.ClipGeometry).OfType<CombinedGeometry>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(clip.GeometryCombineMode, Is.EqualTo(GeometryCombineMode.Exclude));
+            Assert.That(clip.FillContains(new Point(caret.Left, caret.Top + caret.Height / 2)), Is.False);
+            Assert.That(host.Editor.GetCaretOffset(), Is.EqualTo(4));
+        });
+    }
+
+    [TestCase("\"unfinished")]
+    [TestCase("\u201Cmismatched\"")]
+    [TestCase("\" \t \"")]
+    [TestCase("'literal' don't \u2018single\u2019")]
+    [TestCase("\\\"escaped\\\"")]
+    [TestCase("\"hard\nbreak\"")]
+    [TestCase("`\"inside code\"`")]
+    public void Styling_InvalidQuotes_DoNotPaintMaroon(string text)
+    {
+        using var host = new Host(text);
+        host.SetTheme("Light");
+        host.Enable();
+        Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.False);
+    }
+
+    [TestCase("\"before `code \"literal\"` after\"")]
+    [TestCase("\"before ``code ` \"literal\"`` after\"")]
+    [TestCase("\u201Cbefore `code \u201Cinside\u201D` after\u201D")]
+    public void Styling_QuotesAroundCode_MaskCodeAndAllBacktickDelimiters(string text)
+    {
+        using var host = new Host(text);
+        host.SetTheme("Dark");
+        host.Editor.IsUndoEnabled = false;
+        host.Enable();
+        var firstTick = text.IndexOf('`');
+        var lastTick = text.LastIndexOf('`');
+        AssertQuoteCells(host, i => i > 0 && i < text.Length - 1 && (i < firstTick || i > lastTick));
+        Assert.That(host.Editor.GetPlainText(), Is.EqualTo(text));
+    }
+
+    [Test]
+    public void Styling_QuotedBoldAndSwatches_PreserveWeightAndChipColors()
+    {
+        using var host = new Host("\"plain **bold** #abc\" #def");
+        host.SetTheme("Light");
+        host.Enable();
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush) &&
+                d.Pen?.Thickness == host.Editor.FontSize / 24), Is.True);
+            Assert.That(host.Drawings().Count(d => d.Brush is SolidColorBrush b &&
+                b.Color == Color.FromRgb(0xAA, 0xBB, 0xCC)), Is.EqualTo(1));
+            Assert.That(host.Drawings().Count(d => d.Brush is SolidColorBrush b &&
+                b.Color == Color.FromRgb(0xDD, 0xEE, 0xFF)), Is.EqualTo(1));
+            Assert.That(host.Editor.GetPlainText(), Is.EqualTo("\"plain **bold** #abc\" #def"));
+            Assert.That(host.Editor.CanUndo, Is.False);
+        });
+    }
+
+    [Test]
+    public void Styling_Quotes_SkipEmbeddedFenceAndDoNotMatchAcrossIt()
+    {
+        using var host = new Host("\"unfinished\n```text\n\"code\" **bold** #00ff00\n```\ntail\"\n\"after\"");
+        host.SetTheme("Dark");
+        Assert.That(EmbeddedCodeRegionManager.TryConvertNextFence(host.Editor), Is.True);
+        var region = RichTextBoxExtensions.EnumerateEmbeddedRegions(host.Editor).Single();
+        var text = host.Editor.GetPlainText();
+        host.Enable();
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Drawings().Count(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.EqualTo(1));
+            Assert.That(host.Drawings().Any(d => d.Brush is SolidColorBrush b && b.Color == Colors.Lime), Is.False);
+            Assert.That(host.Drawings().Any(d => d.Pen?.Thickness == host.Editor.FontSize / 24), Is.False);
+            Assert.That(RichTextBoxExtensions.EnumerateEmbeddedRegions(host.Editor).Single(), Is.SameAs(region));
+            Assert.That(region.Content, Is.EqualTo("\"code\" **bold** #00ff00"));
+            Assert.That(host.Editor.GetPlainText(), Is.EqualTo(text));
+        });
+    }
+
+    [Test]
+    public void Styling_QuotedContent_SurvivesVisualWrapButStopsAtHardLineBreak()
+    {
+        const string text = "\"words that wrap onto several visual lines\"";
+        using var host = new Host(text);
+        host.SetTheme("Light");
+        host.Editor.Width = 180;
+        host.Enable();
+        Assert.That(QuoteClips(host).Select(r => r.Top).Distinct().Count(), Is.GreaterThan(1));
+        AssertQuoteCells(host, i => i > 0 && i < text.Length - 1);
+
+        var paragraph = new Paragraph(new Run("\"words"));
+        paragraph.Inlines.Add(new LineBreak());
+        paragraph.Inlines.Add(new Run("next line\""));
+        host.Editor.Document.Blocks.Clear();
+        host.Editor.Document.Blocks.Add(paragraph);
+        host.Drain();
+        Assert.That(host.Drawings(), Is.Empty, "Hard LineBreak must remove old wrapped quote paint.");
+    }
+
+    [Test]
+    public void Styling_QuotesAcrossSplitRuns_KeepDelimitersAndInlineUiLiteral()
+    {
+        using var host = new Host("");
+        host.SetTheme("Light");
+        var paragraph = new Paragraph(new Run("\"ab"));
+        var inlineUi = new InlineUIContainer(new Border { Width = 8, Height = 8 });
+        paragraph.Inlines.Add(inlineUi);
+        paragraph.Inlines.Add(new Run("cd\" tail"));
+        host.Editor.Document.Blocks.Clear();
+        host.Editor.Document.Blocks.Add(paragraph);
+        host.Enable();
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.True);
+            Assert.That(host.Editor.GetPlainText(), Is.EqualTo("\"abcd\" tail"));
+            Assert.That(paragraph.Inlines.Contains(inlineUi), Is.True);
+        });
+    }
+
+    [Test]
+    public void Styling_ClosingQuoteEdit_UndoRedoDoesNotLeakColorOrAddNativeUndoUnits()
+    {
+        using var host = new Host("\"word");
+        host.SetTheme("Light");
+        host.Enable();
+        Assert.That(host.Drawings(), Is.Empty);
+        host.Editor.SelectRange(5, 0);
+        host.Editor.ReplaceSelection("\"");
+        host.Drain();
+        AssertQuoteCells(host, i => i >= 1 && i <= 4);
+        host.Editor.Undo();
+        host.Drain();
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Editor.GetPlainText(), Is.EqualTo("\"word"));
+            Assert.That(host.Drawings(), Is.Empty);
+            Assert.That(host.Editor.CanUndo, Is.False);
+            Assert.That(host.Editor.CanRedo, Is.True);
+        });
+        host.Editor.Redo();
+        host.Drain();
+        AssertQuoteCells(host, i => i >= 1 && i <= 4);
+        host.Editor.SelectRange(5, 1);
+        host.Editor.ReplaceSelection("");
+        host.Drain();
+        Assert.That(host.Drawings(), Is.Empty);
+        host.Editor.SetPlainText("plain replacement");
+        host.Drain();
+        Assert.That(host.Drawings(), Is.Empty);
+    }
+
+    [Test]
+    public void Styling_ClosingQuoteEdit_PreservesSharedUndoCoalescingAndRedo()
+    {
+        using var host = new Host("\"word");
+        host.SetTheme("Light");
+        var editor = host.Editor;
+        editor.IsUndoEnabled = false;
+        editor.SelectRange(5, 0);
+        var history = new PromptUndoHistory(editor);
+        history.CaptureBaseline();
+        editor.TextChanged += (_, _) =>
+        {
+            if (!PromptTextStyling.IsApplyingFormatting(editor))
+                history.PushSnapshot();
+        };
+        host.Enable();
+        editor.ReplaceSelection("\"");
+        host.Drain();
+        editor.SelectRange(6, 0);
+        editor.ReplaceSelection(" tail");
+        host.Drain();
+        AssertQuoteCells(host, i => i >= 1 && i <= 4);
+        Assert.That(history.Count, Is.EqualTo(2));
+        Assert.That(history.Undo(), Is.True);
+        host.Drain();
+        Assert.Multiple(() =>
+        {
+            Assert.That(editor.GetPlainText(), Is.EqualTo("\"word"));
+            Assert.That(host.Drawings(), Is.Empty);
+            Assert.That(history.CanRedo, Is.True);
+        });
+        Assert.That(history.Redo(), Is.True);
+        host.Drain();
+        AssertQuoteCells(host, i => i >= 1 && i <= 4);
+        Assert.That(editor.GetPlainText(), Is.EqualTo("\"word\" tail"));
+        Assert.That(history.Count, Is.EqualTo(2));
+    }
+
+    [Test]
+    public void Styling_Quotes_RefreshLiveThemeAndResourceWithoutTextEditOrReattach()
+    {
+        using var host = new Host("\"quoted\"");
+        host.SetTheme("Light");
+        host.Enable();
+        var adorner = host.Adorner;
+        var original = PromptUndoManager.CaptureSnapshot(host.Editor);
+        var changes = 0;
+        host.Editor.TextChanged += (_, _) => changes++;
+        foreach (var theme in new[] { "Dark", "Light" })
+        {
+            var previous = host.QuoteBrush;
+            host.SetTheme(theme);
+            host.Drain();
+            Assert.Multiple(() =>
+            {
+                Assert.That(host.Adorner, Is.SameAs(adorner));
+                Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.True);
+                Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, previous)), Is.False);
+                Assert.That(PromptUndoManager.CaptureSnapshot(host.Editor), Is.EqualTo(original));
+                Assert.That(changes, Is.Zero);
+            });
+        }
+        var builds = host.Adorner.InkCacheBuildCount;
+        host.SetQuoteBrush(Brushes.Maroon);
+        host.Drain();
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, Brushes.Maroon)), Is.True);
+            Assert.That(host.Adorner.InkCacheBuildCount, Is.EqualTo(builds),
+                "A quote-only resource replacement must repaint without rebuilding native ink.");
+            Assert.That(changes, Is.Zero);
+            Assert.That(host.Editor.CanUndo, Is.False);
+        });
+    }
+
     [Test]
     public void Styling_EmptyInkBoundsRemainEmptyWhenTranslated()
     {
@@ -578,6 +898,44 @@ internal sealed class PromptTextStylingTests
         (FontFamily)new TextRange(editor.GetTextPointerAt(offset), editor.GetTextPointerAt(offset + 1))
             .GetPropertyValue(TextElement.FontFamilyProperty);
 
+    private static Rect[] QuoteClips(Host host) =>
+        Groups(VisualTreeHelper.GetDrawing(host.Adorner)!)
+            .Where(g => g.ClipGeometry is RectangleGeometry &&
+                !Groups(g).Skip(1).Any(child => child.ClipGeometry is RectangleGeometry) &&
+                Groups(g).SelectMany(child => child.Children).OfType<GeometryDrawing>()
+                    .Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)))
+            .Select(g => g.ClipGeometry.Bounds).ToArray();
+
+    private static void AssertQuoteCells(Host host, Func<int, bool> expected)
+    {
+        // Ink geometry may contain an entire native glyph run; its paint clip, not raw bounds,
+        // determines which character cells actually receive the quote foreground.
+        var clips = QuoteClips(host);
+        var text = host.Editor.GetPlainText();
+        for (var i = 0; i < text.Length; i++)
+        {
+            var start = host.Editor.GetTextPointerAt(i).GetCharacterRect(LogicalDirection.Forward);
+            var end = host.Editor.GetTextPointerAt(i + 1).GetCharacterRect(LogicalDirection.Backward);
+            var center = new Point((start.Left + end.Left) / 2, start.Top + start.Height / 2);
+            Assert.That(clips.Any(r => r.Contains(center)), Is.EqualTo(expected(i)),
+                $"Quote paint coverage at offset {i} ('{text[i]}').");
+        }
+    }
+
+    private static double ContrastRatio(Color first, Color second)
+    {
+        static double Linear(byte value)
+        {
+            var channel = value / 255.0;
+            return channel <= 0.04045 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4);
+        }
+        static double Luminance(Color color) =>
+            0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+        var a = Luminance(first);
+        var b = Luminance(second);
+        return (Math.Max(a, b) + 0.05) / (Math.Min(a, b) + 0.05);
+    }
+
     private static IEnumerable<DrawingGroup> Groups(Drawing drawing)
     {
         if (drawing is not DrawingGroup group)
@@ -598,6 +956,7 @@ internal sealed class PromptTextStylingTests
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
         internal Brush MarkerBrush { get; } = Brushes.CornflowerBlue;
+        internal SolidColorBrush QuoteBrush => (SolidColorBrush)_window.FindResource("PromptQuotedText");
         internal AdornerDecorator Decorator { get; }
         internal AdornerLayer Layer => Decorator.AdornerLayer;
         internal PromptTextAdorner Adorner => Layer.GetAdorners(Editor)!.OfType<PromptTextAdorner>().Single();
@@ -625,6 +984,33 @@ internal sealed class PromptTextStylingTests
         }
 
         internal void SetMarkerBrush(Brush brush) => _window.Resources["DocumentLinkText"] = brush;
+
+        internal void SetQuoteBrush(Brush brush) => _window.Resources["PromptQuotedText"] = brush;
+
+        internal void SetTheme(string theme)
+        {
+            var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+            while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "SquadDash")))
+                directory = directory.Parent;
+            var source = Path.Combine(directory?.FullName ??
+                throw new DirectoryNotFoundException("SquadDash source not found."), "SquadDash");
+            using var stream = File.OpenRead(Path.Combine(source, "Themes", theme + ".xaml"));
+            var resources = (ResourceDictionary)XamlReader.Load(stream);
+            _window.Resources.Remove("LabelText");
+            _window.Resources.MergedDictionaries.Clear();
+            _window.Resources.MergedDictionaries.Add(resources);
+
+            XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+            XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+            var prompt = XDocument.Load(Path.Combine(source, "MainWindow.xaml"))
+                .Descendants(presentation + "RichTextBox")
+                .Single(e => (string?)e.Attribute(x + "Name") == "PromptTextBox");
+            Assert.That((string?)prompt.Attribute("Background"), Is.EqualTo("{DynamicResource TextBoxBackground}"));
+            Assert.That((string?)prompt.Attribute("Foreground"), Is.EqualTo("{DynamicResource LabelText}"));
+            Editor.SetResourceReference(Control.BackgroundProperty, "TextBoxBackground");
+            Editor.SetResourceReference(Control.ForegroundProperty, "LabelText");
+            Drain();
+        }
 
         internal void Drain()
         {

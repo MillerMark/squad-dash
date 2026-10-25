@@ -9,6 +9,7 @@ internal enum PromptTextTokenKind {
     BoldContent,
     HexColor,
     InlineCodeContent,
+    QuotedContent,
 }
 
 internal readonly record struct PromptTextToken(
@@ -30,9 +31,30 @@ internal static class PromptTextTokenParser {
         var inInlineCode = false;
         var inlineCodeDelimiterLength = 0;
         var inlineCodeStart = 0;
+        var openQuote = -1;
+        var closingQuote = '\0';
 
         var i = 0;
         while (i < text.Length) {
+            // Hard line breaks bound incomplete prose; visual wrapping does not.
+            if (text[i] is '\r' or '\n') {
+                openQuote = -1;
+                closingQuote = '\0';
+            }
+
+            if (!inInlineCode && text[i] is '"' or '\u201C' or '\u201D' && !IsEscaped(text, i)) {
+                if (openQuote >= 0 && text[i] == closingQuote) {
+                    if (HasNonWhitespaceBetween(nonWhitespacePrefix, openQuote + 1, i))
+                        tokens.Add(new PromptTextToken(openQuote + 1, i - openQuote - 1, PromptTextTokenKind.QuotedContent));
+                    openQuote = -1;
+                    closingQuote = '\0';
+                }
+                else if (openQuote < 0 && text[i] is '"' or '\u201C') {
+                    openQuote = i;
+                    closingQuote = text[i] == '"' ? '"' : '\u201D';
+                }
+            }
+
             if (!inInlineCode &&
                 IsAtLineStart(text, i) &&
                 TryReadHeadingMarker(text, i, out var headingStart, out var headingLength)) {
