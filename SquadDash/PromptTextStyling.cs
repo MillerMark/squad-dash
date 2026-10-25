@@ -81,6 +81,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     private static readonly DependencyProperty QuoteBrushProperty = DependencyProperty.Register(
         "QuoteBrush", typeof(Brush), typeof(PromptTextAdorner),
         new FrameworkPropertyMetadata(SystemColors.WindowTextBrush, FrameworkPropertyMetadataOptions.AffectsRender));
+    private static readonly DependencyProperty PlaceholderBrushProperty = DependencyProperty.Register(
+        "PlaceholderBrush", typeof(Brush), typeof(PromptTextAdorner),
+        new FrameworkPropertyMetadata(SystemColors.WindowTextBrush, FrameworkPropertyMetadataOptions.AffectsRender));
 
     private sealed record ParagraphTokens(string Text, IReadOnlyList<PromptTextToken> Tokens);
     private sealed class Glyph(
@@ -88,13 +91,15 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         TextPointer end,
         PromptTextTokenKind kind,
         Brush? color,
-        bool isQuoted)
+        bool isQuoted,
+        bool isPlaceholder)
     {
         internal TextPointer Start { get; } = start;
         internal TextPointer End { get; } = end;
         internal PromptTextTokenKind Kind { get; } = kind;
         internal Brush? Color { get; } = color;
         internal bool IsQuoted { get; } = isQuoted;
+        internal bool IsPlaceholder { get; } = isPlaceholder;
         internal Rect DocumentRect { get; set; } = Rect.Empty;
     }
     // Geometry.Bounds is deceptively expensive for the GlyphRun-generated GeometryGroups used
@@ -139,6 +144,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         SetResourceReference(MarkerBrushProperty, "DocumentLinkText");
         SetResourceReference(BorderBrushProperty, "LabelText");
         SetResourceReference(QuoteBrushProperty, "PromptQuotedText");
+        SetResourceReference(PlaceholderBrushProperty, "PromptPlaceholderText");
         SystemParameters.StaticPropertyChanged += OnSystemParametersChanged;
         editor.TextChanged += OnTextChanged;
         editor.SizeChanged += OnSizeChanged;
@@ -255,6 +261,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var length = text.Length;
         var boldChanges = new int[length + 1];
         var quoted = new bool[length];
+        var placeholders = new bool[length];
         var code = new bool[length];
         var markers = new HashSet<int>();
         var colors = new Dictionary<int, Brush>();
@@ -264,6 +271,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             {
                 case PromptTextTokenKind.QuotedContent:
                     Array.Fill(quoted, true, token.Start, token.Length);
+                    break;
+                case PromptTextTokenKind.QuotedPlaceholder:
+                    Array.Fill(placeholders, true, token.Start, token.Length);
                     break;
                 case PromptTextTokenKind.InlineCodeContent:
                     // Code wins even when surrounded by prose quotes, including its delimiters.
@@ -315,7 +325,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 if (!isColor && boldChanges[position] == 0 && !markers.Contains(position) && !isQuoted)
                     continue;
                 var start = run.ContentStart.GetPositionAtOffset(i)!;
-                _glyphs.Add(new Glyph(start, start.GetPositionAtOffset(1)!, kind, color, isQuoted));
+                _glyphs.Add(new Glyph(start, start.GetPositionAtOffset(1)!, kind, color,
+                    isQuoted, isQuoted && placeholders[position]));
             }
             offset += run.Text.Length;
         }
@@ -391,10 +402,13 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var ink = _inkRows;
         var background = FindOpaqueBackground();
         var quoteBrush = (Brush)GetValue(QuoteBrushProperty);
+        var placeholderBrush = (Brush)GetValue(PlaceholderBrushProperty);
         var useQuoteColor = !SystemParameters.HighContrast && background is not null;
         var boldSpans = new List<Rect>();
         var quoteSpans = new List<Rect>();
         var boldQuoteSpans = new List<Rect>();
+        var placeholderSpans = new List<Rect>();
+        var boldPlaceholderSpans = new List<Rect>();
         foreach (var glyph in _glyphs)
         {
             var rect = GetGlyphRect(glyph, viewport);
@@ -412,7 +426,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     // Keep the superscript top-aligned and tuck it toward the following hex digits.
                     drawingContext.PushTransform(new ScaleTransform(0.84, 0.84, rect.Right, rect.Top));
                     DrawInk(drawingContext, ink, rect, viewport, false,
-                        glyph.IsQuoted && useQuoteColor ? quoteBrush : null);
+                        glyph.IsQuoted && useQuoteColor
+                            ? glyph.IsPlaceholder ? placeholderBrush : quoteBrush
+                            : null);
                     drawingContext.Pop();
                     drawingContext.Pop();
                 }
@@ -421,7 +437,10 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             }
             else if (glyph.IsQuoted && useQuoteColor && !selected)
             {
-                AddBoldSpan(glyph.Kind == PromptTextTokenKind.BoldContent ? boldQuoteSpans : quoteSpans, rect);
+                var spans = glyph.IsPlaceholder
+                    ? glyph.Kind == PromptTextTokenKind.BoldContent ? boldPlaceholderSpans : placeholderSpans
+                    : glyph.Kind == PromptTextTokenKind.BoldContent ? boldQuoteSpans : quoteSpans;
+                AddBoldSpan(spans, rect);
             }
             else if (glyph.Kind == PromptTextTokenKind.BoldContent)
             {
@@ -444,17 +463,20 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         foreach (var span in boldSpans)
             DrawInk(drawingContext, ink, span, viewport, true);
         // Replace only unselected native ink, retaining its shaping and bold weight.
-        foreach (var span in quoteSpans)
-        {
-            drawingContext.DrawRectangle(background, null, span);
-            DrawInk(drawingContext, ink, span, viewport, false, quoteBrush);
-        }
-        foreach (var span in boldQuoteSpans)
-        {
-            drawingContext.DrawRectangle(background, null, span);
-            DrawInk(drawingContext, ink, span, viewport, true, quoteBrush);
-        }
+        DrawColoredSpans(quoteSpans, quoteBrush, false);
+        DrawColoredSpans(boldQuoteSpans, quoteBrush, true);
+        DrawColoredSpans(placeholderSpans, placeholderBrush, false);
+        DrawColoredSpans(boldPlaceholderSpans, placeholderBrush, true);
         drawingContext.Pop();
+
+        void DrawColoredSpans(List<Rect> spans, Brush brush, bool bold)
+        {
+            foreach (var span in spans)
+            {
+                drawingContext.DrawRectangle(background, null, span);
+                DrawInk(drawingContext, ink, span, viewport, bold, brush);
+            }
+        }
     }
 
     private static void AddBoldSpan(List<Rect> spans, Rect rect)

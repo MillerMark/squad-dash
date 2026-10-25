@@ -10,6 +10,7 @@ internal enum PromptTextTokenKind {
     HexColor,
     InlineCodeContent,
     QuotedContent,
+    QuotedPlaceholder,
 }
 
 internal readonly record struct PromptTextToken(
@@ -44,8 +45,10 @@ internal static class PromptTextTokenParser {
 
             if (!inInlineCode && text[i] is '"' or '\u201C' or '\u201D' && !IsEscaped(text, i)) {
                 if (openQuote >= 0 && text[i] == closingQuote) {
-                    if (HasNonWhitespaceBetween(nonWhitespacePrefix, openQuote + 1, i))
+                    if (HasNonWhitespaceBetween(nonWhitespacePrefix, openQuote + 1, i)) {
                         tokens.Add(new PromptTextToken(openQuote + 1, i - openQuote - 1, PromptTextTokenKind.QuotedContent));
+                        AddQuotedPlaceholders(text, openQuote + 1, i, tokens);
+                    }
                     openQuote = -1;
                     closingQuote = '\0';
                 }
@@ -134,6 +137,36 @@ internal static class PromptTextTokenParser {
             return a.Kind.CompareTo(b.Kind);
         });
         return tokens;
+    }
+
+    private static void AddQuotedPlaceholders(string text, int start, int end, List<PromptTextToken> tokens) {
+        var depth = 0;
+        var openingBrace = -1;
+        var valid = false;
+        for (var i = start; i < end; i++) {
+            var c = text[i];
+            if (c == '{') {
+                if (depth == 0) {
+                    openingBrace = i;
+                    valid = !IsEscaped(text, i);
+                }
+                else {
+                    valid = false;
+                }
+                // Count literal braces too: escaped/doubled/nested groups must not expose inner matches.
+                depth++;
+            }
+            else if (c == '}' && depth > 0) {
+                depth--;
+                if (depth == 0 && valid && i > openingBrace + 1 &&
+                    !IsEscaped(text, i) && (i + 1 == end || text[i + 1] != '}')) {
+                    tokens.Add(new PromptTextToken(openingBrace, i - openingBrace + 1, PromptTextTokenKind.QuotedPlaceholder));
+                }
+            }
+            else if (depth > 0 && (char.IsWhiteSpace(c) || c is '"' or '\u201C' or '\u201D')) {
+                valid = false;
+            }
+        }
     }
 
     private static bool TryReadHeadingMarker(string text, int lineStart, out int markerStart, out int markerLength) {
