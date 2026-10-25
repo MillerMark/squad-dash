@@ -22,6 +22,9 @@ internal static class RegionBundledGrammars
         var xaml = new Lazy<IHighlightingDefinition>(() => Load("XAML"));
         engine.Register(new RegionLanguageOption("xaml", "XAML", "XAML"),
             () => xaml.Value, aliases: new[] { ".xaml" });
+        var razor = new Lazy<IHighlightingDefinition>(() => Load("Razor"));
+        engine.Register(new RegionLanguageOption("razor", "Razor (Blazor)", "Razor"),
+            () => razor.Value, CreatePalette, "blazor", "cshtml", ".razor", ".cshtml");
         var markdown = new Lazy<IHighlightingDefinition>(() => Load("Markdown"));
         engine.Register(new RegionLanguageOption("markdown", "Markdown", "Markdown"),
             () => markdown.Value, CreateMarkdownPalette, "md");

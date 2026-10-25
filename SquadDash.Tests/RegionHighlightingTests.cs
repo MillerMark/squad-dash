@@ -42,7 +42,7 @@ namespace SquadDash.Tests;
 /// </summary>
 [TestFixture]
 [Apartment(ApartmentState.STA)]
-public sealed class RegionHighlightingTests
+public sealed partial class RegionHighlightingTests
 {
     [Test]
     public void Options_ExposeAutoDetectPlainText_AndEveryIncludedGrammar()
@@ -69,7 +69,7 @@ public sealed class RegionHighlightingTests
 
         installed.Remove("MarkDown");
         installed.Remove("MarkDownWithFontSize");
-        installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message", "XAML" });
+        installed.UnionWith(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message", "XAML", "Razor" });
         Assert.That(grammarOptions, Has.Count.EqualTo(installed.Count),
             "one option per included built-in or bundled grammar, with no duplicate JSON entry");
         Assert.That(grammarOptions.Select(o => o.GrammarName!).ToHashSet(StringComparer.Ordinal),
@@ -134,6 +134,7 @@ public sealed class RegionHighlightingTests
     [TestCase("Markdown", "Markdown", "markdown")]
     [TestCase("ErrorMessage", "Error message", "error")]
     [TestCase("XAML", "XAML", "xaml")]
+    [TestCase("Razor", "Razor", "razor")]
     public void BundledGrammar_LoadsEmbeddedResource_AndExposesPickerOption(
         string resource, string name, string token)
     {
@@ -144,7 +145,8 @@ public sealed class RegionHighlightingTests
         var definition = HighlightingLoader.Load(reader, HighlightingManager.Instance);
         Assert.That(definition.Name, Is.EqualTo(name));
         Assert.That(RegionLanguagePicker.Options.Single(o => o.FenceToken == token),
-            Is.EqualTo(new RegionLanguageOption(token, resource == "ErrorMessage" ? name : resource, name)));
+            Is.EqualTo(new RegionLanguageOption(token,
+                resource == "Razor" ? "Razor (Blazor)" : resource == "ErrorMessage" ? name : resource, name)));
     }
 
     [TestCase("json", "Json")]
@@ -231,6 +233,7 @@ public sealed class RegionHighlightingTests
     [TestCase("Bash")]
     [TestCase("Markdown")]
     [TestCase("MarkdownDirectives")]
+    [TestCase("Razor")]
     public void BundledGrammar_PaletteRepushRecolorsEveryRole_WithoutLeaking(string name)
     {
         var manager = HighlightingManager.Instance.HighlightingDefinitions.ToArray();

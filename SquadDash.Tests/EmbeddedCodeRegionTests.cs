@@ -245,7 +245,7 @@ internal sealed class EmbeddedCodeRegionTests
         var grammars = ICSharpCode.AvalonEdit.Highlighting.HighlightingManager.Instance.HighlightingDefinitions
             .Where(grammar => !string.Equals(grammar.Name, "MarkDownWithFontSize", StringComparison.OrdinalIgnoreCase))
             .Select(grammar => grammar.Name == "MarkDown" ? "Markdown" : grammar.Name)
-            .Concat(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message", "XAML" })
+            .Concat(new[] { "Json", "TypeScript", "YAML", "SQL", "Go", "Rust", "Bash", "Markdown", "Error message", "XAML", "Razor" })
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
         Assert.That(grammars, Is.Not.Empty);
         Assert.That(options.Skip(2).Select(option => option.GrammarName), Is.EqualTo(grammars));

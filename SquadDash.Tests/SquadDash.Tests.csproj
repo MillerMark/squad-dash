@@ -206,6 +206,7 @@
     <Compile Include="..\SquadDash\EmbeddedCodeRegionBlock.cs" Link="Source\EmbeddedCodeRegionBlock.cs" />
     <Compile Include="..\SquadDash\RegionLanguagePicker.cs" Link="Source\RegionLanguagePicker.cs" />
     <Compile Include="..\SquadDash\RegionGrammarResolver.cs" Link="Source\RegionGrammarResolver.cs" />
+    <Compile Include="..\SquadDash\RegionRazorDetector.cs" Link="Source\RegionRazorDetector.cs" />
     <Compile Include="..\SquadDash\RegionHighlightingEngine.cs" Link="Source\RegionHighlightingEngine.cs" />
     <Compile Include="..\SquadDash\RegionBundledGrammars.cs" Link="Source\RegionBundledGrammars.cs" />
     <Compile Include="..\SquadDash\RegionHighlightingPalettes.cs" Link="Source\RegionHighlightingPalettes.cs" />
@@ -760,7 +761,7 @@
 
   <!-- Embedded resources shared from the main project (single source of truth — no copy) -->
   <ItemGroup>
-    <EmbeddedResource Include="..\SquadDash\Grammars\JSON.xshd;..\SquadDash\Grammars\TypeScript.xshd;..\SquadDash\Grammars\YAML.xshd;..\SquadDash\Grammars\SQL.xshd;..\SquadDash\Grammars\Go.xshd;..\SquadDash\Grammars\Rust.xshd;..\SquadDash\Grammars\Bash.xshd;..\SquadDash\Grammars\Markdown.xshd;..\SquadDash\Grammars\MarkdownDirectives.xshd;..\SquadDash\Grammars\ErrorMessage.xshd;..\SquadDash\Grammars\XAML.xshd"
+    <EmbeddedResource Include="..\SquadDash\Grammars\JSON.xshd;..\SquadDash\Grammars\TypeScript.xshd;..\SquadDash\Grammars\YAML.xshd;..\SquadDash\Grammars\SQL.xshd;..\SquadDash\Grammars\Go.xshd;..\SquadDash\Grammars\Rust.xshd;..\SquadDash\Grammars\Bash.xshd;..\SquadDash\Grammars\Markdown.xshd;..\SquadDash\Grammars\MarkdownDirectives.xshd;..\SquadDash\Grammars\ErrorMessage.xshd;..\SquadDash\Grammars\XAML.xshd;..\SquadDash\Grammars\Razor.xshd"
                       Link="Grammars\%(Filename)%(Extension)"
                       LogicalName="SquadDash.Grammars.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\SquadDash\Assets\squaddash.md" Link="Assets\squaddash.md" />

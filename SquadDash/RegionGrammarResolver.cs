@@ -339,6 +339,8 @@ public static class RegionGrammarResolver
             return Available("ASP/XHTML");
         if (IsXamlRoot(sample))
             return Available("XAML") ?? Available("XML");
+        if (RegionRazorDetector.IsRazor(sample))
+            return Available("Razor");
         if (IsMatch(HtmlSignature, sample))
             return Available("HTML");
         if (IsMatch(XmlDeclarationSignature, sample) || IsXmlDocument(sample))

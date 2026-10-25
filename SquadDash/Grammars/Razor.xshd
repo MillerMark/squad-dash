@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SyntaxDefinition name="Razor" extensions=".razor;.cshtml"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Keyword" foreground="Blue" />
+  <Color name="Comment" foreground="Green" />
+  <Color name="String" foreground="Brown" />
+  <Color name="Tag" foreground="Blue" />
+  <Color name="Attribute" foreground="Teal" />
+  <Color name="Punctuation" foreground="Gray" />
+
+  <!-- Lexical highlighting, not Razor parsing: delimiters nest, but tags/types are not resolved.
+       A missing block/comment/verbatim-string terminator retains its state until closed.
+       Ordinary C# strings, implicit expressions and directive lines recover at end of line. -->
+  <RuleSet>
+    <Import ruleSet="Transitions" />
+    <Import ruleSet="Markup" />
+  </RuleSet>
+
+  <RuleSet name="RazorComments">
+    <Span color="Comment" multiline="true" begin="@\*" end="\*@" />
+  </RuleSet>
+
+  <RuleSet name="Transitions">
+    <!-- An escape is a span so it wins over another transition at the same position. -->
+    <Span begin="@@" end="" />
+    <Import ruleSet="RazorComments" />
+    <Span ruleSet="CodeHeader" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)@(?:code|functions)\b</Begin>
+      <End>(?&lt;=\})</End>
+    </Span>
+    <!-- Each chain owns its terminal delimiter; nested spans leave that delimiter unread. -->
+    <Span ruleSet="IfChain" multiline="true">
+      <Begin>(?=(?&lt;!\w)@if\b)</Begin>
+      <End>(?&lt;=;)|\}|(?=\S)</End>
+    </Span>
+    <Span ruleSet="TryChain" multiline="true">
+      <Begin>(?=(?&lt;!\w)@try\b)</Begin>
+      <End>(?&lt;=;)|\}|(?=\S)</End>
+    </Span>
+    <Span ruleSet="DoChain" multiline="true">
+      <Begin>(?=(?&lt;!\w)@do\b)</Begin>
+      <End>;|(?=\S)</End>
+    </Span>
+    <Span ruleSet="MixedHeader" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)@(?:(?:foreach|for|while|switch|lock|section)\b|using(?=\s*\())</Begin>
+      <End>\}|;</End>
+    </Span>
+    <Span ruleSet="MixedCode" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)@\{</Begin>
+      <End color="Punctuation">\}</End>
+    </Span>
+    <Span ruleSet="Expression" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)@\(</Begin>
+      <End color="Punctuation">\)</End>
+    </Span>
+    <Span ruleSet="CodeAtoms">
+      <Begin color="Keyword">(?&lt;!\w)@(?:page|inject|using|model|inherits|implements|namespace|layout|typeparam|attribute|rendermode|preservewhitespace|addTagHelper|removeTagHelper|tagHelperPrefix)\b</Begin>
+    </Span>
+    <Import ruleSet="CodeTransitions" />
+    <Span ruleSet="ImplicitExpression">
+      <Begin color="Keyword">(?&lt;!\w)@(?:await[ \t]+)?[A-Za-z_]\w*</Begin>
+      <End>(?![\w.]|\?\.|\(|\[)</End>
+    </Span>
+  </RuleSet>
+
+  <!-- Starts win ties with a parent's zero-width end in AvalonEdit. Only the eligible
+       family is admitted here; terminal bodies stop BEFORE }, letting the chain close. -->
+  <RuleSet name="IfChain">
+    <Span ruleSet="MixedHeader" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)@if\b</Begin>
+      <End>\}|;|(?=&lt;/?[A-Za-z])</End>
+    </Span>
+    <Span ruleSet="ElseClause" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)else\b</Begin>
+      <End>(?&lt;=[};])|(?=\S)</End>
+    </Span>
+    <Import ruleSet="ChainTrivia" />
+  </RuleSet>
+  <RuleSet name="ElseClause">
+    <!-- After an else-if body, even an adjacent comment/if/{ must lose to the end.
+         Without these guards a child start at the same offset reopens this clause. -->
+    <Span ruleSet="MixedHeader" multiline="true">
+      <Begin color="Keyword">(?&lt;![\w};])if\b</Begin>
+      <End>\}|;|(?=&lt;/?[A-Za-z])</End>
+    </Span>
+    <Span ruleSet="MixedCode" multiline="true" begin="(?&lt;![};])\{" end="(?=\})" />
+    <Span color="Comment" multiline="true" begin="(?&lt;![};])@\*" end="\*@" />
+    <Span color="Comment" begin="(?&lt;![};])//" />
+    <Span color="Comment" multiline="true" begin="(?&lt;![};])/\*" end="\*/" />
+  </RuleSet>
+  <RuleSet name="TryChain">
+    <Span ruleSet="MixedHeader" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)@try\b|(?&lt;!\w)catch\b</Begin>
+      <End>\}|;|(?=&lt;/?[A-Za-z])</End>
+    </Span>
+    <Span ruleSet="TerminalBlock" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)finally\b</Begin>
+      <End>(?=\S)</End>
+    </Span>
+    <Import ruleSet="ChainTrivia" />
+  </RuleSet>
+  <RuleSet name="TerminalBlock">
+    <Span ruleSet="MixedCode" multiline="true" begin="\{" end="(?=\})" />
+    <Import ruleSet="ChainTrivia" />
+  </RuleSet>
+  <RuleSet name="DoChain">
+    <Span ruleSet="MixedHeader" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)@do\b</Begin>
+      <End>\}|;|(?=&lt;/?[A-Za-z])</End>
+    </Span>
+    <Span ruleSet="Expression" multiline="true">
+      <Begin color="Keyword">(?&lt;!\w)while\b</Begin>
+      <End>(?=;)|(?=&lt;/?[A-Za-z])</End>
+    </Span>
+    <Import ruleSet="ChainTrivia" />
+  </RuleSet>
+  <RuleSet name="ChainTrivia">
+    <Import ruleSet="RazorComments" />
+    <Span color="Comment" begin="//" />
+    <Span color="Comment" multiline="true" begin="/\*" end="\*/" />
+  </RuleSet>
+  <RuleSet name="CodeTransitions">
+    <!-- In C# only @: enters markup; @identifiers remain with the imported C# rules. -->
+    <Import ruleSet="RazorComments" />
+    <Span ruleSet="MarkupLine">
+      <Begin color="Keyword">(?&lt;!\w)@:</Begin>
+    </Span>
+  </RuleSet>
+  <RuleSet name="CodeHeader">
+    <Span ruleSet="Expression" multiline="true" begin="\{" end="\}" />
+    <Import ruleSet="CodeAtoms" />
+  </RuleSet>
+  <RuleSet name="MixedHeader">
+    <!-- The header consumes }, so an adjacent comment or block cannot beat its end. -->
+    <Span ruleSet="MixedCode" multiline="true" begin="\{" end="(?=\})" />
+    <Import ruleSet="Expression" />
+  </RuleSet>
+  <RuleSet name="MixedCode">
+    <Import ruleSet="CodeTransitions" />
+    <Import ruleSet="MixedMarkup" />
+    <Span ruleSet="MixedCode" multiline="true" begin="\{" end="\}" />
+    <Import ruleSet="Expression" />
+  </RuleSet>
+  <RuleSet name="ImplicitExpression">
+    <Span ruleSet="Expression" multiline="true" begin="\(" end="\)" />
+    <Span ruleSet="Expression" multiline="true" begin="\[" end="\]" />
+  </RuleSet>
+  <RuleSet name="Expression">
+    <Span ruleSet="Expression" multiline="true" begin="\(" end="\)" />
+    <Span ruleSet="Expression" multiline="true" begin="\[" end="\]" />
+    <Span ruleSet="Expression" multiline="true" begin="\{" end="\}" />
+    <Import ruleSet="CodeAtoms" />
+  </RuleSet>
+  <RuleSet name="CodeAtoms">
+    <Import ruleSet="RazorComments" />
+    <!-- Raw literals are opaque; interpolation and exact quote arity in raw strings are out of scope. -->
+    <Span color="String" multiline="true" begin="\$*&quot;{3,}" end="&quot;{3,}" />
+    <Span color="String" multiline="true" begin="(?:\$@|@\$)&quot;" end="&quot;">
+      <RuleSet>
+        <Span begin="&quot;&quot;" end="" />
+        <Span begin="\{\{" end="" />
+        <Span ruleSet="Expression" begin="\{" end="\}" />
+      </RuleSet>
+    </Span>
+    <Span color="String" begin="\$&quot;" end="&quot;">
+      <RuleSet>
+        <Span begin="\\" end="." />
+        <Span begin="\{\{" end="" />
+        <Span ruleSet="Expression" begin="\{" end="\}" />
+      </RuleSet>
+    </Span>
+    <Import ruleSet="C#/" />
+  </RuleSet>
+
+  <RuleSet name="MarkupLine">
+    <Import ruleSet="Transitions" />
+    <Import ruleSet="Markup" />
+  </RuleSet>
+  <RuleSet name="Markup">
+    <Span color="Comment" multiline="true" begin="&lt;!--" end="--&gt;" />
+    <!-- Script/style bodies retain their own lexical rules; they never run or render. -->
+    <Span ruleSet="Script" multiline="true">
+      <Begin color="Tag">(?i:&lt;script\b)</Begin>
+      <End color="Tag">(?i:&lt;/script\s*&gt;)</End>
+    </Span>
+    <Span ruleSet="Style" multiline="true">
+      <Begin color="Tag">(?i:&lt;style\b)</Begin>
+      <End color="Tag">(?i:&lt;/style\s*&gt;)</End>
+    </Span>
+    <Span color="Tag" ruleSet="TagAttributes" multiline="true">
+      <Begin>&lt;/?[A-Za-z][\w:.-]*(?=[\s/&gt;])</Begin>
+      <End>/?&gt;</End>
+    </Span>
+    <Import ruleSet="HTML/" />
+  </RuleSet>
+  <RuleSet name="TagAttributes">
+    <Import ruleSet="RazorComments" />
+    <Span ruleSet="DirectiveAttributeValue" multiline="true">
+      <Begin color="Keyword">@[A-Za-z_][\w:.-]*[ \t]*=[ \t]*"</Begin>
+      <End color="String">"</End>
+    </Span>
+    <Span ruleSet="DirectiveAttributeValue" multiline="true">
+      <Begin color="Keyword">@[A-Za-z_][\w:.-]*[ \t]*=[ \t]*'</Begin>
+      <End color="String">'</End>
+    </Span>
+    <Span color="String" ruleSet="AttributeText" multiline="true" begin="&quot;" end="&quot;" />
+    <Span color="String" ruleSet="AttributeText" multiline="true" begin="'" end="'" />
+    <Import ruleSet="Transitions" />
+    <Rule color="Keyword">@[A-Za-z_][\w:.-]*</Rule>
+    <Rule color="Attribute">[A-Za-z_:][\w:.-]*(?=\s*=)</Rule>
+  </RuleSet>
+  <RuleSet name="AttributeText">
+    <Import ruleSet="Transitions" />
+    <Rule color="String">&amp;[\w#]+;</Rule>
+  </RuleSet>
+  <RuleSet name="DirectiveAttributeValue">
+    <Import ruleSet="Transitions" />
+    <!-- Bare attribute values cannot open a C# string at their HTML closing quote.
+         Nested calls/lambdas and explicit expressions still use the complete C# rules. -->
+    <Import ruleSet="ImplicitExpression" />
+    <Span ruleSet="Expression" multiline="true" begin="\{" end="\}" />
+    <Rule color="Keyword">\b(?:true|false|null|async|await|new|this|base)\b</Rule>
+  </RuleSet>
+  <!-- In a code block an element's body is markup, including quotes and literal braces.
+       Elements nest structurally; closing tag names are deliberately not validated. -->
+  <RuleSet name="MixedMarkup">
+    <Span color="Comment" multiline="true" begin="&lt;!--" end="--&gt;" />
+    <Span color="Tag" ruleSet="TagAttributes" multiline="true">
+      <Begin>(?i:&lt;(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\b)</Begin>
+      <End>/?&gt;</End>
+    </Span>
+    <Span ruleSet="Element" multiline="true">
+      <Begin color="Tag">(?&lt;![\w.])&lt;[A-Za-z][\w:.-]*(?=[\s/&gt;]|$)</Begin>
+      <End color="Tag">/&gt;|&lt;/[A-Za-z][\w:.-]*\s*&gt;</End>
+    </Span>
+  </RuleSet>
+  <RuleSet name="Element">
+    <Span color="Tag" ruleSet="TagAttributes" multiline="true">
+      <Begin>(?&lt;=&lt;[A-Za-z][\w:.-]*)(?=[\s&gt;])</Begin>
+      <End>(?=/&gt;)|&gt;</End>
+    </Span>
+    <Import ruleSet="Transitions" />
+    <Import ruleSet="MixedMarkup" />
+    <Rule color="String">&amp;[\w#]+;</Rule>
+  </RuleSet>
+  <RuleSet name="Script">
+    <Span ruleSet="TagAttributes" begin="(?i:(?&lt;=&lt;script))(?=[\s&gt;])" end="&gt;" />
+    <Import ruleSet="RazorComments" />
+    <Import ruleSet="JavaScript/" />
+  </RuleSet>
+  <RuleSet name="Style">
+    <Span ruleSet="TagAttributes" begin="(?i:(?&lt;=&lt;style))(?=[\s&gt;])" end="&gt;" />
+    <Import ruleSet="RazorComments" />
+    <Import ruleSet="CSS/" />
+  </RuleSet>
+</SyntaxDefinition>

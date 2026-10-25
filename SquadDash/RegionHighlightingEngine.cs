@@ -40,7 +40,7 @@ public sealed class RegionHighlightingEngine
             Register(new RegionLanguageOption(token, definition.Name, definition.Name), () => definition);
         }
 
-        AddAliases("C#", "cs", "csharp");
+        AddAliases("C#", "cs", "csharp", ".razor.cs", "razor.cs", ".cshtml.cs", "cshtml.cs");
         AddAliases("C++", "cpp", "cxx", "cc", "c");
         AddAliases("JavaScript", "js", "javascript");
         AddAliases("PowerShell", "ps", "ps1");
