@@ -83,7 +83,7 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(showMethod, Does.Contain("existing.WindowState = WindowState.Normal;"));
             Assert.That(showMethod, Does.Contain("existing.Activate();"));
             Assert.That(showMethod, Does.Contain("if (focusNotes)"));
-            Assert.That(showMethod, Does.Contain("var win = GetOrShow(attachments, owner, openInboxMessage, notesChanged);"));
+            Assert.That(showMethod, Does.Contain("var win = GetOrShow(attachments, owner, openInboxMessage, notesChanged, restorePromptFocus: restorePromptFocus);"));
             Assert.That(showMethod, Does.Contain("win?.FocusNotes();"));
             Assert.That(showMethod, Does.Contain("return existing;"));
 
@@ -223,7 +223,87 @@ internal sealed class AttachmentStripMainWindowWiringTests
             Assert.That(source, Does.Contain("e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None"));
             Assert.That(source, Does.Contain("Closing += OnClosing;"));
             Assert.That(source, Does.Not.Contain("Deactivated +="));
-            Assert.That(source, Does.Contain("existing.BeginEditingInvocation(discardNewAttachment);"));
+            Assert.That(source, Does.Contain("existing.BeginEditingInvocation(discardNewAttachment, restorePromptFocus);"));
+        });
+    }
+
+    [Test]
+    public void PromptFocusReturn_SourceCapturesInvokingPromptAndContext_ForRowTypingAndVoiceRoutes()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var capture = SourceRegion(source, "private Action<Window> CreateAttachmentPromptFocusReturn()",
+            "private void AttachTranscriptFollowUp(");
+        var annotation = SourceRegion(source, "private bool TryStartTranscriptAnnotation(",
+            "private Action<Window> CreateAttachmentPromptFocusReturn()");
+        var strip = SourceRegion(source, "private void UpdateFollowUpStripCore()", "private void RemoveCancelledTranscriptAttachment(");
+        Assert.Multiple(() =>
+        {
+            foreach (var route in new[] { annotation, strip })
+                Assert.That(route, Does.Contain("restorePromptFocus: CreateAttachmentPromptFocusReturn()"));
+            Assert.That(capture, Does.Contain("var prompt = PromptTextBox;"));
+            Assert.That(capture, Does.Contain("var tabId = _activeTabId;"));
+            Assert.That(capture, Does.Contain("var workspace = _currentWorkspace;"));
+            Assert.That(capture, Does.Contain("AttachmentPromptFocusReturn.Queue(owner, prompt, () =>"));
+            Assert.That(capture, Does.Contain("!_isClosing && !_mainWindowClosingInProgress"));
+            Assert.That(capture, Does.Contain("ReferenceEquals(PromptTextBox, prompt)"));
+            Assert.That(capture, Does.Contain("ReferenceEquals(_currentWorkspace, workspace)"));
+            Assert.That(capture, Does.Contain("string.Equals(_activeTabId, tabId, StringComparison.Ordinal)"));
+            Assert.That(annotation, Does.Contain("(attachment, text, dictate) => PromptAttachmentViewerWindow.ShowForAnnotation("));
+            Assert.That(annotation, Does.Contain("notes), text, dictate,"));
+        });
+    }
+
+    [Test]
+    public void PromptFocusReturn_SourceRecordsOnlyAcceptedClose_AndInvokesAfterAllClosedSubscribers()
+    {
+        var source = ReadSource("PromptAttachmentViewerWindow.cs");
+        var closing = SourceRegion(source, "protected override void OnClosing(CancelEventArgs e)",
+            "protected override void OnClosed(EventArgs e)");
+        var closed = SourceRegion(source, "protected override void OnClosed(EventArgs e)",
+            "private void OnClosing(object? sender, CancelEventArgs e)");
+        var accept = SourceRegion(source, "internal async Task AcceptNotesAsync()", "internal void CancelNotes()");
+        Assert.Multiple(() =>
+        {
+            Assert.That(closing.IndexOf("_acceptedCloseOwner = null;", StringComparison.Ordinal),
+                Is.LessThan(closing.IndexOf("base.OnClosing(e);", StringComparison.Ordinal)));
+            Assert.That(closing, Does.Contain("else if (_notesCloseIntent == NotesCloseIntent.Accept && _notesChanged is not null)"));
+            Assert.That(closing, Does.Contain("_acceptedCloseOwner = owner;"));
+            Assert.That(closing, Does.Not.Contain("_restorePromptFocus?.Invoke"));
+            Assert.That(closed.IndexOf("base.OnClosed(e);", StringComparison.Ordinal),
+                Is.LessThan(closed.IndexOf("restorePromptFocus?.Invoke(owner);", StringComparison.Ordinal)));
+            Assert.That(closed, Does.Contain("_acceptedCloseOwner = null;"));
+            Assert.That(closed, Does.Contain("_restorePromptFocus = null;"));
+            Assert.That(closed, Does.Contain("if (owner is not null)"));
+            Assert.That(accept.IndexOf("if (_notesCompleted)", StringComparison.Ordinal),
+                Is.GreaterThan(accept.IndexOf("await _notesDictation.StopAsync();", StringComparison.Ordinal)));
+        });
+    }
+
+    [Test]
+    public void PromptFocusQueue_SourceDefersUntilInputAndGuardsContextForegroundHostAndInterveningInput()
+    {
+        var source = ReadSource("AttachmentPromptFocusReturn.cs");
+        Assert.Multiple(() =>
+        {
+            Assert.That(source, Does.Contain("dispatcher.BeginInvoke(DispatcherPriority.Input"));
+            Assert.That(source, Does.Contain("!ReferenceEquals(Keyboard.FocusedElement, previousFocus)"));
+            Assert.That(source, Does.Contain("!ReferenceEquals(Window.GetWindow(prompt), promptHost)"));
+            Assert.That(source, Does.Contain("!prompt.IsLoaded || !prompt.IsVisible || !prompt.IsEnabled || !prompt.Focusable"));
+            Assert.That(source, Does.Contain("!canReturnFocus()"));
+            Assert.That(source, Does.Contain("!WindowHelper.IsForegroundWindow(invokingOwner)"));
+            Assert.That(source, Does.Contain("!WindowHelper.IsForegroundWindow(promptHost!)"));
+            foreach (var input in new[] { "Keyboard.PreviewKeyDownEvent", "Mouse.PreviewMouseDownEvent",
+                         "Mouse.PreviewMouseWheelEvent", "TextCompositionManager.PreviewTextInputEvent" })
+                Assert.That(source, Does.Contain(input));
+            foreach (var subscription in new[] { "invokingOwner.Deactivated", "invokingOwner.Closing",
+                         "dispatcher.ShutdownStarted", "inputManager.PreProcessInput" })
+            {
+                Assert.That(source, Does.Contain(subscription + " +="));
+                Assert.That(source, Does.Contain(subscription + " -="));
+            }
+            Assert.That(source, Does.Contain("Keyboard.Focus(prompt)"));
+            Assert.That(source, Does.Not.Contain("Select(").And.Not.Contain("CaretPosition =")
+                .And.Not.Contain("SetPlainText(").And.Not.Contain("Topmost"));
         });
     }
 

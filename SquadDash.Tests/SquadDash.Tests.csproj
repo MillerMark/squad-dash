@@ -389,6 +389,7 @@
     <Compile Include="..\SquadDash\TranscriptAnnotationShortcut.cs" Link="Source\TranscriptAnnotationShortcut.cs" />
     <Compile Include="..\SquadDash\AttachmentStripRow.cs" Link="Source\AttachmentStripRow.cs" />
     <Compile Include="..\SquadDash\PromptAttachmentViewerWindow.cs" Link="Source\PromptAttachmentViewerWindow.cs" />
+    <Compile Include="..\SquadDash\AttachmentPromptFocusReturn.cs" Link="Source\AttachmentPromptFocusReturn.cs" />
     <Compile Include="..\SquadDash\WorkspaceConversationStore.cs" Link="Source\WorkspaceConversationStore.cs" />
     <Compile Include="..\SquadDash\PendingPlanContinuationState.cs" Link="Source\PendingPlanContinuationState.cs" />
     <Compile Include="..\SquadDash\QueueRecoveryHoldState.cs" Link="Source\QueueRecoveryHoldState.cs" />

@@ -43,6 +43,8 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
     private bool _confirmingDiscard;
     private bool _notesCompleted;
     private NotesCloseIntent _notesCloseIntent;
+    private Action<Window>? _restorePromptFocus;
+    private Window? _acceptedCloseOwner;
 
     private enum NotesCloseIntent
     {
@@ -57,24 +59,25 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         !string.Equals(editor.Text, _baselineNotes[index] ?? string.Empty, StringComparison.Ordinal)).Any();
 
     internal static void Show(IReadOnlyList<FollowUpAttachment> attachments, Window? owner, Action<string>? openInboxMessage = null,
-        Func<FollowUpAttachment, string?, FollowUpAttachment>? notesChanged = null, bool focusNotes = false)
+        Func<FollowUpAttachment, string?, FollowUpAttachment>? notesChanged = null, bool focusNotes = false,
+        Action<Window>? restorePromptFocus = null)
     {
-        var win = GetOrShow(attachments, owner, openInboxMessage, notesChanged);
+        var win = GetOrShow(attachments, owner, openInboxMessage, notesChanged, restorePromptFocus: restorePromptFocus);
         if (focusNotes)
             win?.FocusNotes();
     }
 
     internal static void ShowForAnnotation(FollowUpAttachment attachment, Window? owner,
         Func<FollowUpAttachment, string?, FollowUpAttachment> notesChanged, string? typedText, bool startDictation,
-        Action<FollowUpAttachment>? discardNewAttachment = null)
+        Action<FollowUpAttachment>? discardNewAttachment = null, Action<Window>? restorePromptFocus = null)
     {
-        var win = GetOrShow([attachment], owner, null, notesChanged, discardNewAttachment)!;
+        var win = GetOrShow([attachment], owner, null, notesChanged, discardNewAttachment, restorePromptFocus)!;
         win.BeginAnnotation(typedText, startDictation);
     }
 
     private static PromptAttachmentViewerWindow? GetOrShow(IReadOnlyList<FollowUpAttachment> attachments, Window? owner,
         Action<string>? openInboxMessage, Func<FollowUpAttachment, string?, FollowUpAttachment>? notesChanged,
-        Action<FollowUpAttachment>? discardNewAttachment = null)
+        Action<FollowUpAttachment>? discardNewAttachment = null, Action<Window>? restorePromptFocus = null)
     {
         if (attachments.Count == 0) return null;
 
@@ -88,7 +91,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
                 (existing._notesChanged is null) == (notesChanged is null))
             {
                 existing.Owner = owner;
-                existing.BeginEditingInvocation(discardNewAttachment);
+                existing.BeginEditingInvocation(discardNewAttachment, restorePromptFocus);
                 if (existing.WindowState == WindowState.Minimized)
                     existing.WindowState = WindowState.Normal;
                 existing.Activate();
@@ -97,7 +100,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         }
 
         var win = new PromptAttachmentViewerWindow(attachments, owner, openInboxMessage, notesChanged,
-            discardNewAttachment: discardNewAttachment);
+            discardNewAttachment: discardNewAttachment, restorePromptFocus: restorePromptFocus);
         s_openViewers.Add(new WeakReference<PromptAttachmentViewerWindow>(win));
         win.Show();
         return win;
@@ -125,7 +128,8 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         Func<DateTimeOffset>? nowProvider = null,
         Func<ISpeechRecognitionService>? speechServiceFactory = null,
         Func<bool>? confirmDiscardNotes = null,
-        Action<FollowUpAttachment>? discardNewAttachment = null)
+        Action<FollowUpAttachment>? discardNewAttachment = null,
+        Action<Window>? restorePromptFocus = null)
         : base(captionHeight: CloseButtonHeight, resizeMode: ResizeMode.CanResize)
     {
         Owner = owner;
@@ -133,6 +137,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         _notesChanged     = notesChanged;
         _baselineNotes = _attachments.Select(attachment => attachment.Notes).ToArray();
         _discardNewAttachment = discardNewAttachment;
+        _restorePromptFocus = restorePromptFocus;
         _confirmDiscardNotes = confirmDiscardNotes ?? ConfirmDiscardNotes;
         _noteActions = new StackPanel
         {
@@ -258,12 +263,14 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         }
     }
 
-    internal void BeginEditingInvocation(Action<FollowUpAttachment>? discardNewAttachment = null)
+    internal void BeginEditingInvocation(Action<FollowUpAttachment>? discardNewAttachment = null,
+        Action<Window>? restorePromptFocus = null)
     {
         // Bringing an existing viewer forward is a new invocation, not a continuation
         // of the original transcript-add gesture.
         _baselineNotes = _attachments.Select(attachment => attachment.Notes).ToArray();
         _discardNewAttachment = discardNewAttachment;
+        _restorePromptFocus = restorePromptFocus;
         UpdateNoteActions();
     }
 
@@ -282,6 +289,8 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
             // Join even an already-stopping Ctrl-release session so its final phrase
             // is persisted before the window closes.
             await _notesDictation.StopAsync();
+            if (_notesCompleted)
+                return;
             _notesCloseIntent = NotesCloseIntent.Accept;
             Close();
         }
@@ -312,6 +321,7 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        _acceptedCloseOwner = null;
         base.OnClosing(e);
         if (e.Cancel)
             return;
@@ -337,6 +347,22 @@ internal sealed class PromptAttachmentViewerWindow : ChromedWindow
         // Hand off after all Closing handlers agree, before native destruction.
         if (!owner.Activate())
             SquadDashTrace.Write(TraceCategory.UI, "Attachment viewer close: owner activation was declined.");
+        else if (_notesCloseIntent == NotesCloseIntent.Accept && _notesChanged is not null)
+            _acceptedCloseOwner = owner;
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        var owner = _acceptedCloseOwner;
+        var restorePromptFocus = _restorePromptFocus;
+        _acceptedCloseOwner = null;
+        _restorePromptFocus = null;
+        base.OnClosed(e);
+
+        // Native owner activation belongs in OnClosing; keyboard focus belongs only
+        // to a completed acceptance, after every Closed subscriber has run.
+        if (owner is not null)
+            restorePromptFocus?.Invoke(owner);
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)

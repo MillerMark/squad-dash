@@ -1740,17 +1740,266 @@ internal sealed class PromptAttachmentViewerWindowTests
         }
     }
 
+    [Test]
+    public void ReusedInvocation_RefreshesOrClearsExactFocusCallback(
+        [Values("row", "typing")] string firstRoute,
+        [Values("row", "typing", "without-callback")] string nextRoute)
+    {
+        var attachments = QuoteAttachments("saved");
+        Action<Window> first = _ => Assert.Fail("The previous invocation must not receive the handoff.");
+        Action<Window> next = _ => { };
+        FollowUpAttachment Save(FollowUpAttachment current, string? notes) => SaveNotes(attachments, current, notes);
+        void Open(string route, Action<Window>? callback)
+        {
+            if (route == "typing")
+                PromptAttachmentViewerWindow.ShowForAnnotation(attachments[0], null, Save, "typed", false,
+                    restorePromptFocus: callback);
+            else
+                PromptAttachmentViewerWindow.Show(attachments, null, notesChanged: Save, focusNotes: true,
+                    restorePromptFocus: callback);
+        }
+
+        Open(firstRoute, first);
+        Pump();
+        var viewer = GetOpenViewerWindows().Single();
+        var callbackField = typeof(PromptAttachmentViewerWindow)
+            .GetField("_restorePromptFocus", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.That(callbackField.GetValue(viewer), Is.SameAs(first));
+        FindNotesEditor(viewer).Text = "replacement attachment identity";
+        Open(nextRoute, nextRoute == "without-callback" ? null : next);
+        Pump();
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetOpenViewerWindows().Single(), Is.SameAs(viewer));
+            Assert.That(callbackField.GetValue(viewer),
+                nextRoute == "without-callback" ? Is.Null : Is.SameAs(next));
+        });
+        AcceptAndClose(viewer);
+        Assert.That(callbackField.GetValue(viewer), Is.Null, "Closed must release the captured prompt context.");
+    }
+
+    [TestCase("accept")]
+    [TestCase("cancel")]
+    [TestCase("close")]
+    public void FocusReturn_ClosingVetoKeepsPersistenceActionsAndDictationUsable(string action)
+    {
+        var attachments = QuoteAttachments("saved");
+        var speech = new AnnotationSpeechService();
+        var removed = 0;
+        var returned = 0;
+        var viewer = ShowEditableViewer(attachments, discard: _ => removed++, speech: speech,
+            restorePromptFocus: _ => returned++);
+        var editor = FindNotesEditor(viewer);
+        editor.Text = "dirty before veto";
+        var veto = true;
+        var closed = 0;
+        viewer.Closing += (_, e) => e.Cancel = veto;
+        viewer.Closed += (_, _) => closed++;
+        try
+        {
+            if (action == "accept")
+                AcceptAndClose(viewer);
+            else if (action == "cancel")
+                viewer.CancelNotes();
+            else
+                viewer.Close();
+            Assert.Multiple(() =>
+            {
+                Assert.That(viewer.IsVisible, Is.True);
+                Assert.That(closed, Is.Zero);
+                Assert.That(returned, Is.Zero);
+                Assert.That(removed, Is.Zero);
+                Assert.That(attachments[0].Notes, Is.EqualTo("dirty before veto"));
+                Assert.That(FindNoteActions(viewer).IsEnabled, Is.True);
+                Assert.That(speech.Disposals, Is.Zero);
+            });
+            editor.Text = "edit after veto";
+            Assert.That(attachments[0].Notes, Is.EqualTo("edit after veto"));
+            viewer.BeginAnnotation(null, startDictation: true);
+            Assert.That(WaitFor(() => speech.Starts == 1), Is.True,
+                "A veto must not dispose the dictation attachment.");
+            speech.Emit("still usable");
+            Pump();
+            Assert.That(attachments[0].Notes, Does.Contain("still usable"));
+            veto = false;
+            AcceptAndClose(viewer);
+            Assert.Multiple(() =>
+            {
+                Assert.That(closed, Is.EqualTo(1));
+                Assert.That(removed, Is.Zero);
+                Assert.That(attachments[0].Notes, Does.Contain("final phrase"));
+            });
+        }
+        finally
+        {
+            veto = false;
+            AcceptAndClose(viewer);
+        }
+    }
+
+    [TestCase("cancel")]
+    [TestCase("escape")]
+    [TestCase("close")]
+    public void FocusReturn_DiscardNoAndYesNeverRequestPromptHandoff(string action)
+    {
+        var attachments = QuoteAttachments("saved");
+        var allow = false;
+        var returns = 0;
+        var viewer = ShowEditableViewer(attachments, () => allow, restorePromptFocus: _ => returns++);
+        FindNotesEditor(viewer).Text = "dirty";
+        void Dismiss()
+        {
+            if (action == "cancel")
+                viewer.CancelNotes();
+            else if (action == "escape")
+                Assert.That(RaisePreviewKey(FindNotesEditor(viewer), Keyboard.PreviewKeyDownEvent, Key.Escape).Handled, Is.True);
+            else
+                viewer.Close();
+        }
+        Dismiss();
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer.IsVisible, Is.True);
+            Assert.That(attachments[0].Notes, Is.EqualTo("dirty"));
+            Assert.That(returns, Is.Zero);
+        });
+        allow = true;
+        Dismiss();
+        Pump();
+        Assert.Multiple(() =>
+        {
+            Assert.That(viewer.IsVisible, Is.False);
+            Assert.That(attachments[0].Notes, Is.EqualTo("saved"));
+            Assert.That(returns, Is.Zero);
+        });
+    }
+
+    [Test]
+    [Category("NativeFocus")]
+    public void NativeAcceptance_ReturnsExactPromptAfterClosed_PreservingSelectionAndConsumingEnter(
+        [Values("docked", "floating", "separate-hosts")] string layout,
+        [Values(false, true)] bool clickOk,
+        [Values(false, true)] bool reuse)
+    {
+        var attachments = QuoteAttachments("saved");
+        var oldPrompt = new RichTextBox();
+        var prompt = new RichTextBox(new FlowDocument(new Paragraph(new Run("original prompt text"))));
+        var main = new Window { Width = 300, Height = 200, ShowInTaskbar = false };
+        var floating = new Window { Width = 300, Height = 200, ShowInTaskbar = false };
+        PromptAttachmentViewerWindow? viewer = null;
+        var events = new List<string>();
+        var returns = 0;
+        try
+        {
+            main.Show();
+            floating.Owner = main;
+            floating.Show();
+            var invokingOwner = layout == "docked" ? main : floating;
+            var promptHost = layout == "floating" ? floating : main;
+            var panel = new StackPanel();
+            panel.Children.Add(oldPrompt);
+            panel.Children.Add(prompt);
+            promptHost.Content = panel;
+            Pump();
+            prompt.Selection.Select(prompt.Document.ContentStart.GetPositionAtOffset(4)!,
+                prompt.Document.ContentStart.GetPositionAtOffset(10)!);
+            var selectionStart = prompt.Document.ContentStart.GetOffsetToPosition(prompt.Selection.Start);
+            var selectionEnd = prompt.Document.ContentStart.GetOffsetToPosition(prompt.Selection.End);
+            var caret = prompt.Document.ContentStart.GetOffsetToPosition(prompt.CaretPosition);
+            var text = new TextRange(prompt.Document.ContentStart, prompt.Document.ContentEnd).Text;
+            var submits = 0;
+            prompt.KeyDown += (_, e) => { if (e.Key == Key.Enter) submits++; };
+            FollowUpAttachment Save(FollowUpAttachment current, string? notes) => SaveNotes(attachments, current, notes);
+            void Restore(Window owner)
+            {
+                returns++;
+                events.Add("prompt-queue");
+                Assert.That(owner, Is.SameAs(invokingOwner));
+                Assert.That(events, Does.Contain("closed-last"));
+                AttachmentPromptFocusReturn.Queue(owner, prompt, () => true);
+            }
+            PromptAttachmentViewerWindow.Show(attachments, reuse ? main : invokingOwner, notesChanged: Save,
+                focusNotes: true, restorePromptFocus: reuse
+                    ? _ => Assert.Fail("Stale invocation must not receive the accepted handoff.")
+                    : Restore);
+            Pump();
+            viewer = GetOpenViewerWindows().Single();
+            if (reuse)
+            {
+                FindNotesEditor(viewer).Text = "persisted before reinvocation";
+                PromptAttachmentViewerWindow.ShowForAnnotation(attachments[0], invokingOwner, Save, "typed", false,
+                    restorePromptFocus: Restore);
+                Pump();
+                Assert.That(GetOpenViewerWindows().Single(), Is.SameAs(viewer));
+            }
+            viewer.Activate();
+            Keyboard.Focus(FindNotesEditor(viewer));
+            Pump();
+            var viewerHandle = new WindowInteropHelper(viewer).Handle;
+            if (viewerHandle == IntPtr.Zero || NativeGetForegroundWindow() != viewerHandle || !viewer.IsActive)
+                Assert.Inconclusive($"Native precondition unavailable: viewer=0x{viewerHandle:X}, " +
+                    $"foreground=0x{NativeGetForegroundWindow():X}; exact keyboard return was not exercised.");
+            Assert.That(Keyboard.FocusedElement, Is.SameAs(FindNotesEditor(viewer)));
+            FindNotesEditor(viewer).Text = "accepted notes";
+            viewer.Closing += (_, e) =>
+            {
+                Assert.That(e.Cancel, Is.False);
+                Assert.That(returns, Is.Zero);
+                events.Add("closing");
+            };
+            invokingOwner.Activated += (_, _) => events.Add(NativeIsWindow(viewerHandle)
+                ? "owner-before-destroy" : "owner-after-destroy");
+            viewer.Closed += (_, _) => events.Add("closed-first");
+            viewer.Closed += (_, _) =>
+            {
+                Assert.That(returns, Is.Zero);
+                events.Add("closed-last");
+            };
+            if (clickOk)
+                FindNoteActions(viewer).Children.OfType<Button>().Single(button => Equals(button.Content, "OK"))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            else
+                Assert.That(RaisePreviewKey(FindNotesEditor(viewer), Keyboard.PreviewKeyDownEvent, Key.Enter).Handled, Is.True);
+            Pump();
+            Assert.Multiple(() =>
+            {
+                Assert.That(events, Is.EqualTo(new[] { "closing", "owner-before-destroy", "closed-first", "closed-last", "prompt-queue" }));
+                Assert.That(returns, Is.EqualTo(1));
+                Assert.That(viewer.IsVisible, Is.False);
+                Assert.That(Keyboard.FocusedElement, Is.SameAs(prompt));
+                Assert.That(prompt.IsKeyboardFocused, Is.True);
+                Assert.That(NativeGetForegroundWindow(), Is.EqualTo(new WindowInteropHelper(promptHost).Handle));
+                Assert.That(new TextRange(prompt.Document.ContentStart, prompt.Document.ContentEnd).Text, Is.EqualTo(text));
+                Assert.That(prompt.Document.ContentStart.GetOffsetToPosition(prompt.Selection.Start), Is.EqualTo(selectionStart));
+                Assert.That(prompt.Document.ContentStart.GetOffsetToPosition(prompt.Selection.End), Is.EqualTo(selectionEnd));
+                Assert.That(prompt.Document.ContentStart.GetOffsetToPosition(prompt.CaretPosition), Is.EqualTo(caret));
+                Assert.That(attachments[0].Notes, Is.EqualTo("accepted notes"));
+                Assert.That(submits, Is.Zero, "The accepted Enter must not become a prompt submission.");
+            });
+        }
+        finally
+        {
+            if (viewer is not null)
+            {
+                viewer.BeginEditingInvocation();
+                AcceptAndClose(viewer);
+            }
+            floating.Close();
+            main.Close();
+        }
+    }
+
     private static List<FollowUpAttachment> QuoteAttachments(string? notes) =>
         [new FollowUpAttachment("", "quote", null, TranscriptQuote: "selected quote", Notes: notes)];
 
     private PromptAttachmentViewerWindow ShowEditableViewer(
         List<FollowUpAttachment> attachments, Func<bool>? confirm = null,
         Action<FollowUpAttachment>? discard = null, AnnotationSpeechService? speech = null,
-        IReadOnlyList<FollowUpAttachment>? displayed = null)
+        IReadOnlyList<FollowUpAttachment>? displayed = null, Action<Window>? restorePromptFocus = null)
     {
         var viewer = new PromptAttachmentViewerWindow(displayed ?? attachments, null,
             notesChanged: (current, notes) => SaveNotes(attachments, current, notes),
-            confirmDiscardNotes: confirm ?? (() => true), discardNewAttachment: discard,
+            confirmDiscardNotes: confirm ?? (() => true), discardNewAttachment: discard, restorePromptFocus: restorePromptFocus,
             settingsProvider: () => ApplicationSettingsSnapshot.Empty with
             {
                 SpeechProvider = SpeechProvider.OpenAI,
