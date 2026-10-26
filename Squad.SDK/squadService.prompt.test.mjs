@@ -21,9 +21,11 @@ import {
     reconcileEmittedAndFinalReasoning,
     reconcileStreamedAndFinalResponse,
     RequestTreeActivityMonitor,
+    isReasoningSummaryUnsupportedError,
     resolvePermissionApprovalKind,
     resolvePermissionApprovalKindFromSchema,
     reserveProviderRetryTimestamp,
+    shouldRequestReasoningSummary,
     SquadBridgeService,
     StagedPlanRevisionHostProtocol,
     tryParseStagedPlanRevisionRequest
@@ -486,6 +488,247 @@ test("runPrompt retries without reasoning effort on downlevel CLI", async () => 
     assert.equal(configs[1].reasoningEffort, undefined);
 });
 
+test("reasoning summaries are requested only for Azure Responses profiles", () => {
+    assert.equal(shouldRequestReasoningSummary({
+        baseUrl: "https://squaddash-test.openai.azure.com",
+        type: "azure",
+        wireApi: "responses"
+    }), true);
+    assert.equal(shouldRequestReasoningSummary({
+        baseUrl: "https://squaddash-test.openai.azure.com",
+        type: "azure",
+        wireApi: "completions"
+    }), false);
+    assert.equal(shouldRequestReasoningSummary({
+        baseUrl: "https://squaddash-test.services.ai.azure.com/openai/v1",
+        type: "openai",
+        wireApi: "responses"
+    }), true);
+    assert.equal(shouldRequestReasoningSummary({
+        baseUrl: "https://squaddash-test.cognitiveservices.azure.com/openai/v1",
+        type: "openai",
+        wireApi: "responses"
+    }), true);
+    assert.equal(shouldRequestReasoningSummary({
+        baseUrl: "https://api.openai.com/v1",
+        type: "openai",
+        wireApi: "responses"
+    }), false);
+    assert.equal(shouldRequestReasoningSummary(undefined), false);
+});
+
+test("Azure URL fallback is limited to OpenAI-compatible or missing provider types", () => {
+    assert.equal(shouldRequestReasoningSummary({
+        baseUrl: "https://legacy-profile.openai.azure.com",
+        wireApi: "responses"
+    }), true);
+    assert.equal(shouldRequestReasoningSummary({
+        baseUrl: "https://not-azure.example/v1/responses",
+        wireApi: "responses"
+    }), false);
+    assert.equal(shouldRequestReasoningSummary({
+        baseUrl: "https://legacy-profile.openai.azure.com",
+        type: "anthropic",
+        wireApi: "responses"
+    }), false);
+    assert.equal(shouldRequestReasoningSummary({
+        baseUrl: "https://legacy-profile.openai.azure.com"
+    }), false);
+});
+
+test("reasoning-summary rejection detection does not catch unrelated provider failures", () => {
+    assert.equal(isReasoningSummaryUnsupportedError(
+        new Error("Unsupported parameter: 'reasoning.summary' is not supported with this model.")), true);
+    assert.equal(isReasoningSummaryUnsupportedError(
+        new Error("Unknown option: reasoning summary")), true);
+    assert.equal(isReasoningSummaryUnsupportedError(
+        new Error("Unsupported parameter: temperature")), false);
+    assert.equal(isReasoningSummaryUnsupportedError(
+        new Error("Azure request timed out")), false);
+});
+
+test("Azure Responses retries once without summaries before any model activity", async () => {
+    const summaryConfigs = [];
+    const fallbackConfigs = [];
+    let summaryClosed = 0;
+    const service = new SquadBridgeService();
+    service.reasoningSummaryClientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.reasoningSummaryClient = {
+        createSession: async config => {
+            summaryConfigs.push(config);
+            return {
+                sessionId: "azure-summary-rejected",
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => {
+                    throw new Error("Unsupported parameter: 'reasoning.summary' is not supported with this model.");
+                },
+                close: async () => { summaryClosed++; }
+            };
+        }
+    };
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async config => {
+            fallbackConfigs.push(config);
+            return {
+                sessionId: "azure-summary-fallback",
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => ({ content: "fallback succeeded" })
+            };
+        }
+    };
+
+    const deltas = [];
+    await service.runNamedAgent({
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        selectedOption: "Inspect the Azure response.",
+        targetAgent: "lyra",
+        model: "gpt-6-astra",
+        agentRoute: {
+            handle: "lyra",
+            displayName: "Lyra",
+            model: "gpt-6-astra",
+            provider: {
+                baseUrl: "https://squaddash-test.openai.azure.com",
+                type: "azure",
+                wireApi: "responses",
+                apiKey: "azure-test-key"
+            }
+        }
+    }, {
+        onDelta: text => deltas.push(text)
+    });
+
+    assert.equal(summaryConfigs.length, 1);
+    assert.equal(fallbackConfigs.length, 1);
+    assert.equal(summaryClosed, 1);
+    assert.deepEqual(deltas, ["fallback succeeded"]);
+});
+
+test("Azure Responses does not automatically replay a resumed turn after summary rejection", async () => {
+    const resumedSessionId = "azure-summary-resumed";
+    let summarySends = 0;
+    let summaryCloses = 0;
+    let fallbackResumes = 0;
+    let fallbackSends = 0;
+    const service = new SquadBridgeService();
+    service.reasoningSummaryClientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.reasoningSummaryClient = {
+        resumeSession: async sessionId => {
+            assert.equal(sessionId, resumedSessionId);
+            return {
+                sessionId,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => {
+                    summarySends++;
+                    throw new Error("Unsupported parameter: 'reasoning.summary' is not supported with this model.");
+                },
+                close: async () => { summaryCloses++; }
+            };
+        }
+    };
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        resumeSession: async sessionId => {
+            fallbackResumes++;
+            assert.equal(sessionId, resumedSessionId);
+            return {
+                sessionId,
+                on() {},
+                getBackgroundTasks: async () => [],
+                sendAndWait: async () => {
+                    fallbackSends++;
+                    return { content: "continued without summaries" };
+                }
+            };
+        }
+    };
+    const request = {
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        namedAgentSessionId: resumedSessionId,
+        selectedOption: "Inspect the Azure response.",
+        targetAgent: "lyra",
+        model: "gpt-6-astra",
+        agentRoute: {
+            handle: "lyra",
+            displayName: "Lyra",
+            model: "gpt-6-astra",
+            provider: {
+                baseUrl: "https://squaddash-test.openai.azure.com",
+                type: "azure",
+                wireApi: "responses"
+            }
+        }
+    };
+
+    await assert.rejects(
+        () => service.runNamedAgent(request, {}),
+        /reasoning\.summary/);
+
+    assert.equal(summarySends, 1);
+    assert.equal(summaryCloses, 1);
+    assert.equal(fallbackResumes, 0);
+    assert.equal(fallbackSends, 0);
+
+    const deltas = [];
+    await service.runNamedAgent({
+        ...request,
+        selectedOption: "Continue with a new follow-up."
+    }, {
+        onDelta: text => deltas.push(text)
+    });
+
+    assert.equal(summarySends, 1);
+    assert.equal(fallbackResumes, 1);
+    assert.equal(fallbackSends, 1);
+    assert.deepEqual(deltas, ["continued without summaries"]);
+});
+
+test("Azure Responses does not retry a summary rejection after visible activity", async () => {
+    let fallbackCreates = 0;
+    const listeners = new Map();
+    const service = new SquadBridgeService();
+    service.reasoningSummaryClientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.reasoningSummaryClient = {
+        createSession: async () => ({
+            sessionId: "azure-summary-active",
+            on(eventName, handler) { listeners.set(eventName, handler); },
+            getBackgroundTasks: async () => [],
+            sendAndWait: async () => {
+                listeners.get("message_delta")?.({ deltaContent: "partial output" });
+                throw new Error("Unsupported parameter: 'reasoning.summary' is not supported with this model.");
+            }
+        })
+    };
+    service.clientCwd = "D:\\Drive\\Source\\SquadDash-public";
+    service.client = {
+        createSession: async () => {
+            fallbackCreates++;
+            throw new Error("fallback should not run");
+        }
+    };
+
+    await assert.rejects(() => service.runNamedAgent({
+        cwd: "D:\\Drive\\Source\\SquadDash-public",
+        selectedOption: "Inspect the Azure response.",
+        targetAgent: "lyra",
+        agentRoute: {
+            handle: "lyra",
+            displayName: "Lyra",
+            model: "gpt-6-astra",
+            provider: {
+                baseUrl: "https://squaddash-test.openai.azure.com",
+                type: "azure",
+                wireApi: "responses"
+            }
+        }
+    }, {}), /reasoning\.summary/);
+    assert.equal(fallbackCreates, 0);
+});
+
 test("named roster tool preserves max reasoning effort in delegated session config", async () => {
     const configs = [];
     let sessionNumber = 0;
@@ -569,6 +812,8 @@ test("named roster tool forwards completion-only reasoning as subagent thinking"
             };
         }
     };
+    service.reasoningSummaryClientCwd = service.clientCwd;
+    service.reasoningSummaryClient = service.client;
 
     await service.runPrompt("Delegate the Azure analysis", {}, {
         cwd: "D:\\Drive\\Source\\SquadDash-public",
@@ -2371,6 +2616,8 @@ test("Azure profile sessions preserve their provider binding when steered", asyn
             };
         }
     };
+    service.reasoningSummaryClientCwd = service.clientCwd;
+    service.reasoningSummaryClient = service.client;
 
     const run = service.runNamedAgent({
         cwd: service.clientCwd,

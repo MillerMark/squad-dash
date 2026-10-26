@@ -157,6 +157,7 @@ type SquadSessionRequest = SquadPromptRequest & {
     requireSameSession?: boolean;
     providerOverride?: SquadSessionConfig["provider"] | null;
     providerOverrideSpecified?: boolean;
+    disableReasoningSummary?: boolean;
     exposeNamedAgentTool?: boolean;
     requestTreeActivityMonitor?: RequestTreeActivityMonitor;
 };
@@ -512,6 +513,7 @@ type RequestContext = {
     hiddenAdditionalContext?: string;
     planDelegationGuard?: PlanDelegationGuard;
     planLaunchCorrectionCount: number;
+    hasObservableActivity: boolean;
     requestTreeActivityMonitor: RequestTreeActivityMonitor;
 };
 
@@ -523,6 +525,9 @@ type LocalThinkStreamState = {
 
 type SessionState = {
     session: SquadSession;
+    client?: SquadClient;
+    reasoningSummaryRequested?: boolean;
+    reasoningSummaryFallbackKey?: string;
     activeTools: Map<string, ActiveToolContext>;
     backgroundTasks: BackgroundTaskSnapshot;
     subagentsByToolCallId: Map<string, SubagentLifecycleInfo>;
@@ -1169,6 +1174,39 @@ function normalizeWireApi(value: string | undefined): WireApi | undefined {
         : undefined;
 }
 
+function isAzureProviderUrl(value: string | undefined): boolean {
+    const normalized = normalizeOptionalString(value)?.toLowerCase();
+    if (!normalized)
+        return false;
+
+    try {
+        const host = new URL(normalized).hostname;
+        return host.endsWith(".openai.azure.com") ||
+            host.endsWith(".services.ai.azure.com") ||
+            host.endsWith(".cognitiveservices.azure.com");
+    }
+    catch {
+        return false;
+    }
+}
+
+export function shouldRequestReasoningSummary(
+    provider: SquadSessionConfig["provider"] | undefined
+): boolean {
+    if (!provider)
+        return false;
+
+    // Azure's OpenAI-compatible v1 endpoints can legitimately use the "openai"
+    // SDK adapter. Treat a strict Azure hostname as hosting metadata without
+    // changing the configured adapter used for the actual provider request.
+    const providerType = normalizeProviderType(provider.type);
+    const isAzureHosted = providerType === "azure" ||
+        ((providerType === "openai" || providerType === undefined) &&
+            isAzureProviderUrl(provider.baseUrl));
+    const wireApi = normalizeWireApi(provider.wireApi);
+    return isAzureHosted && wireApi === "responses";
+}
+
 function buildCustomProviderFromEnv(): SquadSessionConfig["provider"] | undefined {
     const baseUrl = normalizeOptionalString(process.env.COPILOT_PROVIDER_BASE_URL);
     if (!baseUrl)
@@ -1264,6 +1302,22 @@ function isReasoningEffortUnsupportedError(error: unknown): boolean {
     return message.includes("unsupported")
         || message.includes("unknown")
         || message.includes("invalid option")
+        || message.includes("unrecognized")
+        || message.includes("unexpected");
+}
+
+export function isReasoningSummaryUnsupportedError(error: unknown): boolean {
+    const message = extractErrorMessage(error).toLowerCase();
+    const identifiesSummary = message.includes("reasoning.summary") ||
+        message.includes("reasoning summary") ||
+        message.includes("reasoning_summary");
+    if (!identifiesSummary)
+        return false;
+
+    return message.includes("unsupported")
+        || message.includes("not supported")
+        || message.includes("unknown")
+        || message.includes("invalid")
         || message.includes("unrecognized")
         || message.includes("unexpected");
 }
@@ -2774,8 +2828,11 @@ export class SquadBridgeService {
     private readonly bridgeHandlers: SquadBridgeHandlers;
     private client: SquadClient | null = null;
     private clientCwd: string | null = null;
+    private reasoningSummaryClient: SquadClient | null = null;
+    private reasoningSummaryClientCwd: string | null = null;
     private readonly sessions = new Map<string, SessionState>();
     private readonly providerRetryAttempts = new Map<string, number[]>();
+    private readonly reasoningSummaryFallbacks = new Set<string>();
 
     public constructor(bridgeHandlers: SquadBridgeHandlers = {}) {
         this.bridgeHandlers = bridgeHandlers;
@@ -2874,7 +2931,7 @@ export class SquadBridgeService {
         handlers: SquadRunHandlers,
         options: SquadSessionRequest,
         hiddenAdditionalContext?: string
-    ) {
+    ): Promise<string | undefined> {
         const trimmedPrompt = prompt.trim();
         if (!trimmedPrompt)
             throw new Error("Prompt cannot be empty.");
@@ -2925,6 +2982,7 @@ export class SquadBridgeService {
             hiddenAdditionalContext,
             planDelegationGuard: options.planDelegationGuard,
             planLaunchCorrectionCount: 0,
+            hasObservableActivity: false,
             requestTreeActivityMonitor
         };
 
@@ -2942,6 +3000,19 @@ export class SquadBridgeService {
         }
 
         let requestSubmitted = false;
+        let requestCleanedUp = false;
+        const cleanupRequest = () => {
+            if (requestCleanedUp)
+                return;
+            requestCleanedUp = true;
+            if (requestSubmitted)
+                state.completedPromptCount++;
+            if (state.currentRequest === requestContext)
+                state.currentRequest = undefined;
+            unregisterSession();
+            if (ownsRequestTreeActivityMonitor)
+                requestTreeActivityMonitor.stop();
+        };
 
         try {
             requestSubmitted = true;
@@ -2952,7 +3023,10 @@ export class SquadBridgeService {
             });
             const sendAndWait = state.session.sendAndWait
                 ? state.session.sendAndWait({ prompt: trimmedPrompt }, SessionTransportSafetyTimeoutMs)
-                : this.client!.sendAndWait(state.session, { prompt: trimmedPrompt }, SessionTransportSafetyTimeoutMs);
+                : (state.client ?? this.client ?? this.reasoningSummaryClient)!.sendAndWait(
+                    state.session,
+                    { prompt: trimmedPrompt },
+                    SessionTransportSafetyTimeoutMs);
             const finalMessage = await Promise.race([
                 sendAndWait,
                 requestTreeActivityMonitor.expired
@@ -3013,18 +3087,34 @@ export class SquadBridgeService {
             if (options.sessionId && isRecoverableSessionReset(extractErrorMessage(error)))
                 await this.disposeSession(state.session.sessionId);
 
+            if (state.reasoningSummaryRequested &&
+                state.reasoningSummaryFallbackKey &&
+                !requestContext.hasObservableActivity &&
+                isReasoningSummaryUnsupportedError(error)) {
+                this.reasoningSummaryFallbacks.add(state.reasoningSummaryFallbackKey);
+                const canReplaySafely = !sessionReady.resumed;
+                bridgeDiagnostic(canReplaySafely
+                    ? "runSessionRequest:retry-without-reasoning-summary"
+                    : "runSessionRequest:disable-reasoning-summary-without-replay", {
+                    sessionId: state.session.sessionId,
+                    model: options.model ?? "(default)",
+                    message: extractErrorMessage(error)
+                });
+                cleanupRequest();
+                await this.disposeSession(state.session.sessionId);
+                if (canReplaySafely) {
+                    return await this.runSessionRequest(
+                        trimmedPrompt,
+                        handlers,
+                        { ...options, disableReasoningSummary: true },
+                        hiddenAdditionalContext);
+                }
+            }
+
             throw enrichCopilotAuthenticationFailure(error);
         }
         finally {
-            if (requestSubmitted)
-                state.completedPromptCount++;
-
-            if (state.currentRequest === requestContext)
-                state.currentRequest = undefined;
-
-            unregisterSession();
-            if (ownsRequestTreeActivityMonitor)
-                requestTreeActivityMonitor.stop();
+            cleanupRequest();
         }
     }
 
@@ -3170,10 +3260,22 @@ export class SquadBridgeService {
         for (const sessionId of sessionIds)
             await this.disposeSession(sessionId);
 
-        if (this.client !== null) {
-            await this.client.disconnect();
+        const defaultClient = this.client;
+        const summaryClient = this.reasoningSummaryClient;
+        if (defaultClient !== null) {
+            await defaultClient.disconnect();
             this.client = null;
             this.clientCwd = null;
+        }
+
+        if (summaryClient !== null && summaryClient !== defaultClient) {
+            await summaryClient.disconnect();
+            this.reasoningSummaryClient = null;
+            this.reasoningSummaryClientCwd = null;
+        }
+        else if (summaryClient !== null) {
+            this.reasoningSummaryClient = null;
+            this.reasoningSummaryClientCwd = null;
         }
     }
 
@@ -3315,6 +3417,7 @@ export class SquadBridgeService {
             request.activeReasoningId = undefined;
             request.activeAnonymousReasoningContent += text;
         }
+        request.hasObservableActivity = true;
         request.handlers.onThinking?.(text, speaker);
     }
 
@@ -3354,8 +3457,10 @@ export class SquadBridgeService {
 
         addPendingReasoningText(request.pendingIdentifiedReasoningByText, text);
         request.lastFinalReasoningContent = text;
-        if (reconciliation.unstreamedContent)
+        if (reconciliation.unstreamedContent) {
+            request.hasObservableActivity = true;
             request.handlers.onThinking?.(reconciliation.unstreamedContent, speaker);
+        }
     }
 
     private emitMessageFinalReasoning(
@@ -3393,8 +3498,10 @@ export class SquadBridgeService {
         request.lastFinalReasoningContent = text;
         request.lastFinalReasoningMessageId = messageId;
         request.lastFinalReasoningMessageContent = text;
-        if (reconciliation.unstreamedContent)
+        if (reconciliation.unstreamedContent) {
+            request.hasObservableActivity = true;
             request.handlers.onThinking?.(reconciliation.unstreamedContent, speaker);
+        }
     }
 
     private emitFallbackFinalRequestReasoning(
@@ -3438,8 +3545,10 @@ export class SquadBridgeService {
         request.lastFinalReasoningContent = text;
         request.lastFinalReasoningMessageId = messageId;
         request.lastFinalReasoningMessageContent = text;
-        if (reconciliation.unstreamedContent)
+        if (reconciliation.unstreamedContent) {
+            request.hasObservableActivity = true;
             request.handlers.onThinking?.(reconciliation.unstreamedContent);
+        }
     }
 
     private emitLocalThinkDelta(
@@ -3459,6 +3568,7 @@ export class SquadBridgeService {
         else {
             request.activeAnonymousLocalThinkContent += text;
         }
+        request.hasObservableActivity = true;
         request.handlers.onThinking?.(text, speaker);
     }
 
@@ -3499,8 +3609,10 @@ export class SquadBridgeService {
         }
         request.lastFinalLocalThinkMessageId = messageId;
         request.lastFinalLocalThinkContent = text;
-        if (reconciliation.unstreamedContent)
+        if (reconciliation.unstreamedContent) {
+            request.hasObservableActivity = true;
             request.handlers.onThinking?.(reconciliation.unstreamedContent, speaker);
+        }
     }
 
     private async refreshBackgroundTasks(state: SessionState): Promise<void> {
@@ -3618,18 +3730,40 @@ export class SquadBridgeService {
         return { agents, shells };
     }
 
-    private async ensureClient(cwd: string): Promise<SquadClient> {
-        if (this.client && this.clientCwd === cwd)
-            return this.client;
+    private async ensureClient(cwd: string, enableReasoningSummaries = false): Promise<SquadClient> {
+        const selectedClient = enableReasoningSummaries
+            ? this.reasoningSummaryClient
+            : this.client;
+        const selectedClientCwd = enableReasoningSummaries
+            ? this.reasoningSummaryClientCwd
+            : this.clientCwd;
+        if (selectedClient && selectedClientCwd === cwd)
+            return selectedClient;
 
-        await this.shutdown();
+        const hasDifferentWorkspaceClient =
+            (this.client !== null && this.clientCwd !== cwd) ||
+            (this.reasoningSummaryClient !== null && this.reasoningSummaryClientCwd !== cwd);
+        if (hasDifferentWorkspaceClient)
+            await this.shutdown();
 
-        // Provider/model settings are attached to each SDK session below. Do not leak the
-        // coordinator's process-level profile into named-agent sessions created by this client.
-        this.client = new SquadClient({ cwd, env: buildProviderNeutralCliEnvironment() });
-        await this.client.connect();
-        this.clientCwd = cwd;
-        return this.client;
+        // Provider/model settings are attached to each SDK session below. The extra CLI
+        // switch is isolated in a second transport used only by Azure Responses profiles,
+        // so ordinary Copilot and other BYOK calls retain their existing request shape.
+        const client = new SquadClient({
+            cwd,
+            env: buildProviderNeutralCliEnvironment(),
+            cliArgs: enableReasoningSummaries ? ["--enable-reasoning-summaries"] : []
+        });
+        await client.connect();
+        if (enableReasoningSummaries) {
+            this.reasoningSummaryClient = client;
+            this.reasoningSummaryClientCwd = cwd;
+        }
+        else {
+            this.client = client;
+            this.clientCwd = cwd;
+        }
+        return client;
     }
 
     private createNamedAgentTool(
@@ -4096,7 +4230,6 @@ export class SquadBridgeService {
             sessionId: options.sessionId ?? "(new)",
             model: options.model ?? "(default)"
         });
-        const client = await this.ensureClient(options.cwd);
         const acquireStartedAt = Date.now();
 
         if (options.sessionId) {
@@ -4120,10 +4253,23 @@ export class SquadBridgeService {
             }
         }
 
-        let stateRef: SessionState | undefined;
         const customProvider = options.providerOverrideSpecified
             ? options.providerOverride ?? undefined
             : buildCustomProviderFromEnv();
+        const resolvedModel = resolveSessionModel(options.model, !options.providerOverrideSpecified);
+        const reasoningSummaryFallbackKey = shouldRequestReasoningSummary(customProvider)
+            ? [
+                customProvider?.baseUrl?.trim().toLowerCase() ?? "azure",
+                normalizeProviderType(customProvider?.type) ?? "azure",
+                normalizeWireApi(customProvider?.wireApi) ?? "responses",
+                resolvedModel?.trim().toLowerCase() ?? "default"
+            ].join("|")
+            : undefined;
+        const reasoningSummaryRequested = !!reasoningSummaryFallbackKey &&
+            !options.disableReasoningSummary &&
+            !this.reasoningSummaryFallbacks.has(reasoningSummaryFallbackKey);
+        const client = await this.ensureClient(options.cwd, reasoningSummaryRequested);
+        let stateRef: SessionState | undefined;
         const namedAgentRoutes = options.namedAgentRoutes ?? [];
         const resolvedReasoningEffort = resolveSessionReasoningEffort(options.reasoningEffort);
         const getRoutedTemporaryAgentRoute = () => {
@@ -4203,7 +4349,7 @@ export class SquadBridgeService {
             streaming: true,
             workingDirectory: options.cwd,
             configDir: options.configDir,
-            model: resolveSessionModel(options.model, !options.providerOverrideSpecified),
+            model: resolvedModel,
             provider: customProvider,
             tools: sessionTools.length > 0 ? sessionTools : undefined,
             hooks: {
@@ -4334,6 +4480,9 @@ export class SquadBridgeService {
 
         const state: SessionState = {
             session,
+            client,
+            reasoningSummaryRequested,
+            reasoningSummaryFallbackKey,
             activeTools: new Map<string, ActiveToolContext>(),
             backgroundTasks: EmptyBackgroundTasks(),
             subagentsByToolCallId: new Map<string, SubagentLifecycleInfo>(),
@@ -4622,6 +4771,9 @@ export class SquadBridgeService {
                 extractThinkingSpeaker(event),
                 getEventStringValue(event, "messageId"));
 
+            if (request && (content.length > 0 || explicitReasoningText))
+                request.hasObservableActivity = true;
+
             if (content) {
                 const visibleResponseContent = stripSystemNotifications(responseContent);
                 if (visibleResponseContent.trim().length > 0) {
@@ -4653,6 +4805,8 @@ export class SquadBridgeService {
             if (!request || chunk.length === 0)
                 return;
 
+            request.hasObservableActivity = true;
+
             const split = processLocalThinkDelta(request.localThinkState, chunk);
             if (split.thinkingText.length > 0)
                 this.emitLocalThinkDelta(
@@ -4671,6 +4825,8 @@ export class SquadBridgeService {
                 return;
 
             markRequestTreeActivity();
+            if (state.currentRequest)
+                state.currentRequest.hasObservableActivity = true;
             const context = buildToolContext(
                 toolName,
                 getObjectValue(event, "arguments"),
