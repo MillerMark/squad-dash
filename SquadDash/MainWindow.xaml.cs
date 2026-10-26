@@ -29848,6 +29848,13 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (e.Key == Key.Escape && _promptFullScreenEnabled && _pttState != PttState.Active)
+            {
+                e.Handled = true;
+                SetPromptFullScreen(false);
+                return;
+            }
+
             if (e.Key == Key.Escape && _transcriptFullScreenEnabled && _pttState != PttState.Active)
             {
                 e.Handled = true;

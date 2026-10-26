@@ -64,6 +64,45 @@ internal sealed class MainWindowPromptFullscreenTests
     }
 
     [Test]
+    public void Escape_ExitsPromptFullscreenThroughSharedSetterAndPreservesTranscriptBehavior()
+    {
+        var handler = Method("private void Window_PreviewKeyDown(");
+        const string promptBranch = """
+            if (e.Key == Key.Escape && _promptFullScreenEnabled && _pttState != PttState.Active)
+            {
+                e.Handled = true;
+                SetPromptFullScreen(false);
+                return;
+            }
+            """;
+        const string transcriptBranch = """
+            if (e.Key == Key.Escape && _transcriptFullScreenEnabled && _pttState != PttState.Active)
+            {
+                e.Handled = true;
+                if (_fullScreenPromptVisible)
+                    HideFullScreenPrompt();
+                else
+                    SetTranscriptFullScreen(false);
+                return;
+            }
+            """;
+
+        static string Normalize(string source) =>
+            string.Join("\n", source.Split('\n').Select(line => line.Trim()));
+        var normalizedHandler = Normalize(handler);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(normalizedHandler, Does.Contain(Normalize(promptBranch)));
+            Assert.That(normalizedHandler, Does.Contain(Normalize(transcriptBranch)));
+            Assert.That(normalizedHandler.IndexOf("_dockingRecorder.Cancel();", StringComparison.Ordinal),
+                Is.LessThan(normalizedHandler.IndexOf(Normalize(promptBranch), StringComparison.Ordinal)));
+            Assert.That((string?)XDocument.Parse(ReadSource("MainWindow.xaml")).Root?.Attribute("PreviewKeyDown"),
+                Is.EqualTo("Window_PreviewKeyDown"));
+        });
+    }
+
+    [Test]
     public void SendAndEnter_ExitThroughSameHandlerBeforeAnyDispatchOrQueueBranch()
     {
         var send = Method("private async void RunButton_Click(");
