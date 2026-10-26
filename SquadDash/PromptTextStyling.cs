@@ -220,9 +220,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     {
         if (!ReferenceEquals(e.OriginalSource, _editor) || IsApplyingFormatting)
             return;
-        // Keep the last complete frame on screen until the coalesced refresh is ready. Clearing
-        // here made every keystroke render one blank adorner frame before the Background callback,
-        // which was visible as all syntax accents above the caret flashing off and back on.
+        // Keep the last complete frame only while layout determines whether geometry moved.
+        // Geometry-stable edits can reuse it; OnLayoutUpdated discards it immediately when a
+        // newline, wrap, or font change moves styled cells, preventing stale duplicate accents.
         _layoutDirty = true;
         ScheduleRefresh();
     }
@@ -478,6 +478,16 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
 
     private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
     {
+        var projectionChanged = e.HorizontalChange != 0 || e.VerticalChange != 0 ||
+            e.ViewportWidthChange != 0 || e.ViewportHeightChange != 0;
+        if (!projectionChanged)
+        {
+            // Text edits also raise ScrollChanged for extent-only changes. Rebuilding the retained
+            // drawing here would replay pre-layout positions; LayoutUpdated will either reuse the
+            // cache or discard it once the new geometry is known.
+            _layoutDirty = true;
+            return;
+        }
         // Scrolling changes only the projection from document to viewport coordinates.
         // Keep the expensive glyph outlines and coalesce any cache-extension work.
         ScheduleInkRefresh();
@@ -486,6 +496,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
 
     private void OnSelectionChanged(object sender, RoutedEventArgs e)
     {
+        if (_layoutDirty || _refresh is not null)
+            return;
         var affectsRender = DoesSelectionAffectRender();
         // Caret/selection moves wholly within plain text cannot change the adorner. Avoid
         // replaying every cached geometry merely because WPF moved its native caret.
@@ -542,11 +554,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _layoutDirty = false;
         _forceInkRefresh = false;
         if (layoutChanged)
-            MarkInkCacheDirty(clearGlyphRects: true);
+            DiscardMovedGeometry();
         if (_inkDirty)
             ScheduleInkRefresh();
-        if (layoutChanged && !_inkDirty)
-            InvalidateDrawing();
     }
 
     protected override void OnRender(DrawingContext drawingContext)
@@ -939,9 +949,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             // Their built geometry reports Rect.Empty and must be discarded before translation.
             .Where(item => !item.Bounds.IsEmpty)
             .Select(item => TranslateInk(item, documentOffset));
-        // Build off to the side and swap the complete index in one assignment. OnRender keeps
-        // using the prior complete index while this deferred operation is pending, avoiding a
-        // blank highlighting frame even when an edit genuinely changes styled geometry.
+        // Build off to the side and swap the complete index in one assignment. Geometry-stable
+        // edits keep using the prior complete index while this deferred operation is pending;
+        // geometry-changing edits discard it in OnLayoutUpdated to prevent ghost positions.
         var inkRows = IndexInk(visibleInk);
         _inkRows = inkRows;
         InkCacheBuildCount++;
@@ -1048,6 +1058,17 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         if (clearGlyphRects)
             foreach (var glyph in _glyphs)
                 glyph.DocumentRect = Rect.Empty;
+    }
+
+    private void DiscardMovedGeometry()
+    {
+        _inkDirty = true;
+        _inkRows = null;
+        _inkCoverage = Rect.Empty;
+        _retainedDrawing = null;
+        foreach (var glyph in _glyphs)
+            glyph.DocumentRect = Rect.Empty;
+        InvalidateDrawing();
     }
 
     private Brush? FindOpaqueBackground()

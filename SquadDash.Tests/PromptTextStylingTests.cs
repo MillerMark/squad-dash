@@ -1472,6 +1472,49 @@ internal sealed class PromptTextStylingTests
         });
     }
 
+    [Test]
+    public void Styling_LineInsertionAndDeletion_NeverReplayAccentsAtOldGeometry()
+    {
+        const string text = "## Heading\nplain middle\n\"quoted below\"";
+        using var host = new Host(text);
+        host.SetTheme("Light");
+        host.Enable();
+        var insertion = text.IndexOf("plain middle", StringComparison.Ordinal) +
+            "plain middle".Length;
+        host.Editor.SelectRange(insertion, 0);
+        host.Drain();
+
+        var beforeInsert = QuoteBounds();
+        host.Editor.ReplaceSelection("\n");
+        host.Editor.UpdateLayout();
+        AssertNoOldQuoteGeometry(beforeInsert, "line insertion");
+        host.Drain();
+
+        var beforeDelete = QuoteBounds();
+        Assert.That(beforeDelete, Is.Not.Empty);
+        host.Editor.SelectRange(insertion, 1);
+        host.Editor.ReplaceSelection(string.Empty);
+        host.Editor.UpdateLayout();
+        AssertNoOldQuoteGeometry(beforeDelete, "line deletion");
+        host.Drain();
+
+        Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.True);
+
+        Rect[] QuoteBounds() => host.Drawings()
+            .Where(d => ReferenceEquals(d.Brush, host.QuoteBrush))
+            .Select(d => d.Bounds)
+            .ToArray();
+
+        void AssertNoOldQuoteGeometry(IReadOnlyList<Rect> oldBounds, string operation)
+        {
+            var pending = QuoteBounds();
+            Assert.That(pending.Any(current => oldBounds.Any(old =>
+                    Math.Abs(current.Top - old.Top) < 0.5 &&
+                    Math.Abs(current.Left - old.Left) < 0.5)),
+                Is.False, $"{operation} must clear old accent positions before repainting.");
+        }
+    }
+
     [TestCase("Light", false, false)]
     [TestCase("Dark", false, false)]
     [TestCase("Light", true, false)]
