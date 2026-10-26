@@ -883,6 +883,14 @@
                               IsCheckable="True"
                               Click="ViewCommitHistoryMenuItem_Click" />
                 </MenuItem>
+                <MenuItem x:Name="HealthMenuItem"
+                          Header="Hea_lth"
+                          Style="{StaticResource TopLevelMenuItemStyle}"
+                          ItemContainerStyle="{StaticResource ThemedMenuItemStyle}"
+                          SubmenuOpened="HealthMenuItem_SubmenuOpened">
+                    <MenuItem Header="No code health tasks configured."
+                              IsEnabled="False" />
+                </MenuItem>
                 <MenuItem x:Name="WorkspaceMenuItem"
                           Header="_Workspace"
                           Style="{StaticResource TopLevelMenuItemStyle}"

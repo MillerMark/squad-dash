@@ -63059,6 +63059,28 @@ public partial class MainWindow : Window
             .ToList();
     }
 
+    private void HealthMenuItem_SubmenuOpened(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var workspacePath = _currentWorkspace?.FolderPath;
+            var config = workspacePath is null ? null : CodeHealthMdParser.ParseWithAllSources(workspacePath);
+            CodeHealthMenuBuilder.Populate(HealthMenuItem, config, RunCodeHealthTaskNow);
+        }
+        catch (Exception ex)
+        {
+            HealthMenuItem.Items.Clear();
+            HealthMenuItem.Items.Add(new MenuItem { Header = "Unable to load code health tasks.", IsEnabled = false });
+            HandleUiCallbackException(nameof(HealthMenuItem_SubmenuOpened), ex);
+        }
+    }
+
+    private void RunCodeHealthTaskNow(string taskId)
+    {
+        _ = StartCodeHealthCycleAsync(isManual: true, forceTaskIds: new System.Collections.Generic.HashSet<string> { taskId })
+            .ContinueWith(t => HandleUiCallbackException(nameof(RunCodeHealthTaskNow), t.Exception!), TaskContinuationOptions.OnlyOnFaulted);
+    }
+
     private void SyncCodeHealthPanel()
     {
         if (CodeHealthPanelBorder is null) return;
@@ -63094,8 +63116,7 @@ public partial class MainWindow : Window
                     BuildMarkdownCaptureContext(),
                     isReadOnly: true),
                 showInboxPanel:         () => ShowInboxPanel(),
-                runTask:                taskId => StartCodeHealthCycleAsync(isManual: true, forceTaskIds: new System.Collections.Generic.HashSet<string> { taskId })
-                                            .ContinueWith(t => HandleUiCallbackException(nameof(SyncCodeHealthPanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
+                runTask:                RunCodeHealthTaskNow,
                 simulateIdle:           () => StartCodeHealthCycleAsync()
                                             .ContinueWith(t => HandleUiCallbackException(nameof(SyncCodeHealthPanel), t.Exception!), TaskContinuationOptions.OnlyOnFaulted),
                 configureMarkdownEditor: editor => {
