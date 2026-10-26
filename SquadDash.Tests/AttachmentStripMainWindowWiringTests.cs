@@ -6,6 +6,84 @@ namespace SquadDash.Tests;
 internal sealed class AttachmentStripMainWindowWiringTests
 {
     [Test]
+    public void OrdinaryLiveAndReplayTurns_UseSharedDisplayProjectionWithoutReplacingPersistedPrompt()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var creation = SourceRegion(source, "private TranscriptTurnView CreateTranscriptTurnView(",
+            "private void HandleTranscriptLinkClick(").Replace("\r\n", "\n");
+        var replay = SourceRegion(source, "private void RenderPersistedTurn(",
+            "private bool RenderStructuredPersistedNarrative(").Replace("\r\n", "\n");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(creation, Does.Contain("var pendingAttachments = _pendingTranscriptAttachments;"));
+            Assert.That(creation, Does.Contain("_pendingTranscriptAttachments = null;"));
+            Assert.That(creation, Does.Contain(
+                "SteeringTranscriptEntryFactory.ParsePromptForDisplay(displayPrompt, pendingAttachments)"));
+            Assert.That(creation, Does.Contain("displayPrompt = attachmentDisplay.Prompt;"));
+            Assert.That(creation, Does.Contain("var attachmentsForViewer = attachmentDisplay.Attachments;"));
+            Assert.That(creation, Does.Contain("var hasAttachments = attachmentDisplay.AttachmentCount > 0;"));
+            Assert.That(creation, Does.Contain("if (!string.IsNullOrEmpty(promptBody) || hasAttachments || hasDictation)"));
+            Assert.That(creation, Does.Contain("SteeringTranscriptEntryFactory.AppendPromptSupplements("));
+            Assert.That(creation, Does.Contain("new TranscriptTurnView(\n            thread,\n            prompt,"));
+            Assert.That(creation, Does.Not.Contain("StripTypedAttachmentHeaders(")
+                .And.Not.Contain("ExtractAttachmentBlocks("));
+            Assert.That(replay, Does.Contain("CreateTranscriptTurnView(\n            thread,\n            turn.Prompt,"));
+        });
+    }
+
+    [Test]
+    public void PersistedSteering_UsesProjectedBodyCountAndViewerAttachments()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var replay = SourceRegion(source, "private void RenderPersistedHostNotice(",
+            "private void FinalizeCurrentTurnResponse()");
+        Assert.Multiple(() =>
+        {
+            Assert.That(replay, Does.Contain("SteeringTranscriptEntryFactory.ParsePersistedPrompt(providerPrompt)"));
+            Assert.That(replay, Does.Contain("SteeringTranscriptEntryFactory.CreateParagraph("));
+            Assert.That(replay, Does.Contain("display.Prompt,"));
+            Assert.That(replay, Does.Contain("display.Attachments,"));
+            Assert.That(replay, Does.Contain("display.AttachmentCount > 0 ? display.AttachmentCount : null"));
+            Assert.That(replay, Does.Contain("OpenPromptAttachments,"));
+        });
+    }
+
+    [Test]
+    public void LiveSteering_ProjectsDisplayWithoutReplacingStoredProviderPrompt()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var live = SourceRegion(source, "private void TryAppendAcceptedSteeringTranscriptEntry(",
+            "private void EvaluateSystemSteeringNotices(").Replace("\r\n", "\n");
+        Assert.Multiple(() =>
+        {
+            Assert.That(live, Does.Contain(
+                "SteeringTranscriptEntryFactory.ParsePromptForDisplay(displayPrompt, attachments)"));
+            Assert.That(live, Does.Contain("displayPrompt = display.Prompt;"));
+            Assert.That(live, Does.Contain("display.Attachments,"));
+            Assert.That(live, Does.Contain("historicalAttachmentCount: display.AttachmentCount,"));
+            Assert.That(live, Does.Contain(
+                "SteeringTranscriptEntryFactory.Append(\n                targetTurn,\n                providerPrompt,"));
+        });
+    }
+
+    [Test]
+    public void AgentTurnStartMarker_IsBuiltOnlyAfterAttachmentTransportProjection()
+    {
+        var source = ReadSource("MainWindow.xaml.cs");
+        var creation = SourceRegion(source, "private TranscriptTurnView CreateTranscriptTurnView(",
+            "private void HandleTranscriptLinkClick(");
+        var projection = creation.IndexOf("SteeringTranscriptEntryFactory.ParsePromptForDisplay(", StringComparison.Ordinal);
+        var marker = creation.IndexOf("ToolTranscriptFormatter.BuildAgentTurnStartMarker(", StringComparison.Ordinal);
+        Assert.Multiple(() =>
+        {
+            Assert.That(projection, Is.GreaterThanOrEqualTo(0));
+            Assert.That(marker, Is.GreaterThan(projection),
+                "The visible agent start marker must not format raw attachment transport before display projection.");
+        });
+    }
+
+    [Test]
     public void TranscriptAttachmentActions_CaptureSourceBeforeNewChatChangesSelection()
     {
         var source = ReadSource("MainWindow.xaml.cs");

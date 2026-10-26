@@ -3355,10 +3355,12 @@ public partial class MainWindow : Window
 
         try
         {
+            var display = SteeringTranscriptEntryFactory.ParsePromptForDisplay(displayPrompt, attachments);
+            displayPrompt = display.Prompt;
             var paragraph = SteeringTranscriptEntryFactory.CreateParagraph(
                 displayPrompt,
-                attachments,
-                historicalAttachmentCount: null,
+                display.Attachments,
+                historicalAttachmentCount: display.AttachmentCount,
                 HandleTranscriptLinkClick,
                 OpenPromptAttachments,
                 MakeThemedToolTip("This prompt includes attachments. Click to view."));
@@ -45989,22 +45991,6 @@ public partial class MainWindow : Window
             topLevelBlocks.Add(separatorParagraph);
         }
 
-        if (!suppressTurnHeader && thread.Kind == TranscriptThreadKind.Agent)
-        {
-            var agentTurnMarkerPrompt = IsArgusWeldThread(thread)
-                ? CodeHealthRunner.StripPreambleForDisplay(prompt)
-                : prompt;
-            var startMarkerParagraph = CreateTranscriptParagraph(bottomMargin: 4);
-            var startMarkerRun = new Run(ToolTranscriptFormatter.BuildAgentTurnStartMarker(agentTurnMarkerPrompt, startedAt))
-            {
-                FontWeight = FontWeights.SemiBold
-            };
-            startMarkerRun.SetResourceReference(TextElement.ForegroundProperty, "AgentTaskStartText");
-            startMarkerParagraph.Inlines.Add(startMarkerRun);
-            thread.Document.Blocks.Add(startMarkerParagraph);
-            topLevelBlocks.Add(startMarkerParagraph);
-        }
-
         var promptParagraph = CreateTranscriptParagraph(bottomMargin: 8);
         const string voiceAnnotation = "\n(some or all of this prompt was dictated by voice)";
 
@@ -46018,111 +46004,26 @@ public partial class MainWindow : Window
         string displayPrompt = IsArgusWeldThread(thread)
             ? CodeHealthRunner.StripPreambleForDisplay(prompt)
             : prompt;
-        IReadOnlyList<FollowUpAttachment>? attachmentsForViewer = pendingAttachments;
-        bool hasAttachments = pendingAttachments?.Count > 0;
-        // Overrides the count for historical turns where attachmentsForViewer is null but we
-        // can still infer the count from the prompt's attachment header.
-        int? historicalAttachmentCount = null;
-
-        if (hasAttachments)
-        {
-            // Nonce-fenced clipboard blocks (<<<SQUADCLIP:nonce>>>) may contain \n\n inside
-            // the clipboard text, so we cannot split on the first \n\n — we must find the
-            // matching close fence first, then the \n\n that follows it.
-            if (displayPrompt.StartsWith("<<<SQUADCLIP:", StringComparison.Ordinal))
-            {
-                var bodyStart = StripClipboardFenceHeader(displayPrompt);
-                if (bodyStart >= 0)
-                    displayPrompt = displayPrompt[bodyStart..];
-            }
-            else if (displayPrompt.StartsWith("The user has attached", StringComparison.Ordinal) ||
-                     displayPrompt.StartsWith("<attachment ", StringComparison.Ordinal))
-            {
-                // New typed-attachment format: scan past all XML blocks to find the user text.
-                var bodyStart = StripTypedAttachmentHeaders(displayPrompt);
-                if (bodyStart >= 0)
-                    displayPrompt = displayPrompt[bodyStart..];
-            }
-            else
-            {
-                // Strip the header block (everything before the first \n\n separator).
-                var nnIdx = displayPrompt.IndexOf("\n\n", StringComparison.Ordinal);
-                if (nnIdx >= 0)
-                    displayPrompt = displayPrompt[(nnIdx + 2)..];
-            }
-        }
-        else
-        {
-            // Historical turns: detect attachment header prefix by content pattern.
-            // Nonce-fenced clipboard blocks start with <<<SQUADCLIP: — handle before the
-            // \n\n-split path because the clipboard content may itself contain \n\n.
-            if (displayPrompt.StartsWith("<<<SQUADCLIP:", StringComparison.Ordinal))
-            {
-                hasAttachments = true;
-                var bodyStart = StripClipboardFenceHeader(displayPrompt);
-                if (bodyStart >= 0)
-                    displayPrompt = displayPrompt[bodyStart..];
-                // Content is not reconstructed for historical turns; the 📎 link is shown.
-                // SQUADCLIP is always a single clipboard attachment.
-                historicalAttachmentCount = 1;
-                attachmentsForViewer = null;
-            }
-            else if (displayPrompt.StartsWith("The user has attached", StringComparison.Ordinal) ||
-                     displayPrompt.StartsWith("<attachment ", StringComparison.Ordinal))
-            {
-                // New typed-attachment format used by recent prompts.
-                hasAttachments = true;
-                var bodyStart = StripTypedAttachmentHeaders(displayPrompt);
-                // Count attachment blocks in the header before stripping so we can show the
-                // correct "📎 N attachments" count even though content isn't reconstructed.
-                var headerPart = bodyStart >= 0 ? displayPrompt[..bodyStart] : displayPrompt;
-                var typedBlocks = AttachmentBlockFormatter.ExtractAttachmentBlocks(headerPart);
-                var blockCount = typedBlocks.Count;
-                historicalAttachmentCount = blockCount > 0 ? blockCount : 1;
-                attachmentsForViewer = typedBlocks.Count > 0
-                    ? typedBlocks.Select(BuildHistoricalTypedAttachment).ToList()
-                    : null;
-                if (bodyStart >= 0)
-                    displayPrompt = displayPrompt[bodyStart..];
-            }
-            else
-            {
-                var nnIdx = displayPrompt.IndexOf("\n\n", StringComparison.Ordinal);
-                if (nnIdx > 0)
-                {
-                    var prefix = displayPrompt[..nnIdx];
-                    if (prefix.StartsWith("[Follow-up on ", StringComparison.Ordinal) ||
-                        prefix.StartsWith("Regarding this section of the transcript:", StringComparison.Ordinal) ||
-                        prefix.Contains("[Attached image:", StringComparison.Ordinal))
-                    {
-                        hasAttachments = true;
-                        displayPrompt  = displayPrompt[(nnIdx + 2)..];
-
-                        // Reconstruct structured attachment objects from saved header lines so the
-                        // viewer can show image thumbnails for [Attached image: path] entries.
-                        var lines = prefix.Split('\n');
-                        var reconstructed = new List<FollowUpAttachment>();
-                        foreach (var line in lines)
-                        {
-                            const string imgPrefix = "[Attached image: ";
-                            if (line.StartsWith(imgPrefix, StringComparison.Ordinal) && line.EndsWith("]"))
-                            {
-                                var imagePath = line[imgPrefix.Length..^1];
-                                reconstructed.Add(new FollowUpAttachment("", "Image", null, null, null, ImagePath: imagePath));
-                            }
-                            else if (!string.IsNullOrWhiteSpace(line))
-                            {
-                                reconstructed.Add(new FollowUpAttachment("", "Attachment", line, null));
-                            }
-                        }
-                        attachmentsForViewer = reconstructed.Count > 0 ? reconstructed : null;
-                    }
-                }
-            }
-        }
+        var attachmentDisplay = SteeringTranscriptEntryFactory.ParsePromptForDisplay(displayPrompt, pendingAttachments);
+        displayPrompt = attachmentDisplay.Prompt;
+        var attachmentsForViewer = attachmentDisplay.Attachments;
+        var hasAttachments = attachmentDisplay.AttachmentCount > 0;
 
         bool hasDictation = displayPrompt.EndsWith(voiceAnnotation, StringComparison.Ordinal);
         var promptBody = hasDictation ? displayPrompt[..^voiceAnnotation.Length] : displayPrompt;
+
+        if (!suppressTurnHeader && thread.Kind == TranscriptThreadKind.Agent)
+        {
+            var startMarkerParagraph = CreateTranscriptParagraph(bottomMargin: 4);
+            var startMarkerRun = new Run(ToolTranscriptFormatter.BuildAgentTurnStartMarker(promptBody, startedAt))
+            {
+                FontWeight = FontWeights.SemiBold
+            };
+            startMarkerRun.SetResourceReference(TextElement.ForegroundProperty, "AgentTaskStartText");
+            startMarkerParagraph.Inlines.Add(startMarkerRun);
+            thread.Document.Blocks.Add(startMarkerParagraph);
+            topLevelBlocks.Add(startMarkerParagraph);
+        }
 
         // Capture the system-injected flag now, before the promptBody guard clears the field,
         // so it is also available for the TranscriptTurnView record (persisted → reload path).
@@ -46131,13 +46032,13 @@ public partial class MainWindow : Window
         _pendingPromptIsSystemInjected = false;
         _pendingPromptSuppressTranscript = false;
 
-        if (!string.IsNullOrEmpty(promptBody))
+        if (!string.IsNullOrEmpty(promptBody) || hasAttachments || hasDictation)
         {
             // System-injected follow-up prompts (e.g. silent-completion watchdog) are not
             // typed by the user — display a compact system notice instead of the user name
             // and raw prompt text.
 
-            if (promptIsSystemInjected)
+            if (promptIsSystemInjected && !string.IsNullOrEmpty(promptBody))
             {
                 var systemText = promptBody.StartsWith(SystemTranscriptStatusPrefix, StringComparison.Ordinal)
                     ? promptBody[SystemTranscriptStatusPrefix.Length..]
@@ -46148,14 +46049,14 @@ public partial class MainWindow : Window
                     FontWeights.Normal,
                     "SubtleText");
             }
-            else if (thread.Kind == TranscriptThreadKind.Coordinator && !string.IsNullOrWhiteSpace(_settingsSnapshot.UserName))
+            else if (!string.IsNullOrEmpty(promptBody) && thread.Kind == TranscriptThreadKind.Coordinator && !string.IsNullOrWhiteSpace(_settingsSnapshot.UserName))
             {
                 var prefixRun = new Run($"{_settingsSnapshot.UserName}: ") { FontWeight = FontWeights.SemiBold };
                 prefixRun.SetResourceReference(TextElement.ForegroundProperty, "UserPromptPrefixText");
                 promptParagraph.Inlines.Add(prefixRun);
                 AddPromptBodyInlines(promptParagraph.Inlines, promptBody, FontWeights.SemiBold, "UserPromptText");
             }
-            else
+            else if (!string.IsNullOrEmpty(promptBody))
             {
                 var prefix = thread.Kind == TranscriptThreadKind.Coordinator ? null : $"{thread.Title}: ";
                 if (prefix is not null)
@@ -46167,39 +46068,13 @@ public partial class MainWindow : Window
                 AddPromptBodyInlines(promptParagraph.Inlines, promptBody, FontWeights.SemiBold, "UserPromptText");
             }
 
-            if (hasAttachments || hasDictation)
-            {
-                promptParagraph.Inlines.Add(new Run("\n") { FontWeight = FontWeights.Normal });
-
-                if (hasAttachments)
-                {
-                    var capturedAttachments = attachmentsForViewer ?? Array.Empty<FollowUpAttachment>();
-                    var count    = historicalAttachmentCount ?? capturedAttachments.Count;
-                    var linkText = count == 1 ? "📎 1 attachment" : $"📎 {count} attachments";
-                    var link     = new System.Windows.Documents.Hyperlink(new Run(linkText))
-                    {
-                        FontWeight      = FontWeights.Normal,
-                        TextDecorations = null,
-                        Cursor          = System.Windows.Input.Cursors.Hand,
-                    };
-                    link.SetResourceReference(System.Windows.Documents.TextElement.ForegroundProperty, "SubtleText");
-                    link.ToolTip = MakeThemedToolTip("This prompt includes attachments. Click to view.");
-                    link.Click += (_, _) => OpenPromptAttachments(capturedAttachments);
-                    promptParagraph.Inlines.Add(link);
-                }
-
-                if (hasDictation)
-                {
-                    if (hasAttachments)
-                        promptParagraph.Inlines.Add(new Run("  ") { FontWeight = FontWeights.Normal });
-                    var voiceRun = new Run("(some or all of this prompt was dictated by voice)")
-                    {
-                        FontWeight = FontWeights.Normal
-                    };
-                    voiceRun.SetResourceReference(TextElement.ForegroundProperty, "VoiceAnnotationText");
-                    promptParagraph.Inlines.Add(voiceRun);
-                }
-            }
+            SteeringTranscriptEntryFactory.AppendPromptSupplements(
+                promptParagraph.Inlines,
+                attachmentsForViewer,
+                attachmentDisplay.AttachmentCount,
+                hasDictation,
+                OpenPromptAttachments,
+                MakeThemedToolTip("This prompt includes attachments. Click to view."));
             TranscriptAttachmentSourceFactory.SetRole(promptParagraph, promptIsSystemInjected ? "system" : "user");
             thread.Document.Blocks.Add(promptParagraph);
             topLevelBlocks.Add(promptParagraph);
@@ -60217,74 +60092,6 @@ public partial class MainWindow : Window
     {
         var nonce = Guid.NewGuid().ToString("N")[..8];
         return $"<<<SQUADCLIP:{nonce}>>>\n{text}\n<<<ENDCLIP:{nonce}>>>";
-    }
-
-    /// <summary>
-    /// Given a <paramref name="prompt"/> that starts with a nonce-fenced clipboard block
-    /// (<c>&lt;&lt;&lt;SQUADCLIP:nonce&gt;&gt;&gt;</c>), returns the index of the first character
-    /// AFTER the close fence and its trailing <c>\n\n</c> separator (i.e. the start of the user's
-    /// actual prompt body).  Returns -1 if the fence is malformed or the separator is missing.
-    /// </summary>
-    private static int StripClipboardFenceHeader(string prompt)
-    {
-        // Open fence line: <<<SQUADCLIP:{nonce}>>>
-        var openEnd = prompt.IndexOf(">>>", StringComparison.Ordinal);
-        if (openEnd < 0) return -1;
-        var nonce = prompt["<<<SQUADCLIP:".Length..openEnd];
-        var closeFence = $"\n<<<ENDCLIP:{nonce}>>>";
-        var closeIdx = prompt.IndexOf(closeFence, openEnd, StringComparison.Ordinal);
-        if (closeIdx < 0) return -1;
-        var afterClose = closeIdx + closeFence.Length;
-        // Expect \n\n separator immediately after the close fence line.
-        if (afterClose + 2 <= prompt.Length && prompt[afterClose] == '\n' && prompt[afterClose + 1] == '\n')
-            return afterClose + 2;
-        return -1;
-    }
-
-    /// <summary>
-    /// Given a prompt that uses the typed attachment format (preamble line + XML-style
-    /// <c>&lt;attachment&gt;</c> blocks), returns the index of the first character of the user's
-    /// actual message.  Returns -1 if the header section cannot be parsed.
-    /// </summary>
-    private static int StripTypedAttachmentHeaders(string prompt) =>
-        AttachmentBlockFormatter.StripTypedAttachmentHeaders(prompt);
-
-    private static FollowUpAttachment BuildHistoricalTypedAttachment(string block)
-    {
-        var (type, title) = AttachmentBlockFormatter.ExtractAttachmentMetadata(block);
-        var notes = AttachmentBlockFormatter.ExtractAttachmentNotes(block);
-        var content = AttachmentBlockFormatter.ExtractAttachmentContent(block);
-        var description = !string.IsNullOrWhiteSpace(title)
-            ? title!
-            : type switch
-            {
-                "clipboard"      => "Clipboard",
-                "doc"            => "Documentation",
-                "inbox-excerpt"  => "Inbox excerpt",
-                "inbox-message"  => "Inbox message",
-                "note"           => "Note",
-                "task"           => "Task",
-                "transcript"     => "Transcript",
-                _                => "Attachment",
-            };
-
-        if (string.Equals(type, "transcript", StringComparison.Ordinal))
-        {
-            return new FollowUpAttachment(
-                CommitSha: string.Empty,
-                Description: description,
-                OriginalPrompt: null,
-                TranscriptQuote: content,
-                Notes: notes,
-                TranscriptSource: AttachmentBlockFormatter.ExtractTranscriptSource(block));
-        }
-
-        return new FollowUpAttachment(
-            CommitSha: string.Empty,
-            Description: description,
-            OriginalPrompt: null,
-            ContentBlock: block,
-            Notes: notes);
     }
 
     private void AttachContextFollowUp(string description, string contentBlock)    {

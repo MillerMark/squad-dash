@@ -193,12 +193,11 @@ internal static class SteeringTranscriptEntryFactory
         if (!hasAttachments && !hasDictation)
             return;
 
-        inlines.Add(new Run("\n") { FontWeight = FontWeights.Normal });
+        if (inlines.Count > 0)
+            inlines.Add(new Run("\n") { FontWeight = FontWeights.Normal });
         if (hasAttachments)
         {
-            var linkText = attachmentCount == 1
-                ? "📎 1 attachment"
-                : $"📎 {attachmentCount} attachments";
+            var linkText = BuildAttachmentSummary(attachmentCount);
             var link = new Hyperlink(new Run(linkText))
             {
                 FontWeight = FontWeights.Normal,
@@ -225,54 +224,63 @@ internal static class SteeringTranscriptEntryFactory
         }
     }
 
-    internal static PersistedDisplay ParsePersistedPrompt(string providerPrompt)
+    internal static string BuildAttachmentSummary(int count) =>
+        count == 1 ? "📎 1 attachment" : $"📎 {count} attachments";
+
+    internal static PersistedDisplay ParsePersistedPrompt(string providerPrompt) =>
+        ParsePromptForDisplay(providerPrompt);
+
+    internal static PersistedDisplay ParsePromptForDisplay(
+        string providerPrompt,
+        IReadOnlyList<FollowUpAttachment>? pendingAttachments = null)
     {
         ArgumentNullException.ThrowIfNull(providerPrompt);
 
-        var bodyStart = ResolvePromptBodyStart(providerPrompt);
+        var header = AttachmentBlockFormatter.ParseAttachmentHeaders(providerPrompt);
+        var bodyStart = header?.BodyStart ??
+            (providerPrompt.StartsWith("<<<SQUADCLIP:", StringComparison.Ordinal)
+                ? StripClipboardFenceHeader(providerPrompt)
+                : -1);
         if (bodyStart < 0)
-            return new PersistedDisplay(providerPrompt, [], 0);
+            return new PersistedDisplay(providerPrompt, pendingAttachments ?? [], pendingAttachments?.Count ?? 0);
 
-        var header = providerPrompt[..bodyStart];
         var prompt = providerPrompt[bodyStart..];
-        var attachments = new List<FollowUpAttachment>();
-
-        foreach (var block in AttachmentBlockFormatter.ExtractAttachmentBlocks(header))
-            attachments.Add(BuildHistoricalTypedAttachment(block));
-
-        foreach (var line in header.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        IReadOnlyList<FollowUpAttachment> attachments;
+        if (pendingAttachments is { Count: > 0 })
         {
-            const string imagePrefix = "[Attached image: ";
-            if (line.StartsWith(imagePrefix, StringComparison.Ordinal) && line.EndsWith(']'))
+            attachments = pendingAttachments;
+        }
+        else
+        {
+            var reconstructed = new List<FollowUpAttachment>();
+            if (header is not null)
             {
-                attachments.Add(new FollowUpAttachment(
-                    string.Empty,
-                    "Image",
-                    null,
-                    ImagePath: line[imagePrefix.Length..^1]));
+                foreach (var item in header.Items)
+                {
+                    const string imagePrefix = "[Attached image: ";
+                    const string quotePrefix = "Regarding this section of the transcript: \"";
+                    reconstructed.Add(item.StartsWith("<attachment ", StringComparison.Ordinal)
+                        ? BuildHistoricalTypedAttachment(item)
+                        : item.StartsWith(imagePrefix, StringComparison.Ordinal)
+                            ? new FollowUpAttachment(string.Empty, "Image", null, ImagePath: item[imagePrefix.Length..^1])
+                            : item.StartsWith(quotePrefix, StringComparison.Ordinal)
+                                ? new FollowUpAttachment(string.Empty, "Transcript", null, TranscriptQuote: item[quotePrefix.Length..^1])
+                                : new FollowUpAttachment(string.Empty, "Attachment", item));
+                }
             }
+            attachments = reconstructed;
         }
 
-        var recognizableLineCount = header.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-            .Count(line =>
-                line.StartsWith("[Attached image: ", StringComparison.Ordinal) ||
-                line.StartsWith("[Follow-up on ", StringComparison.Ordinal) ||
-                line.StartsWith("Regarding this section of the transcript:", StringComparison.Ordinal));
-        var attachmentCount = attachments.Count;
-        if (recognizableLineCount > attachmentCount)
-            attachmentCount = recognizableLineCount;
-        if (attachmentCount == 0 && !string.IsNullOrWhiteSpace(header))
-            attachmentCount = 1;
-
+        var attachmentCount = pendingAttachments is { Count: > 0 }
+            ? pendingAttachments.Count
+            : header?.Count ?? 1; // The legacy clipboard fence contains one attachment.
+        var hasDictation = prompt.EndsWith(VoiceAnnotation, StringComparison.Ordinal);
+        var body = hasDictation ? prompt[..^VoiceAnnotation.Length] : prompt;
+        // A copied display may already contain its sole summary. Only replace an exact,
+        // standalone summary after a parsed header, never matching lines inside user prose.
+        if (string.Equals(body.TrimEnd('\r', '\n'), BuildAttachmentSummary(attachmentCount), StringComparison.Ordinal))
+            prompt = hasDictation ? VoiceAnnotation : string.Empty;
         return new PersistedDisplay(prompt, attachments, attachmentCount);
-    }
-
-    private static int ResolvePromptBodyStart(string providerPrompt)
-    {
-        if (providerPrompt.StartsWith("<<<SQUADCLIP:", StringComparison.Ordinal))
-            return StripClipboardFenceHeader(providerPrompt);
-
-        return AttachmentBlockFormatter.StripTypedAttachmentHeaders(providerPrompt);
     }
 
     private static int StripClipboardFenceHeader(string prompt)

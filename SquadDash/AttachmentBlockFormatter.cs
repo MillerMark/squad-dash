@@ -50,13 +50,13 @@ internal static class AttachmentBlockFormatter
     {
         if (!block.StartsWith("<attachment ", StringComparison.Ordinal))
             return false;
-        var end = block.IndexOf('>');
+        var end = FindOpenTagEnd(block, 0);
         return end >= 0 && ExtractAttribute(block[..end], "encoding") == NotesEncoding;
     }
 
     private static NotesPayload DecodeNotesPayload(string block)
     {
-        var start = block.IndexOf('>') + 1;
+        var start = FindOpenTagEnd(block, 0) + 1;
         var end = block.LastIndexOf(LiteralCloseTag, StringComparison.Ordinal);
         if (end < start)
             throw new JsonException("Notes attachment is missing its closing delimiter.");
@@ -122,76 +122,261 @@ internal static class AttachmentBlockFormatter
     /// header, returns the index of the first character of the user's actual message.
     /// Returns -1 if the header section cannot be parsed.
     /// </summary>
-    internal static int StripTypedAttachmentHeaders(string prompt)
-    {
-        int pos = 0;
-        var sawHeader = false;
+    internal static int StripTypedAttachmentHeaders(string prompt) =>
+        ParseAttachmentHeaders(prompt)?.BodyStart ?? -1;
 
-        // Skip optional preamble (single line).
+    internal sealed record AttachmentHeader(
+        int BodyStart,
+        IReadOnlyList<string> Items)
+    {
+        internal IReadOnlyList<string> Blocks => Items.Where(IsTypedHeader).ToArray();
+        internal IReadOnlyList<string> Lines => Items.Where(item => !IsTypedHeader(item)).ToArray();
+        internal int Count => Items.Count;
+    }
+
+    private static bool IsTypedHeader(string text) => text.StartsWith("<attachment ", StringComparison.Ordinal);
+
+    internal static AttachmentHeader? ParseAttachmentHeaders(string prompt)
+    {
+        var pos = 0;
+        var items = new List<string>();
         const string Preamble = "The user has attached the following context items. Please refer to them as needed.";
         if (prompt.StartsWith(Preamble, StringComparison.Ordinal))
         {
             pos = Preamble.Length;
-            sawHeader = true;
+            if (!TryConsumeLineBreak(prompt, ref pos))
+                return null;
         }
 
-        // Scan past attachment blocks and known one-line follow-up headers.
-        const string AttachOpen  = "<attachment ";
+        // Only scan the leading protocol section. Never search the user's body for
+        // attachment-looking examples (including fenced code after the separator).
         while (pos < prompt.Length)
         {
-            // Blank line is the terminal separator between attachments and user text.
-            if (sawHeader)
+            var start = pos;
+            if (prompt.AsSpan(pos).StartsWith("<attachment ", StringComparison.Ordinal))
             {
-                var next = pos;
-                if (TryConsumeBlankLine(prompt, ref next))
-                {
-                    pos = next;
-                    return pos;
-                }
-
-                next = pos;
-                if (TryConsumeLineBreak(prompt, ref next))
-                {
-                    pos = next;
-                    continue;
-                }
+                if (!TryReadAttachmentBlock(prompt, pos, out pos, forDisplay: true))
+                    return null;
             }
-
-            if (TryConsumeRecognizedHeaderLine(prompt, ref pos))
+            else if (!TryConsumeRecognizedHeaderLine(prompt, ref pos))
             {
-                sawHeader = true;
+                if (IsHeaderStart(prompt.AsSpan(pos)))
+                    return null;
+                break;
+            }
+            items.Add(prompt[start..pos]);
+
+            if (TryConsumeBlankLine(prompt, ref pos))
+                break;
+            if (prompt.AsSpan(pos).StartsWith("<attachment ", StringComparison.Ordinal))
                 continue;
-            }
-
-            // XML typed block: <attachment ...>...</attachment>
-            // Content with literal </attachment> is escaped, so IndexOf finds only the real close tag.
-            if (pos + AttachOpen.Length <= prompt.Length &&
-                prompt.AsSpan(pos, AttachOpen.Length).SequenceEqual(AttachOpen.AsSpan()))
-            {
-                var closeIdx = prompt.IndexOf(LiteralCloseTag, pos, StringComparison.Ordinal);
-                if (closeIdx < 0) return -1;
-                pos = closeIdx + LiteralCloseTag.Length;
-                sawHeader = true;
-                continue;
-            }
-
-            return -1;
+            if (!TryConsumeLineBreak(prompt, ref pos))
+                break;
         }
-        return -1;
+
+        // EOF and a single line break before prose are valid boundaries too.
+        // A preamble alone is not evidence of an attachment.
+        return items.Count > 0
+            ? new AttachmentHeader(pos, items)
+            : null;
     }
+
+    private static bool TryReadAttachmentBlock(string text, int start, out int end, bool forDisplay = false)
+    {
+        end = start;
+        var openEnd = FindOpenTagEnd(text, start);
+        if (openEnd < 0 || string.IsNullOrWhiteSpace(ExtractAttribute(text[start..openEnd], "type")))
+            return false;
+        var close = text.IndexOf(LiteralCloseTag, openEnd + 1, StringComparison.Ordinal);
+        if (close < 0)
+            return false;
+        if (forDisplay)
+        {
+            // Emitted multiline blocks close on their own line. Do not borrow an
+            // inline delimiter from a later XML example after an unterminated block.
+            var bodyStart = openEnd + 1;
+            var multiline = TryConsumeLineBreak(text, ref bodyStart);
+            if (multiline
+                ? close > bodyStart && text[close - 1] is not '\r' and not '\n'
+                : close > FindLineEnd(text, bodyStart))
+                return false;
+            if (HasUnclosedNestedAttachment(text.AsSpan(bodyStart, close - bodyStart)) ||
+                IsInsideClosedCodeFence(text, bodyStart, close))
+                return false;
+
+            if (IsNotesBlock(text[start..(close + LiteralCloseTag.Length)]))
+            {
+                try
+                {
+                    DecodeNotesPayload(text[start..(close + LiteralCloseTag.Length)]);
+                }
+                catch (JsonException)
+                {
+                    // Invalid protocol-looking user text is not a display attachment.
+                    return false;
+                }
+            }
+        }
+        end = close + LiteralCloseTag.Length;
+        return true;
+    }
+
+    private static bool HasUnclosedNestedAttachment(ReadOnlySpan<char> content)
+    {
+        // The emitter escapes every content close tag, including literal XML examples.
+        // An unmatched nested opener must not borrow the outer delimiter: it could be
+        // a later user example following a truncated transport block.
+        var depth = 0;
+        for (var i = 0; i < content.Length; i++)
+        {
+            if (content[i..].StartsWith("<attachment", StringComparison.Ordinal) &&
+                i + 11 < content.Length && (char.IsWhiteSpace(content[i + 11]) || content[i + 11] == '>'))
+                depth++;
+            else if (content[i..].StartsWith(EscapedCloseTag, StringComparison.Ordinal) && depth > 0)
+                depth--;
+        }
+        return depth > 0;
+    }
+
+    private static bool IsInsideClosedCodeFence(string text, int start, int position)
+    {
+        char fence = '\0';
+        var fenceLength = 0;
+        for (var lineStart = start; lineStart < text.Length;)
+        {
+            var lineEnd = FindLineEnd(text, lineStart);
+            // A quote wrapper may follow the closing fence on the same line.
+            var contentEnd = position >= lineStart && position < lineEnd ? position : lineEnd;
+            var line = text.AsSpan(lineStart, contentEnd - lineStart).Trim();
+            if (!line.IsEmpty && line[0] is '`' or '~')
+            {
+                var length = 1;
+                while (length < line.Length && line[length] == line[0])
+                    length++;
+                if (fence == '\0' && length >= 3)
+                {
+                    if (lineStart > position)
+                        return false;
+                    fence = line[0];
+                    fenceLength = length;
+                }
+                else if (line[0] == fence && length >= fenceLength && line[length..].IsWhiteSpace())
+                {
+                    if (lineStart > position)
+                        return true;
+                    fence = '\0';
+                }
+            }
+            if (lineEnd >= position && fence == '\0')
+                return false;
+            lineStart = lineEnd;
+            if (!TryConsumeLineBreak(text, ref lineStart))
+                break;
+        }
+        return false;
+    }
+
+    private static bool IsHeaderStart(ReadOnlySpan<char> text) =>
+        text.StartsWith("<attachment ", StringComparison.Ordinal) ||
+        text.StartsWith("[Attached image: ", StringComparison.Ordinal) ||
+        text.StartsWith("[Follow-up on ", StringComparison.Ordinal) ||
+        text.StartsWith("Regarding this section of the transcript:", StringComparison.Ordinal);
 
     private static bool TryConsumeRecognizedHeaderLine(string prompt, ref int pos)
     {
         var lineEnd = FindLineEnd(prompt, pos);
         var line = prompt[pos..lineEnd];
-        if (line.StartsWith("[Attached image: ", StringComparison.Ordinal) ||
-            line.StartsWith("[Follow-up on ", StringComparison.Ordinal) ||
-            line.StartsWith("Regarding this section of the transcript:", StringComparison.Ordinal))
+        const string quotePrefix = "Regarding this section of the transcript: \"";
+        if (line.StartsWith(quotePrefix, StringComparison.Ordinal))
+            return TryConsumeTranscriptQuote(prompt, ref pos);
+        if (line.StartsWith("[Attached image: ", StringComparison.Ordinal))
         {
+            if (!line.EndsWith(']'))
+                return false;
             pos = lineEnd;
             return true;
         }
+        if (!line.StartsWith("[Follow-up on ", StringComparison.Ordinal))
+            return false;
 
+        // Follow-up summaries can span lines, but cannot consume the blank separator
+        // or a subsequent attachment when their terminator is missing.
+        while (!line.EndsWith(']'))
+        {
+            var next = lineEnd;
+            if (TryConsumeBlankLine(prompt, ref next) ||
+                !TryConsumeLineBreak(prompt, ref next) ||
+                next >= prompt.Length)
+                return false;
+            lineEnd = FindLineEnd(prompt, next);
+            line = prompt[next..lineEnd];
+            if (IsHeaderStart(line) ||
+                line.TrimStart().StartsWith("```", StringComparison.Ordinal) ||
+                line.TrimStart().StartsWith("~~~", StringComparison.Ordinal))
+                return false;
+        }
+
+        pos = lineEnd;
+        return true;
+    }
+
+    private static bool TryConsumeTranscriptQuote(string prompt, ref int pos)
+    {
+        const string prefix = "Regarding this section of the transcript: \"";
+        var contentStart = pos + prefix.Length;
+        var lineStart = pos;
+        var quoteCount = 0;
+        var needsSeparator = false;
+        var simpleEnd = -1;
+        while (lineStart < prompt.Length)
+        {
+            var lineEnd = FindLineEnd(prompt, lineStart);
+            var line = prompt[lineStart..lineEnd];
+            if (simpleEnd >= 0 && (line.AsSpan().IsWhiteSpace() ||
+                IsHeaderStart(line.AsSpan().TrimStart()) ||
+                line.TrimStart().StartsWith("```", StringComparison.Ordinal) ||
+                line.TrimStart().StartsWith("~~~", StringComparison.Ordinal)))
+            {
+                pos = simpleEnd;
+                return true;
+            }
+            if (lineStart != pos && IsHeaderStart(line.AsSpan().TrimStart()))
+                return false;
+            quoteCount += line.Count(c => c == '"');
+            var separatorEnd = lineEnd;
+            var hasSeparator = TryConsumeBlankLine(prompt, ref separatorEnd);
+            var next = lineEnd;
+            var hasNextHeader = TryConsumeLineBreak(prompt, ref next) &&
+                IsHeaderStart(prompt.AsSpan(next));
+
+            // Legacy content quotes are not escaped: parity cannot identify the wrapper.
+            // Complex selections require the emitted separator or a following header;
+            // only a simple quotation supports the historical EOF/single-line boundary.
+            if (line.EndsWith('"') && (hasSeparator || hasNextHeader))
+            {
+                if (simpleEnd >= 0 || IsInsideClosedCodeFence(prompt, contentStart, lineEnd - 1))
+                    return false;
+                pos = lineEnd;
+                return true;
+            }
+            // Check ambiguity only through this paragraph. If another closing quote
+            // fits the emitted framing, neither interpretation can safely hide text.
+            if (line.EndsWith('"') && !needsSeparator && quoteCount == 2)
+                simpleEnd = lineEnd;
+
+            var contentLine = lineStart == pos ? prompt[contentStart..lineEnd] : line;
+            needsSeparator |= hasSeparator ||
+                contentLine.TrimStart().StartsWith("```", StringComparison.Ordinal) ||
+                contentLine.TrimStart().StartsWith("~~~", StringComparison.Ordinal);
+            lineStart = lineEnd;
+            if (!TryConsumeLineBreak(prompt, ref lineStart))
+                break;
+        }
+        if (simpleEnd >= 0)
+        {
+            pos = simpleEnd;
+            return true;
+        }
         return false;
     }
 
@@ -236,6 +421,8 @@ internal static class AttachmentBlockFormatter
         if (!TryConsumeLineBreak(text, ref pos))
             return false;
 
+        while (pos < text.Length && text[pos] is ' ' or '\t')
+            pos++;
         if (TryConsumeLineBreak(text, ref pos))
             return true;
 
@@ -244,23 +431,13 @@ internal static class AttachmentBlockFormatter
     }
 
     /// <summary>
-    /// Counts the number of typed XML attachment blocks (<c>&lt;attachment …&gt;</c>) in
-    /// <paramref name="text"/>.  Used to display the correct "📎 N attachments" count when
+    /// Counts typed XML attachment blocks (<c>&lt;attachment …&gt;</c>) in the leading
+    /// header, excluding examples in the user's body. Used for "📎 N attachments" when
     /// re-rendering persisted turns where the live <see cref="FollowUpAttachment"/> list is
     /// no longer available.
     /// </summary>
-    internal static int CountAttachmentBlocks(string text)
-    {
-        const string AttachOpenTag = "<attachment ";
-        int count = 0;
-        int pos   = 0;
-        while ((pos = text.IndexOf(AttachOpenTag, pos, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            pos += AttachOpenTag.Length;
-        }
-        return count;
-    }
+    internal static int CountAttachmentBlocks(string text) =>
+        ParseAttachmentHeaders(text)?.Blocks.Count ?? 0;
 
     internal static IReadOnlyList<string> ExtractAttachmentBlocks(string text)
     {
@@ -269,11 +446,9 @@ internal static class AttachmentBlockFormatter
         int pos = 0;
         while ((pos = text.IndexOf(AttachOpenTag, pos, StringComparison.Ordinal)) >= 0)
         {
-            var closeIdx = text.IndexOf(LiteralCloseTag, pos, StringComparison.Ordinal);
-            if (closeIdx < 0)
+            if (!TryReadAttachmentBlock(text, pos, out var end))
                 break;
 
-            var end = closeIdx + LiteralCloseTag.Length;
             blocks.Add(text[pos..end]);
             pos = end;
         }
@@ -336,7 +511,7 @@ internal static class AttachmentBlockFormatter
             return DecodeNotesPayload(block).Content;
         if (!block.StartsWith("<attachment ", StringComparison.Ordinal))
             return block;
-        var closeAngle = block.IndexOf('>', StringComparison.Ordinal);
+        var closeAngle = FindOpenTagEnd(block, 0);
         if (closeAngle < 0) return block;
         var closeIdx = block.LastIndexOf(LiteralCloseTag, StringComparison.Ordinal);
         if (closeIdx < 0) return block;
@@ -349,22 +524,15 @@ internal static class AttachmentBlockFormatter
 
     private static string? ExtractAttribute(string openTag, string name)
     {
-        var marker = " " + name + "=\"";
-        var start = openTag.IndexOf(marker, StringComparison.Ordinal);
-        if (start < 0)
-            return null;
-
-        start += marker.Length;
-        var end = openTag.IndexOf('"', start);
-        if (end < 0)
-            return null;
-
-        return DecodeAttribute(openTag, openTag[start..end]);
+        return TryReadOpenTag(openTag + ">", 0, out _, out var attributes) &&
+            attributes.TryGetValue(name, out var value)
+                ? DecodeAttribute(attributes, value)
+                : null;
     }
 
-    private static string DecodeAttribute(string openTag, string value) =>
-        openTag.Contains($" encoding=\"{NotesEncoding}\"", StringComparison.Ordinal) ||
-        openTag.Contains(" attribute-encoding=\"xml-v1\"", StringComparison.Ordinal)
+    private static string DecodeAttribute(IReadOnlyDictionary<string, string> attributes, string value) =>
+        (attributes.TryGetValue("encoding", out var encoding) && encoding == NotesEncoding) ||
+        (attributes.TryGetValue("attribute-encoding", out var attributeEncoding) && attributeEncoding == "xml-v1")
             ? System.Net.WebUtility.HtmlDecode(value)
             : value.Replace("&quot;", "\"", StringComparison.Ordinal);
 
@@ -372,41 +540,60 @@ internal static class AttachmentBlockFormatter
     {
         if (!block.StartsWith("<attachment ", StringComparison.Ordinal))
             return null;
-        var closeAngle = block.IndexOf('>', StringComparison.Ordinal);
+        var closeAngle = FindOpenTagEnd(block, 0);
         if (closeAngle < 0)
             return null;
         return block[..closeAngle];
     }
 
+    private static int FindOpenTagEnd(string text, int start) =>
+        TryReadOpenTag(text, start, out var end, out _) ? end : -1;
+
+    private static bool TryReadOpenTag(
+        string text, int start, out int end, out Dictionary<string, string> attributes)
+    {
+        end = -1;
+        attributes = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!text.AsSpan(start).StartsWith("<attachment ", StringComparison.Ordinal))
+            return false;
+
+        var pos = start + "<attachment".Length;
+        while (pos < text.Length)
+        {
+            if (text[pos] == '>' && attributes.Count > 0)
+            {
+                end = pos;
+                return true;
+            }
+            if (text[pos] is not ' ' and not '\t')
+                return false;
+            while (pos < text.Length && text[pos] is ' ' or '\t')
+                pos++;
+
+            var nameStart = pos;
+            while (pos < text.Length && (char.IsAsciiLetterOrDigit(text[pos]) || text[pos] is '-' or '_' or ':' or '.'))
+                pos++;
+            if (pos == nameStart || !text.AsSpan(pos).StartsWith("=\"", StringComparison.Ordinal))
+                return false;
+
+            var name = text[nameStart..pos];
+            pos += 2;
+            var valueStart = pos;
+            pos = text.IndexOf('"', pos);
+            if (pos < 0 || !attributes.TryAdd(name, text[valueStart..pos]))
+                return false;
+            // Newlines are content only inside a quoted value. After it, require an
+            // actual attribute or the emitter's immediate '>', not arbitrary prose.
+            pos++;
+        }
+        return false;
+    }
+
     private static Dictionary<string, string> ExtractAttachmentAttributes(string block)
     {
-        var openTag = ExtractOpenTag(block);
-        var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (openTag is null)
-            return attributes;
-
-        var span = openTag.AsSpan();
-        var index = "<attachment ".Length;
-        while (index < span.Length)
-        {
-            while (index < span.Length && char.IsWhiteSpace(span[index]))
-                index++;
-            if (index >= span.Length)
-                break;
-
-            var equals = openTag.IndexOf("=\"", index, StringComparison.Ordinal);
-            if (equals < 0)
-                break;
-            var key = openTag[index..equals].Trim();
-            var valueStart = equals + 2;
-            var valueEnd = openTag.IndexOf('"', valueStart);
-            if (valueEnd < 0)
-                break;
-            attributes[key] = DecodeAttribute(openTag, openTag[valueStart..valueEnd]);
-            index = valueEnd + 1;
-        }
-
-        return attributes;
+        return TryReadOpenTag(block, 0, out _, out var attributes)
+            ? attributes.ToDictionary(pair => pair.Key, pair => DecodeAttribute(attributes, pair.Value), StringComparer.Ordinal)
+            : new Dictionary<string, string>(StringComparer.Ordinal);
     }
 
     private static string BuildOpenTag(Dictionary<string, string> attributes)
