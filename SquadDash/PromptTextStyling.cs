@@ -568,7 +568,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         if (layoutChanged)
             DiscardMovedGeometry(
                 translateDownstream: extentChanged && !globalLayoutChanged,
-                extentDelta);
+                extentDelta,
+                viewport);
         _geometryDirtyParagraphs.Clear();
         if (_inkDirty)
             ScheduleInkRefresh(deferForInput: true);
@@ -1130,7 +1131,10 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 glyph.DocumentRect = Rect.Empty;
     }
 
-    private void DiscardMovedGeometry(bool translateDownstream, double extentDelta)
+    private void DiscardMovedGeometry(
+        bool translateDownstream,
+        double extentDelta,
+        ViewportState viewport)
     {
         _inkDirty = true;
         _retainedDrawing = null;
@@ -1157,10 +1161,17 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     }
                     else if (index > firstDirtyIndex)
                     {
+                        if (double.IsPositiveInfinity(translationStart) &&
+                            TryGetParagraphDocumentTop(paragraph, viewport, out var currentTop))
+                        {
+                            // Cached ink still uses the pre-edit coordinate space. The paragraph's
+                            // live layout is already in the post-edit space, so undo the extent
+                            // delta to locate the first native ink run that must move.
+                            translationStart = currentTop - extentDelta;
+                        }
                         foreach (var glyph in cached.Glyphs)
                             if (!glyph.DocumentRect.IsEmpty)
                             {
-                                translationStart = Math.Min(translationStart, glyph.DocumentRect.Top);
                                 glyph.DocumentRect = OffsetRect(glyph.DocumentRect, 0, extentDelta);
                             }
                     }
@@ -1170,6 +1181,21 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             TranslateCachedInkBelow(translationStart, extentDelta);
         }
         InvalidateDrawing();
+    }
+
+    private static bool TryGetParagraphDocumentTop(
+        Paragraph paragraph,
+        ViewportState viewport,
+        out double documentTop)
+    {
+        documentTop = 0;
+        if (!paragraph.ContentStart.HasValidLayout)
+            return false;
+        var rect = paragraph.ContentStart.GetCharacterRect(LogicalDirection.Forward);
+        if (rect.IsEmpty)
+            return false;
+        documentTop = rect.Top + viewport.VerticalOffset;
+        return true;
     }
 
     private void TranslateCachedInkBelow(double translationStart, double extentDelta)

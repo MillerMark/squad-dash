@@ -1593,6 +1593,43 @@ internal sealed class PromptTextStylingTests
     }
 
     [Test]
+    public void Styling_DeletingInsertedLine_DoesNotRecolorStalePlainInkAsQuote()
+    {
+        const string text = "## Heading\nedit anchor\ne, whatever the spin rat\n\"(default workstream)\"";
+        using var host = new Host(text);
+        host.SetTheme("Light");
+        host.Enable();
+        var insertion = text.IndexOf("edit anchor", StringComparison.Ordinal) + "edit anchor".Length;
+        host.Editor.SelectRange(insertion, 0);
+        host.Editor.ReplaceSelection("\n");
+        host.Drain();
+
+        host.Editor.SelectRange(insertion, 1);
+        host.Editor.ReplaceSelection(string.Empty);
+        host.Editor.UpdateLayout();
+        var provisional = QuoteInkBounds();
+        host.Drain();
+        var exact = QuoteInkBounds();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(provisional, Is.Not.Empty);
+            Assert.That(provisional.Count, Is.EqualTo(exact.Count),
+                "The translated frame must not include a stale plain-text glyph run in the quote color.");
+            for (var i = 0; i < exact.Count; i++)
+                Assert.That(provisional[i], Is.EqualTo(exact[i]),
+                    $"Translated quote ink {i} must match the exact refresh.");
+        });
+
+        List<Rect> QuoteInkBounds() => host.Drawings()
+            .Where(drawing => ReferenceEquals(drawing.Brush, host.QuoteBrush))
+            .Select(drawing => drawing.Bounds)
+            .OrderBy(bounds => bounds.Top)
+            .ThenBy(bounds => bounds.Left)
+            .ToList();
+    }
+
+    [Test]
     public void Styling_RapidStyledEdits_CoalesceInkRebuilds()
     {
         const string text = "\"quoted value\"";
