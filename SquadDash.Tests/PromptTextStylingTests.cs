@@ -1349,6 +1349,48 @@ internal sealed class PromptTextStylingTests
         Assert.That(host.Adorner.InkCacheBuildCount, Is.EqualTo(initialBuilds));
     }
 
+    [Test]
+    public void Styling_PlainSingleLineEdit_RetainsAccentsAndUnchangedGeometry()
+    {
+        const string text = "## Heading **bold** #f00\nplain middle line\n\"quoted below\" {name}";
+        using var host = new Host(text);
+        host.SetTheme("Light");
+        host.Enable();
+        var insertion = text.IndexOf("plain middle line", StringComparison.Ordinal) +
+            "plain middle line".Length;
+        host.Editor.SelectRange(insertion, 0);
+        host.Drain();
+        _ = host.Drawings();
+        var inkBuilds = host.Adorner.InkCacheBuildCount;
+        var glyphBuilds = host.Adorner.GlyphCacheBuildCount;
+        var drawingBuilds = host.Adorner.DrawingBuildCount;
+
+        host.Editor.ReplaceSelection(" extended");
+        host.Editor.UpdateLayout();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.HeadingBrush)), Is.True,
+                "The last complete highlighting frame above the edit must remain visible.");
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.True,
+                "The last complete highlighting frame below the edit must remain visible.");
+        });
+
+        host.Drain();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Adorner.GlyphCacheBuildCount, Is.EqualTo(glyphBuilds + 1),
+                "Only the changed paragraph should rebuild its glyph index.");
+            Assert.That(host.Adorner.InkCacheBuildCount, Is.EqualTo(inkBuilds),
+                "An unwrapped plain-line edit must reuse native ink above and below it.");
+            Assert.That(host.Adorner.DrawingBuildCount, Is.EqualTo(drawingBuilds),
+                "Typing in unaffected plain text must replay the retained drawing, not its geometry.");
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.HeadingBrush)), Is.True);
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.True);
+        });
+    }
+
     [TestCase("Light", false, false)]
     [TestCase("Dark", false, false)]
     [TestCase("Light", true, false)]
