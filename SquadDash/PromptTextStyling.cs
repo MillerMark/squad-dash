@@ -411,7 +411,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             return;
         var viewport = GetViewportState();
         var bounds = viewport.Bounds;
-        EnsureInkCache(viewport);
+        if (_inkRows is null)
+            ScheduleInkRefresh();
 
         Geometry clip = new RectangleGeometry(bounds);
         if (_editor.Selection.IsEmpty && _editor.CaretPosition.HasValidLayout)
@@ -427,11 +428,14 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var borderPen = new Pen((Brush)GetValue(BorderBrushProperty), 0.5);
         var ink = _inkRows;
         var background = FindOpaqueBackground();
-        var quoteBrush = (Brush)GetValue(QuoteBrushProperty);
-        var placeholderBrush = (Brush)GetValue(PlaceholderBrushProperty);
-        var quoteDelimiterBrush = (Brush?)GetValue(QuoteDelimiterBrushProperty) ?? _editor.Foreground;
-        var placeholderDelimiterBrush = (Brush?)GetValue(PlaceholderDelimiterBrushProperty) ?? placeholderBrush;
-        var boldDelimiterBrush = (Brush?)GetValue(BoldDelimiterBrushProperty) ?? _editor.Foreground;
+        var quoteBrush = EnsureVisibleBrush((Brush)GetValue(QuoteBrushProperty), background);
+        var placeholderBrush = EnsureVisibleBrush((Brush)GetValue(PlaceholderBrushProperty), background);
+        var quoteDelimiterBrush = EnsureVisibleBrush(
+            (Brush?)GetValue(QuoteDelimiterBrushProperty) ?? _editor.Foreground, background);
+        var placeholderDelimiterBrush = EnsureVisibleBrush(
+            (Brush?)GetValue(PlaceholderDelimiterBrushProperty) ?? placeholderBrush, background);
+        var boldDelimiterBrush = EnsureVisibleBrush(
+            (Brush?)GetValue(BoldDelimiterBrushProperty) ?? _editor.Foreground, background);
         var useProseColor = !SystemParameters.HighContrast && background is not null;
         var boldSpans = new List<Rect>();
         var quoteSpans = new List<Rect>();
@@ -449,7 +453,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             if (glyph.Color is not null)
             {
                 // Leave selected glyphs to WPF, including its high-contrast selection rendering.
-                if (!selected && background is not null)
+                if (!selected && background is not null && GetInk(ink, rect, viewport).Count > 0)
                 {
                     drawingContext.PushClip(new RectangleGeometry(rect));
                     drawingContext.DrawRectangle(background, null, rect);
@@ -520,8 +524,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         {
             foreach (var span in spans)
             {
-                drawingContext.DrawRectangle(background, null, span);
-                DrawInk(drawingContext, ink, span, viewport, bold, brush);
+                DrawInk(drawingContext, ink, span, viewport, bold, brush, background);
             }
         }
     }
@@ -594,14 +597,34 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         Rect rect,
         ViewportState viewport,
         bool bold,
-        Brush? foreground = null)
+        Brush? foreground = null,
+        Brush? background = null)
     {
-        if (ink is null)
-            return;
-        var documentRect = rect;
-        documentRect.Offset(viewport.HorizontalOffset, viewport.VerticalOffset);
+        var items = GetInk(ink, rect, viewport);
         context.PushClip(new RectangleGeometry(rect));
         context.PushTransform(new TranslateTransform(-viewport.HorizontalOffset, -viewport.VerticalOffset));
+        // Never erase native text outside the outlines actually available for replacement.
+        // WPF can realize new lines between the scroll event and our deferred ink capture.
+        if (background is not null)
+            foreach (var item in items)
+                context.DrawRectangle(background, null, item.Bounds);
+        foreach (var item in items)
+        {
+            // Embolden native outlines without changing shaping, advances, or caret hit targets.
+            var brush = foreground ?? item.Brush;
+            context.DrawGeometry(brush, bold ? new Pen(brush, item.FontSize / 24) : null, item.Geometry);
+        }
+        context.Pop();
+        context.Pop();
+    }
+
+    private static List<Ink> GetInk(Dictionary<int, List<Ink>>? ink, Rect rect, ViewportState viewport)
+    {
+        var result = new List<Ink>();
+        if (ink is null)
+            return result;
+        var documentRect = rect;
+        documentRect.Offset(viewport.HorizontalOffset, viewport.VerticalOffset);
         var drawn = new HashSet<Ink>();
         for (var row = (int)Math.Floor(documentRect.Top / 64); row <= (int)Math.Floor(documentRect.Bottom / 64); row++)
         {
@@ -611,13 +634,10 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             {
                 if (!item.Bounds.IntersectsWith(documentRect) || !drawn.Add(item))
                     continue;
-                // Embolden native outlines without changing shaping, advances, or caret hit targets.
-                var brush = foreground ?? item.Brush;
-                context.DrawGeometry(brush, bold ? new Pen(brush, item.FontSize / 24) : null, item.Geometry);
+                result.Add(item);
             }
         }
-        context.Pop();
-        context.Pop();
+        return result;
     }
 
     private IEnumerable<Ink> ReadInk(Visual visual, Rect visibleBounds)
@@ -643,7 +663,11 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     {
         if (drawing is GlyphRunDrawing { GlyphRun: { } run, ForegroundBrush: { } brush })
         {
-            var runBounds = new MatrixTransform(matrix).TransformBounds(run.ComputeInkBoundingBox());
+            var localBounds = run.ComputeInkBoundingBox();
+            if (localBounds.IsEmpty)
+                yield break;
+            localBounds.Offset(run.BaselineOrigin.X, run.BaselineOrigin.Y);
+            var runBounds = new MatrixTransform(matrix).TransformBounds(localBounds);
             if (!runBounds.IntersectsWith(visibleBounds))
                 yield break;
             var geometry = run.BuildGeometry().CloneCurrentValue();
@@ -682,8 +706,24 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
 
     private void EnsureInkCache(ViewportState viewport)
     {
-        if (_inkRows is not null && Contains(_inkCoverage, viewport.DocumentBounds))
-            return;
+        if (_inkRows is not null)
+        {
+            if (Contains(_inkCoverage, viewport.DocumentBounds))
+                return;
+            // Reuse outlines for small scrolls only when all visible styled cells were captured.
+            // An inflated requested read area is not proof that WPF realized those offscreen lines.
+            var needsInk = _glyphs.Any(glyph =>
+            {
+                var rect = GetGlyphRect(glyph, viewport);
+                rect.Intersect(viewport.Bounds);
+                if (rect.IsEmpty)
+                    return false;
+                rect.Offset(viewport.HorizontalOffset, viewport.VerticalOffset);
+                return !Contains(_inkCoverage, rect);
+            });
+            if (!needsInk)
+                return;
+        }
 
         var editorCoverage = viewport.Bounds;
         editorCoverage.Inflate(32, Math.Max(128, viewport.Bounds.Height));
@@ -695,7 +735,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             .Select(item => TranslateInk(item, documentOffset));
         _inkRows = IndexInk(visibleInk);
         InkCacheBuildCount++;
-        _inkCoverage = editorCoverage;
+        _inkCoverage = viewport.Bounds;
         _inkCoverage.Offset(documentOffset.X, documentOffset.Y);
     }
 
@@ -725,11 +765,56 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         outer.Left <= inner.Left && outer.Top <= inner.Top &&
         outer.Right >= inner.Right && outer.Bottom >= inner.Bottom;
 
+    internal static Brush EnsureVisibleBrush(Brush brush, Brush? background)
+    {
+        if (brush is not SolidColorBrush solid || background is not SolidColorBrush surface)
+            return brush;
+
+        const double minimumContrast = 3;
+        var color = Color.FromRgb(solid.Color.R, solid.Color.G, solid.Color.B);
+        var backgroundLuminance = Luminance(surface.Color);
+        double Contrast(Color foreground)
+        {
+            var luminance = Luminance(foreground);
+            return (Math.Max(luminance, backgroundLuminance) + 0.05) /
+                (Math.Min(luminance, backgroundLuminance) + 0.05);
+        }
+
+        if (Contrast(color) >= minimumContrast && solid.Color.A == 255 && solid.Opacity == 1)
+            return brush;
+
+        // Keep the normal palette untouched. Repair unsafe custom/tinted colors toward the
+        // higher-contrast endpoint, using opaque RGB so alpha and brush opacity cannot compound.
+        var endpoint = Contrast(Colors.Black) >= Contrast(Colors.White) ? 0 : 255;
+        for (var step = 1; Contrast(color) < minimumContrast && step <= 255; step++)
+        {
+            var amount = step / 255.0;
+            color = Color.FromRgb(
+                (byte)Math.Round(solid.Color.R + (endpoint - solid.Color.R) * amount),
+                (byte)Math.Round(solid.Color.G + (endpoint - solid.Color.G) * amount),
+                (byte)Math.Round(solid.Color.B + (endpoint - solid.Color.B) * amount));
+        }
+        var visible = new SolidColorBrush(color);
+        visible.Freeze();
+        return visible;
+    }
+
+    private static double Luminance(Color color)
+    {
+        static double Linear(byte value)
+        {
+            var channel = value / 255.0;
+            return channel <= 0.04045 ? channel / 12.92 : Math.Pow((channel + 0.055) / 1.055, 2.4);
+        }
+        return 0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+    }
+
     private void ScheduleInkRefresh()
     {
         if (_disposed || _inkRefresh is not null)
             return;
-        _inkRefresh = Dispatcher.BeginInvoke(DispatcherPriority.Render, () =>
+        // Capture after WPF has rendered the newly realized scroll viewport, not before it.
+        _inkRefresh = Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
         {
             _inkRefresh = null;
             if (_disposed)

@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using System.Xml.Linq;
 
@@ -56,6 +57,45 @@ internal sealed class PromptTextStylingTests
         Assert.That(ContrastRatio(host.BoldDelimiterBrush.Color, background),
             Is.LessThan(ContrastRatio(host.SubtleBrush.Color, background)));
         AssertBlend(host.BoldDelimiterBrush.Color, host.SubtleBrush.Color, background, 0.9);
+        foreach (var brush in new[] { host.QuoteBrush, host.PlaceholderBrush,
+            host.QuoteDelimiterBrush, host.PlaceholderDelimiterBrush, host.BoldDelimiterBrush })
+        {
+            Assert.That(ContrastRatio(brush.Color, background), Is.GreaterThanOrEqualTo(3));
+            Assert.That(PromptTextAdorner.EnsureVisibleBrush(brush, host.Editor.Background), Is.SameAs(brush));
+        }
+    }
+
+    [TestCase("Light")]
+    [TestCase("Dark")]
+    public void Styling_UnsafeBrushes_KeepDelimitersAndContentVisible(string theme)
+    {
+        using var host = new Host("**bold** \"quote\" {name} `code`");
+        host.SetTheme(theme);
+        host.Editor.SelectRange(host.Editor.GetPlainText().Length, 0);
+        host.Enable();
+        var background = ((SolidColorBrush)host.Editor.Background).Color;
+        foreach (var unsafeBrush in new[]
+        {
+            new SolidColorBrush(background),
+            new SolidColorBrush(Color.FromArgb(1, background.R, background.G, background.B)) { Opacity = 0.01 },
+            new SolidColorBrush(Color.FromScRgb(0, 1, 1, 1)) { Opacity = 0 },
+        })
+        {
+            foreach (var key in new[] { "PromptQuotedText", "PromptPlaceholderText",
+                "PromptQuoteDelimiter", "PromptPlaceholderDelimiter", "PromptBoldDelimiter" })
+                host.SetBrush(key, unsafeBrush);
+            host.Drain();
+            var ink = host.Drawings().Where(d => d.Geometry is not RectangleGeometry).ToArray();
+            Assert.That(ink, Is.Not.Empty);
+            foreach (var drawing in ink)
+            {
+                var brush = (SolidColorBrush)drawing.Brush;
+                Assert.That(brush.Color.A, Is.EqualTo(255));
+                Assert.That(brush.Opacity, Is.EqualTo(1));
+                Assert.That(ContrastRatio(brush.Color, background), Is.GreaterThanOrEqualTo(3));
+            }
+            AssertVisibleCharactersPainted(host, "unsafe resource");
+        }
     }
 
     [TestCase("Light")]
@@ -107,7 +147,7 @@ internal sealed class PromptTextStylingTests
         var builds = adorner.InkCacheBuildCount;
         foreach (var (key, brush, offsets) in new[]
         {
-            ("PromptQuoteDelimiter", Brushes.RosyBrown, new[] { 0, 5 }),
+            ("PromptQuoteDelimiter", Brushes.IndianRed, new[] { 0, 5 }),
             ("PromptPlaceholderDelimiter", Brushes.SlateBlue, new[] { 7, 12 }),
             ("PromptBoldDelimiter", Brushes.Gray, new[] { 14, 15, 20, 21, 23, 28 }),
         })
@@ -140,11 +180,11 @@ internal sealed class PromptTextStylingTests
         host.SetPlaceholderBrush(Brushes.BlueViolet);
         host.Drain();
         AssertColoredCells(host, Brushes.BlueViolet, i => i >= 7 && i < 13);
-        host.SetBrush("PromptQuoteDelimiter", Brushes.RosyBrown);
+        host.SetBrush("PromptQuoteDelimiter", Brushes.IndianRed);
         host.SetBrush("PromptPlaceholderDelimiter", Brushes.SlateBlue);
         host.SetBrush("PromptBoldDelimiter", Brushes.Gray);
         host.Drain();
-        AssertColoredCells(host, Brushes.RosyBrown, i => i is 0 or 5);
+        AssertColoredCells(host, Brushes.IndianRed, i => i is 0 or 5);
         AssertColoredCells(host, Brushes.SlateBlue, i => i is 7 or 12);
         AssertColoredCells(host, Brushes.Gray, i => i is 14 or 15 or 20 or 21);
     }
@@ -1154,6 +1194,103 @@ internal sealed class PromptTextStylingTests
         _ = host.Drawings();
 
         Assert.That(host.Adorner.InkCacheBuildCount, Is.EqualTo(initialBuilds));
+    }
+
+    [TestCase("Light", false)]
+    [TestCase("Dark", false)]
+    [TestCase("Light", true)]
+    [TestCase("Dark", true)]
+    public void Styling_ScrollingDelimitedText_KeepsEveryVisibleCharacterPainted(string theme, bool wrap)
+    {
+        var text = string.Join("\n", Enumerable.Repeat("**bold** \"quote\" {name} `code`", 80));
+        using var host = new Host(text);
+        host.SetTheme(theme);
+        if (wrap)
+            host.Editor.Width = 190;
+        host.Editor.SelectRange(text.Length, 0);
+        host.Enable();
+        foreach (var offset in new[] { 0, 32, 160, 480, 960, 480, 160, 32, 0, 960, 0 })
+        {
+            host.Editor.ScrollToVerticalOffset(offset);
+            host.Editor.UpdateLayout();
+            AssertVisibleCharactersPainted(host, $"pending scroll {offset}");
+            host.Drain();
+            AssertVisibleCharactersPainted(host, $"scroll {offset}");
+            AssertVisibleCharactersPainted(host, $"accent scroll {offset}", accentsOnly: true);
+        }
+        host.SetTheme(theme == "Light" ? "Dark" : "Light");
+        host.Editor.ScrollToVerticalOffset(480);
+        host.Drain();
+        AssertVisibleCharactersPainted(host, "theme switch while scrolling");
+        host.Editor.SelectRange(text.Length, 0);
+        host.Editor.ReplaceSelection("!");
+        host.Drain();
+        host.Editor.Undo();
+        host.Editor.ScrollToVerticalOffset(160);
+        host.Drain();
+        AssertVisibleCharactersPainted(host, "edit/undo followed by scrolling");
+    }
+
+    private static void AssertVisibleCharactersPainted(Host host, string context, bool accentsOnly = false)
+    {
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(host.Decorator.ActualWidth),
+            (int)Math.Ceiling(host.Decorator.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        var origin = host.Editor.TranslatePoint(new Point(), host.Decorator);
+        if (accentsOnly)
+        {
+            var visual = new DrawingVisual();
+            using (var drawing = visual.RenderOpen())
+            {
+                drawing.DrawRectangle(host.Editor.Background, null, new Rect(host.Decorator.RenderSize));
+                drawing.PushTransform(new TranslateTransform(origin.X, origin.Y));
+                drawing.DrawDrawing(VisualTreeHelper.GetDrawing(host.Adorner));
+                drawing.Pop();
+            }
+            bitmap.Render(visual);
+        }
+        else
+        {
+            bitmap.Render(host.Decorator);
+        }
+        var stride = bitmap.PixelWidth * 4;
+        var pixels = new byte[stride * bitmap.PixelHeight];
+        bitmap.CopyPixels(pixels, stride, 0);
+        var background = ((SolidColorBrush)host.Editor.Background).Color;
+        var scrollViewer = (ScrollViewer)host.Editor.Template.FindName("PART_ContentHost", host.Editor);
+        var presenter = (FrameworkElement)scrollViewer.Template.FindName("PART_ScrollContentPresenter", scrollViewer);
+        var viewport = presenter.TransformToAncestor(host.Editor).TransformBounds(new Rect(presenter.RenderSize));
+        var text = host.Editor.GetPlainText();
+        var nativeCode = new bool[text.Length];
+        foreach (var token in PromptTextTokenParser.Parse(text))
+            if (token.Kind == PromptTextTokenKind.InlineCodeContent)
+                Array.Fill(nativeCode, true, token.Start, token.Length);
+        var checkedCells = 0;
+        for (var i = 0; i < text.Length; i++)
+        {
+            if (char.IsWhiteSpace(text[i]) || accentsOnly && nativeCode[i])
+                continue;
+            var start = host.Editor.GetTextPointerAt(i).GetCharacterRect(LogicalDirection.Forward);
+            var end = host.Editor.GetTextPointerAt(i + 1).GetCharacterRect(LogicalDirection.Backward);
+            if (start.Top < viewport.Top || start.Bottom > viewport.Bottom)
+                continue;
+            var left = (int)Math.Ceiling(Math.Min(start.Left, end.Left));
+            var right = (int)Math.Floor(Math.Max(start.Left, end.Left));
+            if (left < 0 || right >= bitmap.PixelWidth || right <= left)
+                continue;
+            var visiblePixels = 0;
+            for (var y = (int)Math.Ceiling(start.Top); y < (int)Math.Floor(start.Bottom); y++)
+                for (var x = left; x < right; x++)
+                {
+                    var index = (y + (int)origin.Y) * stride + (x + (int)origin.X) * 4;
+                    var color = Color.FromRgb(pixels[index + 2], pixels[index + 1], pixels[index]);
+                    if (ContrastRatio(color, background) >= 2)
+                        visiblePixels++;
+                }
+            Assert.That(visiblePixels, Is.GreaterThanOrEqualTo(2),
+                $"{context}: missing visible ink at offset {i} ('{text[i]}'), cell {start}.");
+            checkedCells++;
+        }
+        Assert.That(checkedCells, Is.GreaterThan(20), "The viewport must contain delimited text.");
     }
 
     [Test]
