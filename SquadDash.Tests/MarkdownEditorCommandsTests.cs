@@ -344,6 +344,48 @@ internal sealed class MarkdownEditorCommandsTests {
         Assert.That(tb.CaretIndex, Is.EqualTo(7));
     }
 
+    [Test]
+    public void ContinueListOnShiftEnter_RichTextBox_PreservesUnchangedParagraphs()
+    {
+        const string text = "## Heading\n1. item\n\"quoted below\"";
+        var box = new RichTextBox();
+        box.SetPlainText(text);
+        var paragraphs = box.Document.Blocks.OfType<System.Windows.Documents.Paragraph>().ToArray();
+        var caret = text.IndexOf("1. item", StringComparison.Ordinal) + "1. item".Length;
+        box.SetCaretOffset(caret);
+        box.IsUndoEnabled = false;
+        var history = new PromptUndoHistory(box);
+        history.CaptureBaseline();
+        box.TextChanged += (_, _) => history.PushSnapshot();
+
+        var handled = MarkdownEditorCommands.ContinueListOnShiftEnter(box);
+
+        var updated = box.Document.Blocks.OfType<System.Windows.Documents.Paragraph>().ToArray();
+        const string changed = "## Heading\n1. item\n2. \n\"quoted below\"";
+        Assert.Multiple(() =>
+        {
+            Assert.That(handled, Is.True);
+            Assert.That(box.GetPlainText(), Is.EqualTo(changed));
+            Assert.That(updated[0], Is.SameAs(paragraphs[0]));
+            Assert.That(updated[^1], Is.SameAs(paragraphs[^1]));
+            Assert.That(box.GetCaretOffset(), Is.EqualTo(caret + 4));
+            Assert.That(history.Count, Is.EqualTo(2));
+        });
+
+        Assert.That(history.Undo(), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(box.GetPlainText(), Is.EqualTo(text));
+            Assert.That(box.GetCaretOffset(), Is.EqualTo(caret));
+        });
+        Assert.That(history.Redo(), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(box.GetPlainText(), Is.EqualTo(changed));
+            Assert.That(box.GetCaretOffset(), Is.EqualTo(caret + 4));
+        });
+    }
+
     // ── ApplyInlineCodeOrFence ───────────────────────────────────────────────
 
     [Test]

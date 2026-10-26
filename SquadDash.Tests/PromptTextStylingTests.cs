@@ -1485,17 +1485,21 @@ internal sealed class PromptTextStylingTests
         host.Drain();
 
         var beforeInsert = QuoteBounds();
+        var headingBeforeInsert = HeadingBounds();
         host.Editor.ReplaceSelection("\n");
         host.Editor.UpdateLayout();
         AssertNoOldQuoteGeometry(beforeInsert, "line insertion");
+        AssertSameGeometry(headingBeforeInsert, HeadingBounds(), "line insertion above the edit");
         host.Drain();
 
         var beforeDelete = QuoteBounds();
+        var headingBeforeDelete = HeadingBounds();
         Assert.That(beforeDelete, Is.Not.Empty);
         host.Editor.SelectRange(insertion, 1);
         host.Editor.ReplaceSelection(string.Empty);
         host.Editor.UpdateLayout();
         AssertNoOldQuoteGeometry(beforeDelete, "line deletion");
+        AssertSameGeometry(headingBeforeDelete, HeadingBounds(), "line deletion above the edit");
         host.Drain();
 
         Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.True);
@@ -1505,13 +1509,30 @@ internal sealed class PromptTextStylingTests
             .Select(d => d.Bounds)
             .ToArray();
 
+        Rect[] HeadingBounds() => host.Drawings()
+            .Where(d => ReferenceEquals(d.Brush, host.HeadingBrush))
+            .Select(d => d.Bounds)
+            .ToArray();
+
         void AssertNoOldQuoteGeometry(IReadOnlyList<Rect> oldBounds, string operation)
         {
             var pending = QuoteBounds();
-            Assert.That(pending.Any(current => oldBounds.Any(old =>
-                    Math.Abs(current.Top - old.Top) < 0.5 &&
-                    Math.Abs(current.Left - old.Left) < 0.5)),
-                Is.False, $"{operation} must clear old accent positions before repainting.");
+            Assert.Multiple(() =>
+            {
+                Assert.That(pending, Is.Not.Empty,
+                    $"{operation} must translate and retain unaffected accents while the exact cache refresh is pending.");
+                Assert.That(pending.Any(current => oldBounds.Any(old =>
+                        Math.Abs(current.Top - old.Top) < 0.5 &&
+                        Math.Abs(current.Left - old.Left) < 0.5)),
+                    Is.False, $"{operation} must clear old accent positions before repainting.");
+            });
+        }
+
+        static void AssertSameGeometry(IReadOnlyList<Rect> expected, IReadOnlyList<Rect> actual, string operation)
+        {
+            Assert.That(actual.Count, Is.EqualTo(expected.Count), $"{operation} must retain every accent.");
+            for (var i = 0; i < expected.Count; i++)
+                Assert.That(actual[i], Is.EqualTo(expected[i]), $"{operation} changed accent {i}.");
         }
     }
 
@@ -1536,6 +1557,38 @@ internal sealed class PromptTextStylingTests
             Assert.That(host.Adorner.GlyphRectQueryCount - queries, Is.LessThan(10),
                 "Adding a plain line should translate cached downstream cells, not ask WPF for every character rectangle again.");
             Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.True);
+        });
+    }
+
+    [Test]
+    public void Styling_ShiftEnterListContinuation_PreservesAndTranslatesVisibleAccentsImmediately()
+    {
+        const string text = "## Heading\n1. item\n\"quoted below\"";
+        using var host = new Host(text);
+        host.SetTheme("Light");
+        host.Enable();
+        var caret = text.IndexOf("1. item", StringComparison.Ordinal) + "1. item".Length;
+        host.Editor.SelectRange(caret, 0);
+        host.Drain();
+        var headingBefore = ColoredClips(host, host.HeadingBrush);
+        var quoteBefore = ColoredClips(host, host.QuoteBrush);
+
+        Assert.That(MarkdownEditorCommands.ContinueListOnShiftEnter(host.Editor), Is.True);
+        host.Editor.UpdateLayout();
+        var headingPending = ColoredClips(host, host.HeadingBrush);
+        var quotePending = ColoredClips(host, host.QuoteBrush);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Editor.GetPlainText(), Is.EqualTo(
+                "## Heading\n1. item\n2. \n\"quoted below\""));
+            Assert.That(headingPending, Is.EqualTo(headingBefore),
+                "Highlighting above the inserted line must remain in place.");
+            Assert.That(quotePending, Is.Not.Empty,
+                "Highlighting below the inserted line must remain visible.");
+            Assert.That(quotePending.Min(rect => rect.Top),
+                Is.GreaterThan(quoteBefore.Min(rect => rect.Top) + 1),
+                "Highlighting below the inserted line must be translated immediately.");
         });
     }
 

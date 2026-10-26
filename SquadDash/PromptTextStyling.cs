@@ -154,6 +154,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     private readonly List<Glyph> _glyphs = [];
     private readonly HashSet<Visual> _embeddedVisuals = [];
     private readonly HashSet<Paragraph> _geometryDirtyParagraphs = [];
+    private readonly HashSet<Paragraph> _inkPendingParagraphs = [];
     private Dictionary<int, List<Ink>>? _inkRows;
     private Rect _inkCoverage = Rect.Empty;
     private DispatcherOperation? _refresh;
@@ -635,6 +636,12 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var delimiterSpans = new Dictionary<(PromptTextTokenKind Kind, bool Bold), List<Rect>>();
         foreach (var glyph in _glyphs)
         {
+            // A translated cache is exact for unchanged paragraphs above and below a line edit.
+            // The edited paragraph can contain newly shaped text, so leave just that paragraph to
+            // WPF until the debounced native-ink capture replaces the provisional cache.
+            if (_inkDirty && glyph.Start.Paragraph is { } paragraph &&
+                _inkPendingParagraphs.Contains(paragraph))
+                continue;
             var rect = GetGlyphRect(glyph, viewport);
             if (rect.IsEmpty || rect.Bottom < bounds.Top || rect.Top > bounds.Bottom)
                 continue;
@@ -978,6 +985,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _inkCoverage = viewport.Bounds;
         _inkCoverage.Offset(documentOffset.X, documentOffset.Y);
         _inkDirty = false;
+        _inkPendingParagraphs.Clear();
         return true;
     }
 
@@ -1125,16 +1133,18 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     private void DiscardMovedGeometry(bool translateDownstream, double extentDelta)
     {
         _inkDirty = true;
-        _inkRows = null;
-        _inkCoverage = Rect.Empty;
         _retainedDrawing = null;
         if (!translateDownstream || !TryGetFirstDirtyParagraphIndex(out var firstDirtyIndex))
         {
+            _inkRows = null;
+            _inkCoverage = Rect.Empty;
             foreach (var glyph in _glyphs)
                 glyph.DocumentRect = Rect.Empty;
         }
         else
         {
+            _inkPendingParagraphs.UnionWith(_geometryDirtyParagraphs);
+            var translationStart = double.PositiveInfinity;
             var index = 0;
             foreach (var paragraph in _editor.Document.Blocks.OfType<Paragraph>())
             {
@@ -1149,13 +1159,39 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     {
                         foreach (var glyph in cached.Glyphs)
                             if (!glyph.DocumentRect.IsEmpty)
+                            {
+                                translationStart = Math.Min(translationStart, glyph.DocumentRect.Top);
                                 glyph.DocumentRect = OffsetRect(glyph.DocumentRect, 0, extentDelta);
+                            }
                     }
                 }
                 index++;
             }
+            TranslateCachedInkBelow(translationStart, extentDelta);
         }
         InvalidateDrawing();
+    }
+
+    private void TranslateCachedInkBelow(double translationStart, double extentDelta)
+    {
+        if (_inkRows is null || double.IsPositiveInfinity(translationStart))
+            return;
+        const double layoutTolerance = 0.5;
+        var translated = _inkRows.Values.SelectMany(items => items).Distinct()
+            .Select(item => item.Bounds.Top >= translationStart - layoutTolerance
+                ? TranslateInk(item, new Vector(0, extentDelta))
+                : item)
+            .ToArray();
+        _inkRows = IndexInk(translated);
+        if (!_inkCoverage.IsEmpty && translationStart < _inkCoverage.Bottom)
+        {
+            var bottom = Math.Max(_inkCoverage.Top, _inkCoverage.Bottom + extentDelta);
+            _inkCoverage = new Rect(
+                _inkCoverage.Left,
+                _inkCoverage.Top,
+                _inkCoverage.Width,
+                bottom - _inkCoverage.Top);
+        }
     }
 
     private bool TryGetFirstDirtyParagraphIndex(out int firstDirtyIndex)
@@ -1235,6 +1271,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _glyphs.Clear();
         _embeddedVisuals.Clear();
         _geometryDirtyParagraphs.Clear();
+        _inkPendingParagraphs.Clear();
         _inkRows = null;
         _inkCoverage = Rect.Empty;
         _retainedDrawing = null;

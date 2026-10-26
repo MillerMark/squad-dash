@@ -163,7 +163,8 @@ internal static class MarkdownEditorCommands
 
         // Escape: the line is nothing but the prefix — strip it and park the caret there.
         if (lineText.Length == m.Length) {
-            box.SetPlainText(text[..lineStart] + text[(lineStart + m.Length)..]);
+            box.SelectRange(lineStart, m.Length);
+            box.ReplaceSelection(string.Empty);
             box.SetCaretOffset(lineStart);
             return true;
         }
@@ -176,7 +177,10 @@ internal static class MarkdownEditorCommands
             nextPrefix = indent + m.Groups["sym"].Value + " ";
 
         var insertion = "\n" + nextPrefix;
-        box.SetPlainText(text[..caret] + insertion + text[caret..]);
+        // Mutate only the insertion point. Rebuilding with SetPlainText replaces every Paragraph
+        // in the FlowDocument, forcing unrelated syntax-highlighting and layout caches to refresh.
+        box.SelectRange(caret, 0);
+        box.ReplaceSelection(insertion);
         box.SetCaretOffset(caret + insertion.Length);
         return true;
     }
