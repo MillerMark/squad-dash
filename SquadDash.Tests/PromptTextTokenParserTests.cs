@@ -5,6 +5,51 @@ namespace SquadDash.Tests;
 
 [TestFixture]
 internal sealed class PromptTextTokenParserTests {
+    [TestCase(1)]
+    [TestCase(2)]
+    [TestCase(3)]
+    [TestCase(4)]
+    public void Parse_HeadingLevels_SeparateMarkerAndContentAndStopAtHardBreak(int level) {
+        var hashes = new string('#', level);
+        foreach (var newline in new[] { "\n", "\r", "\r\n" }) {
+            var text = "  " + hashes + " Heading **bold**" + newline + "ordinary";
+            var tokens = PromptTextTokenParser.Parse(text);
+            Assert.Multiple(() => {
+                Assert.That(tokens.Single(t => t.Kind == PromptTextTokenKind.HeadingMarker),
+                    Is.EqualTo(new PromptTextToken(2, level, PromptTextTokenKind.HeadingMarker)));
+                Assert.That(tokens.Single(t => t.Kind == PromptTextTokenKind.HeadingContent),
+                    Is.EqualTo(new PromptTextToken(2 + level, 17, PromptTextTokenKind.HeadingContent, HeadingLevel: level)));
+                Assert.That(tokens.Single(t => t.Kind == PromptTextTokenKind.BoldContent).Length, Is.EqualTo(4));
+            });
+        }
+    }
+
+    [TestCase("##### heading")]
+    [TestCase("###### heading")]
+    [TestCase("####### heading")]
+    [TestCase("####heading")]
+    [TestCase("text # heading")]
+    [TestCase("    # heading")]
+    [TestCase("\\# heading")]
+    [TestCase("`# heading`")]
+    [TestCase("```markdown\n# heading\n```")]
+    [TestCase("*123456")]
+    [TestCase("#123456")]
+    [TestCase("#abc")]
+    public void Parse_NonHeadings_DoNotReceiveHeadingTokens(string text) {
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t =>
+            t.Kind is PromptTextTokenKind.HeadingMarker or PromptTextTokenKind.HeadingContent), Is.Empty);
+    }
+
+    [Test]
+    public void Parse_HexSwatches_KeepTheirExistingPrecedenceBesideHeadings() {
+        const string text = "#123456\n#abc\n# Header #ABCDEF\n*123456";
+        var tokens = PromptTextTokenParser.Parse(text);
+        Assert.That(tokens.Where(t => t.Kind == PromptTextTokenKind.HexColor)
+            .Select(t => text.Substring(t.Start, t.Length)), Is.EqualTo(new[] { "#123456", "#abc", "#ABCDEF" }));
+        Assert.That(tokens.Count(t => t.Kind == PromptTextTokenKind.HeadingMarker), Is.EqualTo(1));
+    }
+
     [Test]
     public void Parse_QuotedPlaceholder_ExactUserExampleIncludesBothBraces() {
         const string text = "\"This is a test for {userName}\"";

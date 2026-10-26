@@ -15,13 +15,15 @@ internal enum PromptTextTokenKind {
     PlaceholderDelimiter,
     BoldDelimiter,
     InlineCodeDelimiter,
+    HeadingContent,
 }
 
 internal readonly record struct PromptTextToken(
     int Start,
     int Length,
     PromptTextTokenKind Kind,
-    Color Color = default);
+    Color Color = default,
+    int HeadingLevel = 0);
 
 internal static class PromptTextTokenParser {
     internal static IReadOnlyList<PromptTextToken> Parse(string text) {
@@ -100,6 +102,13 @@ internal static class PromptTextTokenParser {
                 IsAtLineStart(text, i) &&
                 TryReadHeadingMarker(text, i, out var headingStart, out var headingLength)) {
                 tokens.Add(new PromptTextToken(headingStart, headingLength, PromptTextTokenKind.HeadingMarker));
+                var contentStart = headingStart + headingLength;
+                var contentEnd = contentStart;
+                while (contentEnd < text.Length && text[contentEnd] is not '\r' and not '\n')
+                    contentEnd++;
+                if (contentEnd > contentStart)
+                    tokens.Add(new PromptTextToken(contentStart, contentEnd - contentStart,
+                        PromptTextTokenKind.HeadingContent, HeadingLevel: headingLength));
                 i = headingStart + headingLength;
                 continue;
             }
@@ -205,7 +214,7 @@ internal static class PromptTextTokenParser {
         while (i + hashes < text.Length && text[i + hashes] == '#')
             hashes++;
 
-        if (hashes < 1 || hashes > 6)
+        if (hashes < 1 || hashes > 4)
             return false;
 
         var after = i + hashes;

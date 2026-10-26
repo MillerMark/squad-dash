@@ -14,6 +14,155 @@ namespace SquadDash.Tests;
 [Apartment(ApartmentState.STA)]
 internal sealed class PromptTextStylingTests
 {
+    [TestCase(1, 1.48)]
+    [TestCase(2, 1.32)]
+    [TestCase(3, 1.16)]
+    [TestCase(4, 1.0)]
+    public void Styling_Headers_UseNativeLevelSizesAndSeparateThemeInk(int level, double scale)
+    {
+        var text = new string('#', level) + " Heading";
+        using var host = new Host(text);
+        host.Editor.IsUndoEnabled = false;
+        host.Editor.SelectRange(text.Length, 0);
+        host.Enable();
+        Assert.That(PromptTextAdorner.HeadingSizeScale(level), Is.EqualTo(scale));
+        foreach (var theme in new[] { "Light", "Dark" })
+        {
+            host.SetTheme(theme);
+            var snapshot = PromptUndoManager.CaptureSnapshot(host.Editor);
+            foreach (var size in new[] { 16d, 24d })
+            {
+                host.Editor.FontSize = size;
+                host.Drain();
+                for (var offset = 0; offset < text.Length; offset++)
+                    Assert.That(SizeAt(host.Editor, offset), Is.EqualTo(size * scale).Within(0.001));
+                AssertColoredCells(host, host.HeadingDelimiterBrush, i => i < level);
+                AssertColoredCells(host, host.HeadingBrush, i => i >= level);
+                Assert.That(host.Drawings().Where(d => ReferenceEquals(d.Brush, host.HeadingDelimiterBrush))
+                    .All(d => d.Geometry is not RectangleGeometry && d.Pen is null), Is.True,
+                    "Hash markers must have glyph ink, not a tint rectangle or underline.");
+                Assert.That(PromptUndoManager.CaptureSnapshot(host.Editor), Is.EqualTo(snapshot));
+            }
+            var background = ((SolidColorBrush)host.Editor.Background).Color;
+            AssertBlend(host.HeadingDelimiterBrush.Color, host.HeadingBrush.Color, background, 0.6);
+            Assert.That(ContrastRatio(host.HeadingBrush.Color, background), Is.GreaterThanOrEqualTo(4.5));
+            Assert.That(ContrastRatio(host.HeadingDelimiterBrush.Color, background), Is.GreaterThanOrEqualTo(3));
+            Assert.That(ContrastRatio(host.HeadingDelimiterBrush.Color, background),
+                Is.LessThan(ContrastRatio(host.HeadingBrush.Color, background)));
+            var color = host.HeadingBrush.Color;
+            var max = Math.Max(color.R, Math.Max(color.G, color.B)) / 255d;
+            var min = Math.Min(color.R, Math.Min(color.G, color.B)) / 255d;
+            var saturation = (max - min) / (1 - Math.Abs(max + min - 1));
+            Assert.That(saturation, Is.EqualTo(0.7).Within(0.02));
+        }
+        host.Editor.SelectRange(0, text.Length);
+        host.Drain();
+        Assert.That(host.Drawings(), Is.Empty, "Selected headings use native selection ink.");
+    }
+
+    [Test]
+    public void Styling_Headers_ReserveWrappedLineHeightAndResetAfterEditingAndDisabling()
+    {
+        const string text = "# Heading words wrap onto several lines\nordinary";
+        using var host = new Host(text);
+        host.Editor.IsUndoEnabled = false;
+        host.Editor.Width = 220;
+        host.Enable();
+        var newline = text.IndexOf('\n');
+        var first = host.Editor.GetTextPointerAt(2).GetCharacterRect(LogicalDirection.Forward);
+        var last = host.Editor.GetTextPointerAt(newline - 1).GetCharacterRect(LogicalDirection.Forward);
+        var normal = host.Editor.GetTextPointerAt(newline + 1).GetCharacterRect(LogicalDirection.Forward);
+        Assert.Multiple(() =>
+        {
+            Assert.That(last.Top, Is.GreaterThan(first.Top), "The heading must wrap.");
+            Assert.That(first.Height / normal.Height, Is.EqualTo(1.48).Within(0.06));
+            Assert.That(normal.Top, Is.GreaterThanOrEqualTo(last.Bottom - 0.01));
+            Assert.That(SizeAt(host.Editor, newline + 1), Is.EqualTo(host.Editor.FontSize));
+        });
+        var previous = first;
+        for (var offset = 3; offset < newline; offset++)
+        {
+            var cell = host.Editor.GetTextPointerAt(offset).GetCharacterRect(LogicalDirection.Forward);
+            if (cell.Top > previous.Top + 0.5)
+                Assert.That(cell.Top, Is.GreaterThanOrEqualTo(previous.Bottom - 0.01));
+            previous = cell;
+        }
+
+        host.Editor.SelectRange(0, 1);
+        host.Editor.ReplaceSelection("####");
+        host.Drain();
+        Assert.That(SizeAt(host.Editor, 5), Is.EqualTo(host.Editor.FontSize));
+        host.Editor.SelectRange(0, 4);
+        host.Editor.ReplaceSelection("#");
+        host.Drain();
+        Assert.That(SizeAt(host.Editor, 2), Is.EqualTo(host.Editor.FontSize * 1.48));
+        host.Editor.SelectRange(0, 1);
+        host.Editor.ReplaceSelection("");
+        host.Drain();
+        Assert.That(SizeAt(host.Editor, 1), Is.EqualTo(host.Editor.FontSize));
+        host.Editor.SelectRange(0, 0);
+        host.Editor.ReplaceSelection("#");
+        host.Drain();
+        PromptTextStyling.SetIsEnabled(host.Editor, false);
+        host.Editor.FontSize = 20;
+        host.Drain();
+        Assert.That(SizeAt(host.Editor, 2), Is.EqualTo(20));
+        host.Enable();
+        Assert.That(SizeAt(host.Editor, 2), Is.EqualTo(20 * 1.48));
+        host.Editor.SetPlainText("# Heading");
+        host.Drain();
+        host.Editor.SelectRange(9, 0);
+        host.Editor.ReplaceSelection("\nplain");
+        host.Drain();
+        Assert.That(SizeAt(host.Editor, 10), Is.EqualTo(20),
+            "Typing a new normal line must not inherit the heading size.");
+    }
+
+    [Test]
+    public void Styling_Headers_PreserveInlinePrecedenceAndSharedUndo()
+    {
+        const string text = "# plain **bold** \"quote\" {name} `code` #abcdef";
+        using var host = new Host(text);
+        host.SetTheme("Light");
+        var editor = host.Editor;
+        editor.IsUndoEnabled = false;
+        editor.Selection.Select(editor.GetTextPointerAt(8), editor.GetTextPointerAt(2));
+        var before = PromptUndoManager.CaptureSnapshot(editor);
+        var history = new PromptUndoHistory(editor);
+        history.CaptureBaseline();
+        editor.TextChanged += (_, _) =>
+        {
+            if (!PromptTextStyling.IsApplyingFormatting(editor))
+                history.PushSnapshot();
+        };
+        host.Enable();
+        Assert.That(PromptUndoManager.CaptureSnapshot(editor), Is.EqualTo(before));
+        Assert.That(history.Count, Is.EqualTo(1));
+        editor.SelectRange(text.Length, 0);
+        host.Drain();
+        AssertColoredCells(host, host.HeadingDelimiterBrush, i => i == 0);
+        AssertColoredCells(host, host.QuoteBrush, i => i >= 18 && i < 23);
+        AssertColoredCells(host, host.PlaceholderBrush, i => i >= 26 && i < 30);
+        Assert.That(FontAt(editor, 33).Source, Is.EqualTo("Consolas"));
+        Assert.That(SizeAt(editor, 33), Is.EqualTo(editor.FontSize * 1.48));
+        Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.HeadingBrush) &&
+            d.Pen?.Thickness == editor.FontSize * 1.48 / 24), Is.True);
+        Assert.That(host.Drawings().Any(d => d.Brush is SolidColorBrush b &&
+            b.Color == Color.FromRgb(0xAB, 0xCD, 0xEF)), Is.True);
+        editor.SelectRange(0, 1);
+        editor.ReplaceSelection("####");
+        host.Drain();
+        Assert.That(history.Count, Is.EqualTo(2));
+        Assert.That(SizeAt(editor, 5), Is.EqualTo(editor.FontSize));
+        Assert.That(history.Undo(), Is.True);
+        host.Drain();
+        Assert.That(editor.GetPlainText(), Is.EqualTo(text));
+        Assert.That(SizeAt(editor, 2), Is.EqualTo(editor.FontSize * 1.48));
+        Assert.That(history.Redo(), Is.True);
+        host.Drain();
+        Assert.That(SizeAt(editor, 5), Is.EqualTo(editor.FontSize));
+    }
+
     [TestCase("Light", "\"", "\"", "#B36679", "#8F85CC")]
     [TestCase("Light", "\u201C", "\u201D", "#B36679", "#8F85CC")]
     [TestCase("Dark", "\"", "\"", "#926772", "#746A9F")]
@@ -69,7 +218,7 @@ internal sealed class PromptTextStylingTests
     [TestCase("Dark")]
     public void Styling_UnsafeBrushes_KeepDelimitersAndContentVisible(string theme)
     {
-        using var host = new Host("**bold** \"quote\" {name} `code`");
+        using var host = new Host("# heading **bold** \"quote\" {name} `code`");
         host.SetTheme(theme);
         host.Editor.SelectRange(host.Editor.GetPlainText().Length, 0);
         host.Enable();
@@ -82,7 +231,8 @@ internal sealed class PromptTextStylingTests
         })
         {
             foreach (var key in new[] { "PromptQuotedText", "PromptPlaceholderText",
-                "PromptQuoteDelimiter", "PromptPlaceholderDelimiter", "PromptBoldDelimiter" })
+                "PromptQuoteDelimiter", "PromptPlaceholderDelimiter", "PromptBoldDelimiter",
+                "PromptHeadingText", "PromptHeadingDelimiter" })
                 host.SetBrush(key, unsafeBrush);
             host.Drain();
             var ink = host.Drawings().Where(d => d.Geometry is not RectangleGeometry).ToArray();
@@ -1038,13 +1188,17 @@ internal sealed class PromptTextStylingTests
     {
         using var host = new Host("## Heading **bold** #aBc #123456");
         var editor = host.Editor;
+        editor.IsUndoEnabled = false;
         editor.SelectRange(3, 7);
         var originalText = editor.GetPlainText();
         var blocks = editor.Document.Blocks.ToArray();
-        var runs = editor.Document.Blocks.OfType<Paragraph>().SelectMany(p => p.Inlines).ToArray();
         var caret = editor.GetCaretOffset();
         var changes = 0;
-        editor.TextChanged += (_, _) => changes++;
+        editor.TextChanged += (_, _) =>
+        {
+            if (!PromptTextStyling.IsApplyingFormatting(editor))
+                changes++;
+        };
 
         host.Enable();
 
@@ -1053,14 +1207,12 @@ internal sealed class PromptTextStylingTests
         {
             Assert.That(drawings.Count(d => d.Brush is SolidColorBrush b && b.Color == Color.FromRgb(0xAA, 0xBB, 0xCC)), Is.EqualTo(1));
             Assert.That(drawings.Count(d => d.Brush is SolidColorBrush b && b.Color == Color.FromRgb(0x12, 0x34, 0x56)), Is.EqualTo(1));
-            Assert.That(drawings.Count(d => ReferenceEquals(d.Brush, host.MarkerBrush)), Is.EqualTo(4),
-                "Only heading markers get a tint and underline; bold content is emboldened directly.");
-            Assert.That(drawings.Count(d => d.Pen?.Thickness == editor.FontSize / 24), Is.EqualTo(1),
+            Assert.That(drawings.Any(d => ReferenceEquals(d.Brush, host.MarkerBrush)), Is.True);
+            Assert.That(drawings.Count(d => d.Pen?.Thickness == editor.FontSize * 1.32 / 24), Is.EqualTo(1),
                 "One contiguous bold word should require one native-ink draw.");
             Assert.That(drawings.All(d => d.Bounds.Width > 0 && d.Bounds.Height > 0), Is.True);
             Assert.That(editor.GetPlainText(), Is.EqualTo(originalText));
             Assert.That(editor.Document.Blocks.ToArray(), Is.EqualTo(blocks));
-            Assert.That(editor.Document.Blocks.OfType<Paragraph>().SelectMany(p => p.Inlines).ToArray(), Is.EqualTo(runs));
             Assert.That(editor.GetCaretOffset(), Is.EqualTo(caret));
             Assert.That(editor.GetSelectedText(), Is.EqualTo("Heading"));
             Assert.That(editor.CanUndo, Is.False);
@@ -1092,7 +1244,8 @@ internal sealed class PromptTextStylingTests
         {
             Assert.That(host.Editor.GetPlainText(), Is.EqualTo("**bold**\n## #f00"));
             Assert.That(host.Drawings().Count(d => d.Brush is SolidColorBrush b && b.Color == Colors.Red), Is.EqualTo(1));
-            Assert.That(host.Drawings().Count(d => ReferenceEquals(d.Brush, host.MarkerBrush)), Is.EqualTo(4));
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.MarkerBrush)), Is.True);
+            Assert.That(SizeAt(host.Editor, 9), Is.EqualTo(host.Editor.FontSize * 1.32));
             Assert.That(host.Drawings().Count(d => d.Pen?.Thickness == host.Editor.FontSize / 24), Is.EqualTo(1),
                 "The contiguous bold word should draw once even when its document content is split across runs.");
         });
@@ -1114,7 +1267,7 @@ internal sealed class PromptTextStylingTests
             Assert.That(drawings.Count(d => d.Brush is SolidColorBrush b && b.Color == Colors.Lime), Is.Zero);
             Assert.That(drawings.Count(d => d.Brush is SolidColorBrush b && b.Color == Colors.Red), Is.EqualTo(1));
             Assert.That(drawings.Count(d => d.Brush is SolidColorBrush b && b.Color == Colors.Blue), Is.EqualTo(1));
-            Assert.That(drawings.Count(d => ReferenceEquals(d.Brush, host.MarkerBrush)), Is.EqualTo(6));
+            Assert.That(drawings.Count(d => ReferenceEquals(d.Brush, host.MarkerBrush)), Is.GreaterThanOrEqualTo(2));
             Assert.That(drawings.Any(d => d.Pen?.Thickness == host.Editor.FontSize / 24), Is.False);
             Assert.That(RichTextBoxExtensions.EnumerateEmbeddedRegions(host.Editor).Single(), Is.SameAs(region));
             Assert.That(region.Content, Is.EqualTo("## code **bold** #00ff00"));
@@ -1196,13 +1349,18 @@ internal sealed class PromptTextStylingTests
         Assert.That(host.Adorner.InkCacheBuildCount, Is.EqualTo(initialBuilds));
     }
 
-    [TestCase("Light", false)]
-    [TestCase("Dark", false)]
-    [TestCase("Light", true)]
-    [TestCase("Dark", true)]
-    public void Styling_ScrollingDelimitedText_KeepsEveryVisibleCharacterPainted(string theme, bool wrap)
+    [TestCase("Light", false, false)]
+    [TestCase("Dark", false, false)]
+    [TestCase("Light", true, false)]
+    [TestCase("Dark", true, false)]
+    [TestCase("Light", false, true)]
+    [TestCase("Dark", false, true)]
+    [TestCase("Light", true, true)]
+    [TestCase("Dark", true, true)]
+    public void Styling_ScrollingDelimitedText_KeepsEveryVisibleCharacterPainted(string theme, bool wrap, bool headings)
     {
-        var text = string.Join("\n", Enumerable.Repeat("**bold** \"quote\" {name} `code`", 80));
+        var text = string.Join("\n", Enumerable.Range(0, 80).Select(i =>
+            (headings ? new string('#', i % 4 + 1) + " heading " : "") + "**bold** \"quote\" {name} `code`"));
         using var host = new Host(text);
         host.SetTheme(theme);
         if (wrap)
@@ -1323,14 +1481,12 @@ internal sealed class PromptTextStylingTests
     public void Styling_FontFamilyChange_RepositionsMarkersWithoutEditingText()
     {
         using var host = new Host("prefix text\n## heading");
+        host.SetTheme("Light");
         host.Enable();
         host.Editor.FontFamily = new FontFamily("Consolas");
         host.Drain();
 
-        var start = host.Editor.GetTextPointerAt(12).GetCharacterRect(LogicalDirection.Forward);
-        var marker = host.Drawings().First(d => ReferenceEquals(d.Brush, host.MarkerBrush));
-        Assert.That(marker.Geometry.Bounds.Left, Is.EqualTo(start.Left).Within(0.01));
-        Assert.That(marker.Geometry.Bounds.Top, Is.EqualTo(start.Top).Within(0.01));
+        AssertColoredCells(host, host.HeadingDelimiterBrush, i => i is 12 or 13);
     }
 
     [TestCase(12)]
@@ -1690,6 +1846,10 @@ internal sealed class PromptTextStylingTests
         (FontFamily)new TextRange(editor.GetTextPointerAt(offset), editor.GetTextPointerAt(offset + 1))
             .GetPropertyValue(TextElement.FontFamilyProperty);
 
+    private static double SizeAt(RichTextBox editor, int offset) =>
+        (double)new TextRange(editor.GetTextPointerAt(offset), editor.GetTextPointerAt(offset + 1))
+            .GetPropertyValue(TextElement.FontSizeProperty);
+
     private static Rect[] QuoteClips(Host host) => ColoredClips(host, host.QuoteBrush);
 
     private static Rect[] ColoredClips(Host host, Brush brush) =>
@@ -1767,7 +1927,9 @@ internal sealed class PromptTextStylingTests
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
-        internal Brush MarkerBrush { get; } = Brushes.CornflowerBlue;
+        internal Brush MarkerBrush { get; } = Brushes.SteelBlue;
+        internal SolidColorBrush HeadingBrush => (SolidColorBrush)_window.FindResource("PromptHeadingText");
+        internal SolidColorBrush HeadingDelimiterBrush => (SolidColorBrush)_window.FindResource("PromptHeadingDelimiter");
         internal SolidColorBrush QuoteBrush => (SolidColorBrush)_window.FindResource("PromptQuotedText");
         internal SolidColorBrush PlaceholderBrush => (SolidColorBrush)_window.FindResource("PromptPlaceholderText");
         internal SolidColorBrush QuoteDelimiterBrush => (SolidColorBrush)_window.FindResource("PromptQuoteDelimiter");
@@ -1788,7 +1950,7 @@ internal sealed class PromptTextStylingTests
                 Content = Decorator, Width = 500, Height = 260,
                 ShowInTaskbar = false, ShowActivated = false, Left = -10000, Top = -10000,
             };
-            _window.Resources["DocumentLinkText"] = MarkerBrush;
+            _window.Resources["PromptHeadingDelimiter"] = MarkerBrush;
             _window.Resources["LabelText"] = Brushes.Black;
             _window.Show();
             Drain();
@@ -1800,7 +1962,7 @@ internal sealed class PromptTextStylingTests
             Drain();
         }
 
-        internal void SetMarkerBrush(Brush brush) => _window.Resources["DocumentLinkText"] = brush;
+        internal void SetMarkerBrush(Brush brush) => _window.Resources["PromptHeadingDelimiter"] = brush;
 
         internal void SetQuoteBrush(Brush brush) => _window.Resources["PromptQuotedText"] = brush;
 
@@ -1818,6 +1980,7 @@ internal sealed class PromptTextStylingTests
             using var stream = File.OpenRead(Path.Combine(source, "Themes", theme + ".xaml"));
             var resources = (ResourceDictionary)XamlReader.Load(stream);
             _window.Resources.Remove("LabelText");
+            _window.Resources.Remove("PromptHeadingDelimiter");
             _window.Resources.MergedDictionaries.Clear();
             _window.Resources.MergedDictionaries.Add(resources);
 

@@ -66,15 +66,18 @@ internal static class PromptTextStyling
 }
 
 /// <summary>
-/// Token accents are paint only except for inline-code font families, which use native
-/// text layout so glyph advances, caret positions, and selection geometry agree.
+/// Token accents are paint only except for inline-code font families and heading sizes,
+/// which use native layout so line heights, caret positions, and selection geometry agree.
 /// </summary>
 internal sealed class PromptTextAdorner : Adorner, IDisposable
 {
     private static readonly FontFamily CodeFont = new("Consolas");
-    private static readonly DependencyProperty MarkerBrushProperty = DependencyProperty.Register(
-        "MarkerBrush", typeof(Brush), typeof(PromptTextAdorner),
+    private static readonly DependencyProperty HeadingBrushProperty = DependencyProperty.Register(
+        "HeadingBrush", typeof(Brush), typeof(PromptTextAdorner),
         new FrameworkPropertyMetadata(Brushes.SteelBlue, FrameworkPropertyMetadataOptions.AffectsRender));
+    private static readonly DependencyProperty HeadingDelimiterBrushProperty = DependencyProperty.Register(
+        "HeadingDelimiterBrush", typeof(Brush), typeof(PromptTextAdorner),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
     private static readonly DependencyProperty BorderBrushProperty = DependencyProperty.Register(
         "BorderBrush", typeof(Brush), typeof(PromptTextAdorner),
         new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
@@ -102,6 +105,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         Brush? color,
         bool isQuoted,
         bool isPlaceholder,
+        bool isHeading,
         PromptTextTokenKind? delimiter)
     {
         internal TextPointer Start { get; } = start;
@@ -110,6 +114,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         internal Brush? Color { get; } = color;
         internal bool IsQuoted { get; } = isQuoted;
         internal bool IsPlaceholder { get; } = isPlaceholder;
+        internal bool IsHeading { get; } = isHeading;
         internal PromptTextTokenKind? Delimiter { get; } = delimiter;
         internal Rect DocumentRect { get; set; } = Rect.Empty;
     }
@@ -152,7 +157,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _editor = editor;
         IsHitTestVisible = false;
         Focusable = false;
-        SetResourceReference(MarkerBrushProperty, "DocumentLinkText");
+        SetResourceReference(HeadingBrushProperty, "PromptHeadingText");
+        SetResourceReference(HeadingDelimiterBrushProperty, "PromptHeadingDelimiter");
         SetResourceReference(BorderBrushProperty, "LabelText");
         SetResourceReference(QuoteBrushProperty, "PromptQuotedText");
         SetResourceReference(PlaceholderBrushProperty, "PromptPlaceholderText");
@@ -213,7 +219,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 cached = new ParagraphTokens(text, PromptTextTokenParser.Parse(text));
                 _paragraphs[paragraph] = cached;
             }
-            ApplyInlineCodeFonts(paragraph, cached.Text.Length, cached.Tokens);
+            ApplyTokenFonts(paragraph, cached.Text.Length, cached.Tokens);
             AddGlyphs(paragraph, cached.Text, cached.Tokens);
         }
         foreach (var paragraph in _paragraphs.Keys.Where(p => !present.Contains(p)).ToArray())
@@ -222,14 +228,31 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         InvalidateVisual();
     }
 
-    private void ApplyInlineCodeFonts(Paragraph paragraph, int length, IReadOnlyList<PromptTextToken> tokens)
+    internal static double HeadingSizeScale(int level) => level switch
+    {
+        1 => 1.48,
+        2 => 1.32,
+        3 => 1.16,
+        4 => 1,
+        _ => throw new ArgumentOutOfRangeException(nameof(level)),
+    };
+
+    private void ApplyTokenFonts(Paragraph paragraph, int length, IReadOnlyList<PromptTextToken> tokens)
     {
         var code = new bool[length];
+        var sizes = new double[length];
+        Array.Fill(sizes, _editor.FontSize);
         foreach (var token in tokens)
+        {
             if (token.Kind == PromptTextTokenKind.InlineCodeContent)
                 Array.Fill(code, true, token.Start, token.Length);
+            else if (token.Kind is PromptTextTokenKind.HeadingMarker or PromptTextTokenKind.HeadingContent)
+                Array.Fill(sizes, _editor.FontSize * HeadingSizeScale(
+                    token.Kind == PromptTextTokenKind.HeadingMarker ? token.Length : token.HeadingLevel),
+                    token.Start, token.Length);
+        }
 
-        var changes = new List<(TextRange Range, FontFamily Font)>();
+        var changes = new List<(TextRange Range, FontFamily Font, double Size)>();
         var offset = 0;
         foreach (var inline in paragraph.Inlines)
         {
@@ -240,12 +263,14 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             for (var start = 0; start < run.Text.Length;)
             {
                 var end = start + 1;
-                while (end < run.Text.Length && code[offset + end] == code[offset + start])
+                while (end < run.Text.Length && code[offset + end] == code[offset + start] &&
+                    sizes[offset + end] == sizes[offset + start])
                     end++;
                 var font = code[offset + start] ? CodeFont : _editor.FontFamily;
-                if (!run.FontFamily.Equals(font))
+                var size = sizes[offset + start];
+                if (!run.FontFamily.Equals(font) || run.FontSize != size)
                     changes.Add((new TextRange(run.ContentStart.GetPositionAtOffset(start)!,
-                        run.ContentStart.GetPositionAtOffset(end)!), font));
+                        run.ContentStart.GetPositionAtOffset(end)!), font, size));
                 start = end;
             }
             offset += run.Text.Length;
@@ -257,10 +282,13 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         try
         {
             // No document rebuild or undo toggle. The prompt's shared history records text,
-            // not these derived fonts; sizes remain inherited from the prompt.
+            // not these derived fonts. Native sizing also reserves the full heading line height.
             using (_editor.DeclareChangeBlock())
-                foreach (var (range, font) in changes)
+                foreach (var (range, font, size) in changes)
+                {
                     range.ApplyPropertyValue(TextElement.FontFamilyProperty, font);
+                    range.ApplyPropertyValue(TextElement.FontSizeProperty, size);
+                }
         }
         finally
         {
@@ -278,7 +306,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var placeholders = new bool[length];
         var delimiters = new PromptTextTokenKind?[length];
         var code = new bool[length];
-        var markers = new HashSet<int>();
+        var headings = new bool[length];
         var colors = new Dictionary<int, Brush>();
         foreach (var token in tokens)
         {
@@ -294,6 +322,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 case PromptTextTokenKind.PlaceholderDelimiter:
                 case PromptTextTokenKind.BoldDelimiter:
                 case PromptTextTokenKind.InlineCodeDelimiter:
+                case PromptTextTokenKind.HeadingMarker:
                     Array.Fill(delimiters, token.Kind, token.Start, token.Length);
                     break;
                 case PromptTextTokenKind.InlineCodeContent:
@@ -315,9 +344,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     brush.Freeze();
                     colors[token.Start] = brush;
                     break;
-                case PromptTextTokenKind.HeadingMarker:
-                    for (var i = token.Start; i < token.Start + token.Length; i++)
-                        markers.Add(i);
+                case PromptTextTokenKind.HeadingContent:
+                    Array.Fill(headings, true, token.Start, token.Length);
                     break;
             }
         }
@@ -339,20 +367,20 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 var position = offset + i;
                 var isQuoted = quoted[position] && !code[position];
                 var isPlaceholder = placeholders[position] && !code[position];
+                var isHeading = headings[position] && !code[position];
                 var delimiter = delimiters[position];
                 if (code[position] && delimiter != PromptTextTokenKind.InlineCodeDelimiter)
                     delimiter = null;
                 var isColor = colors.TryGetValue(position, out var color);
                 var kind = isColor ? PromptTextTokenKind.HexColor
                     : boldChanges[position] > 0 ? PromptTextTokenKind.BoldContent
-                    : markers.Contains(position) ? PromptTextTokenKind.HeadingMarker
                     : PromptTextTokenKind.QuotedContent;
-                if (!isColor && boldChanges[position] == 0 && !markers.Contains(position) &&
-                    !isQuoted && !isPlaceholder && delimiter is null)
+                if (!isColor && boldChanges[position] == 0 &&
+                    !isQuoted && !isPlaceholder && !isHeading && delimiter is null)
                     continue;
                 var start = run.ContentStart.GetPositionAtOffset(i)!;
                 _glyphs.Add(new Glyph(start, start.GetPositionAtOffset(1)!, kind, color,
-                    isQuoted, isPlaceholder, delimiter));
+                    isQuoted, isPlaceholder, isHeading, delimiter));
             }
             offset += run.Text.Length;
         }
@@ -396,7 +424,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         // layout, not during TextChanged, and only once for each layout change.
         if (!_layoutDirty && fontLayout == _fontLayout)
             return;
-        if (!Equals(fontLayout.Family, _fontLayout.Family))
+        if (!Equals(fontLayout.Family, _fontLayout.Family) || fontLayout.Size != _fontLayout.Size)
             ScheduleRefresh();
         _fontLayout = fontLayout;
         _layoutDirty = false;
@@ -424,10 +452,12 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     new RectangleGeometry(new Rect(caret.Left - 1, caret.Top, 2, caret.Height)));
         }
         drawingContext.PushClip(clip);
-        var markerBrush = (Brush)GetValue(MarkerBrushProperty);
         var borderPen = new Pen((Brush)GetValue(BorderBrushProperty), 0.5);
         var ink = _inkRows;
         var background = FindOpaqueBackground();
+        var headingBrush = EnsureVisibleBrush((Brush)GetValue(HeadingBrushProperty), background);
+        var headingDelimiterBrush = EnsureVisibleBrush(
+            (Brush?)GetValue(HeadingDelimiterBrushProperty) ?? headingBrush, background);
         var quoteBrush = EnsureVisibleBrush((Brush)GetValue(QuoteBrushProperty), background);
         var placeholderBrush = EnsureVisibleBrush((Brush)GetValue(PlaceholderBrushProperty), background);
         var quoteDelimiterBrush = EnsureVisibleBrush(
@@ -442,6 +472,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var boldQuoteSpans = new List<Rect>();
         var placeholderSpans = new List<Rect>();
         var boldPlaceholderSpans = new List<Rect>();
+        var headingSpans = new List<Rect>();
+        var boldHeadingSpans = new List<Rect>();
         var delimiterSpans = new Dictionary<(PromptTextTokenKind Kind, bool Bold), List<Rect>>();
         foreach (var glyph in _glyphs)
         {
@@ -483,18 +515,14 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     : glyph.Kind == PromptTextTokenKind.BoldContent ? boldQuoteSpans : quoteSpans;
                 AddBoldSpan(spans, rect);
             }
+            else if (glyph.IsHeading && useProseColor && !selected)
+            {
+                AddBoldSpan(glyph.Kind == PromptTextTokenKind.BoldContent ? boldHeadingSpans : headingSpans, rect);
+            }
             else if (glyph.Kind == PromptTextTokenKind.BoldContent)
             {
                 if (!selected)
                     AddBoldSpan(boldSpans, rect);
-            }
-            else if (glyph.Kind == PromptTextTokenKind.HeadingMarker)
-            {
-                drawingContext.PushOpacity(0.18);
-                drawingContext.DrawRectangle(markerBrush, null, rect);
-                drawingContext.Pop();
-                drawingContext.DrawRectangle(markerBrush, null,
-                    new Rect(rect.Left, rect.Bottom - 1.5, rect.Width, 1.5));
             }
         }
         // Bold tokens are indexed per character so selection can exclude individual cells, but
@@ -508,12 +536,15 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         DrawColoredSpans(boldQuoteSpans, quoteBrush, true);
         DrawColoredSpans(placeholderSpans, placeholderBrush, false);
         DrawColoredSpans(boldPlaceholderSpans, placeholderBrush, true);
+        DrawColoredSpans(headingSpans, headingBrush, false);
+        DrawColoredSpans(boldHeadingSpans, headingBrush, true);
         foreach (var (key, spans) in delimiterSpans)
         {
             var brush = key.Kind switch
             {
                 PromptTextTokenKind.QuoteDelimiter => quoteDelimiterBrush,
                 PromptTextTokenKind.PlaceholderDelimiter => placeholderDelimiterBrush,
+                PromptTextTokenKind.HeadingMarker => headingDelimiterBrush,
                 _ => boldDelimiterBrush,
             };
             DrawColoredSpans(spans, brush, key.Bold);
@@ -870,7 +901,10 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             using (_editor.DeclareChangeBlock())
                 foreach (var run in _editor.Document.Blocks.OfType<Paragraph>()
                     .SelectMany(p => p.Inlines).OfType<Run>().ToArray())
+                {
                     run.ClearValue(TextElement.FontFamilyProperty);
+                    run.ClearValue(TextElement.FontSizeProperty);
+                }
         }
         finally
         {

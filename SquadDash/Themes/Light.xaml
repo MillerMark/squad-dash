@@ -68,9 +68,12 @@
     <SolidColorBrush x:Key="TextBoxBackground" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="PromptQuotedText" Color="#800020"/>
     <SolidColorBrush x:Key="PromptPlaceholderText" Color="#4433AA"/>
+    <!-- Cornflower hue at approximately 70% HSL saturation, darkened for light surfaces. -->
+    <SolidColorBrush x:Key="PromptHeadingText" Color="#18428B"/>
     <!-- Delimiters retain 60% of their content color against TextBoxBackground. -->
     <SolidColorBrush x:Key="PromptQuoteDelimiter" Color="#B36679"/>
     <SolidColorBrush x:Key="PromptPlaceholderDelimiter" Color="#8F85CC"/>
+    <SolidColorBrush x:Key="PromptHeadingDelimiter" Color="#748EB9"/>
     <!-- Shared by bold and inline-code markers: SubtleText softened 10% toward TextBoxBackground. -->
     <SolidColorBrush x:Key="PromptBoldDelimiter" Color="#8A7764"/>
     <SolidColorBrush x:Key="InputSurface" Color="#F8F2E8"/>
