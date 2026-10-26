@@ -148,6 +148,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         FontStretch Stretch, FlowDirection Direction, Thickness Padding, double PageWidth,
         Brush Foreground, Brush Background);
 
+    private static readonly TimeSpan InputInkDebounce = TimeSpan.FromMilliseconds(150);
     private readonly RichTextBox _editor;
     private readonly Dictionary<Paragraph, ParagraphTokens> _paragraphs = [];
     private readonly List<Glyph> _glyphs = [];
@@ -157,6 +158,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     private Rect _inkCoverage = Rect.Empty;
     private DispatcherOperation? _refresh;
     private DispatcherOperation? _inkRefresh;
+    private DispatcherTimer? _inkRefreshTimer;
     private bool _disposed;
     private bool _layoutDirty;
     private bool _fontRefreshPending = true;
@@ -1051,23 +1053,59 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
 
     private void ScheduleInkRefresh(bool deferForInput = false)
     {
-        if (_disposed || _inkRefresh is not null)
+        if (_disposed)
             return;
-        // Text input gets precedence over the expensive native-ink capture. If keys arrive faster
-        // than a capture can complete, ApplicationIdle naturally collapses those edits into one
-        // rebuild. Scroll and resize still use Background so newly revealed content catches up
-        // promptly when the user is not editing.
-        var priority = deferForInput
-            ? DispatcherPriority.ApplicationIdle
-            : DispatcherPriority.Background;
-        _inkRefresh = Dispatcher.BeginInvoke(priority, () =>
+        if (deferForInput)
         {
-            _inkRefresh = null;
-            if (_disposed)
+            if (_inkRefresh is not null)
                 return;
-            if (EnsureInkCache(GetViewportState()))
-                InvalidateDrawing();
-        });
+            _inkRefreshTimer ??= CreateInkRefreshTimer();
+            _inkRefreshTimer.Stop();
+            _inkRefreshTimer.Start();
+            return;
+        }
+
+        // Rendering or extent notifications raised by the same edit must not promote the
+        // debounced capture back to an immediate one.
+        if (_inkRefreshTimer?.IsEnabled == true || _inkRefresh is not null)
+            return;
+        // Capture after WPF has rendered the newly realized scroll viewport, not before it.
+        _inkRefresh = Dispatcher.BeginInvoke(DispatcherPriority.Background, RefreshInkCache);
+    }
+
+    private DispatcherTimer CreateInkRefreshTimer()
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = InputInkDebounce,
+        };
+        timer.Tick += OnInkRefreshTimerTick;
+        return timer;
+    }
+
+    private void OnInkRefreshTimerTick(object? sender, EventArgs e)
+    {
+        _inkRefreshTimer?.Stop();
+        RefreshInkCache();
+    }
+
+    private void RefreshInkCache()
+    {
+        _inkRefresh = null;
+        if (_disposed)
+            return;
+        if (EnsureInkCache(GetViewportState()))
+            InvalidateDrawing();
+    }
+
+    internal void FlushPendingInkRefreshForTesting()
+    {
+        if (_disposed)
+            return;
+        _inkRefresh?.Abort();
+        _inkRefresh = null;
+        _inkRefreshTimer?.Stop();
+        RefreshInkCache();
     }
 
     private void InvalidateDrawing()
@@ -1166,6 +1204,12 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _refresh = null;
         _inkRefresh?.Abort();
         _inkRefresh = null;
+        if (_inkRefreshTimer is not null)
+        {
+            _inkRefreshTimer.Stop();
+            _inkRefreshTimer.Tick -= OnInkRefreshTimerTick;
+            _inkRefreshTimer = null;
+        }
         _editor.TextChanged -= OnTextChanged;
         _editor.SizeChanged -= OnSizeChanged;
         _editor.LayoutUpdated -= OnLayoutUpdated;

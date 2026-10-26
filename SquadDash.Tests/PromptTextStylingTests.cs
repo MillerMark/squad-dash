@@ -1539,6 +1539,29 @@ internal sealed class PromptTextStylingTests
         });
     }
 
+    [Test]
+    public void Styling_RapidStyledEdits_CoalesceInkRebuilds()
+    {
+        const string text = "\"quoted value\"";
+        using var host = new Host(text);
+        host.SetTheme("Light");
+        host.Enable();
+        host.Editor.SelectRange(text.Length - 1, 0);
+        host.Drain();
+        var builds = host.Adorner.InkCacheBuildCount;
+
+        for (var i = 0; i < 5; i++)
+        {
+            host.Editor.ReplaceSelection("x");
+            PumpDispatcherFor(TimeSpan.FromMilliseconds(20));
+        }
+
+        Assert.That(host.Adorner.InkCacheBuildCount, Is.EqualTo(builds),
+            "Rapid input should keep postponing the expensive native-ink capture.");
+        PumpDispatcherFor(TimeSpan.FromMilliseconds(200));
+        Assert.That(host.Adorner.InkCacheBuildCount, Is.EqualTo(builds + 1));
+    }
+
     [TestCase("Light", false, false)]
     [TestCase("Dark", false, false)]
     [TestCase("Light", true, false)]
@@ -2108,6 +2131,22 @@ internal sealed class PromptTextStylingTests
                 yield return item;
     }
 
+    private static void PumpDispatcherFor(TimeSpan duration)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(DispatcherPriority.Send)
+        {
+            Interval = duration,
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            frame.Continue = false;
+        };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+    }
+
     private sealed class Host : IDisposable
     {
         internal RichTextBox Editor { get; } = new()
@@ -2191,6 +2230,8 @@ internal sealed class PromptTextStylingTests
             _window.UpdateLayout();
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
             _window.UpdateLayout();
+            Layer.GetAdorners(Editor)?.OfType<PromptTextAdorner>()
+                .SingleOrDefault()?.FlushPendingInkRefreshForTesting();
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
         }
 
