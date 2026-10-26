@@ -664,6 +664,9 @@ internal static class MarkdownEditorCommands
     }
 
     internal static bool ApplyInlineCodeOrFence(RichTextBox box)
+        => ApplyInlineCodeOrFence(box, null, '`');
+
+    internal static bool ApplyInlineCodeOrFence(RichTextBox box, PromptUndoHistory? undoHistory, char pressedChar)
     {
         var selStart = box.GetSelectionStart();
         var selLen   = box.GetSelectionLength();
@@ -674,9 +677,8 @@ internal static class MarkdownEditorCommands
         {
             var (leading, core, trailing) = SplitBoundaryBlanks(raw);
             var result = $"{leading}```\n{core}\n```{trailing}";
-            box.SelectRange(selStart, selLen);
-            box.ReplaceSelection(result);
-            box.SelectRange(selStart, result.Length);
+            ReplaceEmbeddedSelection(box, result, selStart, result.Length,
+                undoHistory is null ? null : pressedChar, undoHistory);
             return true;
         }
 
@@ -685,15 +687,16 @@ internal static class MarkdownEditorCommands
         var leadingSpaces  = raw[..(raw.Length - raw.TrimStart(' ').Length)];
         var trailingSpaces = raw[raw.TrimEnd(' ').Length..];
         var step1 = $"{leadingSpaces}`{trimmed}`{trailingSpaces}";
-        box.SelectRange(selStart, selLen);
-        box.ReplaceSelection(step1);
-        // Restore selection to cover the full wrapped span (including backticks).
-        box.SelectRange(selStart, step1.Length);
+        ReplaceEmbeddedSelection(box, step1, selStart, step1.Length,
+            undoHistory is null ? null : pressedChar, undoHistory);
 
         return true;
     }
 
     internal static bool ApplyInlineQuote(RichTextBox box)
+        => ApplyInlineQuote(box, null);
+
+    internal static bool ApplyInlineQuote(RichTextBox box, PromptUndoHistory? undoHistory)
     {
         var selStart = box.GetSelectionStart();
         var selLen   = box.GetSelectionLength();
@@ -706,14 +709,61 @@ internal static class MarkdownEditorCommands
         var leadingSpaces  = raw[..(raw.Length - raw.TrimStart(' ').Length)];
         var trailingSpaces = raw[raw.TrimEnd(' ').Length..];
         var result         = $"{leadingSpaces}\"{trimmed}\"{trailingSpaces}";
-        // Step 1: replace selection with the pressed char — creates undo record 1
-        box.SelectRange(selStart, selLen);
-        box.ReplaceSelection("\"");
-        box.SelectRange(selStart, 1);
-        // Step 2: replace with full wrap — creates undo record 2
-        box.ReplaceSelection(result);
-        box.SelectRange(selStart + leadingSpaces.Length, 1 + trimmed.Length + 1);
+        ReplaceEmbeddedSelection(box, result, selStart + leadingSpaces.Length,
+            1 + trimmed.Length + 1, '"', undoHistory);
         return true;
+    }
+
+    internal static bool ApplyInlineBraces(RichTextBox box, PromptUndoHistory? undoHistory, char pressedChar)
+    {
+        if (pressedChar is not ('{' or '}'))
+            throw new ArgumentOutOfRangeException(nameof(pressedChar));
+
+        var raw = box.GetSelectedText();
+        var identifier = raw.EndsWith(' ') ? raw[..^1] : raw;
+        if (!IsPlaceholderIdentifier(identifier))
+            return false;
+
+        var result = $"{{{identifier}}}{raw[identifier.Length..]}";
+        ReplaceEmbeddedSelection(box, result, box.GetSelectionStart(),
+            identifier.Length + 2, pressedChar, undoHistory);
+        return true;
+    }
+
+    private static bool IsPlaceholderIdentifier(string text)
+    {
+        if (text.Length == 0)
+            return false;
+
+        foreach (var ch in text)
+        {
+            if (!char.IsLetterOrDigit(ch) && ch != '_')
+                return false;
+        }
+        return true;
+    }
+
+    private static void ReplaceEmbeddedSelection(
+        RichTextBox box, string result, int selectionStart, int selectionLength,
+        char? pressedChar, PromptUndoHistory? undoHistory)
+    {
+        var start = box.GetSelectionStart();
+        undoHistory?.PushSnapshot();
+        undoHistory?.CloseCoalescingWindow();
+
+        if (pressedChar is { } key)
+        {
+            box.ReplaceSelection(key.ToString());
+            box.SelectRange(start, 1);
+            // The prompt's custom timeline otherwise coalesces these two replacements.
+            undoHistory?.PushSnapshot();
+            undoHistory?.CloseCoalescingWindow();
+        }
+
+        box.ReplaceSelection(result);
+        box.SelectRange(selectionStart, selectionLength);
+        undoHistory?.PushSnapshot();
+        undoHistory?.CloseCoalescingWindow();
     }
 
     internal static bool ApplyInlineParens(TextBox box, string pressedChar)

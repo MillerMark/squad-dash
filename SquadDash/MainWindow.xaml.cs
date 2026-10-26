@@ -28785,6 +28785,13 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (e.Text is "{" or "}"
+            && MarkdownEditorCommands.ApplyInlineBraces(PromptTextBox, _promptUndoHistory, e.Text[0]))
+        {
+            e.Handled = true;
+            return;
+        }
+
         // Paren embedding (works on all keyboard layouts)
         if ((e.Text == "(" || e.Text == ")") && PromptTextBox.GetSelectionLength() > 0
             && !PromptTextBox.GetSelectedText().Contains('\n'))
@@ -29188,7 +29195,8 @@ public partial class MainWindow : Window
             if ((e.Key == Key.OemTilde || e.Key == Key.OemQuotes) && modifiers == ModifierKeys.None
                 && PromptTextBox.GetSelectionLength() > 0)
             {
-                if (MarkdownEditorCommands.ApplyInlineCodeOrFence(PromptTextBox))
+                if (MarkdownEditorCommands.ApplyInlineCodeOrFence(
+                    PromptTextBox, _promptUndoHistory, e.Key == Key.OemTilde ? '`' : '\''))
                 {
                     _suppressPromptNextTextInput = true;
                     e.Handled = true;
@@ -29200,7 +29208,7 @@ public partial class MainWindow : Window
             if (e.Key == Key.OemQuotes && modifiers == ModifierKeys.Shift
                 && PromptTextBox.GetSelectionLength() > 0)
             {
-                if (MarkdownEditorCommands.ApplyInlineQuote(PromptTextBox))
+                if (MarkdownEditorCommands.ApplyInlineQuote(PromptTextBox, _promptUndoHistory))
                 {
                     _suppressPromptNextTextInput = true;
                     e.Handled = true;
