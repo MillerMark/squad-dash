@@ -29974,6 +29974,19 @@ public partial class MainWindow : Window
                 return;
             }
 
+            if (_promptFullScreenEnabled
+                && Keyboard.Modifiers == ModifierKeys.None
+                && (e.Key == Key.PageUp || e.Key == Key.PageDown)
+                && PromptTextBox is { } promptPageBox)
+            {
+                if (e.Key == Key.PageUp)
+                    promptPageBox.PageUp();
+                else
+                    promptPageBox.PageDown();
+                e.Handled = true;
+                return;
+            }
+
             // ── Page Up / Page Down: scroll active transcript ────────────────
             // Intercept plain PageUp/PageDown unconditionally (even from the prompt
             // box) so the transcript is always reachable by keyboard, but leave the

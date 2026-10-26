@@ -87,8 +87,6 @@ internal sealed class MainWindowPromptFullscreenTests
             }
             """;
 
-        static string Normalize(string source) =>
-            string.Join("\n", source.Split('\n').Select(line => line.Trim()));
         var normalizedHandler = Normalize(handler);
 
         Assert.Multiple(() =>
@@ -101,6 +99,71 @@ internal sealed class MainWindowPromptFullscreenTests
                 Is.EqualTo("Window_PreviewKeyDown"));
         });
     }
+
+    [Test]
+    public void Paging_PromptFullscreenHandlesBothDirectionsBeforeTranscriptRouting()
+    {
+        var handler = Method("private void Window_PreviewKeyDown(");
+        const string promptBranch = """
+            if (_promptFullScreenEnabled
+                && Keyboard.Modifiers == ModifierKeys.None
+                && (e.Key == Key.PageUp || e.Key == Key.PageDown)
+                && PromptTextBox is { } promptPageBox)
+            {
+                if (e.Key == Key.PageUp)
+                    promptPageBox.PageUp();
+                else
+                    promptPageBox.PageDown();
+                e.Handled = true;
+                return;
+            }
+            """;
+        var normalizedHandler = Normalize(handler);
+        var branchStart = normalizedHandler.IndexOf(Normalize(promptBranch), StringComparison.Ordinal);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(branchStart, Is.GreaterThanOrEqualTo(0),
+                "Only bare paging keys in prompt fullscreen should page the prompt and stop routing.");
+            Assert.That(branchStart,
+                Is.LessThan(normalizedHandler.IndexOf("ActiveScrollController.ScrollPageUp();", StringComparison.Ordinal)));
+            Assert.That(branchStart,
+                Is.LessThan(normalizedHandler.IndexOf("ActiveScrollController.ScrollPageDown();", StringComparison.Ordinal)));
+        });
+    }
+
+    [TestCase("PageUp", "ScrollPageUp")]
+    [TestCase("PageDown", "ScrollPageDown")]
+    public void Paging_OutsidePromptFullscreenPreservesTranscriptAndDocumentEditorRouting(
+        string key, string scrollMethod)
+    {
+        var handler = Method("private void Window_PreviewKeyDown(");
+        var promptStart = handler.IndexOf("if (_promptFullScreenEnabled\n", StringComparison.Ordinal);
+        Assert.That(promptStart, Is.GreaterThanOrEqualTo(0));
+        var promptEnd = handler.IndexOf("return;", promptStart, StringComparison.Ordinal);
+        var remainingHandler = handler[(promptEnd + "return;".Length)..];
+        var transcriptBranch = $$"""
+            if (e.Key == Key.{{key}}
+                && Keyboard.Modifiers == ModifierKeys.None
+                && DocSourceEditor?.IsKeyboardFocusWithin != true)
+            {
+                ActiveScrollController.{{scrollMethod}}();
+                e.Handled = true;
+                return;
+            }
+            """;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Normalize(remainingHandler), Does.Contain(Normalize(transcriptBranch)),
+                "Normal mode and transcript fullscreen (including prompt peek) retain transcript paging.");
+            Assert.That(remainingHandler, Does.Not.Contain("promptPageBox.PageUp();"));
+            Assert.That(remainingHandler, Does.Not.Contain("promptPageBox.PageDown();"));
+        });
+    }
+
+    private static string Normalize(string source) =>
+        string.Join("\n", source.Split('\n').Select(line => line.Trim()));
 
     [Test]
     public void SendAndEnter_ExitThroughSameHandlerBeforeAnyDispatchOrQueueBranch()
