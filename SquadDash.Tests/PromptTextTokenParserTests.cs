@@ -409,6 +409,8 @@ internal sealed class PromptTextTokenParserTests {
     [TestCase("\"quoted\"", PromptTextTokenKind.QuotedContent, PromptTextTokenKind.QuoteDelimiter, 1)]
     [TestCase("\u201Cquoted\u201D", PromptTextTokenKind.QuotedContent, PromptTextTokenKind.QuoteDelimiter, 1)]
     [TestCase("**bold**", PromptTextTokenKind.BoldContent, PromptTextTokenKind.BoldDelimiter, 2)]
+    [TestCase("`code`", PromptTextTokenKind.InlineCodeContent, PromptTextTokenKind.InlineCodeDelimiter, 1)]
+    [TestCase("``code ` tick``", PromptTextTokenKind.InlineCodeContent, PromptTextTokenKind.InlineCodeDelimiter, 2)]
     public void Parse_DelimitersAndContent_HaveSeparateExactRanges(
         string text, PromptTextTokenKind contentKind, PromptTextTokenKind delimiterKind, int width) {
         Assert.That(PromptTextTokenParser.Parse(text), Is.EqualTo(new[] {
@@ -542,7 +544,22 @@ internal sealed class PromptTextTokenParserTests {
     [TestCase(@"\\\`escaped\`")]
     [TestCase("``")]
     public void Parse_UnpairedOrEscapedBackticks_EmitNoCodeContent(string text) {
-        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.InlineCodeContent), Is.Empty);
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind is
+            PromptTextTokenKind.InlineCodeContent or PromptTextTokenKind.InlineCodeDelimiter), Is.Empty);
+    }
+
+    [TestCase("\n")]
+    [TestCase("\r")]
+    [TestCase("\r\n")]
+    public void Parse_MultilineCode_LeavesDelimitersUnstyledAndRecoversForSingleLineCode(string lineBreak) {
+        var text = "`first" + lineBreak + "second` ```" + lineBreak + "fenced" + lineBreak + "``` `next`";
+        var start = text.LastIndexOf("`next`", System.StringComparison.Ordinal);
+        var tokens = PromptTextTokenParser.Parse(text);
+        Assert.That(tokens.Where(t => t.Kind == PromptTextTokenKind.InlineCodeDelimiter), Is.EqualTo(new[] {
+            new PromptTextToken(start, 1, PromptTextTokenKind.InlineCodeDelimiter),
+            new PromptTextToken(start + 5, 1, PromptTextTokenKind.InlineCodeDelimiter),
+        }));
+        Assert.That(tokens.Count(t => t.Kind == PromptTextTokenKind.InlineCodeContent), Is.EqualTo(3));
     }
 
     [TestCase("**unfinished")]

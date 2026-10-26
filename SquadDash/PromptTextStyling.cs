@@ -158,7 +158,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         SetResourceReference(PlaceholderBrushProperty, "PromptPlaceholderText");
         SetResourceReference(QuoteDelimiterBrushProperty, "PromptQuoteDelimiter");
         SetResourceReference(PlaceholderDelimiterBrushProperty, "PromptPlaceholderDelimiter");
-        SetResourceReference(BoldDelimiterBrushProperty, "SubtleText");
+        SetResourceReference(BoldDelimiterBrushProperty, "PromptBoldDelimiter");
         SystemParameters.StaticPropertyChanged += OnSystemParametersChanged;
         editor.TextChanged += OnTextChanged;
         editor.SizeChanged += OnSizeChanged;
@@ -293,6 +293,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 case PromptTextTokenKind.QuoteDelimiter:
                 case PromptTextTokenKind.PlaceholderDelimiter:
                 case PromptTextTokenKind.BoldDelimiter:
+                case PromptTextTokenKind.InlineCodeDelimiter:
                     Array.Fill(delimiters, token.Kind, token.Start, token.Length);
                     break;
                 case PromptTextTokenKind.InlineCodeContent:
@@ -338,7 +339,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 var position = offset + i;
                 var isQuoted = quoted[position] && !code[position];
                 var isPlaceholder = placeholders[position] && !code[position];
-                var delimiter = code[position] ? null : delimiters[position];
+                var delimiter = delimiters[position];
+                if (code[position] && delimiter != PromptTextTokenKind.InlineCodeDelimiter)
+                    delimiter = null;
                 var isColor = colors.TryGetValue(position, out var color);
                 var kind = isColor ? PromptTextTokenKind.HexColor
                     : boldChanges[position] > 0 ? PromptTextTokenKind.BoldContent

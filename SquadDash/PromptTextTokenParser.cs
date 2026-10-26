@@ -14,6 +14,7 @@ internal enum PromptTextTokenKind {
     QuoteDelimiter,
     PlaceholderDelimiter,
     BoldDelimiter,
+    InlineCodeDelimiter,
 }
 
 internal readonly record struct PromptTextToken(
@@ -35,6 +36,7 @@ internal static class PromptTextTokenParser {
         var inInlineCode = false;
         var inlineCodeDelimiterLength = 0;
         var inlineCodeStart = 0;
+        var inlineCodeSingleLine = false;
         var openQuote = -1;
         var closingQuote = '\0';
         var placeholderDepth = 0;
@@ -45,6 +47,7 @@ internal static class PromptTextTokenParser {
         while (i < text.Length) {
             // Hard line breaks bound incomplete prose; visual wrapping does not.
             if (text[i] is '\r' or '\n') {
+                inlineCodeSingleLine = false;
                 openQuote = -1;
                 closingQuote = '\0';
                 placeholderDepth = 0;
@@ -144,13 +147,19 @@ internal static class PromptTextTokenParser {
                     inInlineCode = true;
                     inlineCodeDelimiterLength = tickCount;
                     inlineCodeStart = i + tickCount;
+                    inlineCodeSingleLine = true;
                     i += tickCount;
                     continue;
                 }
 
                 if (tickCount == inlineCodeDelimiterLength) {
-                    if (i > inlineCodeStart)
+                    if (i > inlineCodeStart) {
                         tokens.Add(new PromptTextToken(inlineCodeStart, i - inlineCodeStart, PromptTextTokenKind.InlineCodeContent));
+                        if (inlineCodeSingleLine) {
+                            tokens.Add(new PromptTextToken(inlineCodeStart - tickCount, tickCount, PromptTextTokenKind.InlineCodeDelimiter));
+                            tokens.Add(new PromptTextToken(i, tickCount, PromptTextTokenKind.InlineCodeDelimiter));
+                        }
+                    }
                     inInlineCode = false;
                     inlineCodeDelimiterLength = 0;
                 }

@@ -67,8 +67,11 @@
     <SolidColorBrush x:Key="TextBoxBackground" Color="#131110"/>
     <SolidColorBrush x:Key="PromptQuotedText" Color="#E6A0B4"/>
     <SolidColorBrush x:Key="PromptPlaceholderText" Color="#B5A6FF"/>
-    <SolidColorBrush x:Key="PromptQuoteDelimiter" Color="#7D5962"/>
-    <SolidColorBrush x:Key="PromptPlaceholderDelimiter" Color="#645C88"/>
+    <!-- Delimiters retain 60% of their content color against TextBoxBackground. -->
+    <SolidColorBrush x:Key="PromptQuoteDelimiter" Color="#926772"/>
+    <SolidColorBrush x:Key="PromptPlaceholderDelimiter" Color="#746A9F"/>
+    <!-- Shared by bold and inline-code markers: SubtleText softened 10% toward TextBoxBackground. -->
+    <SolidColorBrush x:Key="PromptBoldDelimiter" Color="#9A9289"/>
     <SolidColorBrush x:Key="InputSurface" Color="#242018"/>
     <!-- InputSurface blended 50% toward dark-theme polarity (black). -->
     <SolidColorBrush x:Key="ApprovalFieldSurface" Color="#12100C"/>

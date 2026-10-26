@@ -109,6 +109,7 @@ internal static class TintKeys
         "BodyText",
         "CodeText",
         "SubtleText",
+        "PromptBoldDelimiter",
         "SectionHeader",
         "AgentRoleText",
         "AgentStatusText",

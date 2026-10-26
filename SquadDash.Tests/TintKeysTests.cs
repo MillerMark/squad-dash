@@ -11,6 +11,7 @@ internal sealed class TintKeysTests {
             Assert.That(TintKeys.All, Does.Contain("InputSurface"));
             Assert.That(TintKeys.All, Does.Contain("PanelBorder"));
             Assert.That(TintKeys.All, Does.Contain("BodyText"));
+            Assert.That(TintKeys.All, Does.Contain("PromptBoldDelimiter"));
             Assert.That(TintKeys.All, Does.Contain("TaskTitle"));
             Assert.That(TintKeys.All, Does.Contain("ScrollBarThumbBrush"));
         });
@@ -39,7 +40,7 @@ internal sealed class TintKeysTests {
     public void TintKeys_CountMatchesKnownTotal() {
         // A lower count would indicate a duplicate in the source literal (silently dropped by HashSet)
         // or an accidental deletion.
-        Assert.That(TintKeys.All.Count, Is.EqualTo(86));
+        Assert.That(TintKeys.All.Count, Is.EqualTo(87));
     }
 
     [Test]
