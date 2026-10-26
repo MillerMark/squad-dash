@@ -1515,6 +1515,30 @@ internal sealed class PromptTextStylingTests
         }
     }
 
+    [Test]
+    public void Styling_LineInsertion_TranslatesUnchangedDownstreamGeometry()
+    {
+        var quotedLines = string.Join("\n", Enumerable.Range(0, 40)
+            .Select(index => $"\"quoted line {index}\" {{value{index}}}"));
+        const string prefix = "## Heading\nplain middle";
+        using var host = new Host(prefix + "\n" + quotedLines);
+        host.SetTheme("Light");
+        host.Enable();
+        _ = host.Drawings();
+        var queries = host.Adorner.GlyphRectQueryCount;
+
+        host.Editor.SelectRange(prefix.Length, 0);
+        host.Editor.ReplaceSelection("\n");
+        host.Drain();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(host.Adorner.GlyphRectQueryCount - queries, Is.LessThan(10),
+                "Adding a plain line should translate cached downstream cells, not ask WPF for every character rectangle again.");
+            Assert.That(host.Drawings().Any(d => ReferenceEquals(d.Brush, host.QuoteBrush)), Is.True);
+        });
+    }
+
     [TestCase("Light", false, false)]
     [TestCase("Dark", false, false)]
     [TestCase("Light", true, false)]

@@ -152,6 +152,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     private readonly Dictionary<Paragraph, ParagraphTokens> _paragraphs = [];
     private readonly List<Glyph> _glyphs = [];
     private readonly HashSet<Visual> _embeddedVisuals = [];
+    private readonly HashSet<Paragraph> _geometryDirtyParagraphs = [];
     private Dictionary<int, List<Ink>>? _inkRows;
     private Rect _inkCoverage = Rect.Empty;
     private DispatcherOperation? _refresh;
@@ -170,6 +171,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     internal bool IsApplyingFormatting { get; private set; }
     internal int InkCacheBuildCount { get; private set; }
     internal int GlyphCacheBuildCount { get; private set; }
+    internal int GlyphRectQueryCount { get; private set; }
     internal int RenderCount { get; private set; }
     internal int DrawingBuildCount { get; private set; }
 
@@ -224,6 +226,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         // Geometry-stable edits can reuse it; OnLayoutUpdated discards it immediately when a
         // newline, wrap, or font change moves styled cells, preventing stale duplicate accents.
         _layoutDirty = true;
+        if (_editor.CaretPosition.Paragraph is { } paragraph)
+            _geometryDirtyParagraphs.Add(paragraph);
         ScheduleRefresh();
     }
 
@@ -261,6 +265,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             var text = RichTextBoxExtensions.GetParagraphText(paragraph);
             if (!_paragraphs.TryGetValue(paragraph, out var cached) || cached.Text != text)
             {
+                _geometryDirtyParagraphs.Add(paragraph);
                 var oldGlyphs = cached?.Glyphs.Count ?? 0;
                 var tokens = PromptTextTokenParser.Parse(text);
                 ApplyTokenFonts(paragraph, text.Length, tokens);
@@ -294,7 +299,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _layoutDirty = true;
         _selectionAffectsRender = DoesSelectionAffectRender();
         if (_inkDirty)
-            ScheduleInkRefresh();
+            ScheduleInkRefresh(deferForInput: true);
         if (renderChanged && !_inkDirty)
             InvalidateDrawing();
     }
@@ -545,18 +550,25 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         }
         var viewport = GetViewportState();
         var extentHeight = GetExtentHeight();
-        var layoutChanged = _forceInkRefresh || fontLayout != _fontLayout ||
-            (!double.IsNaN(_layoutExtentHeight) &&
-                Math.Abs(extentHeight - _layoutExtentHeight) > 0.5) ||
-            HasCachedGlyphGeometryChanged(viewport);
+        var globalLayoutChanged = _forceInkRefresh || fontLayout != _fontLayout;
+        var extentDelta = double.IsNaN(_layoutExtentHeight)
+            ? 0
+            : extentHeight - _layoutExtentHeight;
+        var extentChanged = Math.Abs(extentDelta) > 0.5;
+        var editedGeometryChanged = !globalLayoutChanged && !extentChanged &&
+            HasEditedParagraphGeometryChanged(viewport);
+        var layoutChanged = globalLayoutChanged || extentChanged || editedGeometryChanged;
         _fontLayout = fontLayout;
         _layoutExtentHeight = extentHeight;
         _layoutDirty = false;
         _forceInkRefresh = false;
         if (layoutChanged)
-            DiscardMovedGeometry();
+            DiscardMovedGeometry(
+                translateDownstream: extentChanged && !globalLayoutChanged,
+                extentDelta);
+        _geometryDirtyParagraphs.Clear();
         if (_inkDirty)
-            ScheduleInkRefresh();
+            ScheduleInkRefresh(deferForInput: true);
     }
 
     protected override void OnRender(DrawingContext drawingContext)
@@ -746,11 +758,12 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             Math.Abs(first.Height - second.Height) <= layoutTolerance;
     }
 
-    private static bool TryGetGlyphDocumentRect(
+    private bool TryGetGlyphDocumentRect(
         Glyph glyph,
         ViewportState viewport,
         out Rect documentRect)
     {
+        GlyphRectQueryCount++;
         documentRect = Rect.Empty;
         if (!glyph.Start.HasValidLayout || !glyph.End.HasValidLayout)
             return false;
@@ -769,17 +782,22 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         return true;
     }
 
-    private bool HasCachedGlyphGeometryChanged(ViewportState viewport)
+    private bool HasEditedParagraphGeometryChanged(ViewportState viewport)
     {
-        foreach (var glyph in _glyphs)
+        foreach (var paragraph in _geometryDirtyParagraphs)
         {
-            if (glyph.DocumentRect.IsEmpty ||
-                !TryGetGlyphDocumentRect(glyph, viewport, out var current))
+            if (!_paragraphs.TryGetValue(paragraph, out var cached) || cached.Glyphs.Count == 0)
                 continue;
-            if (!RectsMatch(glyph.DocumentRect, current))
+            if (GlyphMoved(cached.Glyphs[0]) ||
+                (cached.Glyphs.Count > 1 && GlyphMoved(cached.Glyphs[^1])))
                 return true;
         }
         return false;
+
+        bool GlyphMoved(Glyph glyph) =>
+            !glyph.DocumentRect.IsEmpty &&
+            TryGetGlyphDocumentRect(glyph, viewport, out var current) &&
+            !RectsMatch(glyph.DocumentRect, current);
     }
 
     private static Dictionary<int, List<Ink>> IndexInk(IEnumerable<Ink> ink)
@@ -1031,12 +1049,18 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         return 0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
     }
 
-    private void ScheduleInkRefresh()
+    private void ScheduleInkRefresh(bool deferForInput = false)
     {
         if (_disposed || _inkRefresh is not null)
             return;
-        // Capture after WPF has rendered the newly realized scroll viewport, not before it.
-        _inkRefresh = Dispatcher.BeginInvoke(DispatcherPriority.Background, () =>
+        // Text input gets precedence over the expensive native-ink capture. If keys arrive faster
+        // than a capture can complete, ApplicationIdle naturally collapses those edits into one
+        // rebuild. Scroll and resize still use Background so newly revealed content catches up
+        // promptly when the user is not editing.
+        var priority = deferForInput
+            ? DispatcherPriority.ApplicationIdle
+            : DispatcherPriority.Background;
+        _inkRefresh = Dispatcher.BeginInvoke(priority, () =>
         {
             _inkRefresh = null;
             if (_disposed)
@@ -1060,15 +1084,60 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 glyph.DocumentRect = Rect.Empty;
     }
 
-    private void DiscardMovedGeometry()
+    private void DiscardMovedGeometry(bool translateDownstream, double extentDelta)
     {
         _inkDirty = true;
         _inkRows = null;
         _inkCoverage = Rect.Empty;
         _retainedDrawing = null;
-        foreach (var glyph in _glyphs)
-            glyph.DocumentRect = Rect.Empty;
+        if (!translateDownstream || !TryGetFirstDirtyParagraphIndex(out var firstDirtyIndex))
+        {
+            foreach (var glyph in _glyphs)
+                glyph.DocumentRect = Rect.Empty;
+        }
+        else
+        {
+            var index = 0;
+            foreach (var paragraph in _editor.Document.Blocks.OfType<Paragraph>())
+            {
+                if (_paragraphs.TryGetValue(paragraph, out var cached))
+                {
+                    if (_geometryDirtyParagraphs.Contains(paragraph))
+                    {
+                        foreach (var glyph in cached.Glyphs)
+                            glyph.DocumentRect = Rect.Empty;
+                    }
+                    else if (index > firstDirtyIndex)
+                    {
+                        foreach (var glyph in cached.Glyphs)
+                            if (!glyph.DocumentRect.IsEmpty)
+                                glyph.DocumentRect = OffsetRect(glyph.DocumentRect, 0, extentDelta);
+                    }
+                }
+                index++;
+            }
+        }
         InvalidateDrawing();
+    }
+
+    private bool TryGetFirstDirtyParagraphIndex(out int firstDirtyIndex)
+    {
+        firstDirtyIndex = int.MaxValue;
+        var index = 0;
+        foreach (var paragraph in _editor.Document.Blocks.OfType<Paragraph>())
+        {
+            if (_geometryDirtyParagraphs.Contains(paragraph))
+                firstDirtyIndex = Math.Min(firstDirtyIndex, index);
+            index++;
+        }
+        return firstDirtyIndex != int.MaxValue;
+    }
+
+    private static Rect OffsetRect(Rect rect, double x, double y)
+    {
+        if (!rect.IsEmpty)
+            rect.Offset(x, y);
+        return rect;
     }
 
     private Brush? FindOpaqueBackground()
@@ -1121,6 +1190,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _paragraphs.Clear();
         _glyphs.Clear();
         _embeddedVisuals.Clear();
+        _geometryDirtyParagraphs.Clear();
         _inkRows = null;
         _inkCoverage = Rect.Empty;
         _retainedDrawing = null;
