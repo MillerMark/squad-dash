@@ -9,8 +9,12 @@ internal sealed class PromptTextTokenParserTests {
     public void Parse_QuotedPlaceholder_ExactUserExampleIncludesBothBraces() {
         const string text = "\"This is a test for {userName}\"";
         Assert.That(PromptTextTokenParser.Parse(text), Is.EqualTo(new[] {
+            new PromptTextToken(0, 1, PromptTextTokenKind.QuoteDelimiter),
             new PromptTextToken(1, 29, PromptTextTokenKind.QuotedContent),
+            new PromptTextToken(20, 1, PromptTextTokenKind.PlaceholderDelimiter),
             new PromptTextToken(20, 10, PromptTextTokenKind.Placeholder),
+            new PromptTextToken(29, 1, PromptTextTokenKind.PlaceholderDelimiter),
+            new PromptTextToken(30, 1, PromptTextTokenKind.QuoteDelimiter),
         }));
     }
 
@@ -65,7 +69,8 @@ internal sealed class PromptTextTokenParserTests {
     [TestCase("```text\n\"{username}\"\n```")]
     [TestCase("`unfinished \"{username}\"")]
     public void Parse_InvalidPlaceholders_RemainLiteral(string text) {
-        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.Placeholder), Is.Empty);
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind is
+            PromptTextTokenKind.Placeholder or PromptTextTokenKind.PlaceholderDelimiter), Is.Empty);
     }
 
     [TestCase(0)]
@@ -116,10 +121,16 @@ internal sealed class PromptTextTokenParserTests {
     public void Parse_QuotedPlaceholderBoldAndHex_PreserveAllOverlappingKinds() {
         const string text = "\"**{#abc}**\"";
         Assert.That(PromptTextTokenParser.Parse(text), Is.EqualTo(new[] {
+            new PromptTextToken(0, 1, PromptTextTokenKind.QuoteDelimiter),
+            new PromptTextToken(1, 2, PromptTextTokenKind.BoldDelimiter),
             new PromptTextToken(1, 10, PromptTextTokenKind.QuotedContent),
+            new PromptTextToken(3, 1, PromptTextTokenKind.PlaceholderDelimiter),
             new PromptTextToken(3, 6, PromptTextTokenKind.BoldContent),
             new PromptTextToken(3, 6, PromptTextTokenKind.Placeholder),
             new PromptTextToken(4, 4, PromptTextTokenKind.HexColor, Color.FromRgb(0xAA, 0xBB, 0xCC)),
+            new PromptTextToken(8, 1, PromptTextTokenKind.PlaceholderDelimiter),
+            new PromptTextToken(9, 2, PromptTextTokenKind.BoldDelimiter),
+            new PromptTextToken(11, 1, PromptTextTokenKind.QuoteDelimiter),
         }));
     }
 
@@ -222,10 +233,11 @@ internal sealed class PromptTextTokenParserTests {
         var tokens = PromptTextTokenParser.Parse(text);
         watch.Stop();
         Assert.Multiple(() => {
-            Assert.That(tokens, Has.Count.EqualTo(count + 1));
-            Assert.That(tokens.Take(count), Is.EqualTo(Enumerable.Range(0, count).Select(i =>
+            Assert.That(tokens, Has.Count.EqualTo((count + 1) * 3));
+            var placeholders = tokens.Where(t => t.Kind == PromptTextTokenKind.Placeholder).ToArray();
+            Assert.That(placeholders.Take(count), Is.EqualTo(Enumerable.Range(0, count).Select(i =>
                 new PromptTextToken(prefix.Length + i * unit.Length + unit.Length - 4, 4, PromptTextTokenKind.Placeholder))));
-            Assert.That(tokens.Last(), Is.EqualTo(new PromptTextToken(text.Length - 6, 6, PromptTextTokenKind.Placeholder)));
+            Assert.That(placeholders.Last(), Is.EqualTo(new PromptTextToken(text.Length - 6, 6, PromptTextTokenKind.Placeholder)));
             Assert.That(watch.Elapsed, Is.LessThan(System.TimeSpan.FromSeconds(5)));
         });
         TestContext.Out.WriteLine($"Parsed {text.Length:N0} ordinary/incomplete quote characters in {watch.Elapsed.TotalMilliseconds:F1} ms.");
@@ -264,7 +276,8 @@ internal sealed class PromptTextTokenParserTests {
     [TestCase("```csharp\n\"inside fence\"\n```")]
     [TestCase("`unfinished \"still code\"")]
     public void Parse_InvalidOrCodeQuotes_EmitNoQuotedContent(string text) {
-        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.QuotedContent), Is.Empty);
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind is
+            PromptTextTokenKind.QuotedContent or PromptTextTokenKind.QuoteDelimiter), Is.Empty);
     }
 
     [TestCase(0)]
@@ -318,9 +331,13 @@ internal sealed class PromptTextTokenParserTests {
         const string text = "\"**bold #abc**\"";
         var tokens = PromptTextTokenParser.Parse(text);
         Assert.That(tokens, Is.EqualTo(new[] {
+            new PromptTextToken(0, 1, PromptTextTokenKind.QuoteDelimiter),
+            new PromptTextToken(1, 2, PromptTextTokenKind.BoldDelimiter),
             new PromptTextToken(1, 13, PromptTextTokenKind.QuotedContent),
             new PromptTextToken(3, 9, PromptTextTokenKind.BoldContent),
             new PromptTextToken(8, 4, PromptTextTokenKind.HexColor, Color.FromRgb(0xAA, 0xBB, 0xCC)),
+            new PromptTextToken(12, 2, PromptTextTokenKind.BoldDelimiter),
+            new PromptTextToken(14, 1, PromptTextTokenKind.QuoteDelimiter),
         }));
     }
 
@@ -387,6 +404,39 @@ internal sealed class PromptTextTokenParserTests {
             Assert.That(tokens.Select(token => text.Substring(token.Start, token.Length)).ToArray(),
                 Is.EqualTo(new[] { "bold", "wide" }));
         });
+    }
+
+    [TestCase("\"quoted\"", PromptTextTokenKind.QuotedContent, PromptTextTokenKind.QuoteDelimiter, 1)]
+    [TestCase("\u201Cquoted\u201D", PromptTextTokenKind.QuotedContent, PromptTextTokenKind.QuoteDelimiter, 1)]
+    [TestCase("**bold**", PromptTextTokenKind.BoldContent, PromptTextTokenKind.BoldDelimiter, 2)]
+    public void Parse_DelimitersAndContent_HaveSeparateExactRanges(
+        string text, PromptTextTokenKind contentKind, PromptTextTokenKind delimiterKind, int width) {
+        Assert.That(PromptTextTokenParser.Parse(text), Is.EqualTo(new[] {
+            new PromptTextToken(0, width, delimiterKind),
+            new PromptTextToken(width, text.Length - width * 2, contentKind),
+            new PromptTextToken(text.Length - width, width, delimiterKind),
+        }));
+    }
+
+    [Test]
+    public void Parse_PlaceholderDelimiters_OverlayExistingWholeTokenRange() {
+        Assert.That(PromptTextTokenParser.Parse("{identifier}"), Is.EqualTo(new[] {
+            new PromptTextToken(0, 1, PromptTextTokenKind.PlaceholderDelimiter),
+            new PromptTextToken(0, 12, PromptTextTokenKind.Placeholder),
+            new PromptTextToken(11, 1, PromptTextTokenKind.PlaceholderDelimiter),
+        }));
+    }
+
+    [TestCase("`\"quoted\" {identifier} **bold**`")]
+    [TestCase("``\u201Cquoted\u201D {identifier} **bold**``")]
+    [TestCase("\\**escaped**")]
+    [TestCase("**unfinished")]
+    [TestCase("** **")]
+    [TestCase("__bold__")]
+    public void Parse_LiteralDelimiters_DoNotAcquireDelimiterTokens(string text) {
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind is
+            PromptTextTokenKind.QuoteDelimiter or PromptTextTokenKind.PlaceholderDelimiter or
+            PromptTextTokenKind.BoldDelimiter), Is.Empty);
     }
 
     [Test]

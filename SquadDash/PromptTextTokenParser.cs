@@ -11,6 +11,9 @@ internal enum PromptTextTokenKind {
     InlineCodeContent,
     QuotedContent,
     Placeholder,
+    QuoteDelimiter,
+    PlaceholderDelimiter,
+    BoldDelimiter,
 }
 
 internal readonly record struct PromptTextToken(
@@ -66,6 +69,8 @@ internal static class PromptTextTokenParser {
                 if (placeholderDepth == 0 && validPlaceholder && i > openingBrace + 1 &&
                     !IsEscaped(text, i) && (i + 1 == text.Length || text[i + 1] != '}')) {
                     tokens.Add(new PromptTextToken(openingBrace, i - openingBrace + 1, PromptTextTokenKind.Placeholder));
+                    tokens.Add(new PromptTextToken(openingBrace, 1, PromptTextTokenKind.PlaceholderDelimiter));
+                    tokens.Add(new PromptTextToken(i, 1, PromptTextTokenKind.PlaceholderDelimiter));
                 }
             }
             else if (placeholderDepth > 0 && (char.IsWhiteSpace(text[i]) || text[i] is '"' or '\u201C' or '\u201D')) {
@@ -76,6 +81,8 @@ internal static class PromptTextTokenParser {
                 if (openQuote >= 0 && text[i] == closingQuote) {
                     if (HasNonWhitespaceBetween(nonWhitespacePrefix, openQuote + 1, i)) {
                         tokens.Add(new PromptTextToken(openQuote + 1, i - openQuote - 1, PromptTextTokenKind.QuotedContent));
+                        tokens.Add(new PromptTextToken(openQuote, 1, PromptTextTokenKind.QuoteDelimiter));
+                        tokens.Add(new PromptTextToken(i, 1, PromptTextTokenKind.QuoteDelimiter));
                     }
                     openQuote = -1;
                     closingQuote = '\0';
@@ -114,6 +121,10 @@ internal static class PromptTextTokenParser {
                     var open = stack[^1];
                     if (HasNonWhitespaceBetween(nonWhitespacePrefix, open + 2, i)) {
                         tokens.Add(new PromptTextToken(open + 2, i - open - 2, PromptTextTokenKind.BoldContent));
+                        if (delimiterChar == '*') {
+                            tokens.Add(new PromptTextToken(open, 2, PromptTextTokenKind.BoldDelimiter));
+                            tokens.Add(new PromptTextToken(i, 2, PromptTextTokenKind.BoldDelimiter));
+                        }
                         stack.RemoveAt(stack.Count - 1);
                         i += 2;
                         continue;

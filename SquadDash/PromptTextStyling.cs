@@ -84,6 +84,15 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
     private static readonly DependencyProperty PlaceholderBrushProperty = DependencyProperty.Register(
         "PlaceholderBrush", typeof(Brush), typeof(PromptTextAdorner),
         new FrameworkPropertyMetadata(SystemColors.WindowTextBrush, FrameworkPropertyMetadataOptions.AffectsRender));
+    private static readonly DependencyProperty QuoteDelimiterBrushProperty = DependencyProperty.Register(
+        "QuoteDelimiterBrush", typeof(Brush), typeof(PromptTextAdorner),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    private static readonly DependencyProperty PlaceholderDelimiterBrushProperty = DependencyProperty.Register(
+        "PlaceholderDelimiterBrush", typeof(Brush), typeof(PromptTextAdorner),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+    private static readonly DependencyProperty BoldDelimiterBrushProperty = DependencyProperty.Register(
+        "BoldDelimiterBrush", typeof(Brush), typeof(PromptTextAdorner),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
 
     private sealed record ParagraphTokens(string Text, IReadOnlyList<PromptTextToken> Tokens);
     private sealed class Glyph(
@@ -92,7 +101,8 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         PromptTextTokenKind kind,
         Brush? color,
         bool isQuoted,
-        bool isPlaceholder)
+        bool isPlaceholder,
+        PromptTextTokenKind? delimiter)
     {
         internal TextPointer Start { get; } = start;
         internal TextPointer End { get; } = end;
@@ -100,6 +110,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         internal Brush? Color { get; } = color;
         internal bool IsQuoted { get; } = isQuoted;
         internal bool IsPlaceholder { get; } = isPlaceholder;
+        internal PromptTextTokenKind? Delimiter { get; } = delimiter;
         internal Rect DocumentRect { get; set; } = Rect.Empty;
     }
     // Geometry.Bounds is deceptively expensive for the GlyphRun-generated GeometryGroups used
@@ -145,6 +156,9 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         SetResourceReference(BorderBrushProperty, "LabelText");
         SetResourceReference(QuoteBrushProperty, "PromptQuotedText");
         SetResourceReference(PlaceholderBrushProperty, "PromptPlaceholderText");
+        SetResourceReference(QuoteDelimiterBrushProperty, "PromptQuoteDelimiter");
+        SetResourceReference(PlaceholderDelimiterBrushProperty, "PromptPlaceholderDelimiter");
+        SetResourceReference(BoldDelimiterBrushProperty, "SubtleText");
         SystemParameters.StaticPropertyChanged += OnSystemParametersChanged;
         editor.TextChanged += OnTextChanged;
         editor.SizeChanged += OnSizeChanged;
@@ -262,6 +276,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var boldChanges = new int[length + 1];
         var quoted = new bool[length];
         var placeholders = new bool[length];
+        var delimiters = new PromptTextTokenKind?[length];
         var code = new bool[length];
         var markers = new HashSet<int>();
         var colors = new Dictionary<int, Brush>();
@@ -274,6 +289,11 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     break;
                 case PromptTextTokenKind.Placeholder:
                     Array.Fill(placeholders, true, token.Start, token.Length);
+                    break;
+                case PromptTextTokenKind.QuoteDelimiter:
+                case PromptTextTokenKind.PlaceholderDelimiter:
+                case PromptTextTokenKind.BoldDelimiter:
+                    Array.Fill(delimiters, token.Kind, token.Start, token.Length);
                     break;
                 case PromptTextTokenKind.InlineCodeContent:
                     // Code wins even when surrounded by prose quotes, including its delimiters.
@@ -318,16 +338,18 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 var position = offset + i;
                 var isQuoted = quoted[position] && !code[position];
                 var isPlaceholder = placeholders[position] && !code[position];
+                var delimiter = code[position] ? null : delimiters[position];
                 var isColor = colors.TryGetValue(position, out var color);
                 var kind = isColor ? PromptTextTokenKind.HexColor
                     : boldChanges[position] > 0 ? PromptTextTokenKind.BoldContent
                     : markers.Contains(position) ? PromptTextTokenKind.HeadingMarker
                     : PromptTextTokenKind.QuotedContent;
-                if (!isColor && boldChanges[position] == 0 && !markers.Contains(position) && !isQuoted && !isPlaceholder)
+                if (!isColor && boldChanges[position] == 0 && !markers.Contains(position) &&
+                    !isQuoted && !isPlaceholder && delimiter is null)
                     continue;
                 var start = run.ContentStart.GetPositionAtOffset(i)!;
                 _glyphs.Add(new Glyph(start, start.GetPositionAtOffset(1)!, kind, color,
-                    isQuoted, isPlaceholder));
+                    isQuoted, isPlaceholder, delimiter));
             }
             offset += run.Text.Length;
         }
@@ -404,12 +426,16 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var background = FindOpaqueBackground();
         var quoteBrush = (Brush)GetValue(QuoteBrushProperty);
         var placeholderBrush = (Brush)GetValue(PlaceholderBrushProperty);
+        var quoteDelimiterBrush = (Brush?)GetValue(QuoteDelimiterBrushProperty) ?? _editor.Foreground;
+        var placeholderDelimiterBrush = (Brush?)GetValue(PlaceholderDelimiterBrushProperty) ?? placeholderBrush;
+        var boldDelimiterBrush = (Brush?)GetValue(BoldDelimiterBrushProperty) ?? _editor.Foreground;
         var useProseColor = !SystemParameters.HighContrast && background is not null;
         var boldSpans = new List<Rect>();
         var quoteSpans = new List<Rect>();
         var boldQuoteSpans = new List<Rect>();
         var placeholderSpans = new List<Rect>();
         var boldPlaceholderSpans = new List<Rect>();
+        var delimiterSpans = new Dictionary<(PromptTextTokenKind Kind, bool Bold), List<Rect>>();
         foreach (var glyph in _glyphs)
         {
             var rect = GetGlyphRect(glyph, viewport);
@@ -435,6 +461,13 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 }
                 drawingContext.DrawRectangle(glyph.Color, borderPen,
                     new Rect(rect.Left, rect.Bottom - 6, rect.Width, 6));
+            }
+            else if (glyph.Delimiter is { } delimiter && useProseColor && !selected)
+            {
+                var key = (delimiter, glyph.Kind == PromptTextTokenKind.BoldContent);
+                if (!delimiterSpans.TryGetValue(key, out var spans))
+                    delimiterSpans[key] = spans = [];
+                AddBoldSpan(spans, rect);
             }
             else if ((glyph.IsQuoted || glyph.IsPlaceholder) && useProseColor && !selected)
             {
@@ -468,6 +501,16 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         DrawColoredSpans(boldQuoteSpans, quoteBrush, true);
         DrawColoredSpans(placeholderSpans, placeholderBrush, false);
         DrawColoredSpans(boldPlaceholderSpans, placeholderBrush, true);
+        foreach (var (key, spans) in delimiterSpans)
+        {
+            var brush = key.Kind switch
+            {
+                PromptTextTokenKind.QuoteDelimiter => quoteDelimiterBrush,
+                PromptTextTokenKind.PlaceholderDelimiter => placeholderDelimiterBrush,
+                _ => boldDelimiterBrush,
+            };
+            DrawColoredSpans(spans, brush, key.Bold);
+        }
         drawingContext.Pop();
 
         void DrawColoredSpans(List<Rect> spans, Brush brush, bool bold)
