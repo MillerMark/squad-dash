@@ -59812,7 +59812,20 @@ public partial class MainWindow : Window
             (attachment, text, dictate) => PromptAttachmentViewerWindow.ShowForAnnotation(
                 attachment, Window.GetWindow(transcript) ?? (CanShowOwnedWindow() ? this : null),
                 (current, notes) => UpdateAttachmentNotes(list!, current, notes), text, dictate,
-                discardNewAttachment: wasAdded ? current => RemoveCancelledTranscriptAttachment(list!, current) : null));
+                discardNewAttachment: wasAdded ? current => RemoveCancelledTranscriptAttachment(list!, current) : null,
+                restorePromptFocus: CreateAttachmentPromptFocusReturn()));
+    }
+
+    private Action<Window> CreateAttachmentPromptFocusReturn()
+    {
+        var prompt = PromptTextBox;
+        var tabId = _activeTabId;
+        var workspace = _currentWorkspace;
+        return owner => AttachmentPromptFocusReturn.Queue(owner, prompt, () =>
+            !_isClosing && !_mainWindowClosingInProgress &&
+            ReferenceEquals(PromptTextBox, prompt) &&
+            ReferenceEquals(_currentWorkspace, workspace) &&
+            string.Equals(_activeTabId, tabId, StringComparison.Ordinal));
     }
 
     private void AttachTranscriptFollowUp(RichTextBox rtb)
@@ -60993,7 +61006,8 @@ public partial class MainWindow : Window
                         new[] { capturedAtt }, Window.GetWindow(row) ?? (CanShowOwnedWindow() ? this : null),
                         msgId => OpenOrFocusInboxMessage(msgId),
                         notesChanged: (current, notes) => capturedAtt = UpdateAttachmentNotes(list, current, notes),
-                        focusNotes: true));
+                        focusNotes: true,
+                        restorePromptFocus: CreateAttachmentPromptFocusReturn()));
                 FollowUpItemsPanel.Children.Add(row);
                 _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentRow{i}"]     = row;
                 _guidedTourCoordinator.NamedElements[$"FollowUpAttachmentDismiss{i}"] = dismissBtn;

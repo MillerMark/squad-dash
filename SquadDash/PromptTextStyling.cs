@@ -272,7 +272,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 case PromptTextTokenKind.QuotedContent:
                     Array.Fill(quoted, true, token.Start, token.Length);
                     break;
-                case PromptTextTokenKind.QuotedPlaceholder:
+                case PromptTextTokenKind.Placeholder:
                     Array.Fill(placeholders, true, token.Start, token.Length);
                     break;
                 case PromptTextTokenKind.InlineCodeContent:
@@ -317,16 +317,17 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
             {
                 var position = offset + i;
                 var isQuoted = quoted[position] && !code[position];
+                var isPlaceholder = placeholders[position] && !code[position];
                 var isColor = colors.TryGetValue(position, out var color);
                 var kind = isColor ? PromptTextTokenKind.HexColor
                     : boldChanges[position] > 0 ? PromptTextTokenKind.BoldContent
                     : markers.Contains(position) ? PromptTextTokenKind.HeadingMarker
                     : PromptTextTokenKind.QuotedContent;
-                if (!isColor && boldChanges[position] == 0 && !markers.Contains(position) && !isQuoted)
+                if (!isColor && boldChanges[position] == 0 && !markers.Contains(position) && !isQuoted && !isPlaceholder)
                     continue;
                 var start = run.ContentStart.GetPositionAtOffset(i)!;
                 _glyphs.Add(new Glyph(start, start.GetPositionAtOffset(1)!, kind, color,
-                    isQuoted, isQuoted && placeholders[position]));
+                    isQuoted, isPlaceholder));
             }
             offset += run.Text.Length;
         }
@@ -403,7 +404,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         var background = FindOpaqueBackground();
         var quoteBrush = (Brush)GetValue(QuoteBrushProperty);
         var placeholderBrush = (Brush)GetValue(PlaceholderBrushProperty);
-        var useQuoteColor = !SystemParameters.HighContrast && background is not null;
+        var useProseColor = !SystemParameters.HighContrast && background is not null;
         var boldSpans = new List<Rect>();
         var quoteSpans = new List<Rect>();
         var boldQuoteSpans = new List<Rect>();
@@ -426,7 +427,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                     // Keep the superscript top-aligned and tuck it toward the following hex digits.
                     drawingContext.PushTransform(new ScaleTransform(0.84, 0.84, rect.Right, rect.Top));
                     DrawInk(drawingContext, ink, rect, viewport, false,
-                        glyph.IsQuoted && useQuoteColor
+                        (glyph.IsQuoted || glyph.IsPlaceholder) && useProseColor
                             ? glyph.IsPlaceholder ? placeholderBrush : quoteBrush
                             : null);
                     drawingContext.Pop();
@@ -435,7 +436,7 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
                 drawingContext.DrawRectangle(glyph.Color, borderPen,
                     new Rect(rect.Left, rect.Bottom - 6, rect.Width, 6));
             }
-            else if (glyph.IsQuoted && useQuoteColor && !selected)
+            else if ((glyph.IsQuoted || glyph.IsPlaceholder) && useProseColor && !selected)
             {
                 var spans = glyph.IsPlaceholder
                     ? glyph.Kind == PromptTextTokenKind.BoldContent ? boldPlaceholderSpans : placeholderSpans

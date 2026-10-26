@@ -7,21 +7,21 @@ namespace SquadDash.Tests;
 internal sealed class PromptTextTokenParserTests {
     [Test]
     public void Parse_QuotedPlaceholder_ExactUserExampleIncludesBothBraces() {
-        const string text = "\"Say hello to {username}\".";
+        const string text = "\"This is a test for {userName}\"";
         Assert.That(PromptTextTokenParser.Parse(text), Is.EqualTo(new[] {
-            new PromptTextToken(1, 23, PromptTextTokenKind.QuotedContent),
-            new PromptTextToken(14, 10, PromptTextTokenKind.QuotedPlaceholder),
+            new PromptTextToken(1, 29, PromptTextTokenKind.QuotedContent),
+            new PromptTextToken(20, 10, PromptTextTokenKind.Placeholder),
         }));
     }
 
     [TestCase("\"", "\"")]
     [TestCase("\u201C", "\u201D")]
     public void Parse_QuotedPlaceholders_AcceptUnicodeAndPunctuationWithoutSubstitution(string open, string close) {
-        var contents = new[] { "{username}", "{user.name!?:/@-$%&+=,;()[]}", "{\u7528\u6237}", "{e\u0301}", "{\U0001F600}", "{a'b\u2019c}" };
-        var text = "\U0001F600 prefix " + open + string.Concat(contents) + close + " {outside}";
+        var contents = new[] { "{username}", "{user.name!?:/@-$%&+=,;()[]}", "{\u7528\u6237}", "{e\u0301}", "{\U0001F600}", "{a'b\u2019c}", "{outside}" };
+        var text = "\U0001F600 prefix " + open + string.Concat(contents.SkipLast(1)) + close + " {outside}";
         var original = text;
         var tokens = PromptTextTokenParser.Parse(text);
-        var placeholders = tokens.Where(t => t.Kind == PromptTextTokenKind.QuotedPlaceholder).ToArray();
+        var placeholders = tokens.Where(t => t.Kind == PromptTextTokenKind.Placeholder).ToArray();
         Assert.Multiple(() => {
             Assert.That(placeholders.Select(t => text.Substring(t.Start, t.Length)), Is.EqualTo(contents));
             Assert.That(placeholders.Select(t => t.Start), Is.EqualTo(contents.Select(c => text.IndexOf(c, System.StringComparison.Ordinal))));
@@ -31,10 +31,6 @@ internal sealed class PromptTextTokenParserTests {
         });
     }
 
-    [TestCase("{username}")]
-    [TestCase("'hello {username}'")]
-    [TestCase("\"{username}")]
-    [TestCase("\u201C{username}\"")]
     [TestCase("\"{}\"")]
     [TestCase("\"{ }\"")]
     [TestCase("\"{user name}\"")]
@@ -68,8 +64,8 @@ internal sealed class PromptTextTokenParserTests {
     [TestCase("``\u201C{username}\u201D``")]
     [TestCase("```text\n\"{username}\"\n```")]
     [TestCase("`unfinished \"{username}\"")]
-    public void Parse_InvalidQuotedPlaceholders_RemainLiteral(string text) {
-        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.QuotedPlaceholder), Is.Empty);
+    public void Parse_InvalidPlaceholders_RemainLiteral(string text) {
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.Placeholder), Is.Empty);
     }
 
     [TestCase(0)]
@@ -78,14 +74,15 @@ internal sealed class PromptTextTokenParserTests {
     [TestCase(3)]
     [TestCase(32)]
     [TestCase(33)]
-    public void Parse_QuotedPlaceholderBraceEscapes_UseIndependentBackslashParity(int backslashes) {
+    public void Parse_PlaceholderBraceEscapes_UseIndependentBackslashParity(int backslashes) {
         var slashes = new string('\\', backslashes);
-        foreach (var text in new[] { "\"" + slashes + "{name}\"", "\"{name" + slashes + "}\"" }) {
-            var placeholders = PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.QuotedPlaceholder).ToArray();
+        foreach (var text in new[] { "\"" + slashes + "{name}\"", "\"{name" + slashes + "}\"",
+            slashes + "{name}", "{name" + slashes + "}", "\"unfinished " + slashes + "{name}" }) {
+            var placeholders = PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.Placeholder).ToArray();
             Assert.That(placeholders, Has.Length.EqualTo(backslashes % 2 == 0 ? 1 : 0), text);
             if (backslashes % 2 == 0)
                 Assert.That(placeholders.Single(), Is.EqualTo(new PromptTextToken(
-                    text.IndexOf('{'), text.LastIndexOf('}') - text.IndexOf('{') + 1, PromptTextTokenKind.QuotedPlaceholder)));
+                    text.IndexOf('{'), text.LastIndexOf('}') - text.IndexOf('{') + 1, PromptTextTokenKind.Placeholder)));
         }
     }
 
@@ -95,22 +92,22 @@ internal sealed class PromptTextTokenParserTests {
     [TestCase("\"{bad space}{last}\"", "{last}")]
     [TestCase("\"{unfinished\n\"{next}\"", "{next}")]
     [TestCase("\"{cross\" \"quote}{last}\"", "{last}")]
-    [TestCase("\"{first}\" {outside} \u201C{last}\u201D", "{first}", "{last}")]
-    public void Parse_QuotedPlaceholders_RecoverOnlyAfterMalformedGroupOrQuoteBoundary(string text, params string[] expected) {
-        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.QuotedPlaceholder)
+    [TestCase("\"{first}\" {outside} \u201C{last}\u201D", "{first}", "{outside}", "{last}")]
+    public void Parse_Placeholders_RecoverAfterMalformedGroups(string text, params string[] expected) {
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.Placeholder)
             .Select(t => text.Substring(t.Start, t.Length)), Is.EqualTo(expected));
     }
 
-    [TestCase("\"{before}`{code}`{after}\"", "{before}", "{code}", "{after}")]
-    [TestCase("\"{before}``{code}`tick``{after}\"", "{before}", "{code}", "{after}")]
+    [TestCase("\"{before}`{code}`{after}\"", "{before}", "{after}")]
+    [TestCase("\"{before}``{code}`tick``{after}\"", "{before}", "{after}")]
     [TestCase("\"{left`code`right}\"", "{left`code`right}")]
-    public void Parse_QuotedPlaceholdersAroundCode_KeepOverlapsForPainterPrecedence(string text, params string[] expected) {
+    public void Parse_PlaceholdersAroundCode_SkipCodeOriginsButKeepOuterOverlapForPainter(string text, params string[] expected) {
         var tokens = PromptTextTokenParser.Parse(text);
         Assert.Multiple(() => {
             Assert.That(tokens.Count(t => t.Kind == PromptTextTokenKind.InlineCodeContent), Is.EqualTo(1));
             Assert.That(tokens.Single(t => t.Kind == PromptTextTokenKind.QuotedContent),
                 Is.EqualTo(new PromptTextToken(1, text.Length - 2, PromptTextTokenKind.QuotedContent)));
-            Assert.That(tokens.Where(t => t.Kind == PromptTextTokenKind.QuotedPlaceholder)
+            Assert.That(tokens.Where(t => t.Kind == PromptTextTokenKind.Placeholder)
                 .Select(t => text.Substring(t.Start, t.Length)), Is.EqualTo(expected));
         });
     }
@@ -121,7 +118,7 @@ internal sealed class PromptTextTokenParserTests {
         Assert.That(PromptTextTokenParser.Parse(text), Is.EqualTo(new[] {
             new PromptTextToken(1, 10, PromptTextTokenKind.QuotedContent),
             new PromptTextToken(3, 6, PromptTextTokenKind.BoldContent),
-            new PromptTextToken(3, 6, PromptTextTokenKind.QuotedPlaceholder),
+            new PromptTextToken(3, 6, PromptTextTokenKind.Placeholder),
             new PromptTextToken(4, 4, PromptTextTokenKind.HexColor, Color.FromRgb(0xAA, 0xBB, 0xCC)),
         }));
     }
@@ -138,12 +135,100 @@ internal sealed class PromptTextTokenParserTests {
         var tokens = PromptTextTokenParser.Parse(text);
         watch.Stop();
         Assert.Multiple(() => {
-            Assert.That(tokens.Where(t => t.Kind == PromptTextTokenKind.QuotedPlaceholder),
-                Is.EqualTo(new[] { new PromptTextToken(text.Length - 7, 6, PromptTextTokenKind.QuotedPlaceholder) }));
+            Assert.That(tokens.Where(t => t.Kind == PromptTextTokenKind.Placeholder),
+                Is.EqualTo(new[] { new PromptTextToken(text.Length - 7, 6, PromptTextTokenKind.Placeholder) }));
             Assert.That(watch.Elapsed, Is.LessThan(System.TimeSpan.FromSeconds(5)),
                 "Million-character malformed brace groups must not trigger rescanning or recursive nesting.");
         });
         TestContext.Out.WriteLine($"Parsed {text.Length:N0} malformed brace characters in {watch.Elapsed.TotalMilliseconds:F1} ms.");
+    }
+
+    [TestCase("{username}", "{username}")]
+    [TestCase("Hello {user.name}.", "{user.name}")]
+    [TestCase("'hello {username}'", "{username}")]
+    [TestCase("\"{username}", "{username}")]
+    [TestCase("\u201C{username}\"", "{username}")]
+    [TestCase("{before} \"unfinished {inside}", "{before}", "{inside}")]
+    [TestCase("\"unfinished\n{after}", "{after}")]
+    [TestCase("a{one}{two}{three}z", "{one}", "{two}", "{three}")]
+    [TestCase("({user.name!?:/@-$%&+=,;()[]}), {\u7528\u6237}.{e\u0301}{\U0001F600}", "{user.name!?:/@-$%&+=,;()[]}", "{\u7528\u6237}", "{e\u0301}", "{\U0001F600}")]
+    public void Parse_Placeholders_DoNotRequireCompletedQuotes(string text, params string[] expected) {
+        var tokens = PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.Placeholder).ToArray();
+        Assert.That(tokens, Is.EqualTo(expected.Select(content => new PromptTextToken(
+            text.IndexOf(content, System.StringComparison.Ordinal), content.Length, PromptTextTokenKind.Placeholder))));
+    }
+
+    [TestCase("{}{last}", "{last}")]
+    [TestCase("{{bad}}{last}", "{last}")]
+    [TestCase("{outer{inner}tail}{last}", "{last}")]
+    [TestCase("{bad}}{last}", "{last}")]
+    [TestCase("\\{escaped}{last}", "{last}")]
+    [TestCase("{bad\\}{last}", "{last}")]
+    [TestCase("{space name}{last}", "{last}")]
+    [TestCase("{unfinished\r{last}", "{last}")]
+    [TestCase("{unfinished\n{last}", "{last}")]
+    [TestCase("{unfinished\r\n{last}", "{last}")]
+    [TestCase("{bad\"quote}{last}", "{last}")]
+    [TestCase("}}{last}", "{last}")]
+    [TestCase("{{bad}{last}")]
+    [TestCase("{outer{inner}{last}")]
+    [TestCase("\\{{inner}{last}")]
+    public void Parse_UnquotedMalformedGroups_DoNotExposeInnerMatchesAndRecoverAtBoundary(string text, params string[] expected) {
+        Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.Placeholder)
+            .Select(t => text.Substring(t.Start, t.Length)), Is.EqualTo(expected));
+    }
+
+    [TestCase("")]
+    [TestCase("\"")]
+    [TestCase("\u201C")]
+    public void Parse_Placeholders_RejectEveryUnicodeWhitespaceCharacter(string prefix) {
+        foreach (var whitespace in Enumerable.Range(char.MinValue, char.MaxValue + 1).Select(i => (char)i).Where(char.IsWhiteSpace)) {
+            var text = prefix + "{user" + whitespace + "name}{valid}";
+            Assert.That(PromptTextTokenParser.Parse(text).Where(t => t.Kind == PromptTextTokenKind.Placeholder),
+                Is.EqualTo(new[] { new PromptTextToken(text.Length - 7, 7, PromptTextTokenKind.Placeholder) }),
+                $"Whitespace U+{(int)whitespace:X4} must invalidate the group, but not the next placeholder.");
+        }
+    }
+
+    [TestCase("`{code}`{after}", "{after}")]
+    [TestCase("``{code}`tick``{after}", "{after}")]
+    [TestCase("```text\n{code}\n```\n{after}", "{after}")]
+    [TestCase("`{unclosed`{after}", "{after}")]
+    [TestCase("`{origin`tail}{after}", "{after}")]
+    [TestCase("`{{nested`{after}", "{after}")]
+    [TestCase("{before}`unfinished {code}", "{before}")]
+    [TestCase("``unfinished `{code}")]
+    [TestCase("\\`{plain}\\`", "{plain}")]
+    [TestCase("\\\\`{code}`{after}", "{after}")]
+    [TestCase("{left`code`right}", "{left`code`right}")]
+    [TestCase("{left``code`tick``right}", "{left``code`tick``right}")]
+    [TestCase("{left`{nested}`right}{after}", "{after}")]
+    public void Parse_UnquotedPlaceholders_CodeOriginsCannotLeakOrPoisonFollowingProse(string text, params string[] expected) {
+        var tokens = PromptTextTokenParser.Parse(text);
+        var placeholders = tokens.Where(t => t.Kind == PromptTextTokenKind.Placeholder).ToArray();
+        Assert.That(placeholders.Select(t => text.Substring(t.Start, t.Length)), Is.EqualTo(expected));
+        foreach (var code in tokens.Where(t => t.Kind == PromptTextTokenKind.InlineCodeContent))
+            Assert.That(placeholders.Any(t => t.Start >= code.Start && t.Start < code.Start + code.Length), Is.False);
+    }
+
+    [TestCase("")]
+    [TestCase("\"unfinished ")]
+    public void Parse_LargeUnquotedOrIncompleteQuoteInput_RemainsSinglePassAndFindsEveryPlaceholder(string prefix) {
+        const string unit = "\\{{bad}}{space name}{ok}";
+        const int count = 40000;
+        var text = prefix + string.Concat(Enumerable.Repeat(unit, count)) + "{tail}";
+        _ = PromptTextTokenParser.Parse("{warmup}");
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var tokens = PromptTextTokenParser.Parse(text);
+        watch.Stop();
+        Assert.Multiple(() => {
+            Assert.That(tokens, Has.Count.EqualTo(count + 1));
+            Assert.That(tokens.Take(count), Is.EqualTo(Enumerable.Range(0, count).Select(i =>
+                new PromptTextToken(prefix.Length + i * unit.Length + unit.Length - 4, 4, PromptTextTokenKind.Placeholder))));
+            Assert.That(tokens.Last(), Is.EqualTo(new PromptTextToken(text.Length - 6, 6, PromptTextTokenKind.Placeholder)));
+            Assert.That(watch.Elapsed, Is.LessThan(System.TimeSpan.FromSeconds(5)));
+        });
+        TestContext.Out.WriteLine($"Parsed {text.Length:N0} ordinary/incomplete quote characters in {watch.Elapsed.TotalMilliseconds:F1} ms.");
     }
 
     [TestCase("before \"quoted prose\" after", "quoted prose")]
