@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -12,11 +13,17 @@ internal static class PromptTextStyling
         "IsEnabled", typeof(bool), typeof(PromptTextStyling),
         new PropertyMetadata(false, OnIsEnabledChanged));
 
+    public static readonly DependencyProperty IsOverlayVisibleProperty = DependencyProperty.RegisterAttached(
+        "IsOverlayVisible", typeof(bool), typeof(PromptTextStyling), new PropertyMetadata(true));
+
     private static readonly DependencyProperty AdornerProperty = DependencyProperty.RegisterAttached(
         "Adorner", typeof(PromptTextAdorner), typeof(PromptTextStyling));
 
     public static bool GetIsEnabled(DependencyObject target) => (bool)target.GetValue(IsEnabledProperty);
     public static void SetIsEnabled(DependencyObject target, bool value) => target.SetValue(IsEnabledProperty, value);
+
+    public static bool GetIsOverlayVisible(DependencyObject target) => (bool)target.GetValue(IsOverlayVisibleProperty);
+    public static void SetIsOverlayVisible(DependencyObject target, bool value) => target.SetValue(IsOverlayVisibleProperty, value);
 
     internal static bool IsApplyingFormatting(RichTextBox editor) =>
         editor.GetValue(AdornerProperty) is PromptTextAdorner { IsApplyingFormatting: true };
@@ -171,6 +178,13 @@ internal sealed class PromptTextAdorner : Adorner, IDisposable
         _editor = editor;
         IsHitTestVisible = false;
         Focusable = false;
+        // The adorner layer is outside the prompt's visibility subtree; hide paint, not styling state.
+        SetBinding(VisibilityProperty, new Binding
+        {
+            Source = editor,
+            Path = new PropertyPath(PromptTextStyling.IsOverlayVisibleProperty),
+            Converter = new BooleanToVisibilityConverter(),
+        });
         SetResourceReference(HeadingBrushProperty, "PromptHeadingText");
         SetResourceReference(HeadingDelimiterBrushProperty, "PromptHeadingDelimiter");
         SetResourceReference(BorderBrushProperty, "LabelText");

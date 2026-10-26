@@ -41926,6 +41926,8 @@ public partial class MainWindow : Window
     {
         UpdateViewModeMenuChecks();
 
+        PromptTextStyling.SetIsOverlayVisible(PromptTextBox, !_transcriptFullScreenEnabled);
+
         if (ToolsRepoDocumentationMenuItem is not null)
             ToolsRepoDocumentationMenuItem.IsChecked = _documentationModeEnabled;
 

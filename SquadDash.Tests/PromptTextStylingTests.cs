@@ -14,6 +14,87 @@ namespace SquadDash.Tests;
 [Apartment(ApartmentState.STA)]
 internal sealed class PromptTextStylingTests
 {
+    [Test]
+    public void OverlayVisibility_TranscriptFullscreenRoundTripPreservesPromptAndCachedFormatting()
+    {
+        using var host = new Host(string.Join("\n", Enumerable.Repeat(
+            "# Heading **bold** \"quote\" {name} `code` #abcdef", 30)));
+        host.SetTheme("Light");
+        host.Editor.IsUndoEnabled = false;
+        host.Enable();
+        host.Editor.SelectRange(12, 3);
+        host.Editor.ScrollToVerticalOffset(160);
+        host.Drain();
+        var adorner = host.Adorner;
+        var document = host.Editor.Document;
+        var snapshot = PromptUndoManager.CaptureSnapshot(host.Editor);
+        var offset = host.Editor.VerticalOffset;
+        var glyphBuilds = adorner.GlyphCacheBuildCount;
+        var inkBuilds = adorner.InkCacheBuildCount;
+        var drawingBuilds = adorner.DrawingBuildCount;
+        var textChanges = 0;
+        host.Editor.TextChanged += (_, _) => textChanges++;
+        Assert.That(OverlayPixels(host), Has.Some.Not.EqualTo((byte)0));
+
+        for (var transition = 0; transition < 2; transition++)
+        {
+            PromptTextStyling.SetIsOverlayVisible(host.Editor, false);
+            host.Drain();
+            Assert.Multiple(() =>
+            {
+                Assert.That(adorner.Visibility, Is.EqualTo(Visibility.Collapsed));
+                Assert.That(adorner.IsVisible, Is.False);
+                Assert.That(OverlayPixels(host), Has.All.EqualTo((byte)0),
+                    "Even cached formatting must not paint in the shared adorner layer.");
+                Assert.That(PromptTextStyling.GetIsEnabled(host.Editor), Is.True);
+                Assert.That(host.Editor.IsVisible, Is.True,
+                    "Suppression also applies while the transcript fullscreen prompt peek is visible.");
+            });
+
+            PromptTextStyling.SetIsOverlayVisible(host.Editor, true);
+            host.Drain();
+            Assert.Multiple(() =>
+            {
+                Assert.That(host.Adorner, Is.SameAs(adorner));
+                Assert.That(adorner.IsVisible, Is.True);
+                Assert.That(OverlayPixels(host), Has.Some.Not.EqualTo((byte)0));
+                Assert.That(host.Editor.Document, Is.SameAs(document));
+                Assert.That(PromptUndoManager.CaptureSnapshot(host.Editor), Is.EqualTo(snapshot));
+                Assert.That(host.Editor.VerticalOffset, Is.EqualTo(offset));
+                Assert.That(adorner.GlyphCacheBuildCount, Is.EqualTo(glyphBuilds));
+                Assert.That(adorner.InkCacheBuildCount, Is.EqualTo(inkBuilds));
+                Assert.That(adorner.DrawingBuildCount, Is.EqualTo(drawingBuilds));
+                Assert.That(textChanges, Is.Zero);
+            });
+        }
+    }
+
+    [Test]
+    public void OverlayVisibility_TranscriptFullscreenBeforeAttachStartsHiddenAndRestores()
+    {
+        using var host = new Host("# Heading **bold** \"quote\" {name} `code` #abcdef");
+        PromptTextStyling.SetIsOverlayVisible(host.Editor, false);
+        host.Enable();
+        Assert.That(host.Adorner.Visibility, Is.EqualTo(Visibility.Collapsed));
+        Assert.That(OverlayPixels(host), Has.All.EqualTo((byte)0));
+
+        PromptTextStyling.SetIsOverlayVisible(host.Editor, true);
+        host.Drain();
+        Assert.That(host.Adorner.IsVisible, Is.True);
+        Assert.That(OverlayPixels(host), Has.Some.Not.EqualTo((byte)0));
+    }
+
+    private static byte[] OverlayPixels(Host host)
+    {
+        var bitmap = new RenderTargetBitmap((int)Math.Ceiling(host.Decorator.ActualWidth),
+            (int)Math.Ceiling(host.Decorator.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(host.Layer);
+        var stride = bitmap.PixelWidth * 4;
+        var pixels = new byte[stride * bitmap.PixelHeight];
+        bitmap.CopyPixels(pixels, stride, 0);
+        return pixels;
+    }
+
     [TestCase(1, 1.48)]
     [TestCase(2, 1.32)]
     [TestCase(3, 1.16)]

@@ -220,6 +220,29 @@ internal sealed class MainWindowPromptFullscreenTests
     }
 
     [Test]
+    public void TranscriptFullscreen_HidesOnlyFormattingOverlayWithoutResettingPrompt()
+    {
+        var view = Method("private void ApplyViewMode(");
+        var transcript = Method("private void SetTranscriptFullScreen(");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(view, Does.Contain(
+                "PromptTextStyling.SetIsOverlayVisible(PromptTextBox, !_transcriptFullScreenEnabled);"),
+                "Suppress throughout transcript fullscreen, including peek; restore in normal and prompt fullscreen.");
+            Assert.That(transcript, Does.Contain("ApplyViewMode();"));
+            Assert.That(Method("private void SetPromptFullScreen("), Does.Contain("ApplyViewMode();"));
+            foreach (var method in new[] { view, transcript })
+            {
+                Assert.That(method, Does.Not.Contain("PromptTextStyling.SetIsEnabled("));
+                Assert.That(method, Does.Not.Contain("ClearPromptTextBox"));
+                Assert.That(method, Does.Not.Contain("SetPlainText("));
+                Assert.That(method, Does.Not.Contain("Invalidate"));
+            }
+        });
+    }
+
+    [Test]
     public void PromptFullscreen_ExpandsEditorAndRestoresConstraintsWithoutClearingDraft()
     {
         var setter = Method("private void SetPromptFullScreen(");
