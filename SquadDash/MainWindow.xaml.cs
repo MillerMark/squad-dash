@@ -1039,11 +1039,7 @@ public partial class MainWindow : Window
         // let formatted clipboard content creep into the plain-text prompt editor.
         DataObject.AddPastingHandler(PromptTextBox, (s, e) =>
         {
-            var resolvedFormat = RichTextBoxExtensions.ResolvePlainTextPasteFormat(e.FormatToApply, Clipboard.ContainsText());
-            if (resolvedFormat is null)
-                e.CancelCommand();
-            else
-                e.FormatToApply = resolvedFormat;
+            RichTextBoxExtensions.PreparePlainTextPaste(e, Clipboard.ContainsText());
         });
         // Mirror GetPlainText's block-walk on the copy/cut path so a RichTextBox-level
         // selection that spans an embedded code region keeps that region as its fenced text

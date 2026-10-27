@@ -378,6 +378,68 @@ internal sealed class PromptTextBoxRichTextBoxMigrationTests
     }
 
     // ── Plain-text-only paste enforcement (no rich-formatting creep) ────────────
+    [TestCase("first\r\nsecond\r\nthird", "first\nsecond\nthird")]
+    [TestCase("first\nsecond\nthird", "first\nsecond\nthird")]
+    [TestCase("\r\nfirst\r\n\r\n\r\nsecond\r\n", "\nfirst\n\n\nsecond\n")]
+    [TestCase("\nfirst\n\n\nsecond\n", "\nfirst\n\n\nsecond\n")]
+    [TestCase("first\rsecond\r\rthird", "first\nsecond\n\nthird")]
+    [TestCase("first\r\nsecond\nthird\rfourth", "first\nsecond\nthird\nfourth")]
+    [TestCase("plain text", "plain text")]
+    [TestCase("", "")]
+    [Apartment(ApartmentState.STA)]
+    public void PreparePlainTextPaste_NormalizesBreaksBeforeInsertion(string source, string expected)
+    {
+        var data = new DataObject(DataFormats.UnicodeText, source);
+        var args = new DataObjectPastingEventArgs(data, false, DataFormats.UnicodeText);
+
+        RichTextBoxExtensions.PreparePlainTextPaste(args, clipboardContainsText: true);
+
+        Assert.That(args.CommandCancelled, Is.False);
+        Assert.That(args.DataObject.GetData(DataFormats.UnicodeText), Is.EqualTo(expected));
+        Assert.That(data.GetData(DataFormats.UnicodeText), Is.EqualTo(source),
+            "Preparing a paste must not mutate the source clipboard data.");
+
+        var rtb = new RichTextBox();
+        rtb.SetPlainText("before selected after");
+        rtb.SelectRange(7, 8);
+        rtb.ReplaceSelection((string)args.DataObject.GetData(args.FormatToApply));
+        Assert.That(rtb.GetPlainText(), Is.EqualTo("before " + expected + " after"));
+        Assert.That(rtb.GetLineCount(), Is.EqualTo(expected.Split('\n').Length));
+
+        RichTextBoxExtensions.PreparePlainTextPaste(args, clipboardContainsText: true);
+        Assert.That(args.DataObject.GetData(args.FormatToApply), Is.EqualTo(expected),
+            "Normalization must be idempotent and preserve intentional blank lines.");
+    }
+
+    [TestCase("Text")]
+    [TestCase("Rich Text Format")]
+    [TestCase("HTML Format")]
+    [Apartment(ApartmentState.STA)]
+    public void PreparePlainTextPaste_NormalizesResolvedPlainTextFormat(string sourceFormat)
+    {
+        var data = new DataObject();
+        data.SetData(sourceFormat, "first\r\nsecond");
+        data.SetData(DataFormats.UnicodeText, "first\r\nsecond");
+        var args = new DataObjectPastingEventArgs(data, false, sourceFormat);
+
+        RichTextBoxExtensions.PreparePlainTextPaste(args, clipboardContainsText: true);
+
+        var expectedFormat = sourceFormat == DataFormats.Text ? DataFormats.Text : DataFormats.UnicodeText;
+        Assert.That(args.FormatToApply, Is.EqualTo(expectedFormat));
+        Assert.That(args.DataObject.GetData(expectedFormat), Is.EqualTo("first\nsecond"));
+    }
+
+    [Test, Apartment(ApartmentState.STA)]
+    public void PreparePlainTextPaste_NonTextClipboard_CancelsPaste()
+    {
+        var data = new DataObject(DataFormats.Html, "<p>formatted only</p>");
+        var args = new DataObjectPastingEventArgs(data, false, DataFormats.Html);
+
+        RichTextBoxExtensions.PreparePlainTextPaste(args, clipboardContainsText: false);
+
+        Assert.That(args.CommandCancelled, Is.True);
+    }
+
     // Covers the decision logic behind DataObject.AddPastingHandler(PromptTextBox, ...),
     // extracted into RichTextBoxExtensions.ResolvePlainTextPasteFormat so it is testable
     // without a live OS clipboard. This is the same guarantee the precedent decision

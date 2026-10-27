@@ -980,6 +980,24 @@ internal static class RichTextBoxExtensions
 
     // ── Paste enforcement ─────────────────────────────────────────────────────
 
+    internal static void PreparePlainTextPaste(DataObjectPastingEventArgs e, bool clipboardContainsText)
+    {
+        var format = ResolvePlainTextPasteFormat(e.FormatToApply, clipboardContainsText);
+        if (format is null)
+        {
+            e.CancelCommand();
+            return;
+        }
+
+        if (e.DataObject.GetData(format) is string text)
+        {
+            // Normalize before WPF creates document breaks, not after text/offsets are stored.
+            var normalized = text.Replace("\r\n", "\n").Replace('\r', '\n');
+            e.DataObject = new DataObject(format, normalized);
+        }
+        e.FormatToApply = format;
+    }
+
     /// <summary>
     /// Pure decision logic behind "force plain-text paste" handlers registered via
     /// <see cref="DataObject.AddPastingHandler"/> on plain-text RichTextBox editors
