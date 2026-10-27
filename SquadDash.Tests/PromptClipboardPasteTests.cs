@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -121,7 +122,9 @@ internal sealed class PromptClipboardPasteTests
 
     private sealed class PasteHost : IDisposable
     {
-        private readonly IDataObject? _clipboard = Clipboard.GetDataObject();
+        private const int ClipboardCannotOpenHResult = unchecked((int)0x800401D0);
+        private const int ClipboardAttemptCount = 4;
+        private readonly IDataObject? _clipboard;
         private readonly Window _window;
         private int _pasteEvents;
         internal RichTextBox Editor { get; } = new()
@@ -135,6 +138,7 @@ internal sealed class PromptClipboardPasteTests
 
         internal PasteHost(bool enableStyling = false)
         {
+            _clipboard = ReadClipboardOrIgnore();
             var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
             while (directory is not null && !Directory.Exists(Path.Combine(directory.FullName, "SquadDash")))
                 directory = directory.Parent;
@@ -155,7 +159,11 @@ internal sealed class PromptClipboardPasteTests
             DataObject.AddPastingHandler(Editor, (_, e) =>
             {
                 _pasteEvents++;
-                RichTextBoxExtensions.PreparePlainTextPaste(e, Clipboard.ContainsText());
+                RichTextBoxExtensions.PreparePlainTextPaste(
+                    e,
+                    ExecuteClipboardOperationOrIgnore(
+                        Clipboard.ContainsText,
+                        "inspect the native paste payload"));
             });
             _window = new Window
             {
@@ -179,12 +187,17 @@ internal sealed class PromptClipboardPasteTests
                     ? @"{\rtf1\ansi Rich representation must not be pasted.\par}"
                     : "<html><body><p>Rich representation must not be pasted.</p></body></html>");
             }
-            Clipboard.SetDataObject(data, false);
+            ExecuteClipboardOperationOrIgnore(
+                () => Clipboard.SetDataObject(data, false),
+                "set up the native paste payload");
             Assert.That(ApplicationCommands.Paste.CanExecute(null, Editor), Is.True);
             ApplicationCommands.Paste.Execute(null, Editor);
             Drain();
             Assert.That(_pasteEvents, Is.EqualTo(1), "Must exercise WPF's native clipboard paste pipeline.");
-            Assert.That(Clipboard.GetData(format == DataFormats.Text ? DataFormats.Text : DataFormats.UnicodeText),
+            Assert.That(ExecuteClipboardOperationOrIgnore(
+                    () => Clipboard.GetData(
+                        format == DataFormats.Text ? DataFormats.Text : DataFormats.UnicodeText),
+                    "verify the native paste payload"),
                 Is.EqualTo(text), "Paste must not rewrite the source clipboard.");
         }
 
@@ -202,10 +215,90 @@ internal sealed class PromptClipboardPasteTests
         {
             PromptTextStyling.SetIsEnabled(Editor, false);
             _window.Close();
-            if (_clipboard is null)
-                Clipboard.Clear();
-            else
-                Clipboard.SetDataObject(_clipboard, true);
+            try
+            {
+                ExecuteClipboardOperation(() =>
+                {
+                    if (_clipboard is null)
+                        Clipboard.Clear();
+                    else
+                        Clipboard.SetDataObject(_clipboard, true);
+                });
+            }
+            catch (COMException ex) when (IsClipboardBusy(ex))
+            {
+                TestContext.Progress.WriteLine(
+                    "Clipboard remained busy during test cleanup; the original clipboard could not be restored.");
+            }
         }
+
+        private static IDataObject? ReadClipboardOrIgnore()
+        {
+            try
+            {
+                return ExecuteClipboardOperation(Clipboard.GetDataObject);
+            }
+            catch (COMException ex) when (IsClipboardBusy(ex))
+            {
+                Assert.Ignore(
+                    "Windows clipboard remained locked by another process after bounded retries; " +
+                    "native clipboard integration could not be exercised.");
+                return null;
+            }
+        }
+
+        private static void ExecuteClipboardOperationOrIgnore(Action operation, string purpose)
+        {
+            try
+            {
+                ExecuteClipboardOperation(operation);
+            }
+            catch (COMException ex) when (IsClipboardBusy(ex))
+            {
+                Assert.Ignore(
+                    $"Windows clipboard remained locked by another process while trying to {purpose}; " +
+                    "native clipboard integration could not be exercised.");
+            }
+        }
+
+        private static T ExecuteClipboardOperationOrIgnore<T>(Func<T> operation, string purpose)
+        {
+            try
+            {
+                return ExecuteClipboardOperation(operation);
+            }
+            catch (COMException ex) when (IsClipboardBusy(ex))
+            {
+                Assert.Ignore(
+                    $"Windows clipboard remained locked by another process while trying to {purpose}; " +
+                    "native clipboard integration could not be exercised.");
+                return default!;
+            }
+        }
+
+        private static void ExecuteClipboardOperation(Action operation) =>
+            ExecuteClipboardOperation(() =>
+            {
+                operation();
+                return true;
+            });
+
+        private static T ExecuteClipboardOperation<T>(Func<T> operation)
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    return operation();
+                }
+                catch (COMException ex) when (IsClipboardBusy(ex) && attempt < ClipboardAttemptCount)
+                {
+                    Thread.Sleep(25 * attempt);
+                }
+            }
+        }
+
+        private static bool IsClipboardBusy(COMException exception) =>
+            exception.HResult == ClipboardCannotOpenHResult;
     }
 }

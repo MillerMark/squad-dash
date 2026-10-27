@@ -126,6 +126,7 @@ internal sealed class TranscriptThreadState : INotifyPropertyChanged {
     public string? ErrorText { get; set; }
     public bool WasObservedAsBackgroundTask { get; set; }
     public bool SuppressCoordinatorPromotion { get; set; }
+    public string? InternalPlanProtocolSourceTag { get; set; }
     public bool IsCurrentBackgroundRun { get; set; }
     /// <summary>True for simulated tour demo agent threads created by the guided-tour system.</summary>
     public bool IsTourDemoThread { get; set; }

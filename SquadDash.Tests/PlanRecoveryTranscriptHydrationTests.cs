@@ -323,6 +323,8 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
             Assert.That(source, Does.Contain("completionDecision.RegisterSilentCompletionFollowUp"));
             Assert.That(source, Does.Contain("appendNotice: !promoted && !completionDecision.SuppressCoordinatorPromotion"));
             Assert.That(source, Does.Contain("BuildInternalPlanAgentCompletionDetail"));
+            Assert.That(source, Does.Contain("ShouldHideInternalPlanAgentProtocol"));
+            Assert.That(source, Does.Contain("Returning a private plan-validation result to SquadDash"));
             Assert.That(source, Does.Not.Contain("SquadDash could not accept the task plan."));
         });
     }

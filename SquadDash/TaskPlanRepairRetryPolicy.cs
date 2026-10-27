@@ -29,14 +29,15 @@ internal static class TaskPlanRepairRetryPolicy
 
         var previous = Normalize(previousDiagnostics);
         var current = Normalize(currentDiagnostics);
-        if (current.Count >= previous.Count)
+        if (current.Count > previous.Count)
         {
             return new TaskPlanRepairRetryDecision(
                 false,
-                current.Count > previous.Count
-                    ? $"validation regressed from {previous.Count} issue(s) to {current.Count}"
-                    : $"validation did not reduce the {previous.Count} remaining issue(s)");
+                $"validation regressed from {previous.Count} issue(s) to {current.Count}");
         }
+
+        if (previous.SetEquals(current))
+            return new TaskPlanRepairRetryDecision(false, "validation returned the same issues");
 
         return new TaskPlanRepairRetryDecision(
             true,

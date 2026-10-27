@@ -752,7 +752,8 @@ internal sealed class WorkspaceConversationStore {
             NormalizeSingleLine(thread.PlanId),
             NormalizeSingleLine(thread.PlanWorkItemKind),
             NormalizeSingleLine(thread.PlanWorkItemId),
-            thread.SuppressCoordinatorPromotion == true ? true : null);
+            thread.SuppressCoordinatorPromotion == true ? true : null,
+            NormalizeSingleLine(thread.InternalPlanProtocolSourceTag));
     }
 
     private static int? NormalizeSequence(int? sequence) {
@@ -1443,4 +1444,5 @@ internal sealed record TranscriptThreadRecord(
     string? PlanId = null,
     string? PlanWorkItemKind = null,
     string? PlanWorkItemId = null,
-    bool? SuppressCoordinatorPromotion = null);
+    bool? SuppressCoordinatorPromotion = null,
+    string? InternalPlanProtocolSourceTag = null);

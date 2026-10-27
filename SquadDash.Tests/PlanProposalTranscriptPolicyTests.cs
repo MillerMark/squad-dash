@@ -25,7 +25,8 @@ internal sealed class PlanProposalTranscriptPolicyTests
     public void SuppressedPlanTurn_DoesNotPromoteAgentReportOrStartSilentFollowUp()
     {
         var decision = PlanProposalTranscriptPolicy.DecideAgentCompletion(
-            coordinatorTurnSuppressesTranscript: true);
+            coordinatorTurnSuppressesTranscript: true,
+            sourceTag: "decompose-repair");
 
         Assert.Multiple(() =>
         {
@@ -38,7 +39,22 @@ internal sealed class PlanProposalTranscriptPolicyTests
     public void OrdinaryTurn_KeepsExistingPromotionAndSilentFollowUpBehavior()
     {
         var decision = PlanProposalTranscriptPolicy.DecideAgentCompletion(
-            coordinatorTurnSuppressesTranscript: false);
+            coordinatorTurnSuppressesTranscript: false,
+            sourceTag: "decompose-repair");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.SuppressCoordinatorPromotion, Is.False);
+            Assert.That(decision.RegisterSilentCompletionFollowUp, Is.True);
+        });
+    }
+
+    [Test]
+    public void VisualizerReview_KeepsExistingRelayBehavior()
+    {
+        var decision = PlanProposalTranscriptPolicy.DecideAgentCompletion(
+            coordinatorTurnSuppressesTranscript: true,
+            sourceTag: "plan-visualizer-review");
 
         Assert.Multiple(() =>
         {

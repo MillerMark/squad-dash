@@ -1790,7 +1790,8 @@ internal sealed class TranscriptConversationManager {
             thread.PlanId,
             thread.PlanWorkItemKind,
             thread.PlanWorkItemId,
-            thread.SuppressCoordinatorPromotion ? true : null);
+            thread.SuppressCoordinatorPromotion ? true : null,
+            thread.InternalPlanProtocolSourceTag);
     }
 
     internal IReadOnlyList<TranscriptThreadRecord> BuildPersistedAgentThreadRecords(bool includeCurrentTurns) {

@@ -7459,6 +7459,20 @@ public partial class MainWindow : Window
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
         TryApplyAgentOriginFromParentSession(thread, evt);
         ApplyActivePlanWorkScope(thread);
+        var internalPlanSourceTag = _pec.CurrentDispatchedItem?.SourceTag;
+        var internalPlanDecision = PlanProposalTranscriptPolicy.DecideAgentCompletion(
+            CoordinatorThread.CurrentTurn?.SuppressTranscript == true,
+            internalPlanSourceTag);
+        if (internalPlanDecision.SuppressCoordinatorPromotion)
+        {
+            thread.SuppressCoordinatorPromotion = true;
+            thread.InternalPlanProtocolSourceTag = internalPlanSourceTag;
+        }
+        else if (thread.InternalPlanProtocolSourceTag is not null)
+        {
+            thread.InternalPlanProtocolSourceTag = null;
+            thread.SuppressCoordinatorPromotion = false;
+        }
         
         // Mark as inbox-launched if this agent was dispatched from an inbox action
         if (!string.IsNullOrWhiteSpace(evt.AgentName) && _inboxLaunchedAgentHandles.Contains(evt.AgentName))
@@ -7572,11 +7586,17 @@ public partial class MainWindow : Window
         _agentThreadRegistry.EnsureAgentThreadTurnStarted(thread);
         thread.StatusText = "Streaming";
         thread.IsCurrentBackgroundRun = true;
-        if (!string.IsNullOrWhiteSpace(evt.Chunk))
+        var hideInternalPlanProtocol = ShouldHideInternalPlanAgentProtocol(thread);
+        if (!hideInternalPlanProtocol && !string.IsNullOrWhiteSpace(evt.Chunk))
         {
             AppendText(thread, evt.Chunk!);
             thread.ResponseStreamed = true;
             thread.LatestResponse = GetSanitizedTurnResponseTextOrNull(thread.CurrentTurn);
+        }
+        else if (hideInternalPlanProtocol)
+        {
+            thread.LatestResponse = null;
+            thread.DetailText = "Returning a private plan-validation result to SquadDash…";
         }
 
         if (!string.IsNullOrWhiteSpace(thread.LatestResponse))
@@ -7626,16 +7646,21 @@ public partial class MainWindow : Window
         if (!string.IsNullOrWhiteSpace(evt.ReasoningText))
             ReconcileFinalThinkingText(thread, evt.ReasoningText!, thread.Title);
 
-        if (!string.IsNullOrWhiteSpace(evt.Text))
+        var hideInternalPlanProtocol = ShouldHideInternalPlanAgentProtocol(thread);
+        if (!hideInternalPlanProtocol && !string.IsNullOrWhiteSpace(evt.Text))
             ReconcileFinalSubagentResponseText(thread, evt.Text!);
 
         thread.LatestResponse = GetSanitizedTurnResponseTextOrNull(thread.CurrentTurn);
-        thread.DetailText = !string.IsNullOrWhiteSpace(thread.LatestResponse)
-            ? BuildThreadPreview(thread.LatestResponse!)
-            : thread.DetailText;
+        thread.DetailText = hideInternalPlanProtocol
+            ? "Plan-validation result returned privately to SquadDash."
+            : !string.IsNullOrWhiteSpace(thread.LatestResponse)
+                ? BuildThreadPreview(thread.LatestResponse!)
+                : thread.DetailText;
         // Save inbox message BEFORE finalizing/rendering so the indicator paragraph is rendered
         // with a valid messageId (clickable link) rather than null (grey plain text).
-        var rawResponse = thread.CurrentTurn?.ResponseTextBuilder.ToString();
+        var rawResponse = hideInternalPlanProtocol
+            ? evt.Text
+            : thread.CurrentTurn?.ResponseTextBuilder.ToString();
         SquadDashTrace.Write(TraceCategory.Inbox,
             $"INBOX_SAVE: HandleSubagentMessage agent={thread.AgentId ?? thread.Title} currentTurnNull={thread.CurrentTurn is null} rawLen={rawResponse?.Length ?? -1}");
         if (string.IsNullOrWhiteSpace(rawResponse) && thread.ResponseStreamed)
@@ -7693,6 +7718,17 @@ public partial class MainWindow : Window
         }
 
         thread.LatestResponse = SanitizeResponseTextOrNull(merged);
+    }
+
+    private bool ShouldHideInternalPlanAgentProtocol(TranscriptThreadState thread)
+    {
+        var sourceTag = thread.InternalPlanProtocolSourceTag ??
+                        _pec.CurrentDispatchedItem?.SourceTag;
+        var decision = PlanProposalTranscriptPolicy.DecideAgentCompletion(
+            thread.InternalPlanProtocolSourceTag is not null ||
+            CoordinatorThread.CurrentTurn?.SuppressTranscript == true,
+            sourceTag);
+        return decision.SuppressCoordinatorPromotion;
     }
 
     private void HandleSubagentToolStart(SquadSdkEvent evt)
@@ -7784,20 +7820,27 @@ public partial class MainWindow : Window
         }
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        var sourceTag = thread.InternalPlanProtocolSourceTag ??
+                        _pec.CurrentDispatchedItem?.SourceTag;
         var completionDecision = PlanProposalTranscriptPolicy.DecideAgentCompletion(
-            CoordinatorThread.CurrentTurn?.SuppressTranscript == true);
+            thread.InternalPlanProtocolSourceTag is not null ||
+            CoordinatorThread.CurrentTurn?.SuppressTranscript == true,
+            sourceTag);
         if (completionDecision.SuppressCoordinatorPromotion)
             thread.SuppressCoordinatorPromotion = true;
         if (IsArgusWeldThread(thread))
             thread.SuppressCoordinatorPromotion = true;
-        if (!string.IsNullOrWhiteSpace(evt.LatestResponse))
+        if (!completionDecision.SuppressCoordinatorPromotion &&
+            !string.IsNullOrWhiteSpace(evt.LatestResponse))
             ReconcileFinalSubagentResponseText(thread, evt.LatestResponse!);
         var directInternalPlanProtocolHandled = TryCollectInternalPlanProtocolFromSubagent(evt.LatestResponse);
         var directTaskPlanHandled = directInternalPlanProtocolHandled ||
                                     TryCollectInboxLaunchedTaskPlan(thread, evt.LatestResponse);
         var completionDetail = directInternalPlanProtocolHandled
-            ? BuildInternalPlanAgentCompletionDetail(_pec.CurrentDispatchedItem?.SourceTag)
-            : AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt);
+            ? BuildInternalPlanAgentCompletionDetail(sourceTag)
+            : completionDecision.SuppressCoordinatorPromotion
+                ? "Plan-validation result could not be applied; SquadDash is stopping or retrying within the bounded plan workflow."
+                : AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt);
         _agentThreadRegistry.UpdateAgentThreadLifecycle(
             thread,
             evt,
@@ -11015,15 +11058,20 @@ public partial class MainWindow : Window
             candidateHash);
         if (startDecision != PlanHumanProofCoverageStartDecision.Start)
         {
+            var duplicateCandidate =
+                startDecision == PlanHumanProofCoverageStartDecision.CoalesceSameCandidate;
             SquadDashTrace.Write(
                 "PlanPreflight",
-                startDecision == PlanHumanProofCoverageStartDecision.CoalesceSameCandidate
+                duplicateCandidate
                     ? $"Coalesced duplicate plan candidate hash={candidateHash}; the existing review remains authoritative."
-                    : $"Ignored overlapping plan candidate hash={candidateHash}; preserving active review " +
+                    : $"Rejected overlapping plan candidate hash={candidateHash}; preserving active review " +
                       $"check={_pendingPlanHumanProofCoverageReview?.CheckId ?? "(none)"}.");
             UpdatePlanValidationStatus(
-                "This draft is already being checked. SquadDash is keeping the existing validation transaction " +
-                "instead of starting a duplicate. No implementation has started…");
+                duplicateCandidate
+                    ? "This draft is already being checked. SquadDash is keeping the existing validation transaction " +
+                      "instead of starting a duplicate. No implementation has started…"
+                    : "A different draft arrived while validation was already active. SquadDash rejected the " +
+                      "conflicting draft instead of silently replacing the review in progress. No implementation has started…");
             return true;
         }
 

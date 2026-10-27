@@ -453,7 +453,8 @@ internal sealed class WorkspaceConversationStoreTests {
                                 true,
                                 Array.Empty<TranscriptToolRecord>())
                         ],
-                        SuppressCoordinatorPromotion: true)
+                        SuppressCoordinatorPromotion: true,
+                        InternalPlanProtocolSourceTag: "decompose-repair")
                 ]));
 
         var loaded = _store.Load(_workspacePath);
@@ -479,6 +480,7 @@ internal sealed class WorkspaceConversationStoreTests {
             Assert.That(thread.Turns, Has.Count.EqualTo(1));
             Assert.That(thread.Turns[0].ResponseText, Is.EqualTo("Looks solid overall."));
             Assert.That(thread.SuppressCoordinatorPromotion, Is.True);
+            Assert.That(thread.InternalPlanProtocolSourceTag, Is.EqualTo("decompose-repair"));
         });
     }
 

@@ -15,14 +15,20 @@ internal static class PlanProposalTranscriptPolicy
         string.Equals(sourceTag, "decompose-repair", StringComparison.Ordinal);
 
     internal static InternalPlanAgentCompletionDecision DecideAgentCompletion(
-        bool coordinatorTurnSuppressesTranscript) =>
-        coordinatorTurnSuppressesTranscript
+        bool coordinatorTurnSuppressesTranscript,
+        string? sourceTag)
+    {
+        var handlesProtocolDirectly =
+            string.Equals(sourceTag, "plan-human-proof-coverage", StringComparison.Ordinal) ||
+            string.Equals(sourceTag, "decompose-repair", StringComparison.Ordinal);
+        return coordinatorTurnSuppressesTranscript && handlesProtocolDirectly
             ? new InternalPlanAgentCompletionDecision(
                 SuppressCoordinatorPromotion: true,
                 RegisterSilentCompletionFollowUp: false)
             : new InternalPlanAgentCompletionDecision(
                 SuppressCoordinatorPromotion: false,
                 RegisterSilentCompletionFollowUp: true);
+    }
 
     internal static string BuildContractReviewStatus(bool correctionReceived) =>
         correctionReceived

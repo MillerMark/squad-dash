@@ -942,6 +942,7 @@ internal sealed class AgentThreadRegistry {
                 CompletedAt = record.CompletedAt,
                 CompletionFooterProfileAlias = record.CompletionFooterProfileAlias,
                 SuppressCoordinatorPromotion = record.SuppressCoordinatorPromotion == true,
+                InternalPlanProtocolSourceTag = record.InternalPlanProtocolSourceTag,
                 IsCurrentBackgroundRun = false,
                 WasObservedAsBackgroundTask = record.WasObservedAsBackgroundTask == true ||
                                                IsPersistedBackgroundThread(record)
