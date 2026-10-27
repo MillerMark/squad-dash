@@ -303,6 +303,31 @@ internal sealed class PlanRecoveryTranscriptHydrationTests
     }
 
     [Test]
+    public void InternalPlanAgents_DeliverProtocolsDirectlyWithoutTranscriptWatchdogFallback()
+    {
+        var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));
+        var methodStart = source.IndexOf(
+            "private bool TryCollectInternalPlanProtocolFromSubagent(",
+            StringComparison.Ordinal);
+        var methodEnd = source.IndexOf(
+            "private void HandleSubagentFailed(",
+            methodStart,
+            StringComparison.Ordinal);
+        var method = source[methodStart..methodEnd];
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(method, Does.Contain("TryHandlePlanHumanProofCoverageReviewFromResponse(rawResponse)"));
+            Assert.That(method, Does.Contain("TryStartDecomposeGroupFromResponse(rawResponse"));
+            Assert.That(method, Does.Contain("_internalPlanProtocolHandledForCurrentTurn = true"));
+            Assert.That(source, Does.Contain("completionDecision.RegisterSilentCompletionFollowUp"));
+            Assert.That(source, Does.Contain("appendNotice: !promoted && !completionDecision.SuppressCoordinatorPromotion"));
+            Assert.That(source, Does.Contain("BuildInternalPlanAgentCompletionDetail"));
+            Assert.That(source, Does.Not.Contain("SquadDash could not accept the task plan."));
+        });
+    }
+
+    [Test]
     public void PlansPanel_OpensAuthoritativeDurableRevision_NotPendingProposalWithSameId()
     {
         var source = File.ReadAllText(FindRepoFile("SquadDash", "MainWindow.xaml.cs"));

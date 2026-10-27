@@ -63,6 +63,31 @@ internal sealed class PlanHumanProofCoverageReviewTests
     }
 
     [Test]
+    public void StartPolicy_CoalescesDuplicateCandidateAndPreservesDifferentActiveReview()
+    {
+        var active = new PendingPlanHumanProofCoverageReview(
+            "check-1",
+            "candidate-a",
+            null,
+            "TASKS_JSON:\n{}",
+            [],
+            0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                PlanHumanProofCoverageReview.DecideStart(null, "candidate-a"),
+                Is.EqualTo(PlanHumanProofCoverageStartDecision.Start));
+            Assert.That(
+                PlanHumanProofCoverageReview.DecideStart(active, "candidate-a"),
+                Is.EqualTo(PlanHumanProofCoverageStartDecision.CoalesceSameCandidate));
+            Assert.That(
+                PlanHumanProofCoverageReview.DecideStart(active, "candidate-b"),
+                Is.EqualTo(PlanHumanProofCoverageStartDecision.PreserveActiveReview));
+        });
+    }
+
+    [Test]
     public void RepairDiagnostic_DescribesCrossAgentOwnershipAsPlanContractFailure()
     {
         var payload = new PlanHumanProofCoverageReviewPayload(

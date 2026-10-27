@@ -28,6 +28,13 @@ internal sealed record PendingPlanHumanProofCoverageReview(
     int Attempt,
     string? Correction = null);
 
+internal enum PlanHumanProofCoverageStartDecision
+{
+    Start,
+    CoalesceSameCandidate,
+    PreserveActiveReview,
+}
+
 /// <summary>
 /// Focused semantic preflight for plan constraints a JSON schema cannot infer: whether prose
 /// promises a human-observable outcome without placing human proof at the right boundary, leaves
@@ -41,6 +48,18 @@ internal static class PlanHumanProofCoverageReview
     internal static string ComputeCandidateHash(string candidate) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(candidate)))
             .ToLowerInvariant()[..16];
+
+    internal static PlanHumanProofCoverageStartDecision DecideStart(
+        PendingPlanHumanProofCoverageReview? activeReview,
+        string candidateHash)
+    {
+        if (activeReview is null)
+            return PlanHumanProofCoverageStartDecision.Start;
+
+        return string.Equals(activeReview.CandidateHash, candidateHash, StringComparison.Ordinal)
+            ? PlanHumanProofCoverageStartDecision.CoalesceSameCandidate
+            : PlanHumanProofCoverageStartDecision.PreserveActiveReview;
+    }
 
     internal static string BuildPrompt(string checkId, string candidateHash) => $$"""
         Perform one focused plan-contract preflight. Do not implement, revise, or broadly critique
@@ -218,7 +237,7 @@ internal sealed class PlanHumanProofCoverageCandidateStore(string squadFolderPat
         WriteAtomic(_pendingPath, JsonSerializer.Serialize(pending, Options));
     }
 
-    internal void Delete(string checkId)
+    internal void Delete(string checkId, bool preserveCandidate = false)
     {
         if (File.Exists(_pendingPath))
         {
@@ -239,8 +258,11 @@ internal sealed class PlanHumanProofCoverageCandidateStore(string squadFolderPat
             }
         }
 
-        var candidatePath = GetCandidatePath(checkId);
-        if (File.Exists(candidatePath)) File.Delete(candidatePath);
+        if (!preserveCandidate)
+        {
+            var candidatePath = GetCandidatePath(checkId);
+            if (File.Exists(candidatePath)) File.Delete(candidatePath);
+        }
     }
 
     internal PendingPlanHumanProofCoverageReview? Load(out string? error)

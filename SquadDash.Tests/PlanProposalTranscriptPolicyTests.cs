@@ -22,6 +22,49 @@ internal sealed class PlanProposalTranscriptPolicyTests
     }
 
     [Test]
+    public void SuppressedPlanTurn_DoesNotPromoteAgentReportOrStartSilentFollowUp()
+    {
+        var decision = PlanProposalTranscriptPolicy.DecideAgentCompletion(
+            coordinatorTurnSuppressesTranscript: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.SuppressCoordinatorPromotion, Is.True);
+            Assert.That(decision.RegisterSilentCompletionFollowUp, Is.False);
+        });
+    }
+
+    [Test]
+    public void OrdinaryTurn_KeepsExistingPromotionAndSilentFollowUpBehavior()
+    {
+        var decision = PlanProposalTranscriptPolicy.DecideAgentCompletion(
+            coordinatorTurnSuppressesTranscript: false);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.SuppressCoordinatorPromotion, Is.False);
+            Assert.That(decision.RegisterSilentCompletionFollowUp, Is.True);
+        });
+    }
+
+    [Test]
+    public void ProgressMessages_ExplainAgentPurposeAndReassureNoImplementationStarted()
+    {
+        var review = PlanProposalTranscriptPolicy.BuildContractReviewStatus(correctionReceived: false);
+        var repair = PlanProposalTranscriptPolicy.BuildRepairStatus(1, 2, 3);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(review, Does.Contain("validation specialist"));
+            Assert.That(review, Does.Contain("No implementation has started"));
+            Assert.That(repair, Does.Contain("planning specialist"));
+            Assert.That(repair, Does.Contain("correction 1 of 2"));
+            Assert.That(repair, Does.Contain("3 correctable issues"));
+            Assert.That(repair, Does.Contain("No implementation has started"));
+        });
+    }
+
+    [Test]
     public void ValidatedSummary_IsDerivedFromPersistedPlan()
     {
         var group = new DecomposedTaskGroup(

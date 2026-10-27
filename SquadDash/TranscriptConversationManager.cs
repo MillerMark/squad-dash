@@ -1789,7 +1789,8 @@ internal sealed class TranscriptConversationManager {
             string.IsNullOrEmpty(thread.CompletionFooterProfileAlias) ? null : thread.CompletionFooterProfileAlias,
             thread.PlanId,
             thread.PlanWorkItemKind,
-            thread.PlanWorkItemId);
+            thread.PlanWorkItemId,
+            thread.SuppressCoordinatorPromotion ? true : null);
     }
 
     internal IReadOnlyList<TranscriptThreadRecord> BuildPersistedAgentThreadRecords(bool includeCurrentTurns) {

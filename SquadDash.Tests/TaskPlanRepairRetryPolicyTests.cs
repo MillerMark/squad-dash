@@ -17,9 +17,9 @@ internal sealed class TaskPlanRepairRetryPolicyTests
     }
 
     [TestCase(3, 2, true)]
-    [TestCase(3, 3, true)]
+    [TestCase(3, 3, false)]
     [TestCase(3, 4, false)]
-    public void Evaluate_SecondRepairRequiresNonRegressingIssueCount(
+    public void Evaluate_SecondRepairRequiresStrictlyFewerIssues(
         int previousCount,
         int currentCount,
         bool expected)

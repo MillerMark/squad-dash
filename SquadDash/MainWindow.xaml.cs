@@ -551,6 +551,7 @@ public partial class MainWindow : Window
     private DispatcherTimer? _priorityFeedbackTimer;
     private DispatcherTimer? _planRevisionPromptGlowTimer;
     private bool _lastResponseContainedTaskPlan;
+    private bool _internalPlanProtocolHandledForCurrentTurn;
     private DispatcherTimer? _loopCountdownTimer;
     private DispatcherTimer? _typeIntoPromptTimer;
 
@@ -4202,8 +4203,8 @@ public partial class MainWindow : Window
 
         return string.Equals(item.SourceTag, "decompose-repair", StringComparison.Ordinal)
             ? SystemTranscriptStatusPrefix +
-              "SquadDash could not accept the task plan. The exact validation failure and complete schema " +
-              "were sent back to AI automatically; waiting for one corrected plan now…"
+              "A planning specialist is revising the plan draft after validation. " +
+              "No implementation has started…"
             : string.Equals(item.SourceTag, "decompose-replan", StringComparison.Ordinal)
                 ? SystemTranscriptStatusPrefix +
                   "SquadDash asked AI to replace the blocked plan step with smaller dependency-aware steps; waiting for the revised plan now…"
@@ -7010,6 +7011,8 @@ public partial class MainWindow : Window
                     // responses remain owned by CodeHealthRunner's capture callback below.
                     if (_CodeHealthRunner?.IsRunning != true)
                     {
+                        var internalPlanProtocolHandled = _internalPlanProtocolHandledForCurrentTurn;
+                        _internalPlanProtocolHandledForCurrentTurn = false;
                         _lastResponseContainedTaskPlan = false;
                         var hasStagedRevisionPayload = _stagedPlanRevisionTurnCollectionState.Handled ||
                             TryApplyStagedPlanRevisionFromResponse(rawResponse, doneCurrentTurn);
@@ -7017,8 +7020,14 @@ public partial class MainWindow : Window
                             TryStagePlanRevisionProposalFromResponse(rawResponse, doneCurrentTurn);
                         var hasRevisionPayload = hasStagedRevisionPayload || hasAcceptedRevisionPayload;
                         if (!hasRevisionPayload)
-                            TryStartDecomposeGroupFromResponse(rawResponse, doneCurrentTurn);
-                        var hasTasksPayload = _lastResponseContainedTaskPlan;
+                        {
+                            if (!internalPlanProtocolHandled)
+                                TryStartDecomposeGroupFromResponse(rawResponse, doneCurrentTurn);
+                        }
+                        var hasTasksPayload = _lastResponseContainedTaskPlan ||
+                                              (internalPlanProtocolHandled &&
+                                               string.Equals(_pec.CurrentDispatchedItem?.SourceTag,
+                                                   "decompose-repair", StringComparison.Ordinal));
                         var hasDecisionPayload = rawResponse?.Contains("DECOMPOSE_DECISION_JSON:", StringComparison.Ordinal) == true;
                         if (hasRevisionPayload)
                         {
@@ -7775,12 +7784,25 @@ public partial class MainWindow : Window
         }
 
         var thread = _agentThreadRegistry.GetOrCreateAgentThread(evt);
+        var completionDecision = PlanProposalTranscriptPolicy.DecideAgentCompletion(
+            CoordinatorThread.CurrentTurn?.SuppressTranscript == true);
+        if (completionDecision.SuppressCoordinatorPromotion)
+            thread.SuppressCoordinatorPromotion = true;
         if (IsArgusWeldThread(thread))
             thread.SuppressCoordinatorPromotion = true;
         if (!string.IsNullOrWhiteSpace(evt.LatestResponse))
             ReconcileFinalSubagentResponseText(thread, evt.LatestResponse!);
-        var directTaskPlanHandled = TryCollectInboxLaunchedTaskPlan(thread, evt.LatestResponse);
-        _agentThreadRegistry.UpdateAgentThreadLifecycle(thread, evt, statusText: "Completed", detailText: AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt));
+        var directInternalPlanProtocolHandled = TryCollectInternalPlanProtocolFromSubagent(evt.LatestResponse);
+        var directTaskPlanHandled = directInternalPlanProtocolHandled ||
+                                    TryCollectInboxLaunchedTaskPlan(thread, evt.LatestResponse);
+        var completionDetail = directInternalPlanProtocolHandled
+            ? BuildInternalPlanAgentCompletionDetail(_pec.CurrentDispatchedItem?.SourceTag)
+            : AgentThreadRegistry.BuildThreadCompletionDetail(thread, evt);
+        _agentThreadRegistry.UpdateAgentThreadLifecycle(
+            thread,
+            evt,
+            statusText: "Completed",
+            detailText: completionDetail);
         RecordPlanAgentCompletion(thread, evt, succeeded: true);
         // Pass the raw (unsanitized) response so ParseAndApplyApprovalGroups can detect
         // APPROVAL_GROUP_JSON blocks that SanitizeResponseText strips from display.
@@ -7817,22 +7839,33 @@ public partial class MainWindow : Window
         
         var needsDirectQuickReplyFollowUp = CompleteDirectQuickReplyAgentThread(thread, "subagent_completed");
 
-        var promoted = _backgroundTaskPresenter.PromoteBackgroundAgentReportNow(thread, "subagent_completed");
-        switch (DirectQuickReplyCompletionPolicy.Decide(
-                    needsDirectQuickReplyFollowUp,
-                    _isPromptRunning,
-                    promoted,
-                    directTaskPlanHandled))
+        var promoted = completionDecision.SuppressCoordinatorPromotion
+            ? false
+            : _backgroundTaskPresenter.PromoteBackgroundAgentReportNow(thread, "subagent_completed");
+        var completionAction = DirectQuickReplyCompletionPolicy.Decide(
+            needsDirectQuickReplyFollowUp,
+            _isPromptRunning,
+            promoted,
+            directTaskPlanHandled);
+        if (completionDecision.RegisterSilentCompletionFollowUp)
         {
-            case DirectQuickReplyCompletionAction.RegisterSilentWatchdog:
-                _pec.NotifySubagentCompletedDuringTurn(thread, thread.Title ?? evt.AgentDisplayName ?? evt.AgentName ?? "Unknown agent");
-                break;
-            case DirectQuickReplyCompletionAction.EnqueueCoordinatorFollowUp:
-                EnqueueDirectQuickReplyAgentFollowUp(thread);
-                break;
+            switch (completionAction)
+            {
+                case DirectQuickReplyCompletionAction.RegisterSilentWatchdog:
+                    _pec.NotifySubagentCompletedDuringTurn(
+                        thread,
+                        thread.Title ?? evt.AgentDisplayName ?? evt.AgentName ?? "Unknown agent");
+                    break;
+                case DirectQuickReplyCompletionAction.EnqueueCoordinatorFollowUp:
+                    EnqueueDirectQuickReplyAgentFollowUp(thread);
+                    break;
+            }
         }
         _backgroundTaskPresenter.SkipNextBackgroundCompletionFallback = true;
-        _backgroundTaskPresenter.RecordBackgroundCompletion(summary, BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread), appendNotice: !promoted);
+        _backgroundTaskPresenter.RecordBackgroundCompletion(
+            summary,
+            BackgroundTaskPresenter.BuildThreadAnnouncementKey(thread),
+            appendNotice: !promoted && !completionDecision.SuppressCoordinatorPromotion);
         SyncAgentCardsWithThreads();
         _backgroundTaskPresenter.ObserveBackgroundAgentActivity(thread, "subagent_completed");
         _conversationManager.SaveAgentThreadToConversation(thread, DateTimeOffset.UtcNow);
@@ -7859,6 +7892,51 @@ public partial class MainWindow : Window
             $"Collected TASKS_JSON directly from inbox-launched agent thread={thread.ThreadId} agent={thread.AgentId ?? thread.Title ?? "(unknown)"}; suppressed generic silent-completion recovery.");
         return true;
     }
+
+    private bool TryCollectInternalPlanProtocolFromSubagent(string? rawResponse)
+    {
+        if (_internalPlanProtocolHandledForCurrentTurn ||
+            CoordinatorThread.CurrentTurn?.SuppressTranscript != true ||
+            string.IsNullOrWhiteSpace(rawResponse))
+        {
+            return false;
+        }
+
+        var sourceTag = _pec.CurrentDispatchedItem?.SourceTag;
+        if (string.Equals(sourceTag, PlanHumanProofCoverageQueueTag, StringComparison.Ordinal))
+        {
+            if (!TryHandlePlanHumanProofCoverageReviewFromResponse(rawResponse))
+                return false;
+
+            _internalPlanProtocolHandledForCurrentTurn = true;
+            SquadDashTrace.Write(
+                "PlanPreflight",
+                "Collected the plan-contract result directly from its validation agent; no transcript follow-up was needed.");
+            return true;
+        }
+
+        if (!string.Equals(sourceTag, "decompose-repair", StringComparison.Ordinal) ||
+            !rawResponse.Contains("TASKS_JSON:", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        _lastResponseContainedTaskPlan = false;
+        TryStartDecomposeGroupFromResponse(rawResponse, CoordinatorThread.CurrentTurn);
+        if (!_lastResponseContainedTaskPlan)
+            return false;
+
+        _internalPlanProtocolHandledForCurrentTurn = true;
+        SquadDashTrace.Write(
+            "PlanPreflight",
+            "Collected corrected TASKS_JSON directly from its planning agent; no transcript follow-up was needed.");
+        return true;
+    }
+
+    private static string BuildInternalPlanAgentCompletionDetail(string? sourceTag) =>
+        string.Equals(sourceTag, PlanHumanProofCoverageQueueTag, StringComparison.Ordinal)
+            ? "Plan validation completed; SquadDash is applying the result."
+            : "Plan revision completed; SquadDash is validating the revised draft.";
 
     private void HandleSubagentFailed(SquadSdkEvent evt)
     {
@@ -10931,12 +11009,27 @@ public partial class MainWindow : Window
                 ownerView: null);
             return false;
         }
-        UpdatePlanValidationStatus(
-            _decomposeRepairPending
-                ? "Plan corrections received. SquadDash is rechecking structure, ownership, and human-proof coverage…"
-                : "Validating plan structure, ownership, and human-proof coverage…");
-        var checkId = Guid.NewGuid().ToString("N");
         var candidateHash = PlanHumanProofCoverageReview.ComputeCandidateHash(rejectedCandidate);
+        var startDecision = PlanHumanProofCoverageReview.DecideStart(
+            _pendingPlanHumanProofCoverageReview,
+            candidateHash);
+        if (startDecision != PlanHumanProofCoverageStartDecision.Start)
+        {
+            SquadDashTrace.Write(
+                "PlanPreflight",
+                startDecision == PlanHumanProofCoverageStartDecision.CoalesceSameCandidate
+                    ? $"Coalesced duplicate plan candidate hash={candidateHash}; the existing review remains authoritative."
+                    : $"Ignored overlapping plan candidate hash={candidateHash}; preserving active review " +
+                      $"check={_pendingPlanHumanProofCoverageReview?.CheckId ?? "(none)"}.");
+            UpdatePlanValidationStatus(
+                "This draft is already being checked. SquadDash is keeping the existing validation transaction " +
+                "instead of starting a duplicate. No implementation has started…");
+            return true;
+        }
+
+        UpdatePlanValidationStatus(
+            PlanProposalTranscriptPolicy.BuildContractReviewStatus(_decomposeRepairPending));
+        var checkId = Guid.NewGuid().ToString("N");
         var pending = new PendingPlanHumanProofCoverageReview(
             checkId,
             candidateHash,
@@ -11032,7 +11125,8 @@ public partial class MainWindow : Window
             QueueDecomposeRepair(diagnostics, pending.RejectedCandidate);
             DeletePendingPlanHumanProofCoverageReviewBestEffort(
                 pending.CheckId,
-                "semantic preflight transitioned to plan repair");
+                "semantic preflight transitioned to plan repair",
+                preserveCandidate: true);
             return true;
         }
         ResetDecomposeRepairState();
@@ -11210,13 +11304,14 @@ public partial class MainWindow : Window
 
     private void DeletePendingPlanHumanProofCoverageReviewBestEffort(
         string checkId,
-        string reason)
+        string reason,
+        bool preserveCandidate = false)
     {
         if (_currentWorkspace is null) return;
         try
         {
             new PlanHumanProofCoverageCandidateStore(_currentWorkspace.SquadFolderPath)
-                .Delete(checkId);
+                .Delete(checkId, preserveCandidate);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -11238,7 +11333,7 @@ public partial class MainWindow : Window
         }
 
         _planValidationStatusParagraph.Inlines.Clear();
-        var prefix = new Run("Plan validation: ") { FontWeight = FontWeights.SemiBold };
+        var prefix = new Run("Creating plan: ") { FontWeight = FontWeights.SemiBold };
         prefix.SetResourceReference(TextElement.ForegroundProperty, "SubtleText");
         _planValidationStatusParagraph.Inlines.Add(prefix);
         var detail = new Run(status);
@@ -12582,9 +12677,10 @@ public partial class MainWindow : Window
         _decomposeRepairDiagnostics = trackedDiagnostics;
         _decomposeRepairCandidateHash = candidateHash;
         UpdatePlanValidationStatus(
-            _decomposeRepairAttemptsQueued == 1
-                ? "SquadDash found plan-contract issues and asked AI to correct them automatically…"
-                : "The first repair improved validation. SquadDash is trying one final correction…");
+            PlanProposalTranscriptPolicy.BuildRepairStatus(
+                _decomposeRepairAttemptsQueued,
+                TaskPlanRepairRetryPolicy.MaximumRepairAttempts,
+                trackedDiagnostics.Count));
         var prompt = TaskPlanRepairPromptBuilder.Build(
             rejectedCandidate,
             validationError,
@@ -45934,6 +46030,7 @@ public partial class MainWindow : Window
         prompt ??= string.Empty;
         if (ReferenceEquals(thread, CoordinatorThread))
         {
+            _internalPlanProtocolHandledForCurrentTurn = false;
             if (_pendingPromptSuppressTranscript)
             {
                 // An in-visualizer AI review is host-owned background work. It must not consume

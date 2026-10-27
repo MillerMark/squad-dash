@@ -14,6 +14,30 @@ internal static class PlanProposalTranscriptPolicy
         string.Equals(sourceTag, "plan-human-proof-coverage", StringComparison.Ordinal) ||
         string.Equals(sourceTag, "decompose-repair", StringComparison.Ordinal);
 
+    internal static InternalPlanAgentCompletionDecision DecideAgentCompletion(
+        bool coordinatorTurnSuppressesTranscript) =>
+        coordinatorTurnSuppressesTranscript
+            ? new InternalPlanAgentCompletionDecision(
+                SuppressCoordinatorPromotion: true,
+                RegisterSilentCompletionFollowUp: false)
+            : new InternalPlanAgentCompletionDecision(
+                SuppressCoordinatorPromotion: false,
+                RegisterSilentCompletionFollowUp: true);
+
+    internal static string BuildContractReviewStatus(bool correctionReceived) =>
+        correctionReceived
+            ? "Revised draft received. Rechecking structure, ownership, and human-review checkpoints. " +
+              "No implementation has started…"
+            : "Draft received. Checking structure and asking a validation specialist to verify ownership " +
+              "and human-review checkpoints. No implementation has started…";
+
+    internal static string BuildRepairStatus(int attempt, int maximumAttempts, int issueCount)
+    {
+        var issueLabel = issueCount == 1 ? "issue" : "issues";
+        return $"Plan review found {issueCount} correctable {issueLabel}. A planning specialist is revising " +
+               $"the draft (correction {attempt} of {maximumAttempts}). No implementation has started…";
+    }
+
     internal static ValidatedPlanTranscriptSummary BuildValidatedSummary(PendingDecomposePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -34,3 +58,7 @@ internal static class PlanProposalTranscriptPolicy
 
     private static string PluralSuffix(int count) => count == 1 ? string.Empty : "s";
 }
+
+internal sealed record InternalPlanAgentCompletionDecision(
+    bool SuppressCoordinatorPromotion,
+    bool RegisterSilentCompletionFollowUp);

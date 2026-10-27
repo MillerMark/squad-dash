@@ -106,6 +106,27 @@ internal sealed class PlanHumanProofCoveragePersistenceTests
         });
     }
 
+    [Test]
+    public void Delete_ForRepairTransition_ClearsTransactionButPreservesRevisionLockedCandidate()
+    {
+        using var workspace = new TestWorkspace();
+        var squadFolder = workspace.GetPath(".squad");
+        var store = new PlanHumanProofCoverageCandidateStore(squadFolder);
+        var pending = CreatePending("check-repair", attempt: 0);
+        store.Save(pending);
+
+        store.Delete(pending.CheckId, preserveCandidate: true);
+        var loaded = store.Load(out var error);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(loaded, Is.Null);
+            Assert.That(error, Is.Null);
+            Assert.That(File.Exists(Path.Combine(
+                squadFolder, "tmp", "decompose", "preflight", pending.CheckId + ".txt")), Is.True);
+        });
+    }
+
     private static PendingPlanHumanProofCoverageReview CreatePending(string checkId, int attempt)
     {
         var group = new DecomposedTaskGroup(
