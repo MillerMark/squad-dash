@@ -3563,7 +3563,14 @@
                              PreviewTextInput="PromptTextBox_PreviewTextInput"
                              PreviewDragEnter="PromptTextBox_PreviewDragEnter"
                              PreviewDragOver="PromptTextBox_PreviewDragOver"
-                             PreviewDrop="PromptTextBox_PreviewDrop" />
+                             PreviewDrop="PromptTextBox_PreviewDrop">
+                        <RichTextBox.Resources>
+                            <!-- Native paste/Enter must match SetPlainText's zero-margin paragraphs. -->
+                            <Style TargetType="{x:Type Paragraph}">
+                                <Setter Property="Margin" Value="0" />
+                            </Style>
+                        </RichTextBox.Resources>
+                    </RichTextBox>
                 </DockPanel>
 
                 <Popup x:Name="IntelliSensePopup"
